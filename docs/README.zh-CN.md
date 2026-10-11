@@ -159,7 +159,7 @@ Antigravity 使用订阅容量
 
 ## 安装
 
-从 [Releases](https://github.com/soheidon/anthro-bridge/releases) 页面下载最新的 Windows 安装程序（`Anthro Bridge_0.23.0_x64-setup.exe`）并运行。
+从 [Releases](https://github.com/soheidon/anthro-bridge/releases) 页面下载最新的 Windows 安装程序（`Anthro Bridge_0.24.0_x64-setup.exe`）并运行。
 
 安装程序支持 8 种语言，升级时会保留现有的用户设置。
 

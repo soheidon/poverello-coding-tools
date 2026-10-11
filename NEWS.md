@@ -1,6 +1,6 @@
 # Anthro Bridge — Release Notes
 
-## Unreleased
+## v0.24.0 — 2026-10-11
 
 ### Human-Gated Orchestrator Workflow
 
@@ -15,29 +15,51 @@
 - Added a localhost mailbox for Antigravity workers, with authenticated task
   claims, progress reporting, result submission, and lease/epoch checks to
   reject stale worker requests.
+- Added a Human-Gated workflow preset with validated role assignments and
+  localized preset-application errors.
 
 ### Lean Antigravity Mode and Dispatch Budgets
 
-- Added a Dashboard toggle for Lean Antigravity Mode. When enabled, the
-  Orchestrator adds bounded execution guidance intended to reduce unnecessary
-  exploration and repeated verification while leaving the selected model
-  unchanged.
-- Added per-task and per-run Antigravity dispatch limits. When a limit is
-  reached, the run pauses for user action instead of being reported as a
-  workflow failure.
-- The Dashboard reports which dispatch budget was reached and displays its
-  actual count and limit (for example, task `2 / 2` or run `6 / 6`).
+- Added an optional Lean Antigravity Mode with bounded execution guidance that
+  leaves the selected model unchanged.
+- Added per-task and per-run dispatch limits. Reaching a limit pauses for user
+  action and reports the actual count instead of appearing as a workflow error.
 
-### Human-Gated Preset and Role Assignment Safety
+### Durable Run Recovery and Recursive Checkpoints
 
-- Added the Human-Gated workflow preset with Antigravity harness assignments
-  for plan integration, implementation, and fixes, plus a Codex CLI code
-  reviewer assignment.
-- Preset application validates profile references across the complete proposed
-  assignment map, including assignments for roles inactive in the selected
-  workflow, and fails without saving when a referenced profile is unavailable.
-- Preset-application errors use localized UI text rather than exposing raw
-  resolver messages.
+- Added durable run journals, interrupted-run detection, workspace checkpoints,
+  drift checks, shelve backups, and explicit recovery/resume controls.
+- Extended checkpoint inventory and safe recovery to initialized nested Git
+  submodules. Unsupported or divergent submodule states fail closed; restore
+  does not fetch or move submodule HEADs.
+
+### Plan Workspace and Frozen Plan Context
+
+- Added canonical discovery of primary and supplemental plan files, immutable
+  per-run plan snapshots, localized typed errors, and guarded plan operations.
+- Bound Planner, PlanReviewer, worker, and MCP handoffs to the same frozen plan
+  context so later file changes do not silently alter an active run.
+
+### Direct MCP Role Adapters
+
+- Added a bounded stdio MCP client for configured Planner and PlanReviewer
+  roles, with strict tool validation, request deadlines, process containment,
+  cleanup checks, and durable invocation audit records.
+- Existing MCP plan/review tools and unsupported roles are not treated as
+  compatible with this direct role-adapter contract.
+
+### Opt-in Planner–Reviewer Auto-Convergence
+
+- Added an opt-in, bounded Planner–PlanReviewer loop with structured proposals,
+  an independent review, strict response parsing, deterministic policy checks,
+  and safe append-only acceptance for approved in-scope changes.
+- A `NewPrimaryPlan` proposal is never automatically accepted; it waits for
+  explicit user confirmation before publication.
+- Real-model behavior across every provider/model/adapter combination has not
+  been exhaustively smoke-tested. Validate the combinations you use before
+  relying on them in production workflows.
+
+## Unreleased
 
 ## v0.23.0 — 2026-09-25
 

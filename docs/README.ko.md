@@ -143,7 +143,7 @@ Moonshot Kimi와 별도로 운용되는 코딩 전문 API (`KIMI_CODE_API_KEY`):
 
 ## 설치
 
-[Releases](https://github.com/soheidon/anthro-bridge/releases) 페이지에서 최신 Windows 설치 프로그램 (`Anthro Bridge_0.23.0_x64-setup.exe`)을 다운로드하여 실행하세요.
+[Releases](https://github.com/soheidon/anthro-bridge/releases) 페이지에서 최신 Windows 설치 프로그램 (`Anthro Bridge_0.24.0_x64-setup.exe`)을 다운로드하여 실행하세요.
 
 설치 프로그램은 8개 언어를 지원하며, 업그레이드 시 기존 사용자 설정이 유지됩니다.
 

@@ -161,7 +161,7 @@ Préréglage intégré **OpenRouter: chatGPT** : Opus 5 → GPT-6 Astra / max ·
 
 ## Installation
 
-Téléchargez le dernier installateur Windows (`Anthro Bridge_0.23.0_x64-setup.exe`) depuis la page [Releases](https://github.com/soheidon/anthro-bridge/releases) et exécutez-le.
+Téléchargez le dernier installateur Windows (`Anthro Bridge_0.24.0_x64-setup.exe`) depuis la page [Releases](https://github.com/soheidon/anthro-bridge/releases) et exécutez-le.
 
 L'installateur prend en charge 8 langues et préserve les paramètres utilisateur existants lors des mises à niveau.
 

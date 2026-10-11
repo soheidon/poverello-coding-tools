@@ -8,8 +8,7 @@ Anthro Bridge is a Windows companion application for AI-assisted software develo
 
 1. **3P Gateway for Claude Code / Claude Desktop** — Keep Claude's repository exploration, tool use, file editing, and test execution while routing inference to third-party cloud providers.
 2. **Dedicated Local LLMs for Claude Code (Ollama)** — Run Claude Code completely offline with zero API costs using local Ollama models.
-3. **MCP Planner & Reviewer for Google Antigravity** — Keep Claude's repository exploration, tool use, file editing, and test execution while routing inference to third-party providers.
-2. **MCP Planner & Reviewer for Google Antigravity** — Delegate implementation planning and post-implementation review to external models via the `anthro-bridge/plan` and `anthro-bridge/review` MCP tools.
+3. **MCP Planner & Reviewer for Google Antigravity** — Delegate implementation planning and post-implementation review to external models via the `anthro-bridge/plan` and `anthro-bridge/review` MCP tools.
 
 ---
 
@@ -63,6 +62,11 @@ using subscription-backed capacity
 - **Planning vs. Execution Split**: External models generate the high-level plan or review verdict; Antigravity subscription capacity executes token-intensive code edits.
 - **Live GUI Configuration**: Switching the planner or reviewer provider, model, or reasoning effort takes effect immediately on the next invocation.
 - **Setup Guide**: [Google Antigravity + Anthro Bridge MCP Setup](docs/ANTIGRAVITY_MCP.md)
+- **Opt-in Planner–Reviewer Auto-Convergence**: In the Orchestrator, enable the
+  bounded convergence workflow to generate and independently review plan
+  candidates. Approved in-scope changes may be appended automatically; a new
+  primary plan always requires explicit user confirmation. Real-model behavior
+  varies by provider and adapter and has not been exhaustively smoke-tested.
 
 **Global Antigravity commands:**
 
@@ -170,7 +174,7 @@ Also available: **OpenRouter: Gemini** (Gemini 3.8 Flash · reasoning effort `lo
 
 ## Installation
 
-Download the latest Windows installer (`Anthro Bridge_0.23.0_x64-setup.exe`) from the [Releases](https://github.com/soheidon/anthro-bridge/releases) page and run it.
+Download the latest Windows installer (`Anthro Bridge_0.24.0_x64-setup.exe`) from the [Releases](https://github.com/soheidon/anthro-bridge/releases) page and run it.
 
 The installer supports 8 languages and preserves existing user settings during upgrades.
 

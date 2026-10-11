@@ -161,7 +161,7 @@ También disponibles: **OpenRouter: Gemini** (Gemini 3.8 Flash · nivel de razon
 
 ## Instalación
 
-Descarga el instalador más reciente para Windows (`Anthro Bridge_0.23.0_x64-setup.exe`) desde la página de [Releases](https://github.com/soheidon/anthro-bridge/releases) y ejecútalo.
+Descarga el instalador más reciente para Windows (`Anthro Bridge_0.24.0_x64-setup.exe`) desde la página de [Releases](https://github.com/soheidon/anthro-bridge/releases) y ejecútalo.
 
 El instalador es compatible con 8 idiomas y conserva la configuración de usuario existente durante las actualizaciones.
 

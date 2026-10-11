@@ -159,7 +159,7 @@ Antigravity 使用訂閱容量
 
 ## 安裝
 
-從 [Releases](https://github.com/soheidon/anthro-bridge/releases) 頁面下載最新的 Windows 安裝程式（`Anthro Bridge_0.23.0_x64-setup.exe`）並執行。
+從 [Releases](https://github.com/soheidon/anthro-bridge/releases) 頁面下載最新的 Windows 安裝程式（`Anthro Bridge_0.24.0_x64-setup.exe`）並執行。
 
 安裝程式支援 8 種語言，升級時會保留現有的使用者設定。
 
