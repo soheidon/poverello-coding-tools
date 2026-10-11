@@ -1,15 +1,15 @@
 [English](ANTIGRAVITY_MCP.md) | [日本語](ANTIGRAVITY_MCP.ja.md) | [中文(简体)](ANTIGRAVITY_MCP.zh-CN.md) | [中文(繁體)](ANTIGRAVITY_MCP.zh-TW.md) | [한국어](ANTIGRAVITY_MCP.ko.md) | [Français](ANTIGRAVITY_MCP.fr.md) | [Deutsch](ANTIGRAVITY_MCP.de.md) | [Español](ANTIGRAVITY_MCP.es.md)
 
-[← Anthro Bridge README に戻る](README.ja.md)
+[← Poverello README に戻る](README.ja.md)
 
-# Google Antigravity で Anthro Bridge MCP を使用する
+# Google Antigravity で Poverello MCP を使用する
 
-Anthro Bridge は独立した別個の MCP サーバー実行ファイルを必要としません。インストールされた単一の `anthro-bridge.exe` が、デスクトップ GUI アプリケーションと MCP サーバーの両方の機能を提供します。Antigravity は同じ実行ファイルを `--mcp-server` 引数付きで呼び出すことで MCP モードを開始します。
+Poverello は独立した別個の MCP サーバー実行ファイルを必要としません。インストールされた単一の `anthro-bridge.exe` が、デスクトップ GUI アプリケーションと MCP サーバーの両方の機能を提供します。Antigravity は同じ実行ファイルを `--mcp-server` 引数付きで呼び出すことで MCP モードを開始します。
 
 ```text
 通常起動
 anthro-bridge.exe
-→ Anthro Bridge デスクトップアプリ / 3P Gateway
+→ Poverello デスクトップアプリ / 3P Gateway
 
 MCP起動
 anthro-bridge.exe --mcp-server
@@ -43,17 +43,17 @@ Antigravity がサブスク枠で
 
 ## 2. 前提条件
 
-1. **Anthro Bridge** が Windows にインストールされていること。
-2. プランナーとして利用したいプロバイダーの認証（Anthro Bridge 内設定またはシステム環境変数）が設定されていること。
+1. **Poverello** が Windows にインストールされていること。
+2. プランナーとして利用したいプロバイダーの認証（Poverello 内設定またはシステム環境変数）が設定されていること。
 3. **Google Antigravity** がインストールされ起動していること。
 
 ---
 
 ## 3. Antigravity に MCP サーバーを設定する
 
-### 方法 1 — Anthro Bridge GUI からの設定（推奨）
+### 方法 1 — Poverello GUI からの設定（推奨）
 
-1. Anthro Bridge を開き、最上部ナビの **設定**（`[設定]` タブ）を開き、左側のサブナビから **Antigravity** を選択します。
+1. Poverello を開き、最上部ナビの **設定**（`[設定]` タブ）を開き、左側のサブナビから **Antigravity** を選択します。
 2. **Google Antigravity 連携設定** カード内を確認します:
    - **対象実行ファイル**: 通常は現在実行中の `anthro-bridge.exe` のパスが表示されています。ポータブル版や開発ビルドなど別のバイナリを使用したい場合は **変更** (`antigravity.btnChangeExe`) ボタンから実行ファイルを選択します。
    - **登録・更新**: **Antigravityの設定を更新** (`antigravity.btnUpdate`) をクリックすると、`%USERPROFILE%\.gemini\config\mcp_config.json` 内の他の MCP サーバー設定を維持したまま、`anthro-bridge` の設定を安全に追加・更新します。
@@ -64,14 +64,14 @@ Antigravity がサブスク枠で
 
 ### 方法 2 — 手動設定（上級者向け）
 
-1. Anthro Bridge の **設定 > Antigravity** で **設定フォルダを開く** をクリックし、Windows Explorer で `%USERPROFILE%\.gemini\config\` を開きます。
+1. Poverello の **設定 > Antigravity** で **設定フォルダを開く** をクリックし、Windows Explorer で `%USERPROFILE%\.gemini\config\` を開きます。
 2. `mcp_config.json` を開き、`mcpServers` オブジェクトに `anthro-bridge` の設定を追加します:
 
 ```json
 {
   "mcpServers": {
     "anthro-bridge": {
-      "command": "C:\\Users\\<USER>\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe",
+      "command": "C:\\Users\\<USER>\\AppData\\Local\\Poverello\\anthro-bridge.exe",
       "args": ["--mcp-server"]
     }
   }
@@ -91,7 +91,7 @@ Antigravity がサブスク枠で
 ```
 
 > [!TIP]
-> Antigravity の `mcp_config.json` にプロバイダーの API キーを記述する必要はありません。MCP サーバーは Anthro Bridge 既存の認証解決（Windows ユーザー環境変数の `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `MINIMAX_API_KEY`, `XIAOMI_API_KEY` や Anthro Bridge の保存済み設定）を利用してキーを自動ロードします。
+> Antigravity の `mcp_config.json` にプロバイダーの API キーを記述する必要はありません。MCP サーバーは Poverello 既存の認証解決（Windows ユーザー環境変数の `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `MINIMAX_API_KEY`, `XIAOMI_API_KEY` や Poverello の保存済み設定）を利用してキーを自動ロードします。
 
 ---
 
@@ -107,9 +107,9 @@ anthro-bridge
 
 ---
 
-## 5. Anthro Bridge でプランナーモデルを設定する
+## 5. Poverello でプランナーモデルを設定する
 
-Anthro Bridge では、プランナーの選択と詳細設定の役割が明確に分かれています:
+Poverello では、プランナーの選択と詳細設定の役割が明確に分かれています:
 
 1. **トップレベル `MCP` タブ (`MCP for Antigravity`)**:
    - 利用可能なプロバイダー（DeepSeek、OpenRouter、MiniMax、MiMo (V2.6)、Kimi）とプロファイルのカード一覧が表示されます。
@@ -119,7 +119,7 @@ Anthro Bridge では、プランナーの選択と詳細設定の役割が明確
    - **Google Antigravity 連携設定** カード: MCP サーバー登録状態の管理や Antigravity Commands（Global Skills）の管理を行います。
 
 > [!NOTE]
-> Anthro Bridge MCP サーバーは、各 `plan()` ツールの呼び出し時に現在の設定を動的に読み込みます。GUI でプロバイダーやモデル設定を変更した場合でも、MCP サーバーや Antigravity を再起動する必要はありません。
+> Poverello MCP サーバーは、各 `plan()` ツールの呼び出し時に現在の設定を動的に読み込みます。GUI でプロバイダーやモデル設定を変更した場合でも、MCP サーバーや Antigravity を再起動する必要はありません。
 
 ---
 
@@ -190,7 +190,7 @@ Antigravity がコードベースを調査しコンテキストを要約
     ↓
 Antigravity が自動的に anthro-bridge/plan を呼び出し (1回)
     ↓
-Anthro Bridge が選択された外部モデルへプロンプトを送信
+Poverello が選択された外部モデルへプロンプトを送信
     ↓
 Antigravity が構造化された実装計画を受信
     ↓
@@ -203,12 +203,12 @@ Antigravity がファイルの編集、テストを実行し変更を検証
 
 ## 9. 重要な注意事項
 
-- **独立した動作**: MCP サーバーは Anthro Bridge 3P Gateway とは完全に独立して動作します。MCP ツールの使用にあたって 3P Gateway を起動（ON）にしておく必要はありません。
+- **独立した動作**: MCP サーバーは Poverello 3P Gateway とは完全に独立して動作します。MCP ツールの使用にあたって 3P Gateway を起動（ON）にしておく必要はありません。
 - **料金の分離**: `anthro-bridge/plan` の呼び出しには、選択したプロバイダーの API 利用料金が発生します。その後のファイル編集やテストは Antigravity のサブスクリプション枠を使用します。
-- **即時反映**: Anthro Bridge GUI でのプランナープロバイダ・モデル設定変更は、次回の `plan()` 呼び出しから即座に有効になります。
+- **即時反映**: Poverello GUI でのプランナープロバイダ・モデル設定変更は、次回の `plan()` 呼び出しから即座に有効になります。
 
 ---
 > [!NOTE]
 > **MCP プランニング＆レビューはクラウドプロバイダーを使用します**
 >
-> Antigravity MCP は Anthro Bridge で設定されたクラウドプロバイダー（`mcp.provider` / `mcp.targets`）を使用します。**Ollama Local** バックエンドは **Claude Code CLI 専用** であり、MCP の動作には一切影響しません。Claude Code のローカル推論については [Ollama Local ガイド](OLLAMA_LOCAL.ja.md) をご覧ください。
+> Antigravity MCP は Poverello で設定されたクラウドプロバイダー（`mcp.provider` / `mcp.targets`）を使用します。**Ollama Local** バックエンドは **Claude Code CLI 専用** であり、MCP の動作には一切影響しません。Claude Code のローカル推論については [Ollama Local ガイド](OLLAMA_LOCAL.ja.md) をご覧ください。

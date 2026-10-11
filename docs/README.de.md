@@ -1,24 +1,25 @@
 [English](../README.md) | [日本語](README.ja.md) | [中文(简体)](README.zh-CN.md) | [中文(繁體)](README.zh-TW.md) | [한국어](README.ko.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md)
 
-# Anthro Bridge
+# Poverello
 
 **Verwende Claude Code / Claude Desktop als Entwicklungsumgebung, leite Inferenz an Drittanbieter-LLM-APIs weiter und nutze externe Modelle als Planer und Reviewer für Google Antigravity.**
 
-Anthro Bridge ist eine Windows-Begleitanwendung für KI-gestützte Softwareentwicklung. Es unterstützt zwei sich ergänzende Arbeitsabläufe:
+Poverello ist eine Windows-Begleitanwendung für KI-gestützte Softwareentwicklung. Es unterstützt drei sich ergänzende Arbeitsabläufe:
 
 1. **3P-Gateway für Claude Code / Claude Desktop** — Behalte Claudes Repository-Erkundung, Tool-Nutzung, Dateibearbeitung und Testausführung bei, während die Inferenz an Drittanbieter weitergeleitet wird.
-2. **MCP-Planer & Reviewer für Google Antigravity** — Delegiere Implementierungsplanung und Nachimplementierungsüberprüfung über die MCP-Tools `anthro-bridge/plan` und `anthro-bridge/review` an externe Modelle.
+2. **Dediziertes lokales LLM für Claude Code (Ollama)** — Führe Claude Code mit lokalen Modellen offline aus.
+3. **MCP-Planer & Reviewer für Google Antigravity** — Delegiere Implementierungsplanung und Nachimplementierungsüberprüfung über die MCP-Tools `anthro-bridge/plan` und `anthro-bridge/review` an externe Modelle.
 
 ---
 
-## Zwei Hauptarbeitsabläufe
+## Drei Hauptarbeitsabläufe
 
 ### 1. Claude Code / Claude Desktop mit 3P-Gateway
 
 ```text
 Claude Code / Claude Desktop
              ↓
-  Anthro Bridge 3P-Gateway
+  Poverello 3P-Gateway
              ↓
 DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo
 ```
@@ -26,8 +27,6 @@ DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo
 - **Trennung von Umgebung und Modell**: Behalte Claudes agentische Tooling-Infrastruktur, während die Inferenz an Drittanbieter weitergeleitet wird.
 - **Dynamisches Multi-Profil-Routing**: Wechsle aktive Anbieter, OpenRouter-Profile und Modellrouten über die grafische Oberfläche.
 - **Einrichtungsanleitung**: [Claude Desktop / Cowork 3P-Gateway-Einrichtung](THIRD_PARTY_INFERENCE.de.md)
-- [Ollama Local Setup](OLLAMA_LOCAL.de.md)
-- [Ollama Local](OLLAMA_LOCAL.de.md)
 
 ### 2. Dedizierte lokale LLMs für Claude Code (Ollama)
 
@@ -45,7 +44,7 @@ Gemma 4 / Qwen / Llama 3 / DeepSeek-R1 (Lokal auf dem Gerät)
 - **Vollständige Isolation**: Claude Desktop, Cowork on 3P und Google Antigravity MCP nutzen weiterhin unabhängig Cloud-Modelle.
 - **Einrichtungsleitfaden**: [Ollama Local Leitfaden](OLLAMA_LOCAL.de.md)
 
-### 3. Antigravity mit MCP-Planer und -Prüfer mit MCP-Planer & Reviewer
+### 3. Antigravity mit MCP-Planer und -Reviewer
 
 ```text
 Antigravity
@@ -62,7 +61,7 @@ unter Nutzung abonnementbasierter Kapazität
 
 - **Trennung von Planung und Ausführung**: Externe Modelle erstellen den übergeordneten Plan oder das Review-Urteil; die Antigravity-Abonnementkapazität führt tokenintensive Code-Änderungen durch.
 - **Live-GUI-Konfiguration**: Das Wechseln des Planer- oder Reviewer-Anbieters, Modells oder Reasoning-Aufwands wird beim nächsten Aufruf sofort wirksam.
-- **Einrichtungsanleitung**: [Google Antigravity + Anthro Bridge MCP-Einrichtung](ANTIGRAVITY_MCP.de.md)
+- **Einrichtungsanleitung**: [Google Antigravity + Poverello MCP-Einrichtung](ANTIGRAVITY_MCP.de.md)
 
 **Globale Antigravity-Befehle:**
 
@@ -161,9 +160,9 @@ Ebenfalls verfügbar: **OpenRouter: Gemini** (Gemini 3.8 Flash · Reasoning-Aufw
 
 ## Installation
 
-Lade das neueste Windows-Installationsprogramm (`Anthro Bridge_0.24.0_x64-setup.exe`) von der [Releases](https://github.com/soheidon/anthro-bridge/releases)-Seite herunter und führe es aus.
+Lade das neueste derzeit veröffentlichte Windows-Installationsprogramm von der [Releases](https://github.com/soheidon/poverello-coding-tools/releases)-Seite herunter und führe es aus.
 
-Das Installationsprogramm unterstützt 8 Sprachen und bewahrt bestehende Benutzereinstellungen bei Upgrades.
+Das aktuell veröffentlichte Installationsprogramm unterstützt 8 Sprachen. Das Poverello-Installationsprogramm v0.24.1 und sein Upgradepfad für bestehende Installationen werden noch geprüft und sind nicht veröffentlicht. Beim ersten Start kopiert die Anwendung vorhandene Einstellungen und Laufdaten in den entsprechenden Poverello-Datenordner und behält den ursprünglichen Ordner als Wiederherstellungskopie bei.
 
 ---
 
@@ -171,7 +170,7 @@ Das Installationsprogramm unterstützt 8 Sprachen und bewahrt bestehende Benutze
 
 ### Arbeitsablauf 1: 3P-Gateway für Claude Code / Claude Desktop
 
-1. Öffne Anthro Bridge unter **Einstellungen > API-Schlüssel** und konfiguriere einen API-Schlüssel für deinen gewünschten Anbieter.
+1. Öffne Poverello unter **Einstellungen > API-Schlüssel** und konfiguriere einen API-Schlüssel für deinen gewünschten Anbieter.
 2. Wähle deinen Anbieter oder dein OpenRouter-Profil im Dashboard aus.
 3. Klicke auf **Gateway starten** (läuft auf `http://127.0.0.1:4000`).
 4. Verbinde Claude Code oder Claude Desktop:
@@ -181,9 +180,9 @@ Das Installationsprogramm unterstützt 8 Sprachen und bewahrt bestehende Benutze
 
 ### Arbeitsablauf 2: MCP-Planer & Reviewer für Google Antigravity
 
-1. Konfiguriere in Anthro Bridge einen API-Schlüssel für dein gewähltes Planer-/Reviewer-Modell.
+1. Konfiguriere in Poverello einen API-Schlüssel für dein gewähltes Planer-/Reviewer-Modell.
 2. Wähle den **MCP**-Tab und konfiguriere dein Modell unter **Einstellungen > Antigravity > MCP-Planeinstellungen**.
-3. Registriere `anthro-bridge.exe` mit `["--mcp-server"]` in Antigravitys MCP-Konfiguration (oder klicke in Anthro Bridge auf **Automatisch konfigurieren**).
+3. Registriere `anthro-bridge.exe` mit `["--mcp-server"]` in Antigravitys MCP-Konfiguration (oder klicke in Poverello auf **Automatisch konfigurieren**).
 4. Verwende `/anthro-plan` zum Erstellen von Plänen, `/anthro-revise` zum Aktualisieren von Plänen und `/anthro-review` zum Überprüfen von Implementierungen vor dem Commit.
 5. Folge der vollständigen [Antigravity MCP-Einrichtungsanleitung](ANTIGRAVITY_MCP.de.md).
 
@@ -206,7 +205,7 @@ Das Installationsprogramm unterstützt 8 Sprachen und bewahrt bestehende Benutze
 
 - [Claude Desktop / Cowork 3P-Gateway-Einrichtung](THIRD_PARTY_INFERENCE.de.md)
 - [Ollama Local](OLLAMA_LOCAL.de.md)
-- [Google Antigravity + Anthro Bridge MCP-Einrichtung](ANTIGRAVITY_MCP.de.md)
+- [Google Antigravity + Poverello MCP-Einrichtung](ANTIGRAVITY_MCP.de.md)
 - [Konfigurationsreferenz (`config.json`)](CONFIGURATION.md)
 - [Anbieterdetails & Reasoning-Steuerung](PROVIDERS.md)
 - [Entwicklungs- & Verifikationsanleitung](DEVELOPMENT.md)
@@ -222,7 +221,7 @@ taskkill /PID <PID> /F
 ```
 
 ### Einstellungen werden nach einem Upgrade zurückgesetzt
-Starte die Anwendung neu, damit Migrationen ausgeführt werden können. Die Konfiguration wird unter `%APPDATA%\Anthro Bridge\config.json` gespeichert.
+Starte die Anwendung neu, damit Migrationen ausgeführt werden können. Die Konfiguration wird unter `%APPDATA%\Poverello\config.json` gespeichert.
 
 ### MCP-Planer-Aufrufe schlagen fehl
 Stelle sicher, dass ein API-Schlüssel für den unter dem **MCP**-Tab ausgewählten Anbieter gesetzt ist oder in deinen Windows-Benutzerumgebungsvariablen exportiert wurde (z. B. `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`). Das 3P-Gateway muss für MCP nicht laufen.

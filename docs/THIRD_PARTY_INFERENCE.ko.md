@@ -1,8 +1,8 @@
 [English](THIRD_PARTY_INFERENCE.md) | [日本語](THIRD_PARTY_INFERENCE.ja.md) | [中文(简体)](THIRD_PARTY_INFERENCE.zh-CN.md) | [中文(繁體)](THIRD_PARTY_INFERENCE.zh-TW.md) | [한국어](THIRD_PARTY_INFERENCE.ko.md) | [Français](THIRD_PARTY_INFERENCE.fr.md) | [Deutsch](THIRD_PARTY_INFERENCE.de.md) | [Español](THIRD_PARTY_INFERENCE.es.md)
 
-# Claude Desktop / Cowork on 3P에서 Anthro Bridge 사용하기
+# Claude Desktop / Cowork on 3P에서 Poverello 사용하기
 
-Anthro Bridge를 Claude Desktop / Cowork on 3P의 로컬 Anthropic 호환 게이트웨이로 사용할 수 있습니다.
+Poverello를 Claude Desktop / Cowork on 3P의 로컬 Anthropic 호환 게이트웨이로 사용할 수 있습니다.
 
 Claude Desktop / Cowork on 3P는 앱 내 설정 창을 통해 서드파티 추론을 지원합니다.
 
@@ -11,17 +11,17 @@ Claude Desktop / Cowork on 3P는 앱 내 설정 창을 통해 서드파티 추�
 - [https://claude.com/docs/cowork/3p/installation](https://claude.com/docs/cowork/3p/installation)
 - [https://claude.com/docs/cowork/3p/configuration](https://claude.com/docs/cowork/3p/configuration)
 
-## 1. Anthro Bridge 시작
+## 1. Poverello 시작
 
-먼저 Anthro Bridge를 시작하고 게이트웨이가 실행 중인지 확인합니다.
+먼저 Poverello를 시작하고 게이트웨이가 실행 중인지 확인합니다.
 
-기본적으로 Anthro Bridge는 다음에서 수신합니다:
+기본적으로 Poverello는 다음에서 수신합니다:
 
 ```text
 http://127.0.0.1:4000
 ```
 
-Claude Desktop / Cowork on 3P를 사용하는 동안 Anthro Bridge를 열어두세요.
+Claude Desktop / Cowork on 3P를 사용하는 동안 Poverello를 열어두세요.
 
 ## 2. Claude Desktop에서 개발자 모드 활성화
 
@@ -64,7 +64,7 @@ Gateway
 | Gateway auth scheme   | `bearer`                                   |
 | Gateway extra headers | 사용자 지정 헤더가 필요하지 않으면 비워두세요 |
 
-`Gateway API key`는 Anthro Bridge에서 구성한 로컬 API 키와 일치해야 합니다.
+`Gateway API key`는 Poverello에서 구성한 로컬 API 키와 일치해야 합니다.
 
 ## 5. 신원 및 모델 구성
 
@@ -88,7 +88,7 @@ claude-haiku-4-5
 
 목록의 첫 번째 모델이 선택기의 기본 항목으로 사용됩니다.
 
-각 모델에서 행을 펼치고 `Model ID`가 Claude Desktop이 Anthro Bridge로 보내길 원하는 정확한 모델 이름인지 확인하세요.
+각 모델에서 행을 펼치고 `Model ID`가 Claude Desktop이 Poverello로 보내길 원하는 정확한 모델 이름인지 확인하세요.
 
 업스트림 제공자와 선택된 모델이 확장 컨텍스트 창을 실제로 지원하는 경우에만 `Offer 1M-context variant`를 활성화하세요.
 
@@ -121,11 +121,11 @@ claude-haiku-4-5
 
 메시지가 표시되면 Claude Desktop을 재시작하세요.
 
-Claude Desktop이 재시작되면 Cowork on 3P의 요청이 Anthro Bridge로 전송됩니다. Anthro Bridge는 Anthro Bridge에서 구성한 업스트림 제공자로 요청을 라우팅합니다.
+Claude Desktop이 재시작되면 Cowork on 3P의 요청이 Poverello로 전송됩니다. Poverello는 Poverello에서 구성한 업스트림 제공자로 요청을 라우팅합니다.
 
 ## Xiaomi MiMo 공급자
 
-Anthro Bridge가 Direct MiMo 공급자를 사용하도록 구성된 경우, Claude Desktop의 추론 요청은 Xiaomi의 MiMo API로 라우팅됩니다.
+Poverello가 Direct MiMo 공급자를 사용하도록 구성된 경우, Claude Desktop의 추론 요청은 Xiaomi의 MiMo API로 라우팅됩니다.
 
 ### MiMo-V2.6 모델
 
@@ -162,7 +162,7 @@ Direct MiMo 사전 설정의 내장 라우트:
 
 ## 참고사항
 
-Anthro Bridge는 비공식 Anthropic 호환 로컬 게이트웨이입니다.
+Poverello는 비공식 Anthropic 호환 로컬 게이트웨이입니다.
 
 Anthropic, Moon Bridge 또는 어떤 업스트림 모델 제공자와도 관련이 없습니다.
 
@@ -172,6 +172,6 @@ Claude Desktop / Cowork on 3P는 Claude의 서드파티 추론 설정을 통해 
 > [!NOTE]
 > **Claude Desktop / Cowork on 3P는 게이트웨이를 통해 클라우드 제공자를 사용합니다**
 >
-> Claude Desktop 및 Cowork on 3P는 Anthro Bridge 게이트웨이(`http://127.0.0.1:4000`)로 추론 요청을 보내며, 구성된 상류 클라우드 제공자(DeepSeek, MiMo, Kimi, MiniMax, OpenRouter)로 라우팅됩니다.
+> Claude Desktop 및 Cowork on 3P는 Poverello 게이트웨이(`http://127.0.0.1:4000`)로 추론 요청을 보내며, 구성된 상류 클라우드 제공자(DeepSeek, MiMo, Kimi, MiniMax, OpenRouter)로 라우팅됩니다.
 >
 > **Ollama Local** 백엔드는 **Claude Code CLI 전용**으로 작동하며 Claude Desktop 및 MCP와 완전히 격리되어 있습니다. Claude Code용 로컬 LLM 설정은 [Ollama Local 가이드](OLLAMA_LOCAL.ko.md)를 참조하세요.

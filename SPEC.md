@@ -1,6 +1,6 @@
 [English](SPEC.md) | [日本語](docs/SPEC.ja.md) | [中文(简体)](docs/SPEC.zh-CN.md) | [中文(繁體)](docs/SPEC.zh-TW.md) | [한국어](docs/SPEC.ko.md) | [Français](docs/SPEC.fr.md) | [Deutsch](docs/SPEC.de.md) | [Español](docs/SPEC.es.md)
 
-# SPEC: Anthro Bridge
+# SPEC: Poverello Coding Tools
 
 ## Overview
 
@@ -13,7 +13,7 @@ A thin proxy + GUI management tool that routes Claude Desktop / Claude Code API 
              |                              | stdio (--mcp-server)
              v                              v
 +-------------------------------------------------------------+
-| Anthro Bridge Gateway (127.0.0.1:4000)                      |
+| Poverello Gateway (127.0.0.1:4000)                      |
 | (axum 0.7 + reqwest proxy, API key check, route resolution) |
 +-------------------------------------------------------------+
              |
@@ -23,7 +23,7 @@ A thin proxy + GUI management tool that routes Claude Desktop / Claude Code API 
              |
              v
 +-------------------------------------------------------------+
-| Anthro Bridge Gateway (127.0.0.1:4000)                      |
+| Poverello Gateway (127.0.0.1:4000)                      |
 +-------------------------------------------------------------+
              |
              +---> Cloud Providers
@@ -57,7 +57,7 @@ A thin proxy + GUI management tool that routes Claude Desktop / Claude Code API 
 - **Xiaomi MiMo-V2.6 support**: MiMo-V2.6-Flash, MiMo-V2.6-Pro, and MiMo-V2.6-Pro-UltraSpeed added as Direct MiMo provider models. All three have a 1,000,000-token context window and native multimodal support (text, image, video). Built-in default routes: Opus 5 → `mimo-v2.6-pro` (Thinking), Sonnet 5 → `mimo-v2.6-pro` (Normal), Haiku 4.5 → `mimo-v2.6-flash` (Thinking). MiMo uses a Normal/Thinking toggle only — no reasoning effort levels (`supportsReasoningEffort: false`).
 - **MiMo V2.5 backward compatibility**: Legacy `mimo-v2.5`, `mimo-v2.5-pro`, and `mimo-v2.5-pro-ultraspeed` remain statically recognized with their original capabilities. Untouched historical default routes migrate to V2.6 automatically on startup; user-customized route targets, thinking modes, and default_model settings are preserved. Legacy configurations using `model_map` without a `models` object resolve per-route capabilities from the static capability resolver (`try_resolve_static_model_capabilities`) rather than falling back to provider-wide flags, ensuring V2.6 routes receive correct video capability even in legacy configs.
 - **Response Model Identity Normalization**: Rewrites upstream model names in API responses (both SSE streaming and non-streaming) back to Anthropic official model names. Controlled by `normalize_response_model_identity` in config.json and a runtime `AtomicBool`. Independent save command (`update_normalize_model_identity`) to avoid cross-contamination with server config saves.
-- **Structured communication logging**: `tracing` + `tracing-appender` writes structured logs to `%APPDATA%\Anthro Bridge\Communication-Logs\proxy-*.log`. Each request gets a correlation ID from an `AtomicU64` counter. Log entries include request model, gateway model, upstream model, normalization outcome, and skip reasons. No sensitive data (prompts, bodies, API keys) is logged.
+- **Structured communication logging**: `tracing` + `tracing-appender` writes structured logs to `%APPDATA%\Poverello\Communication-Logs\proxy-*.log`. Each request gets a correlation ID from an `AtomicU64` counter. Log entries include request model, gateway model, upstream model, normalization outcome, and skip reasons. No sensitive data (prompts, bodies, API keys) is logged.
 - **PEAK badge**: Color-coded pink badge in the dashboard for peak-priced models.
 - **UTC offset display**: Timezone selector shows dynamic UTC offsets (e.g. UTC+09:00) next to each option.
 - **Laguna S/XS 2.1 token-cap failure detection**: Detects reasoning-only responses with `stop_reason: "max_tokens"` in both SSE streams and non-stream responses. Logs a warning when the per-turn token limit is hit without producing usable text or tool calls. Available for all Poolside Laguna models via OpenRouter.
@@ -69,18 +69,18 @@ A thin proxy + GUI management tool that routes Claude Desktop / Claude Code API 
 - **OpenRouter pricing details**: Built-in pricing supports current and revised-standard values for prompt, output, and cached-input rates, including GPT-5.6 Sol, Terra, Luna, and Pro variants. The GUI displays promotional and standard rates together when both are available.
 - **GPT-5.6 model support**: OpenRouter profiles can use Sol, Terra, and Luna model variants, with capability-aware thinking controls and pricing notes for long-context rates where applicable. The built-in OpenAI GPT-5.6 Balanced profile routes Opus 5 → GPT-5.6 Sol, Sonnet 5 → GPT-5.6 Terra, and Haiku 4.5 → GPT-5.6 Luna with Thinking High reasoning effort on all three routes for new installations; existing saved routing is not changed automatically.
 - **Dashboard-driven window sizing**: Initial and row-count changes calculate the window height from visible dashboard cards in a three-column grid. The calculation accounts for card height, grid gaps, native minimum size, monitor work area, DPI scaling, and window decorations while preserving manual resizing when the row count is unchanged.
-- **Localized NSIS installer**: The Windows installer exposes English, Japanese, Simplified Chinese, Traditional Chinese, Korean, French, German, and Spanish language choices and bundles the Anthro Bridge application icon.
+- **Localized NSIS installer**: The Windows installer exposes English, Japanese, Simplified Chinese, Traditional Chinese, Korean, French, German, and Spanish language choices and bundles the Poverello application icon.
 - **Regression coverage**: Vitest coverage includes OpenRouter profile ordering and save races, production pricing data, dashboard card-count semantics, and monitor-aware window sizing.
 - **New providers via OpenRouter**: InclusionAI and StepFun added as OpenRouter model providers with dedicated capability flags, thinking mode controls, and vendor grouping.
 - **Tencent Hy3 thinking modes**: Low/High reasoning effort support for Tencent's Hunyuan model. Thinking mode translation in proxy.rs maps `thinking_mode` to OpenRouter's `reasoning` format. UI displays Low/High as dropdown options.
 - **Kimi K3 fixes**: Removed hard-coded `forced_reasoning_effort` from capability definitions. Replaced fixed "Max" display with configurable dropdown selector. Default values from saved config, falling back to "max".
 - **Config write serialization**: All config-writing Tauri commands serialize through `execute_serialized_config_mutation` with a `Mutex` guard. `ConfigState` struct provides `applied_config`, `in_flight_config`, and `pending_ops` tracking with validation. Prevents race conditions when multiple settings changes are saved concurrently.
 - **OpenRouter UI race fixes**: (1) `syncUiFromSavedRouteRef` latest-callback ref prevents stale closure from overwriting new route's UI. (2) `rollbackRouteId` guard prevents cross-route Phase 2 rollback. (3) `useRouteSaveGeneration` hook provides `begin()`/`isCurrent()` generation guards for all handlers. (4) Save queue hook (`useOpenRouterSaveQueue`) with drain loop, supersede detection, and restart OR-aggregation.
-- **Dev/stable app identity isolation**: `AppChannel` enum (`Stable`/`Dev`) in `paths.rs` selects separate identifier (`com.soheidon.anthro-bridge` vs `.dev`), config directory (`Anthro Bridge` vs `Anthro Bridge Dev`), and cache paths. Dev channel uses `tauri.dev.conf.json`. NPM scripts: `npm run dev` (dev), `npm run dev:stable` (stable).
+- **Dev/stable app identity isolation**: `AppChannel` enum (`Stable`/`Dev`) in `paths.rs` selects separate identifier (`com.soheidon.anthro-bridge` vs `.dev`), config directory (`Poverello` vs `Poverello Dev`), and cache paths. Dev channel uses `tauri.dev.conf.json`. NPM scripts: `npm run dev` (dev), `npm run dev:stable` (stable).
 - **Config template embedding**: `include_str!()` embeds `config_template.rs` at compile time, removing runtime dependency on bundled `config.json`. `merge_bundled_providers` returns `Result` with typed error handling.
 - **Frontend regression tests**: 7 vitest regression tests for OpenRouter save race conditions using `QueueHarness` and `GenerationHandlerHarness`. Tests cover: latest-callback ref, cross-route rollback guard, identity capture, refresh retry (fail + success paths), in-flight supersede, and generation guard.
 - **Claude Code context management**: Model-aware auto-compaction for Claude Code. `resolve_effective_auto_compact` resolves each standard route (claude-opus-5, claude-sonnet-5, claude-haiku-4-5) to its upstream model, looks up each model's context capacity in the static `model_catalog.json` registry, and in Auto mode uses the smallest known capacity as a safe context window. Context control applies only when all three capacities are known (otherwise status is Incomplete). A header toggle switches context management on/off; advanced modes and thresholds are set in `config.json` under `claude_code.auto_compact`. Modes: `auto`, `manual` (`window_tokens`), `claude_default`.
-- **Claude Code launch command generation**: `build_claude_code_launch_command` renders a complete PowerShell command combining gateway connection variables (`ANTHROPIC_BASE_URL` pointing at the local gateway, `ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`) with Claude Code context control variables (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`). When context management is disabled, incomplete, or set to Claude default, the command removes stale context variables with `Remove-Item Env:... -ErrorAction SilentlyContinue` so previously set session values do not leak into a new launch. The "Copy Claude Code launch command" button in the Claude settings panel copies the command to the clipboard. Anthro Bridge only generates and copies the command — it never executes it.
+- **Claude Code launch command generation**: `build_claude_code_launch_command` renders a complete PowerShell command combining gateway connection variables (`ANTHROPIC_BASE_URL` pointing at the local gateway, `ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`) with Claude Code context control variables (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`). When context management is disabled, incomplete, or set to Claude default, the command removes stale context variables with `Remove-Item Env:... -ErrorAction SilentlyContinue` so previously set session values do not leak into a new launch. The "Copy Claude Code launch command" button in the Claude settings panel copies the command to the clipboard. Poverello only generates and copies the command — it never executes it.
 - **Shared model routing module**: `model_routing.rs` extracts route-to-upstream resolution into pure functions shared by `proxy.rs` and the context resolver, guaranteeing context windows resolve the same upstream models the proxy actually forwards to.
 - **Context capacity registry**: `model_catalog.json` is a static registry of known context capacities covering built-in direct-provider models (DeepSeek, MiniMax, Kimi, MiMo V2.6 and V2.5) and built-in OpenRouter models (Poolside, Tencent, InclusionAI, StepFun, OpenAI GPT-5.6, Google Gemini). Unknown custom OpenRouter models remain valid route targets but report context management as Incomplete until metadata is added or manual mode is configured.
 - **Google Gemini model support**: OpenRouter profiles can use Gemini 3.1 Pro Preview and Gemini 3.7 Flash as built-in models with pricing and capability data. Gemini 3.7 Flash includes promotional pricing with regular-rate strikethrough display.
@@ -92,7 +92,7 @@ Tauri v2 + React 19 + TypeScript. Two-panel layout: Dashboard + Settings.
 
 ```
 +------------------------------------------+
-|  Anthro Bridge                   |
+|  Poverello                   |
 |  [Start/Stop Gateway] [Status]    [=]   |
 +------------------------------------------+
 |  Dashboard                                |
@@ -237,7 +237,7 @@ Remove-Item Env:CLAUDE_CODE_AUTO_COMPACT_WINDOW -ErrorAction SilentlyContinue;
 Remove-Item Env:CLAUDE_AUTOCOMPACT_PCT_OVERRIDE -ErrorAction SilentlyContinue;
 ```
 
-The percent override only pushes compaction earlier; values that would delay compaction past Claude Code's default may be ignored. Anthro Bridge generates and copies the command only — it never executes it, and this does not prove that a specific Claude Code version honors the variables (final confirmation requires Claude Code diagnostics or observed compaction behavior).
+The percent override only pushes compaction earlier; values that would delay compaction past Claude Code's default may be ignored. Poverello generates and copies the command only — it never executes it, and this does not prove that a specific Claude Code version honors the variables (final confirmation requires Claude Code diagnostics or observed compaction behavior).
 
 ### Multi-language
 

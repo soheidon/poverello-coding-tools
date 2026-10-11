@@ -1,8 +1,8 @@
 [English](THIRD_PARTY_INFERENCE.md) | [日本語](THIRD_PARTY_INFERENCE.ja.md) | [中文(简体)](THIRD_PARTY_INFERENCE.zh-CN.md) | [中文(繁體)](THIRD_PARTY_INFERENCE.zh-TW.md) | [한국어](THIRD_PARTY_INFERENCE.ko.md) | [Français](THIRD_PARTY_INFERENCE.fr.md) | [Deutsch](THIRD_PARTY_INFERENCE.de.md) | [Español](THIRD_PARTY_INFERENCE.es.md)
 
-# Anthro Bridge mit Claude Desktop / Cowork on 3P verwenden
+# Poverello mit Claude Desktop / Cowork on 3P verwenden
 
-Anthro Bridge kann als lokales Anthropic-kompatibles Gateway für
+Poverello kann als lokales Anthropic-kompatibles Gateway für
 Claude Desktop / Cowork on 3P verwendet werden.
 
 Claude Desktop / Cowork on 3P unterstützt Drittanbieter-Inferenz über
@@ -13,17 +13,17 @@ Offizielle Dokumentation:
 - [https://claude.com/docs/cowork/3p/installation](https://claude.com/docs/cowork/3p/installation)
 - [https://claude.com/docs/cowork/3p/configuration](https://claude.com/docs/cowork/3p/configuration)
 
-## 1. Anthro Bridge starten
+## 1. Poverello starten
 
-Starten Sie Anthro Bridge und stellen Sie sicher, dass das Gateway läuft.
+Starten Sie Poverello und stellen Sie sicher, dass das Gateway läuft.
 
-Standardmäßig lauscht Anthro Bridge auf:
+Standardmäßig lauscht Poverello auf:
 
 ```text
 http://127.0.0.1:4000
 ```
 
-Lassen Sie Anthro Bridge während der Nutzung von Claude Desktop / Cowork on 3P geöffnet.
+Lassen Sie Poverello während der Nutzung von Claude Desktop / Cowork on 3P geöffnet.
 
 ## 2. Entwicklermodus in Claude Desktop aktivieren
 
@@ -66,7 +66,7 @@ Geben Sie dann die folgenden Werte ein.
 | Gateway auth scheme   | `bearer`                                   |
 | Gateway extra headers | Leer lassen, sofern keine benutzerdefinierten Header benötigt werden |
 
-Der `Gateway API key` muss mit dem in Anthro Bridge konfigurierten lokalen API-Schlüssel übereinstimmen.
+Der `Gateway API key` muss mit dem in Poverello konfigurierten lokalen API-Schlüssel übereinstimmen.
 
 ## 5. Identität und Modelle konfigurieren
 
@@ -90,7 +90,7 @@ Beispiel:
 
 Das erste Modell in der Liste wird als Standard-Eintrag verwendet.
 
-Für jedes Modell: Klappen Sie die Zeile auf und bestätigen Sie, dass die `Model ID` genau der Modellname ist, den Claude Desktop an Anthro Bridge senden soll.
+Für jedes Modell: Klappen Sie die Zeile auf und bestätigen Sie, dass die `Model ID` genau der Modellname ist, den Claude Desktop an Poverello senden soll.
 
 Aktivieren Sie `Offer 1M-context variant` nur, wenn Ihr Upstream-Anbieter und das ausgewählte Modell das erweiterte Kontextfenster tatsächlich unterstützen.
 
@@ -123,11 +123,11 @@ Wenden Sie die Gateway- und Modelllisteneinstellungen lokal an.
 
 Starten Sie Claude Desktop bei Aufforderung neu.
 
-Nach dem Neustart von Claude Desktop werden Anfragen von Cowork on 3P an Anthro Bridge gesendet. Anthro Bridge leitet die Anfragen dann an den in Anthro Bridge konfigurierten Upstream-Anbieter weiter.
+Nach dem Neustart von Claude Desktop werden Anfragen von Cowork on 3P an Poverello gesendet. Poverello leitet die Anfragen dann an den in Poverello konfigurierten Upstream-Anbieter weiter.
 
 ## Xiaomi MiMo-Anbieter
 
-Wenn Anthro Bridge für die Verwendung des Direct MiMo-Anbieters konfiguriert ist, werden Inferenzanfragen von Claude Desktop an Xiaomis MiMo-API weitergeleitet.
+Wenn Poverello für die Verwendung des Direct MiMo-Anbieters konfiguriert ist, werden Inferenzanfragen von Claude Desktop an Xiaomis MiMo-API weitergeleitet.
 
 ### MiMo-V2.6-Modelle
 
@@ -165,7 +165,7 @@ Gespeicherte `mimo-v2.5`-, `mimo-v2.5-pro`- und `mimo-v2.5-pro-ultraspeed`-Konfi
 > [!NOTE]
 > **Claude Desktop / Cowork on 3P nutzt Cloud-Provider über das Gateway**
 >
-> Claude Desktop und Cowork on 3P senden Inferenzanfragen an das Anthro Bridge Gateway (`http://127.0.0.1:4000`), das sie an Ihren konfigurierten Cloud-Upstream-Provider weiterleitet (DeepSeek, MiMo, Kimi, MiniMax, OpenRouter).
+> Claude Desktop und Cowork on 3P senden Inferenzanfragen an das Poverello Gateway (`http://127.0.0.1:4000`), das sie an Ihren konfigurierten Cloud-Upstream-Provider weiterleitet (DeepSeek, MiMo, Kimi, MiniMax, OpenRouter).
 >
 > Das **Ollama Local**-Backend ist strikt **Claude Code CLI** vorbehalten und vollständig von Claude Desktop und MCP isoliert. Für die lokale LLM-Einrichtung mit Claude Code lesen Sie bitte den [Ollama Local Leitfaden](OLLAMA_LOCAL.de.md).
 
@@ -173,7 +173,7 @@ Gespeicherte `mimo-v2.5`-, `mimo-v2.5-pro`- und `mimo-v2.5-pro-ultraspeed`-Konfi
 
 ## Hinweise
 
-Anthro Bridge ist ein inoffizielles Anthropic-kompatibles lokales Gateway.
+Poverello ist ein inoffizielles Anthropic-kompatibles lokales Gateway.
 
 Es ist nicht mit Anthropic, Moon Bridge oder einem beliebigen Upstream-Modellanbieter verbunden.
 

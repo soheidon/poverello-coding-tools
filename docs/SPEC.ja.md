@@ -1,6 +1,6 @@
 [English](../SPEC.md) | [日本語](SPEC.ja.md) | [中文(简体)](SPEC.zh-CN.md) | [中文(繁體)](SPEC.zh-TW.md) | [한국어](SPEC.ko.md) | [Français](SPEC.fr.md) | [Deutsch](SPEC.de.md) | [Español](SPEC.es.md)
 
-# SPEC: Anthro Bridge
+# SPEC: Poverello
 
 ## 概要
 
@@ -13,7 +13,7 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
              |                              | stdio (--mcp-server)
              v                              v
 +-------------------------------------------------------------+
-| Anthro Bridge Gateway (127.0.0.1:4000)                      |
+| Poverello Gateway (127.0.0.1:4000)                      |
 | (axum 0.7 + reqwest プロキシ, APIキー検証, ルート解決)      |
 +-------------------------------------------------------------+
              |
@@ -23,7 +23,7 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
              |
              v
 +-------------------------------------------------------------+
-| Anthro Bridge Gateway (127.0.0.1:4000)                      |
+| Poverello Gateway (127.0.0.1:4000)                      |
 +-------------------------------------------------------------+
              |
              +---> クラウドプロバイダー
@@ -57,7 +57,7 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
 - **Xiaomi MiMo-V2.6 対応**: MiMo-V2.6-Flash、MiMo-V2.6-Pro、MiMo-V2.6-Pro-UltraSpeed を Direct MiMo プロバイダーモデルとして追加。3 モデルすべてが 1,000,000 トークンのコンテキストウィンドウとネイティブマルチモーダル対応（テキスト、画像、動画）を持つ。組み込みデフォルトルート: Opus 5 → `mimo-v2.6-pro`（Thinking）、Sonnet 5 → `mimo-v2.6-pro`（Normal）、Haiku 4.5 → `mimo-v2.6-flash`（Thinking）。MiMo は Normal/Thinking トグルのみ対応 — 推論強度レベルなし（`supportsReasoningEffort: false`）。
 - **MiMo V2.5 後方互換性**: レガシーの `mimo-v2.5`、`mimo-v2.5-pro`、`mimo-v2.5-pro-ultraspeed` は元の機能を持ったまま静的に認識され続ける。変更されていない既存のデフォルトルートは起動時に V2.6 へ自動マイグレーションされる。ユーザーがカスタマイズしたルートターゲット、thinking モード、default_model 設定は保持される。`models` オブジェクトを持たない `model_map` を使用するレガシー設定は、プロバイダー全体のフラグにフォールバックするのではなく、静的機能リゾルバー（`try_resolve_static_model_capabilities`）からルート単位の機能を解決する。これにより、レガシー設定でも V2.6 ルートが正しい動画機能を受け取ることが保証される。
 - **レスポンスモデル ID 正規化**: API レスポンス（SSE ストリーミング / ノンストリーミングの両方）内の upstream モデル名を、Anthropic 公式モデル名へ書き戻す。config.json の `normalize_response_model_identity` と実行時の `AtomicBool` で制御する。サーバー設定の保存との相互汚染を避けるため、独立した保存コマンド（`update_normalize_model_identity`）を使用する。
-- **構造化通信ログ**: `tracing` + `tracing-appender` が構造化ログを `%APPDATA%\Anthro Bridge\Communication-Logs\proxy-*.log` に書き込む。各リクエストには `AtomicU64` カウンターから相関 ID が付与される。ログエントリにはリクエストモデル、ゲートウェイモデル、upstream モデル、正規化の結果、スキップ理由が含まれる。機密データ（プロンプト、本文、API キー）は記録されない。
+- **構造化通信ログ**: `tracing` + `tracing-appender` が構造化ログを `%APPDATA%\Poverello\Communication-Logs\proxy-*.log` に書き込む。各リクエストには `AtomicU64` カウンターから相関 ID が付与される。ログエントリにはリクエストモデル、ゲートウェイモデル、upstream モデル、正規化の結果、スキップ理由が含まれる。機密データ（プロンプト、本文、API キー）は記録されない。
 - **PEAK バッジ**: ピーク価格のモデルに対して、ダッシュボードに色分けされたピンクのバッジを表示する。
 - **UTC オフセット表示**: タイムゾーンセレクターに、各オプションの横へ動的な UTC オフセット（例: UTC+09:00）を表示する。
 - **Laguna S/XS 2.1 トークン上限失敗の検出**: SSE ストリームとノンストリームレスポンスの両方で、`stop_reason: "max_tokens"` を伴う reasoning のみのレスポンスを検出する。利用可能なテキストやツール呼び出しを生成せずに毎ターンのトークン上限に達した場合、警告をログに記録する。OpenRouter 経由のすべての Poolside Laguna モデルで利用可能。
@@ -69,18 +69,18 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
 - **OpenRouter 価格詳細**: 組み込み価格は、入力、出力、キャッシュ入力レートの現在価格と改定後標準価格に対応する。GPT-5.6 の Sol、Terra、Luna、Pro 各バリアントを含む。GUI はプロモーション価格と標準価格の両方が利用可能な場合、両方を併記して表示する。
 - **GPT-5.6 モデル対応**: OpenRouter モデルセットは Sol、Terra、Luna のモデルバリアントを使用でき、機能を考慮した thinking 制御と、該当する場合の長文コンテキスト料金に関する価格メモを備える。組み込みの OpenAI GPT-5.6 Balanced モデルセットは、新規インストールでは Opus 5 → GPT-5.6 Sol、Sonnet 5 → GPT-5.6 Terra、Haiku 4.5 → GPT-5.6 Luna へ、3ルートすべてで Thinking High の推論強度でルーティングする。既存の保存済みルーティングは自動では変更されない。
 - **ダッシュボード駆動のウィンドウサイズ調整**: 初期表示時と行数変更時に、3列グリッド内の表示中のダッシュボードカードからウィンドウの高さを計算する。この計算はカードの高さ、グリッドの隙間、ネイティブの最小サイズ、モニターのワークエリア、DPI スケーリング、ウィンドウ装飾を考慮しつつ、行数が変わらない場合は手動リサイズを保持する。
-- **ローカライズされた NSIS インストーラー**: Windows インストーラーは英語、日本語、中国語（簡体）、中国語（繁体）、韓国語、フランス語、ドイツ語、スペイン語の言語選択を提供し、Anthro Bridge のアプリケーションアイコンを同梱する。
+- **ローカライズされた NSIS インストーラー**: Windows インストーラーは英語、日本語、中国語（簡体）、中国語（繁体）、韓国語、フランス語、ドイツ語、スペイン語の言語選択を提供し、Poverello のアプリケーションアイコンを同梱する。
 - **リグレッションカバレッジ**: Vitest のカバレッジには、OpenRouter モデルセットの並び順と保存レース、本番価格データ、ダッシュボードのカード数セマンティクス、モニター考慮のウィンドウサイズ調整が含まれる。
 - **OpenRouter 経由の新プロバイダー**: InclusionAI と StepFun を OpenRouter モデルプロバイダーとして追加する。専用の機能フラグ、thinking モード制御、ベンダーグルーピングを備える。
 - **Tencent Hy3 thinking モード**: Tencent の Hunyuan モデルで推論強度 Low/High に対応する。proxy.rs の thinking モード変換は `thinking_mode` を OpenRouter の `reasoning` フォーマットへマッピングする。UI は Low/High をドロップダウンオプションとして表示する。
 - **Kimi K3 修正**: 機能定義からハードコードされた `forced_reasoning_effort` を削除した。固定の「Max」表示を設定可能なドロップダウンセレクターに置き換えた。デフォルト値は保存済み設定から取得し、フォールバックとして "max" を使用する。
 - **設定書き込みの直列化**: config を書き込むすべての Tauri コマンドは、`Mutex` ガード付きの `execute_serialized_config_mutation` を介して直列化される。`ConfigState` 構造体は検証付きで `applied_config`、`in_flight_config`、`pending_ops` を追跡する。複数の設定変更が同時に保存される際のレースコンディションを防ぐ。
 - **OpenRouter UI レース修正**: (1) `syncUiFromSavedRouteRef` の最新コールバック ref が、古いクロージャによる新ルート UI の上書きを防ぐ。(2) `rollbackRouteId` ガードがルート間の Phase 2 ロールバックを防ぐ。(3) `useRouteSaveGeneration` フックが全ハンドラーに `begin()`/`isCurrent()` の世代ガードを提供する。(4) 保存キューフック（`useOpenRouterSaveQueue`）がドレインループ、supersede 検出、再起動時の OR 再集計を提供する。
-- **Dev/Stable アプリ ID の分離**: `paths.rs` の `AppChannel` enum（`Stable`/`Dev`）が、それぞれ別の識別子（`com.soheidon.anthro-bridge` vs `.dev`）、設定ディレクトリ（`Anthro Bridge` vs `Anthro Bridge Dev`）、キャッシュパスを選択する。Dev チャンネルは `tauri.dev.conf.json` を使用する。NPM スクリプト: `npm run dev`（dev）、`npm run dev:stable`（stable）。
+- **Dev/Stable アプリ ID の分離**: `paths.rs` の `AppChannel` enum（`Stable`/`Dev`）が、それぞれ別の識別子（`com.soheidon.anthro-bridge` vs `.dev`）、設定ディレクトリ（`Poverello` vs `Poverello Dev`）、キャッシュパスを選択する。Dev チャンネルは `tauri.dev.conf.json` を使用する。NPM スクリプト: `npm run dev`（dev）、`npm run dev:stable`（stable）。
 - **設定テンプレートの埋め込み**: `include_str!()` が `config_template.rs` をコンパイル時に埋め込み、同梱の `config.json` への実行時依存を排除する。`merge_bundled_providers` は型付きエラーハンドリング付きで `Result` を返す。
 - **フロントエンドのリグレッションテスト**: `QueueHarness` と `GenerationHandlerHarness` を使用した、OpenRouter 保存レース条件に対する vitest リグレッションテスト 7 件。テスト対象: 最新コールバック ref、ルート間ロールバックガード、ID キャプチャ、リフレッシュ再試行（失敗 + 成功パス）、実行中 supersede、世代ガード。
 - **Claude Code コンテキスト管理**: Claude Code 向けのモデル認識型自動圧縮。`resolve_effective_auto_compact` は各標準ルート（claude-opus-5、claude-sonnet-5、claude-haiku-4-5）をその upstream モデルへ解決し、各モデルのコンテキスト容量を静的レジストリ `model_catalog.json` で参照し、Auto モードでは既知の最小容量を安全なコンテキストウィンドウとして使用する。コンテキスト制御は3つすべての容量が既知の場合のみ適用される（それ以外はステータスが Incomplete）。ヘッダーのトグルでコンテキスト管理のオン/オフを切り替える。高度なモードとしきい値は `config.json` の `claude_code.auto_compact` 配下で設定する。モード: `auto`、`manual`（`window_tokens`）、`claude_default`。
-- **Claude Code 起動コマンド生成**: `build_claude_code_launch_command` は、ゲートウェイ接続変数（ローカルゲートウェイを指す `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`）と Claude Code コンテキスト制御変数（`CLAUDE_CODE_AUTO_COMPACT_WINDOW`、`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`）を組み合わせた完全な PowerShell コマンドを生成する。コンテキスト管理が無効、Incomplete、または Claude デフォルト設定の場合、コマンドは `Remove-Item Env:... -ErrorAction SilentlyContinue` で古いコンテキスト変数を削除し、以前設定されたセッション値が新しい起動に漏れないようにする。Claude 設定パネルの「Claude Code起動コマンドをコピー」ボタンがコマンドをクリップボードにコピーする。Anthro Bridge はコマンドの生成とコピーのみを行い、実行は一切しない。
+- **Claude Code 起動コマンド生成**: `build_claude_code_launch_command` は、ゲートウェイ接続変数（ローカルゲートウェイを指す `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`）と Claude Code コンテキスト制御変数（`CLAUDE_CODE_AUTO_COMPACT_WINDOW`、`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`）を組み合わせた完全な PowerShell コマンドを生成する。コンテキスト管理が無効、Incomplete、または Claude デフォルト設定の場合、コマンドは `Remove-Item Env:... -ErrorAction SilentlyContinue` で古いコンテキスト変数を削除し、以前設定されたセッション値が新しい起動に漏れないようにする。Claude 設定パネルの「Claude Code起動コマンドをコピー」ボタンがコマンドをクリップボードにコピーする。Poverello はコマンドの生成とコピーのみを行い、実行は一切しない。
 - **共有モデルルーティングモジュール**: `model_routing.rs` は、ルートから upstream への解決を `proxy.rs` とコンテキストリゾルバーが共有する純粋関数に抽出し、コンテキストウィンドウがプロキシが実際に転送する upstream モデルと同一のモデルを解決することを保証する。
 - **コンテキスト容量レジストリ**: `model_catalog.json` は、既知のコンテキスト容量の静的レジストリ。組み込みの直接プロバイダーモデル（DeepSeek、MiniMax、Kimi、MiMo V2.6 および V2.5）と組み込みの OpenRouter モデル（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-5.6）をカバーする。不明なカスタム OpenRouter モデルは有効なルートターゲットのままであるが、メタデータが追加されるか手動モードが設定されるまで、コンテキスト管理は Incomplete として報告される。
 
@@ -90,7 +90,7 @@ Tauri v2 + React 19 + TypeScript。ダッシュボード + 設定の2画面構�
 
 ```
 +------------------------------------------+
-|  Anthro Bridge                   |
+|  Poverello                   |
 |  [Start/Stop Gateway] [Status]    [=]   |
 +------------------------------------------+
 |  ダッシュボード                            |
@@ -235,7 +235,7 @@ Remove-Item Env:CLAUDE_CODE_AUTO_COMPACT_WINDOW -ErrorAction SilentlyContinue;
 Remove-Item Env:CLAUDE_AUTOCOMPACT_PCT_OVERRIDE -ErrorAction SilentlyContinue;
 ```
 
-割合オーバーライドは圧縮を早める方向にのみ作用する。Claude Code のデフォルトよりも圧縮を遅らせる値は無視される場合がある。Anthro Bridge はコマンドの生成とコピーのみを行い、実行は一切しない。また、特定の Claude Code バージョンがこれらの変数を尊重することを保証するものではない（最終確認には Claude Code の診断情報または実際に観測された圧縮動作が必要）。
+割合オーバーライドは圧縮を早める方向にのみ作用する。Claude Code のデフォルトよりも圧縮を遅らせる値は無視される場合がある。Poverello はコマンドの生成とコピーのみを行い、実行は一切しない。また、特定の Claude Code バージョンがこれらの変数を尊重することを保証するものではない（最終確認には Claude Code の診断情報または実際に観測された圧縮動作が必要）。
 
 ### 多言語対応
 

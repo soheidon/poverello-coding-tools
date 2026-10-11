@@ -1,10 +1,10 @@
 [English](README.md) | [日本語](docs/README.ja.md) | [中文(简体)](docs/README.zh-CN.md) | [中文(繁體)](docs/README.zh-TW.md) | [한국어](docs/README.ko.md) | [Français](docs/README.fr.md) | [Deutsch](docs/README.de.md) | [Español](docs/README.es.md)
 
-# Anthro Bridge
+# Poverello Coding Tools
 
 **Use Claude Code / Claude Desktop as the coding harness, route inference to third-party LLM APIs, and use external models as planners and reviewers for Google Antigravity.**
 
-Anthro Bridge is a Windows companion application for AI-assisted software development. It supports three core workflows:
+Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companion application for AI-assisted software development. It supports three core workflows:
 
 1. **3P Gateway for Claude Code / Claude Desktop** — Keep Claude's repository exploration, tool use, file editing, and test execution while routing inference to third-party cloud providers.
 2. **Dedicated Local LLMs for Claude Code (Ollama)** — Run Claude Code completely offline with zero API costs using local Ollama models.
@@ -19,7 +19,7 @@ Anthro Bridge is a Windows companion application for AI-assisted software develo
 ```text
 Claude Code / Claude Desktop
              ↓
-  Anthro Bridge 3P Gateway
+  Poverello 3P Gateway
              ↓
 DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo
 ```
@@ -61,7 +61,7 @@ using subscription-backed capacity
 
 - **Planning vs. Execution Split**: External models generate the high-level plan or review verdict; Antigravity subscription capacity executes token-intensive code edits.
 - **Live GUI Configuration**: Switching the planner or reviewer provider, model, or reasoning effort takes effect immediately on the next invocation.
-- **Setup Guide**: [Google Antigravity + Anthro Bridge MCP Setup](docs/ANTIGRAVITY_MCP.md)
+- **Setup Guide**: [Google Antigravity + Poverello MCP Setup](docs/ANTIGRAVITY_MCP.md)
 - **Opt-in Planner–Reviewer Auto-Convergence**: In the Orchestrator, enable the
   bounded convergence workflow to generate and independently review plan
   candidates. Approved in-scope changes may be appended automatically; a new
@@ -174,9 +174,9 @@ Also available: **OpenRouter: Gemini** (Gemini 3.8 Flash · reasoning effort `lo
 
 ## Installation
 
-Download the latest Windows installer (`Anthro Bridge_0.24.0_x64-setup.exe`) from the [Releases](https://github.com/soheidon/anthro-bridge/releases) page and run it.
+Download the latest currently published Windows installer from the [Releases](https://github.com/soheidon/poverello-coding-tools/releases) page and run it.
 
-The installer supports 8 languages and preserves existing user settings during upgrades.
+The current installer supports 8 languages. The Poverello v0.24.1 installer and its in-place upgrade path are still under validation and are not yet published. On first launch, the app copies existing settings and run data from `%APPDATA%\Anthro Bridge` (or `%APPDATA%\Anthro Bridge Dev` for development builds) to the corresponding Poverello data folder and retains the original folder as a recovery copy.
 
 ---
 
@@ -184,7 +184,7 @@ The installer supports 8 languages and preserves existing user settings during u
 
 ### Workflow 1: 3P Gateway for Claude Code / Claude Desktop
 
-1. Open Anthro Bridge **Settings > API Key** and configure an API key for your desired provider.
+1. Open Poverello **Settings > API Key** and configure an API key for your desired provider.
 2. Select your provider or OpenRouter profile on the dashboard.
 3. Click **Start Gateway** (runs on `http://127.0.0.1:4000`).
 4. Connect Claude Code or Claude Desktop:
@@ -194,15 +194,15 @@ The installer supports 8 languages and preserves existing user settings during u
 ### Workflow 2: Dedicated Local LLMs for Claude Code (Ollama)
 
 1. Ensure Ollama is running locally (`http://127.0.0.1:11434`).
-2. Select **Ollama Local** on the Anthro Bridge Dashboard (or configure models in **Settings > Claude Code / Local LLMs**).
+2. Select **Ollama Local** on the Poverello Dashboard (or configure models in **Settings > Claude Code / Local LLMs**).
 3. Click **Copy Claude Code launch command** and paste it into PowerShell.
 4. Claude Code connects directly to your local Ollama instance with full thinking and context window support.
 
 ### Workflow 3: MCP Planner & Reviewer for Google Antigravity
 
-1. Configure an API key for your chosen planner/reviewer model in Anthro Bridge.
+1. Configure an API key for your chosen planner/reviewer model in Poverello.
 2. Select the **MCP** tab and configure your model in **Settings > Antigravity > MCP Plan Settings**.
-3. Register `anthro-bridge.exe` with `["--mcp-server"]` in Antigravity's MCP configuration (or click **Configure Automatically** in Anthro Bridge).
+3. Register `anthro-bridge.exe` with `["--mcp-server"]` in Antigravity's MCP configuration (or click **Configure Automatically** in Poverello).
 4. Use `/anthro-plan` to design plans, `/anthro-revise` to update plans, and `/anthro-review` to review implementations before commit.
 5. Follow the complete [Antigravity MCP Setup Guide](docs/ANTIGRAVITY_MCP.md).
 
@@ -225,7 +225,7 @@ The installer supports 8 languages and preserves existing user settings during u
 
 - [Claude Desktop / Cowork 3P Gateway Setup](docs/THIRD_PARTY_INFERENCE.md)
 - [Ollama Local Setup & CLI Configuration](docs/OLLAMA_LOCAL.md)
-- [Google Antigravity + Anthro Bridge MCP Setup](docs/ANTIGRAVITY_MCP.md)
+- [Google Antigravity + Poverello MCP Setup](docs/ANTIGRAVITY_MCP.md)
 - [Configuration Reference (`config.json`)](docs/CONFIGURATION.md)
 - [Provider Details & Reasoning Controls](docs/PROVIDERS.md)
 - [Development & Verification Guide](docs/DEVELOPMENT.md)
@@ -241,7 +241,7 @@ taskkill /PID <PID> /F
 ```
 
 ### Settings Revert After an Upgrade
-Restart the application so migrations can run. Configuration is stored under `%APPDATA%\Anthro Bridge\config.json`.
+Restart the application so migrations can run. Configuration is stored under `%APPDATA%\Poverello\config.json`. If migration reports a conflict, do not delete either data folder; back up both and resolve the conflict before restarting.
 
 ### MCP Planner Calls Fail
 Ensure an API key is set for the provider selected under the **MCP** tab, or exported in your Windows user environment variables (e.g., `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`). The 3P Gateway does not need to be running for MCP.

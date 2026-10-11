@@ -1,6 +1,6 @@
 # Provider Details & Model Behaviors
 
-This document details supported model providers, reasoning parameters, capability translations, and local inference backends in Anthro Bridge.
+This document details supported model providers, reasoning parameters, capability translations, and local inference backends in Poverello.
 
 ---
 
@@ -81,4 +81,4 @@ OpenRouter acts as a multi-profile gateway supporting hundreds of upstream model
 
 ## 5. Response Model Normalization
 
-Upstream APIs often return their native model name in JSON responses. When enabled, Anthro Bridge rewrites the response model field back to the Anthropic route requested by the client (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`). This ensures seamless compatibility with Claude Desktop and Claude Code.
+Upstream APIs often return their native model name in JSON responses. When enabled, Poverello rewrites the response model field back to the Anthropic route requested by the client (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`). This ensures seamless compatibility with Claude Desktop and Claude Code.

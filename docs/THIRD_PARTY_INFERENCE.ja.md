@@ -1,8 +1,8 @@
 [English](THIRD_PARTY_INFERENCE.md) | [日本語](THIRD_PARTY_INFERENCE.ja.md) | [中文(简体)](THIRD_PARTY_INFERENCE.zh-CN.md) | [中文(繁體)](THIRD_PARTY_INFERENCE.zh-TW.md) | [한국어](THIRD_PARTY_INFERENCE.ko.md) | [Français](THIRD_PARTY_INFERENCE.fr.md) | [Deutsch](THIRD_PARTY_INFERENCE.de.md) | [Español](THIRD_PARTY_INFERENCE.es.md)
 
-# Claude Desktop / Cowork on 3P で Anthro Bridge を使う
+# Claude Desktop / Cowork on 3P で Poverello を使う
 
-Anthro Bridge は、Claude Desktop / Cowork on 3P から利用できる
+Poverello は、Claude Desktop / Cowork on 3P から利用できる
 ローカルの Anthropic互換ゲートウェイとして動作します。
 
 Claude Desktop / Cowork on 3P では、開発者モードを有効にすると、
@@ -13,17 +13,17 @@ Claude Desktop / Cowork on 3P では、開発者モードを有効にすると�
 - [https://claude.com/docs/cowork/3p/installation](https://claude.com/docs/cowork/3p/installation)
 - [https://claude.com/docs/cowork/3p/configuration](https://claude.com/docs/cowork/3p/configuration)
 
-## 1. Anthro Bridge を起動する
+## 1. Poverello を起動する
 
-まず Anthro Bridge を起動し、ゲートウェイを開始します。
+まず Poverello を起動し、ゲートウェイを開始します。
 
-デフォルトでは、Anthro Bridge は次のURLで待ち受けます。
+デフォルトでは、Poverello は次のURLで待ち受けます。
 
 ```text
 http://127.0.0.1:4000
 ```
 
-Claude Desktop / Cowork on 3P から利用する間は、Anthro Bridge を起動したままにしてください。
+Claude Desktop / Cowork on 3P から利用する間は、Poverello を起動したままにしてください。
 
 ## 2. Claude Desktop で開発者モードを有効にする
 
@@ -66,7 +66,7 @@ Gateway
 | Gateway auth scheme   | `bearer`                |
 | Gateway extra headers | 通常は空欄                   |
 
-`Gateway API key` には、Anthro Bridge 側で設定したローカルAPIキーと同じ値を入力します。
+`Gateway API key` には、Poverello 側で設定したローカルAPIキーと同じ値を入力します。
 
 ## 5. Identity & Models を設定する
 
@@ -90,7 +90,7 @@ claude-haiku-4-5
 
 最初に登録したモデルが、モデル選択欄のデフォルトになります。
 
-各モデル行を展開し、`Model ID` が Anthro Bridge に送信したいモデル名と完全に一致していることを確認してください。
+各モデル行を展開し、`Model ID` が Poverello に送信したいモデル名と完全に一致していることを確認してください。
 
 `Offer 1M-context variant` は、上流プロバイダと選択モデルが拡張コンテキストに実際に対応している場合だけ有効にしてください。
 
@@ -123,11 +123,11 @@ claude-haiku-4-5
 
 必要に応じて Claude Desktop を再起動してください。
 
-再起動後、Claude Desktop / Cowork on 3P からのリクエストは Anthro Bridge に送られます。Anthro Bridge は、そのリクエストを設定済みの上流プロバイダへ中継します。
+再起動後、Claude Desktop / Cowork on 3P からのリクエストは Poverello に送られます。Poverello は、そのリクエストを設定済みの上流プロバイダへ中継します。
 
 ## Xiaomi MiMo プロバイダー
 
-Anthro Bridge が Direct MiMo プロバイダーを使用するよう設定されている場合、Claude Desktop からの推論リクエストは小米（Xiaomi）の MiMo API にルーティングされます。
+Poverello が Direct MiMo プロバイダーを使用するよう設定されている場合、Claude Desktop からの推論リクエストは小米（Xiaomi）の MiMo API にルーティングされます。
 
 ### MiMo-V2.6 モデル
 
@@ -172,13 +172,13 @@ MiniMax-M3は、Anthropic互換APIを通じてThinking（拡張思考）機能�
 | Thinking OFF | `thinking: {"type": "disabled"}` | 拡張思考を無効化 |
 | デフォルト（未設定） | *（省略）* | API既定値：Thinking無効 |
 
-Anthro Bridgeの設定画面では、MiniMax-M3の行にThinking／通常のトグルが表示されます。
+Poverelloの設定画面では、MiniMax-M3の行にThinking／通常のトグルが表示されます。
 
 MiniMax-M2.x系モデル（`MiniMax-M2.7-highspeed`）はThinkingの無効化に対応しておらず、「Thinking専用」モード固定となります。
 
 ## Laguna S/XS 2.1（OpenRouter）設定
 
-Anthro Bridge は OpenRouter の `claude-opus-5` と `claude-sonnet-5` を `poolside/laguna-s-2.1` へ、`claude-haiku-4-5` を `poolside/laguna-xs-2.1` へデフォルトでルーティングします。
+Poverello は OpenRouter の `claude-opus-5` と `claude-sonnet-5` を `poolside/laguna-s-2.1` へ、`claude-haiku-4-5` を `poolside/laguna-xs-2.1` へデフォルトでルーティングします。
 
 ### Thinkingの動作
 
@@ -190,13 +190,13 @@ Anthro Bridge は OpenRouter の `claude-opus-5` と `claude-sonnet-5` を `pool
 
 特定の条件下 — 特にモデルが推論フェーズにある状態で1ターンあたりのトークン上限に達した場合 — Laguna S 2.1 は推論コンテンツのみを含み、テキスト出力やツール呼び出しがなく、`stop_reason` が `max_tokens` の応答を返すことがあります。このような応答を受け取ったクライアントは会話を継続できなくなる可能性があります。
 
-Anthro Bridge はこの状態を検出し、ログパネルに警告を出力します。「Reasoning-only response reached the per-turn token limit」という警告が繰り返し表示される場合は、最大出力トークン数を引き上げるか、該当モデルのThinkingをオフにすることを検討してください。
+Poverello はこの状態を検出し、ログパネルに警告を出力します。「Reasoning-only response reached the per-turn token limit」という警告が繰り返し表示される場合は、最大出力トークン数を引き上げるか、該当モデルのThinkingをオフにすることを検討してください。
 
 これらの観測はサードパーティのコミュニティテストに基づきます。結果はプロバイダの設定やモデルのリビジョンにより異なる場合があります。
 
 ## 注意
 
-Anthro Bridge は、Anthropic互換APIのための非公式ローカルゲートウェイです。
+Poverello は、Anthropic互換APIのための非公式ローカルゲートウェイです。
 
 Anthropic、Moon Bridge、および各モデル提供元とは提携・関係ありません。
 
@@ -206,6 +206,6 @@ Claude Desktop / Cowork on 3P のサードパーティ推論設定画面やメ�
 > [!NOTE]
 > **Claude Desktop / Cowork on 3P は Gateway 経由でクラウドプロバイダーを使用します**
 >
-> Claude Desktop および Cowork on 3P は、Anthro Bridge Gateway（`http://127.0.0.1:4000`）へリクエストを送信し、設定されたクラウドプロバイダー（DeepSeek、MiMo、Kimi、MiniMax、OpenRouter）へルーティングされます。
+> Claude Desktop および Cowork on 3P は、Poverello Gateway（`http://127.0.0.1:4000`）へリクエストを送信し、設定されたクラウドプロバイダー（DeepSeek、MiMo、Kimi、MiniMax、OpenRouter）へルーティングされます。
 >
 > **Ollama Local** バックエンドは **Claude Code CLI 専用** であり、Claude Desktop や MCP とは完全に独立しています。Claude Code でのローカルLLM利用については [Ollama Local ガイド](OLLAMA_LOCAL.ja.md) をご覧ください。

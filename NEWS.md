@@ -1,4 +1,13 @@
-# Anthro Bridge — Release Notes
+# Poverello Coding Tools — Release Notes
+
+## Unreleased — v0.24.1
+
+### Poverello Rebrand
+
+- Renamed the desktop application to Poverello Coding Tools, with Poverello as
+  the concise application name, and introduced the supplied Poverello icon.
+- Existing Stable and Dev user data is copied to the new Poverello data folders
+  on first launch. The original folders are retained as recovery copies.
 
 ## v0.24.0 — 2026-10-11
 

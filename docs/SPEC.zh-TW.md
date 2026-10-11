@@ -1,6 +1,6 @@
 [English](../SPEC.md) | [日本語](SPEC.ja.md) | [中文(简体)](SPEC.zh-CN.md) | [中文(繁體)](SPEC.zh-TW.md) | [한국어](SPEC.ko.md) | [Français](SPEC.fr.md) | [Deutsch](SPEC.de.md) | [Español](SPEC.es.md)
 
-# SPEC: Anthro Bridge
+# SPEC: Poverello
 
 ## 概述
 
@@ -13,7 +13,7 @@
              |                              | stdio (--mcp-server)
              v                              v
 +-------------------------------------------------------------+
-| Anthro Bridge Gateway (127.0.0.1:4000)                      |
+| Poverello Gateway (127.0.0.1:4000)                      |
 | (axum 0.7 + reqwest proxy, API key check, route resolution) |
 +-------------------------------------------------------------+
              |
@@ -23,7 +23,7 @@
              |
              v
 +-------------------------------------------------------------+
-| Anthro Bridge Gateway (127.0.0.1:4000)                      |
+| Poverello Gateway (127.0.0.1:4000)                      |
 +-------------------------------------------------------------+
              |
              +---> Cloud Providers
@@ -56,7 +56,7 @@
 - **小米 MiMo-V2.6 支援**：MiMo-V2.6-Flash、MiMo-V2.6-Pro 與 MiMo-V2.6-Pro-UltraSpeed 新增為 Direct MiMo 提供者模型。三個模型均具備 1,000,000 權杖的上下文視窗與原生多模態支援（文字、圖像、影片）。內建預設路由：Opus 5 → `mimo-v2.6-pro`（Thinking），Sonnet 5 → `mimo-v2.6-pro`（Normal），Haiku 4.5 → `mimo-v2.6-flash`（Thinking）。MiMo 僅支援 Normal/Thinking 切換——不支援推理強度級別（`supportsReasoningEffort: false`）。
 - **MiMo V2.5 向下相容**：舊版 `mimo-v2.5`、`mimo-v2.5-pro` 與 `mimo-v2.5-pro-ultraspeed` 保留其原始能力並繼續被靜態識別。未修改的歷史預設路由會在啟動時自動遷移至 V2.6；使用者自訂的路由目標、thinking 模式與 default_model 設定均會被保留。使用 `model_map` 但沒有 `models` 物件的舊版設定，將透過靜態能力解析器（`try_resolve_static_model_capabilities`）逐路由解析能力，而非回退至提供者層級的旗標，確保 V2.6 路由即使在舊版設定中也能獲得正確的影片能力。
 - **回應模型識別規範化**：將上游回應（SSE 串流與非串流）中的 `model` 名稱重寫回 Anthropic 官方模型名稱。由 config.json 中的 `normalize_response_model_identity` 與執行期的 `AtomicBool` 控制。提供獨立的儲存指令（`update_normalize_model_identity`），以避免與伺服器設定的儲存互相污染。
-- **結構化通訊日誌**：`tracing` + `tracing-appender` 將結構化日誌寫入 `%APPDATA%\Anthro Bridge\Communication-Logs\proxy-*.log`。每個請求從 `AtomicU64` 計數器取得關聯 ID。日誌條目包含請求模型、閘道模型、上游模型、規範化結果與跳過原因。不記錄敏感資料（提示詞、主體、API 金鑰）。
+- **結構化通訊日誌**：`tracing` + `tracing-appender` 將結構化日誌寫入 `%APPDATA%\Poverello\Communication-Logs\proxy-*.log`。每個請求從 `AtomicU64` 計數器取得關聯 ID。日誌條目包含請求模型、閘道模型、上游模型、規範化結果與跳過原因。不記錄敏感資料（提示詞、主體、API 金鑰）。
 - **PEAK 徽章**：儀表板中以粉紅色徽章標示峰值定價模型。
 - **UTC 偏移顯示**：時區選擇器在每個選項旁顯示動態 UTC 偏移（如 UTC+09:00）。
 - **Laguna S/XS 2.1 權杖上限失敗偵測**：在 SSE 串流與非串流回應中偵測 `stop_reason: "max_tokens"` 的僅推理回應。當達到每回合權杖上限而未產生可用文字或工具呼叫時記錄警告。適用於透過 OpenRouter 提供的所有 Poolside Laguna 模型。
@@ -68,18 +68,18 @@
 - **OpenRouter 定價詳情**：內建定價支援提示詞、輸出與快取輸入費率的目前值及調整後標準值，包括 GPT-5.6 Sol、Terra、Luna 與 Pro 變體。當兩者同時可用時，GUI 會一起顯示促銷與標準費率。
 - **GPT-5.6 模型支援**：OpenRouter 模型集可使用 Sol、Terra 與 Luna 模型變體，並具備能力感知的 thinking 控制與長文本費率定價備註（如適用）。內建的 OpenAI GPT-5.6 Balanced 模型集為新安裝將 Opus 5 → GPT-5.6 Sol、Sonnet 5 → GPT-5.6 Terra、Haiku 4.5 → GPT-5.6 Luna 路由，三條路由皆以 Thinking High 推理強度；既有已儲存的路由不會自動變更。
 - **儀表板驅動的視窗尺寸**：初始與列數變更時，依三欄網格中的可見儀表板卡片計算視窗高度。計算考量卡片高度、網格間距、原生最小尺寸、螢幕工作區、DPI 縮放與視窗裝飾，同時在列數不變時保留手動調整大小。
-- **本地化 NSIS 安裝程式**：Windows 安裝程式提供英文、日文、簡體中文、繁體中文、韓文、法文、德文與西班牙文語言選擇，並內含 Anthro Bridge 應用程式圖示。
+- **本地化 NSIS 安裝程式**：Windows 安裝程式提供英文、日文、簡體中文、繁體中文、韓文、法文、德文與西班牙文語言選擇，並內含 Poverello 應用程式圖示。
 - **回歸測試涵蓋**：Vitest 涵蓋 OpenRouter 模型集排序與儲存競態、正式定價資料、儀表板卡片計數語意與螢幕感知視窗尺寸。
 - **透過 OpenRouter 新增提供者**：InclusionAI 與 StepFun 新增為 OpenRouter 模型提供者，具備專用能力旗標、thinking 模式控制與供應商分組。
 - **Tencent Hy3 thinking 模式**：支援 Tencent Hunyuan 模型的 Low/High 推理強度。proxy.rs 中的 thinking 模式轉換將 `thinking_mode` 對應到 OpenRouter 的 `reasoning` 格式。UI 以下拉選項顯示 Low/High。
 - **Kimi K3 修正**：從能力定義中移除硬編碼的 `forced_reasoning_effort`。將固定的 "Max" 顯示替換為可設定的下拉選擇器。預設值取自已儲存的設定，若無則回退為 "max"。
 - **設定寫入序列化**：所有寫入設定的 Tauri 指令皆透過 `execute_serialized_config_mutation` 搭配 `Mutex` 鎖進行序列化。`ConfigState` 結構提供 `applied_config`、`in_flight_config` 與 `pending_ops` 追蹤並附帶驗證。防止多個設定變更同時儲存時的競態條件。
 - **OpenRouter UI 競態修正**：(1) `syncUiFromSavedRouteRef` 最新的 callback ref 防止過時的閉包覆寫新路由的 UI。(2) `rollbackRouteId` 守衛防止跨路由的 Phase 2 回滾。(3) `useRouteSaveGeneration` hook 為所有處理程式提供 `begin()`/`isCurrent()` 世代守衛。(4) 儲存佇列 hook（`useOpenRouterSaveQueue`）搭配清空迴圈、取代偵測與重新啟動 OR 彙總。
-- **開發/穩定版應用程式識別隔離**：`paths.rs` 中的 `AppChannel` 列舉（`Stable`/`Dev`）選擇不同的識別碼（`com.soheidon.anthro-bridge` 對比 `.dev`）、設定目錄（`Anthro Bridge` 對比 `Anthro Bridge Dev`）與快取路徑。開發通道使用 `tauri.dev.conf.json`。NPM 腳本：`npm run dev`（開發）、`npm run dev:stable`（穩定）。
+- **開發/穩定版應用程式識別隔離**：`paths.rs` 中的 `AppChannel` 列舉（`Stable`/`Dev`）選擇不同的識別碼（`com.soheidon.anthro-bridge` 對比 `.dev`）、設定目錄（`Poverello` 對比 `Poverello Dev`）與快取路徑。開發通道使用 `tauri.dev.conf.json`。NPM 腳本：`npm run dev`（開發）、`npm run dev:stable`（穩定）。
 - **設定範本內嵌**：`include_str!()` 在編譯時期嵌入 `config_template.rs`，移除對內含 `config.json` 的執行期依賴。`merge_bundled_providers` 回傳帶型別錯誤處理的 `Result`。
 - **前端回歸測試**：使用 `QueueHarness` 與 `GenerationHandlerHarness` 的 7 個 OpenRouter 儲存競態 Vitest 回歸測試。測試涵蓋：最新 callback ref、跨路由回滾守衛、識別擷取、重新整理重試（失敗與成功路徑）、進行中取代與世代守衛。
 - **Claude Code 上下文管理**：針對 Claude Code 的模型感知自動壓縮。`resolve_effective_auto_compact` 將每條標準路由（claude-opus-5、claude-sonnet-5、claude-haiku-4-5）解析為其上游模型，在靜態 `model_catalog.json` 登錄中查詢每個模型的上下文容量，並在 Auto 模式下使用已知的最小容量作為安全上下文視窗。上下文控制僅在三種容量皆已知時套用（否則狀態為 Incomplete）。標題列切換可開啟/關閉上下文管理；進階模式與閾值在 `config.json` 的 `claude_code.auto_compact` 下設定。模式：`auto`、`manual`（`window_tokens`）、`claude_default`。
-- **Claude Code 啟動命令產生**：`build_claude_code_launch_command` 產生完整的 PowerShell 命令，結合閘道連線變數（指向本機閘道的 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`）與 Claude Code 上下文控制變數（`CLAUDE_CODE_AUTO_COMPACT_WINDOW`、`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`）。當上下文管理停用、不完整或設為 Claude 預設時，命令使用 `Remove-Item Env:... -ErrorAction SilentlyContinue` 移除過時的上下文變數，以避免先前設定的工作階段值洩漏到新的啟動中。Claude 設定面板中的「複製 Claude Code 啟動命令」按鈕會將命令複製到剪貼簿。Anthro Bridge 僅產生並複製命令——絕不會執行它。
+- **Claude Code 啟動命令產生**：`build_claude_code_launch_command` 產生完整的 PowerShell 命令，結合閘道連線變數（指向本機閘道的 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`）與 Claude Code 上下文控制變數（`CLAUDE_CODE_AUTO_COMPACT_WINDOW`、`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`）。當上下文管理停用、不完整或設為 Claude 預設時，命令使用 `Remove-Item Env:... -ErrorAction SilentlyContinue` 移除過時的上下文變數，以避免先前設定的工作階段值洩漏到新的啟動中。Claude 設定面板中的「複製 Claude Code 啟動命令」按鈕會將命令複製到剪貼簿。Poverello 僅產生並複製命令——絕不會執行它。
 - **共享模型路由模組**：`model_routing.rs` 將路由到上游的解析抽取為純函式，由 `proxy.rs` 與上下文解析器共享，確保上下文視窗解析出的上游模型與代理實際轉發的模型相同。
 - **上下文容量登錄**：`model_catalog.json` 是已知上下文容量的靜態登錄，涵蓋內建的直接提供者模型（DeepSeek、MiniMax、Kimi、MiMo V2.6 與 V2.5）與內建的 OpenRouter 模型（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-5.6）。未知的自訂 OpenRouter 模型仍可作為有效的路由目標，但在加入元資料或設定手動模式之前，會將上下文管理回報為 Incomplete。
 
@@ -89,7 +89,7 @@ Tauri v2 + React 19 + TypeScript。雙面板佈局：儀表板 + 設定。
 
 ```
 +------------------------------------------+
-|  Anthro Bridge                   |
+|  Poverello                   |
 |  [啟動/停止閘道] [狀態]        [=]     |
 +------------------------------------------+
 |  儀表板                                   |
@@ -234,7 +234,7 @@ Remove-Item Env:CLAUDE_CODE_AUTO_COMPACT_WINDOW -ErrorAction SilentlyContinue;
 Remove-Item Env:CLAUDE_AUTOCOMPACT_PCT_OVERRIDE -ErrorAction SilentlyContinue;
 ```
 
-百分比覆寫只會讓壓縮提前；會延遲壓縮超過 Claude Code 預設的值可能被忽略。Anthro Bridge 僅產生並複製命令——它絕不會執行命令，這也無法證明特定 Claude Code 版本會採用這些變數（最終確認需要 Claude Code 診斷或觀察到的壓縮行為）。
+百分比覆寫只會讓壓縮提前；會延遲壓縮超過 Claude Code 預設的值可能被忽略。Poverello 僅產生並複製命令——它絕不會執行命令，這也無法證明特定 Claude Code 版本會採用這些變數（最終確認需要 Claude Code 診斷或觀察到的壓縮行為）。
 
 ### 多語言
 

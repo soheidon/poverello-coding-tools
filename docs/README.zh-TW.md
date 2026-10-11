@@ -1,24 +1,25 @@
 [English](../README.md) | [日本語](README.ja.md) | [中文(简体)](README.zh-CN.md) | [中文(繁體)](README.zh-TW.md) | [한국어](README.ko.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md)
 
-# Anthro Bridge
+# Poverello
 
 **以 Claude Code / Claude Desktop 作為程式碼執行框架，將推論請求路由至第三方 LLM API，並使用外部模型作為 Google Antigravity 的規劃器與審查器。**
 
-Anthro Bridge 是一款專為 AI 輔助軟體開發設計的 Windows 配套應用程式，支援兩種互補的工作流程：
+Poverello 是一款專為 AI 輔助軟體開發設計的 Windows 配套應用程式，支援三種互補的工作流程：
 
 1. **Claude Code / Claude Desktop 的第三方閘道（3P Gateway）** — 保留 Claude 的程式庫探索、工具使用、檔案編輯與測試執行功能，同時將推論請求路由至第三方供應商。
-2. **Google Antigravity 的 MCP 規劃器與審查器** — 透過 `anthro-bridge/plan` 和 `anthro-bridge/review` MCP 工具，將實作規劃與實作後審查委派給外部模型處理。
+2. **Claude Code 專用本機 LLM（Ollama）** — 使用本機模型離線執行 Claude Code。
+3. **Google Antigravity 的 MCP 規劃器與審查器** — 透過 `anthro-bridge/plan` 和 `anthro-bridge/review` MCP 工具，將實作規劃與實作後審查委派給外部模型處理。
 
 ---
 
-## 兩大主要工作流程
+## 三大主要工作流程
 
 ### 1. Claude Code / Claude Desktop 搭配第三方閘道
 
 ```text
 Claude Code / Claude Desktop
              ↓
-  Anthro Bridge 3P Gateway
+  Poverello 3P Gateway
              ↓
 DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo
 ```
@@ -43,7 +44,7 @@ Gemma 4 / Qwen / Llama 3 / DeepSeek-R1（本機裝置端）
 - **完全隔離**: Claude Desktop、Cowork on 3P 及 Google Antigravity MCP 繼續獨立使用雲端模型。
 - **設定指南**: [Ollama Local 指南](OLLAMA_LOCAL.zh-TW.md)
 
-### 3. Antigravity + MCP 規劃器 / 審查器 搭配 MCP 規劃器與審查器
+### 3. Antigravity + MCP 規劃器與審查器
 
 ```text
 Antigravity
@@ -60,7 +61,7 @@ Antigravity 使用訂閱容量
 
 - **規劃與執行分工**：外部模型負責生成高階計畫或審查結論；Antigravity 訂閱容量負責執行耗費大量 Token 的程式碼編輯。
 - **即時 GUI 設定**：切換規劃器或審查器的供應商、模型或推論強度，下次呼叫時立即生效。
-- **設定指南**：[Google Antigravity + Anthro Bridge MCP 設定](ANTIGRAVITY_MCP.zh-TW.md)
+- **設定指南**：[Google Antigravity + Poverello MCP 設定](ANTIGRAVITY_MCP.zh-TW.md)
 
 **Antigravity 全域指令：**
 
@@ -159,9 +160,9 @@ Antigravity 使用訂閱容量
 
 ## 安裝
 
-從 [Releases](https://github.com/soheidon/anthro-bridge/releases) 頁面下載最新的 Windows 安裝程式（`Anthro Bridge_0.24.0_x64-setup.exe`）並執行。
+從 [Releases](https://github.com/soheidon/poverello-coding-tools/releases) 頁面下載目前最新已發布的 Windows 安裝程式並執行。
 
-安裝程式支援 8 種語言，升級時會保留現有的使用者設定。
+目前已發布的安裝程式支援 8 種語言。Poverello v0.24.1 安裝程式及其覆蓋既有安裝的升級路徑仍在驗證中，尚未發布。首次啟動時，應用程式會將既有設定與執行資料複製到對應的 Poverello 資料資料夾，並保留原資料夾作為復原副本。
 
 ---
 
@@ -169,7 +170,7 @@ Antigravity 使用訂閱容量
 
 ### 工作流程 1：Claude Code / Claude Desktop 的第三方閘道
 
-1. 開啟 Anthro Bridge，前往 **Settings > API Key**，為所需的供應商設定 API 金鑰。
+1. 開啟 Poverello，前往 **Settings > API Key**，為所需的供應商設定 API 金鑰。
 2. 在儀表板上選擇您的供應商或 OpenRouter 配置檔。
 3. 點擊 **Start Gateway**（執行於 `http://127.0.0.1:4000`）。
 4. 連接 Claude Code 或 Claude Desktop：
@@ -178,9 +179,9 @@ Antigravity 使用訂閱容量
 
 ### 工作流程 2：Google Antigravity 的 MCP 規劃器與審查器
 
-1. 在 Anthro Bridge 中為您選擇的規劃器 / 審查器模型設定 API 金鑰。
+1. 在 Poverello 中為您選擇的規劃器 / 審查器模型設定 API 金鑰。
 2. 選擇 **MCP** 標籤，並在 **Settings > Antigravity > MCP Plan Settings** 中設定您的模型。
-3. 在 Antigravity 的 MCP 設定中以 `["--mcp-server"]` 參數註冊 `anthro-bridge.exe`（或在 Anthro Bridge 中點擊 **Configure Automatically**）。
+3. 在 Antigravity 的 MCP 設定中以 `["--mcp-server"]` 參數註冊 `anthro-bridge.exe`（或在 Poverello 中點擊 **Configure Automatically**）。
 4. 使用 `/anthro-plan` 設計計畫、`/anthro-revise` 更新計畫，以及 `/anthro-review` 在提交前審查實作成果。
 5. 請參閱完整的 [Antigravity MCP 設定指南](ANTIGRAVITY_MCP.zh-TW.md)。
 
@@ -202,7 +203,7 @@ Antigravity 使用訂閱容量
 ## 文件
 
 - [Claude Desktop / Cowork 第三方閘道設定](THIRD_PARTY_INFERENCE.md)
-- [Google Antigravity + Anthro Bridge MCP 設定](ANTIGRAVITY_MCP.zh-TW.md)
+- [Google Antigravity + Poverello MCP 設定](ANTIGRAVITY_MCP.zh-TW.md)
 - [設定參考（`config.json`）](CONFIGURATION.md)
 - [供應商詳情與推論控制](PROVIDERS.md)
 - [開發與驗證指南](DEVELOPMENT.md)
@@ -218,7 +219,7 @@ taskkill /PID <PID> /F
 ```
 
 ### 升級後設定還原
-重新啟動應用程式以執行資料庫遷移。設定儲存於 `%APPDATA%\Anthro Bridge\config.json`。
+重新啟動應用程式以執行資料庫遷移。設定儲存於 `%APPDATA%\Poverello\config.json`。
 
 ### MCP 規劃器呼叫失敗
 請確認在 **MCP** 標籤中所選供應商已設定 API 金鑰，或已在 Windows 使用者環境變數中匯出（例如 `DEEPSEEK_API_KEY`、`OPENROUTER_API_KEY`）。MCP 執行時不需要啟動第三方閘道。

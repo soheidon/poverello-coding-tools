@@ -1,15 +1,15 @@
 [English](ANTIGRAVITY_MCP.md) | [日本語](ANTIGRAVITY_MCP.ja.md) | [中文(简体)](ANTIGRAVITY_MCP.zh-CN.md) | [中文(繁體)](ANTIGRAVITY_MCP.zh-TW.md) | [한국어](ANTIGRAVITY_MCP.ko.md) | [Français](ANTIGRAVITY_MCP.fr.md) | [Deutsch](ANTIGRAVITY_MCP.de.md) | [Español](ANTIGRAVITY_MCP.es.md)
 
-[← Zurück zur Anthro Bridge README](README.de.md)
+[← Zurück zur Poverello README](README.de.md)
 
-# Anthro Bridge MCP mit Google Antigravity verwenden
+# Poverello MCP mit Google Antigravity verwenden
 
-Anthro Bridge erfordert keine separate ausführbare MCP-Serverdatei. Die installierte `anthro-bridge.exe` fungiert sowohl als Desktop-GUI-Anwendung als auch als MCP-Server. Antigravity startet den MCP-Modus durch Aufruf derselben Datei mit `--mcp-server`.
+Poverello erfordert keine separate ausführbare MCP-Serverdatei. Die installierte `anthro-bridge.exe` fungiert sowohl als Desktop-GUI-Anwendung als auch als MCP-Server. Antigravity startet den MCP-Modus durch Aufruf derselben Datei mit `--mcp-server`.
 
 ```text
 Normaler Start
 anthro-bridge.exe
-→ Anthro Bridge Desktop-App / 3P Gateway
+→ Poverello Desktop-App / 3P Gateway
 
 MCP-Start
 anthro-bridge.exe --mcp-server
@@ -43,17 +43,17 @@ Builds und Tests über das Abonnement aus
 
 ## 2. Voraussetzungen
 
-1. **Anthro Bridge** unter Windows installiert.
-2. Provider-Authentifizierung in Anthro Bridge oder in den Systemumgebungsvariablen für den gewünschten Planer konfiguriert.
+1. **Poverello** unter Windows installiert.
+2. Provider-Authentifizierung in Poverello oder in den Systemumgebungsvariablen für den gewünschten Planer konfiguriert.
 3. **Google Antigravity** installiert und aktiv.
 
 ---
 
 ## 3. MCP-Server in Antigravity konfigurieren
 
-### Methode 1 — GUI-Konfiguration über Anthro Bridge (Empfohlen)
+### Methode 1 — GUI-Konfiguration über Poverello (Empfohlen)
 
-1. Öffnen Sie Anthro Bridge und wechseln Sie zu **Einstellungen** (Reiter `[Einstellungen]`) > linke Sub-Navigation **Antigravity**.
+1. Öffnen Sie Poverello und wechseln Sie zu **Einstellungen** (Reiter `[Einstellungen]`) > linke Sub-Navigation **Antigravity**.
 2. Überprüfen Sie die Karte **Google Antigravity Integration**:
    - **Ziel-Programmdatei**: Zeigt standardmäßig den Pfad der aktuell laufenden `anthro-bridge.exe` an. Um eine andere Binärdatei zu verwenden (z. B. portable oder eigene Builds), klicken Sie auf **Ändern** (`antigravity.btnChangeExe`) und wählen die Datei aus.
    - **Registrieren / Aktualisieren**: Klicken Sie auf **Antigravity-Konfiguration aktualisieren** (`antigravity.btnUpdate`), um den `anthro-bridge`-Eintrag in `%USERPROFILE%\.gemini\config\mcp_config.json` sicher einzutragen oder zu aktualisieren, während alle anderen MCP-Server erhalten bleiben.
@@ -64,14 +64,14 @@ Builds und Tests über das Abonnement aus
 
 ### Methode 2 — Manuelle Konfiguration (Erweitert)
 
-1. Klicken Sie in Anthro Bridge unter **Einstellungen > Antigravity** auf **Einstellungsordner öffnen**, um `%USERPROFILE%\.gemini\config\` im Windows Explorer zu öffnen.
+1. Klicken Sie in Poverello unter **Einstellungen > Antigravity** auf **Einstellungsordner öffnen**, um `%USERPROFILE%\.gemini\config\` im Windows Explorer zu öffnen.
 2. Öffnen oder erstellen Sie `mcp_config.json` und fügen Sie `anthro-bridge` unter `mcpServers` hinzu:
 
 ```json
 {
   "mcpServers": {
     "anthro-bridge": {
-      "command": "C:\\Users\\<USER>\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe",
+      "command": "C:\\Users\\<USER>\\AppData\\Local\\Poverello\\anthro-bridge.exe",
       "args": ["--mcp-server"]
     }
   }
@@ -91,7 +91,7 @@ Für Entwicklungs-Builds verweisen Sie direkt auf die Release-Ausführungsdatei:
 ```
 
 > [!TIP]
-> Sie müssen **keine** API-Schlüssel in Antigravitys `mcp_config.json` eintragen. Der MCP-Server nutzt die bestehende Authentifizierungsauflösung von Anthro Bridge (automatisches Lesen aus Windows-Umgebungsvariablen wie `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `MINIMAX_API_KEY`, `XIAOMI_API_KEY` oder den gespeicherten App-Einstellungen).
+> Sie müssen **keine** API-Schlüssel in Antigravitys `mcp_config.json` eintragen. Der MCP-Server nutzt die bestehende Authentifizierungsauflösung von Poverello (automatisches Lesen aus Windows-Umgebungsvariablen wie `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `MINIMAX_API_KEY`, `XIAOMI_API_KEY` oder den gespeicherten App-Einstellungen).
 
 ---
 
@@ -107,9 +107,9 @@ anthro-bridge
 
 ---
 
-## 5. Planer-Modelle in Anthro Bridge konfigurieren
+## 5. Planer-Modelle in Poverello konfigurieren
 
-Anthro Bridge trennt die Planerauswahl klar von der detaillierten Parameterverwaltung:
+Poverello trennt die Planerauswahl klar von der detaillierten Parameterverwaltung:
 
 1. **Oberster Reiter `MCP` (`MCP for Antigravity`)**:
    - Zeigt verfügbare Anbieter (DeepSeek, OpenRouter, MiniMax, MiMo (V2.6), Kimi) und Profile als Kacheln an.
@@ -119,7 +119,7 @@ Anthro Bridge trennt die Planerauswahl klar von der detaillierten Parameterverwa
    - Karte **Google Antigravity Integration**: Verwalten Sie die MCP-Serverregistrierung und die Antigravity Commands (Global Skills).
 
 > [!NOTE]
-> Der Anthro Bridge MCP-Server liest die aktuelle Konfiguration bei jedem `plan()`-Toolaufruf dynamisch ein. Sie müssen den MCP-Server oder Antigravity **nicht** neu starten, wenn Sie Einstellungen in der GUI ändern.
+> Der Poverello MCP-Server liest die aktuelle Konfiguration bei jedem `plan()`-Toolaufruf dynamisch ein. Sie müssen den MCP-Server oder Antigravity **nicht** neu starten, wenn Sie Einstellungen in der GUI ändern.
 
 ---
 
@@ -190,7 +190,7 @@ Antigravity untersucht Code und fasst Kontext zusammen
     ↓
 Antigravity löst automatisch den anthro-bridge/plan-Aufruf aus (genau 1x)
     ↓
-Anthro Bridge sendet Prompt an das externe Modell
+Poverello sendet Prompt an das externe Modell
     ↓
 Antigravity empfängt strukturierten Implementierungsplan
     ↓
@@ -203,12 +203,12 @@ Antigravity führt Codeänderungen durch und führt Tests aus
 
 ## 9. Wichtige Hinweise
 
-- **Unabhängiger Betrieb**: Der MCP-Server arbeitet vollständig unabhängig vom Anthro Bridge 3P Gateway. Das 3P Gateway muss nicht aktiv (eingeschaltet) sein, um den MCP-Server zu nutzen.
+- **Unabhängiger Betrieb**: Der MCP-Server arbeitet vollständig unabhängig vom Poverello 3P Gateway. Das 3P Gateway muss nicht aktiv (eingeschaltet) sein, um den MCP-Server zu nutzen.
 - **Getrennte Abrechnung**: Aufrufe von `anthro-bridge/plan` verursachen API-Kosten beim jeweiligen Drittanbieter. Nachfolgende Codeänderungen und Tests nutzen Ihr Antigravity-Abonnement.
-- **Sofortige Wirksamkeit**: Änderungen von Planer-Anbietern oder Modellparametern in der Anthro Bridge GUI gelten unmittelbar für den nächsten `plan()`-Aufruf.
+- **Sofortige Wirksamkeit**: Änderungen von Planer-Anbietern oder Modellparametern in der Poverello GUI gelten unmittelbar für den nächsten `plan()`-Aufruf.
 
 ---
 > [!NOTE]
 > **MCP-Planung und -Überprüfung nutzen Cloud-Provider**
 >
-> Antigravity MCP verwendet den in Anthro Bridge konfigurierten aktiven Cloud-Modellanbieter (`mcp.provider` / `mcp.targets`). Das **Ollama Local**-Backend ist ausschließlich **Claude Code CLI** vorbehalten und beeinflusst MCP-Operationen nicht. Für lokale Claude Code Inferenz siehe den [Ollama Local Leitfaden](OLLAMA_LOCAL.de.md).
+> Antigravity MCP verwendet den in Poverello konfigurierten aktiven Cloud-Modellanbieter (`mcp.provider` / `mcp.targets`). Das **Ollama Local**-Backend ist ausschließlich **Claude Code CLI** vorbehalten und beeinflusst MCP-Operationen nicht. Für lokale Claude Code Inferenz siehe den [Ollama Local Leitfaden](OLLAMA_LOCAL.de.md).

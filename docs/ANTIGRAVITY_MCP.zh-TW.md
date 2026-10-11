@@ -1,15 +1,15 @@
 [English](ANTIGRAVITY_MCP.md) | [日本語](ANTIGRAVITY_MCP.ja.md) | [中文(简体)](ANTIGRAVITY_MCP.zh-CN.md) | [中文(繁體)](ANTIGRAVITY_MCP.zh-TW.md) | [한국어](ANTIGRAVITY_MCP.ko.md) | [Français](ANTIGRAVITY_MCP.fr.md) | [Deutsch](ANTIGRAVITY_MCP.de.md) | [Español](ANTIGRAVITY_MCP.es.md)
 
-[← 返回 Anthro Bridge README](README.zh-TW.md)
+[← 返回 Poverello README](README.zh-TW.md)
 
-# 在 Google Antigravity 中使用 Anthro Bridge MCP
+# 在 Google Antigravity 中使用 Poverello MCP
 
-Anthro Bridge 不需要單獨的 MCP 伺服器執行檔。安裝的單一 `anthro-bridge.exe` 同時提供桌面 GUI 應用程式與 MCP 伺服器功能。Antigravity 透過附加 `--mcp-server` 參數啟動同一執行檔來進入 MCP 模式。
+Poverello 不需要單獨的 MCP 伺服器執行檔。安裝的單一 `anthro-bridge.exe` 同時提供桌面 GUI 應用程式與 MCP 伺服器功能。Antigravity 透過附加 `--mcp-server` 參數啟動同一執行檔來進入 MCP 模式。
 
 ```text
 一般啟動
 anthro-bridge.exe
-→ Anthro Bridge 桌面應用程式 / 3P Gateway
+→ Poverello 桌面應用程式 / 3P Gateway
 
 MCP啟動
 anthro-bridge.exe --mcp-server
@@ -43,17 +43,17 @@ Antigravity 使用訂閱額度
 
 ## 2. 先決條件
 
-1. 在 Windows 上安裝 **Anthro Bridge**。
-2. 為想要用於規劃的提供者設定驗證資訊（在 Anthro Bridge 內設定或設定系統環境變數）。
+1. 在 Windows 上安裝 **Poverello**。
+2. 為想要用於規劃的提供者設定驗證資訊（在 Poverello 內設定或設定系統環境變數）。
 3. 安裝並執行 **Google Antigravity**。
 
 ---
 
 ## 3. 在 Antigravity 中設定 MCP 伺服器
 
-### 方法 1 — 透過 Anthro Bridge GUI 設定（推薦）
+### 方法 1 — 透過 Poverello GUI 設定（推薦）
 
-1. 開啟 Anthro Bridge，進入頂部導覽的 **設定**（`[設定]` 標籤頁）> 左側子導覽的 **Antigravity**。
+1. 開啟 Poverello，進入頂部導覽的 **設定**（`[設定]` 標籤頁）> 左側子導覽的 **Antigravity**。
 2. 檢視 **Google Antigravity 整合** 卡片：
    - **目標執行檔**：預設顯示目前正在執行的 `anthro-bridge.exe` 路徑。若想使用其他二進位檔（如可攜版或自訂建置版），點擊 **變更** (`antigravity.btnChangeExe`) 選擇執行檔。
    - **註冊 / 更新**：點擊 **更新 Antigravity 設定** (`antigravity.btnUpdate`)，即可在保留 `%USERPROFILE%\.gemini\config\mcp_config.json` 中其他 MCP 伺服器設定的前提下，安全地註冊或更新 `anthro-bridge`。
@@ -64,14 +64,14 @@ Antigravity 使用訂閱額度
 
 ### 方法 2 — 手動設定（進階）
 
-1. 在 Anthro Bridge **設定 > Antigravity** 中點擊 **開啟設定資料夾**，在 Windows 檔案總管中開啟 `%USERPROFILE%\.gemini\config\`。
+1. 在 Poverello **設定 > Antigravity** 中點擊 **開啟設定資料夾**，在 Windows 檔案總管中開啟 `%USERPROFILE%\.gemini\config\`。
 2. 開啟 `mcp_config.json`，在 `mcpServers` 物件中新增 `anthro-bridge` 設定：
 
 ```json
 {
   "mcpServers": {
     "anthro-bridge": {
-      "command": "C:\\Users\\<USER>\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe",
+      "command": "C:\\Users\\<USER>\\AppData\\Local\\Poverello\\anthro-bridge.exe",
       "args": ["--mcp-server"]
     }
   }
@@ -91,7 +91,7 @@ Antigravity 使用訂閱額度
 ```
 
 > [!TIP]
-> 無需在 Antigravity 的 `mcp_config.json` 中寫入提供者 API 金鑰。MCP 伺服器會利用 Anthro Bridge 現有的憑證解析機制（從 Windows 使用者環境變數如 `DEEPSEEK_API_KEY`、`OPENROUTER_API_KEY`、`MOONSHOT_API_KEY`、`MINIMAX_API_KEY`、`XIAOMI_API_KEY` 或已儲存的應用程式設定中自動讀取）。
+> 無需在 Antigravity 的 `mcp_config.json` 中寫入提供者 API 金鑰。MCP 伺服器會利用 Poverello 現有的憑證解析機制（從 Windows 使用者環境變數如 `DEEPSEEK_API_KEY`、`OPENROUTER_API_KEY`、`MOONSHOT_API_KEY`、`MINIMAX_API_KEY`、`XIAOMI_API_KEY` 或已儲存的應用程式設定中自動讀取）。
 
 ---
 
@@ -107,9 +107,9 @@ anthro-bridge
 
 ---
 
-## 5. 在 Anthro Bridge 中設定規劃器模型
+## 5. 在 Poverello 中設定規劃器模型
 
-Anthro Bridge 明確劃分了規劃器選擇與詳細參數管理的職責：
+Poverello 明確劃分了規劃器選擇與詳細參數管理的職責：
 
 1. **頂層 `MCP` 標籤頁 (`MCP for Antigravity`)**：
    - 顯示可用提供者（DeepSeek、OpenRouter、MiniMax、MiMo (V2.6)、Kimi）與設定檔的卡片清單。
@@ -119,7 +119,7 @@ Anthro Bridge 明確劃分了規劃器選擇與詳細參數管理的職責：
    - **Google Antigravity 整合** 卡片：管理 MCP 伺服器註冊狀態以及 Antigravity Commands（全域技能）。
 
 > [!NOTE]
-> Anthro Bridge MCP 伺服器在每次呼叫 `plan()` 工具時都會動態讀取目前設定。在 GUI 中變更規劃器提供者或模型參數時，**無需**重啟 MCP 伺服器或 Antigravity。
+> Poverello MCP 伺服器在每次呼叫 `plan()` 工具時都會動態讀取目前設定。在 GUI 中變更規劃器提供者或模型參數時，**無需**重啟 MCP 伺服器或 Antigravity。
 
 ---
 
@@ -190,7 +190,7 @@ Antigravity 探索程式碼並總結情境
     ↓
 Antigravity 自動觸發 anthro-bridge/plan 工具呼叫 (僅1次)
     ↓
-Anthro Bridge 向選定的外部模型發送請求
+Poverello 向選定的外部模型發送請求
     ↓
 Antigravity 接收結構化實作計劃
     ↓
@@ -203,12 +203,12 @@ Antigravity 執行程式碼編輯、執行測試並驗證修改
 
 ## 9. 重要說明
 
-- **獨立運作**：MCP 伺服器完全獨立於 Anthro Bridge 3P Gateway 運作。無需啟動（開啟）3P Gateway 即可使用 MCP 工具。
+- **獨立運作**：MCP 伺服器完全獨立於 Poverello 3P Gateway 運作。無需啟動（開啟）3P Gateway 即可使用 MCP 工具。
 - **帳單分開**：呼叫 `anthro-bridge/plan` 會產生由相應提供者收取的 API 費用。隨後的檔案編輯與測試消耗 Antigravity 自身的訂閱額度。
-- **即時生效**：在 Anthro Bridge GUI 中變更規劃器提供者或模型參數將在下一次 `plan()` 呼叫時立即生效。
+- **即時生效**：在 Poverello GUI 中變更規劃器提供者或模型參數將在下一次 `plan()` 呼叫時立即生效。
 
 ---
 > [!NOTE]
 > **MCP 規劃與審查使用雲端提供商**
 >
-> Antigravity MCP 使用在 Anthro Bridge 中設定的活躍雲端模型提供商（`mcp.provider` / `mcp.targets`）。**Ollama Local** 後端專為 **Claude Code CLI** 設計，不會影響 MCP 運作。有關 Claude Code 的本機推論，請參閱 [Ollama Local 指南](OLLAMA_LOCAL.zh-TW.md)。
+> Antigravity MCP 使用在 Poverello 中設定的活躍雲端模型提供商（`mcp.provider` / `mcp.targets`）。**Ollama Local** 後端專為 **Claude Code CLI** 設計，不會影響 MCP 運作。有關 Claude Code 的本機推論，請參閱 [Ollama Local 指南](OLLAMA_LOCAL.zh-TW.md)。

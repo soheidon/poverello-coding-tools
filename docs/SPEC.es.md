@@ -1,6 +1,6 @@
 [English](../SPEC.md) | [日本語](SPEC.ja.md) | [中文(简体)](SPEC.zh-CN.md) | [中文(繁體)](SPEC.zh-TW.md) | [한국어](SPEC.ko.md) | [Français](SPEC.fr.md) | [Deutsch](SPEC.de.md) | [Español](SPEC.es.md)
 
-# SPEC: Anthro Bridge
+# SPEC: Poverello
 
 ## Resumen
 
@@ -13,7 +13,7 @@ Una herramienta ligera de proxy + gestión con GUI que enruta solicitudes API de
              |                              | stdio (--mcp-server)
              v                              v
 +-------------------------------------------------------------+
-| Anthro Bridge Gateway (127.0.0.1:4000)                      |
+| Poverello Gateway (127.0.0.1:4000)                      |
 | (axum 0.7 + reqwest proxy, API key check, route resolution) |
 +-------------------------------------------------------------+
              |
@@ -23,7 +23,7 @@ Una herramienta ligera de proxy + gestión con GUI que enruta solicitudes API de
              |
              v
 +-------------------------------------------------------------+
-| Anthro Bridge Gateway (127.0.0.1:4000)                      |
+| Poverello Gateway (127.0.0.1:4000)                      |
 +-------------------------------------------------------------+
              |
              +---> Cloud Providers
@@ -56,7 +56,7 @@ Una herramienta ligera de proxy + gestión con GUI que enruta solicitudes API de
 - **Soporte de Xiaomi MiMo-V2.6**: MiMo-V2.6-Flash, MiMo-V2.6-Pro y MiMo-V2.6-Pro-UltraSpeed añadidos como modelos del proveedor Direct MiMo. Los tres tienen una ventana de contexto de 1.000.000 tokens y soporte multimodal nativo (texto, imagen, vídeo). Rutas predeterminadas integradas: Opus 5 → `mimo-v2.6-pro` (Thinking), Sonnet 5 → `mimo-v2.6-pro` (Normal), Haiku 4.5 → `mimo-v2.6-flash` (Thinking). MiMo usa únicamente el conmutador Normal/Thinking — sin niveles de esfuerzo de razonamiento (`supportsReasoningEffort: false`).
 - **Compatibilidad con versiones anteriores de MiMo V2.5**: Los modelos heredados `mimo-v2.5`, `mimo-v2.5-pro` y `mimo-v2.5-pro-ultraspeed` permanecen reconocidos estáticamente con sus capacidades originales. Las rutas predeterminadas históricas no modificadas migran automáticamente a V2.6 al iniciar; los destinos de ruta, modos thinking y configuraciones default_model personalizados por el usuario se conservan. Las configuraciones heredadas que usan `model_map` sin objeto `models` resuelven las capacidades por ruta desde el resolvedor de capacidades estático (`try_resolve_static_model_capabilities`) en lugar de recurrir a los indicadores globales del proveedor, garantizando que las rutas V2.6 reciban la capacidad de vídeo correcta incluso en configuraciones heredadas.
 - **Normalización de la identidad del modelo de respuesta**: Reescribe los nombres de los modelos upstream en las respuestas de la API (tanto streaming SSE como no streaming) de vuelta a los nombres oficiales de modelos de Anthropic. Se controla mediante `normalize_response_model_identity` en config.json y un `AtomicBool` en tiempo de ejecución. Comando de guardado independiente (`update_normalize_model_identity`) para evitar contaminación cruzada con los guardados de la configuración del servidor.
-- **Registro de comunicación estructurado**: `tracing` + `tracing-appender` escriben registros estructurados en `%APPDATA%\Anthro Bridge\Communication-Logs\proxy-*.log`. Cada solicitud recibe un ID de correlación de un contador `AtomicU64`. Las entradas de registro incluyen modelo solicitado, modelo pasarela, modelo upstream, resultado de la normalización y motivos de omisión. No se registran datos sensibles (prompts, cuerpos, API keys).
+- **Registro de comunicación estructurado**: `tracing` + `tracing-appender` escriben registros estructurados en `%APPDATA%\Poverello\Communication-Logs\proxy-*.log`. Cada solicitud recibe un ID de correlación de un contador `AtomicU64`. Las entradas de registro incluyen modelo solicitado, modelo pasarela, modelo upstream, resultado de la normalización y motivos de omisión. No se registran datos sensibles (prompts, cuerpos, API keys).
 - **Insignia PEAK**: Insignia rosa con código de color en el panel principal para modelos con precio punta.
 - **Visualización de offset UTC**: El selector de zona horaria muestra offsets UTC dinámicos (p. ej. UTC+09:00) junto a cada opción.
 - **Detección de fallo por límite de tokens de Laguna S/XS 2.1**: Detecta respuestas de solo razonamiento con `stop_reason: "max_tokens"` tanto en flujos SSE como en respuestas no streaming. Registra una advertencia cuando se alcanza el límite de tokens por turno sin producir texto utilizable ni tool calls. Disponible para todos los modelos Poolside Laguna mediante OpenRouter.
@@ -68,18 +68,18 @@ Una herramienta ligera de proxy + gestión con GUI que enruta solicitudes API de
 - **Detalles de precios de OpenRouter**: Los precios integrados admiten valores actuales y estándar revisados para tarifas de prompt, salida y entrada en caché, incluidas las variantes GPT-5.6 Sol, Terra, Luna y Pro. La GUI muestra las tarifas promocionales y estándar juntas cuando ambas están disponibles.
 - **Soporte de modelos GPT-5.6**: Los perfiles de OpenRouter pueden usar las variantes de modelo Sol, Terra y Luna, con controles de thinking conscientes de las capacidades y notas de precios para tarifas de contexto largo cuando corresponda. El perfil integrado OpenAI GPT-5.6 Balanced enruta Opus 5 → GPT-5.6 Sol, Sonnet 5 → GPT-5.6 Terra y Haiku 4.5 → GPT-5.6 Luna con nivel de razonamiento Thinking High en las tres rutas para instalaciones nuevas; el enrutamiento guardado existente no se modifica automáticamente.
 - **Tamaño de ventana basado en el panel principal**: El cambio inicial y de recuento de filas calcula la altura de la ventana a partir de las tarjetas visibles del panel principal en una cuadrícula de tres columnas. El cálculo tiene en cuenta la altura de las tarjetas, los espacios de la cuadrícula, el tamaño mínimo nativo, el área de trabajo del monitor, la escala DPI y los adornos de la ventana, preservando el redimensionado manual cuando el recuento de filas no cambia.
-- **Instalador NSIS localizado**: El instalador de Windows expone opciones de idioma en inglés, japonés, chino simplificado, chino tradicional, coreano, francés, alemán y español, e incluye el icono de la aplicación Anthro Bridge.
+- **Instalador NSIS localizado**: El instalador de Windows expone opciones de idioma en inglés, japonés, chino simplificado, chino tradicional, coreano, francés, alemán y español, e incluye el icono de la aplicación Poverello.
 - **Cobertura de regresión**: La cobertura de Vitest incluye el ordenamiento de perfiles de OpenRouter y las condiciones de carrera de guardado, los datos de precios de producción, la semántica del recuento de tarjetas del panel principal y el tamaño de ventana consciente del monitor.
 - **Nuevos proveedores mediante OpenRouter**: InclusionAI y StepFun añadidos como proveedores de modelos de OpenRouter con banderas de capacidad dedicadas, controles de modo thinking y agrupación por proveedor.
 - **Modos de thinking de Tencent Hy3**: Soporte de nivel de razonamiento Low/High para el modelo Hunyuan de Tencent. La traducción del modo thinking en proxy.rs asigna `thinking_mode` al formato `reasoning` de OpenRouter. La UI muestra Low/High como opciones de desplegable.
 - **Correcciones de Kimi K3**: Se eliminó el `forced_reasoning_effort` codificado de las definiciones de capacidades. Se reemplazó la visualización fija "Max" por un selector desplegable configurable. Los valores predeterminados provienen de la configuración guardada, con respaldo a "max".
 - **Serialización de escritura de configuración**: Todos los comandos Tauri que escriben configuración se serializan a través de `execute_serialized_config_mutation` con un guard `Mutex`. La estructura `ConfigState` proporciona seguimiento de `applied_config`, `in_flight_config` y `pending_ops` con validación. Evita condiciones de carrera cuando se guardan varios cambios de configuración de forma concurrente.
 - **Correcciones de condiciones de carrera en la UI de OpenRouter**: (1) El ref de último callback `syncUiFromSavedRouteRef` evita que un closure obsoleto sobrescriba la UI de la nueva ruta. (2) El guard `rollbackRouteId` evita la reversión de la Fase 2 entre rutas. (3) El hook `useRouteSaveGeneration` proporciona guards de generación `begin()`/`isCurrent()` para todos los handlers. (4) Hook de cola de guardado (`useOpenRouterSaveQueue`) con bucle de drenaje, detección de superposición y reinicio de la agregación de OR.
-- **Aislamiento de identidad de app dev/estable**: El enum `AppChannel` (`Stable`/`Dev`) en `paths.rs` selecciona identificadores separados (`com.soheidon.anthro-bridge` vs `.dev`), directorio de configuración (`Anthro Bridge` vs `Anthro Bridge Dev`) y rutas de caché. El canal Dev usa `tauri.dev.conf.json`. Scripts NPM: `npm run dev` (dev), `npm run dev:stable` (estable).
+- **Aislamiento de identidad de app dev/estable**: El enum `AppChannel` (`Stable`/`Dev`) en `paths.rs` selecciona identificadores separados (`com.soheidon.anthro-bridge` vs `.dev`), directorio de configuración (`Poverello` vs `Poverello Dev`) y rutas de caché. El canal Dev usa `tauri.dev.conf.json`. Scripts NPM: `npm run dev` (dev), `npm run dev:stable` (estable).
 - **Incrustación de plantilla de configuración**: `include_str!()` incrusta `config_template.rs` en tiempo de compilación, eliminando la dependencia en tiempo de ejecución del `config.json` incluido. `merge_bundled_providers` devuelve un `Result` con manejo de errores tipado.
 - **Pruebas de regresión del frontend**: 7 pruebas de regresión de vitest para condiciones de carrera de guardado de OpenRouter usando `QueueHarness` y `GenerationHandlerHarness`. Las pruebas cubren: ref de último callback, guard de reversión entre rutas, captura de identidad, reintento de actualización (rutas de fallo + éxito), superposición en vuelo y guard de generación.
 - **Gestión del contexto de Claude Code**: Auto-compactación consciente del modelo para Claude Code. `resolve_effective_auto_compact` resuelve cada ruta estándar (claude-opus-5, claude-sonnet-5, claude-haiku-4-5) a su modelo upstream, busca la capacidad de contexto de cada modelo en el registro estático `model_catalog.json` y, en modo Auto, usa la capacidad conocida más pequeña como ventana de contexto segura. El control de contexto se aplica solo cuando las tres capacidades son conocidas (de lo contrario, el estado es Incomplete). Un conmutador del encabezado activa/desactiva la gestión del contexto; los modos avanzados y los umbrales se establecen en `config.json` bajo `claude_code.auto_compact`. Modos: `auto`, `manual` (`window_tokens`), `claude_default`.
-- **Generación del comando de lanzamiento de Claude Code**: `build_claude_code_launch_command` genera un comando PowerShell completo que combina las variables de conexión de la pasarela (`ANTHROPIC_BASE_URL` apuntando a la pasarela local, `ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`) con las variables de control de contexto de Claude Code (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`). Cuando la gestión del contexto está desactivada, incompleta o configurada como valor predeterminado de Claude, el comando elimina las variables de contexto obsoletas con `Remove-Item Env:... -ErrorAction SilentlyContinue` para que los valores de sesión configurados previamente no se filtren a un nuevo lanzamiento. El botón "Copiar comando de lanzamiento de Claude Code" del panel de configuración de Claude copia el comando al portapapeles. Anthro Bridge solo genera y copia el comando — nunca lo ejecuta.
+- **Generación del comando de lanzamiento de Claude Code**: `build_claude_code_launch_command` genera un comando PowerShell completo que combina las variables de conexión de la pasarela (`ANTHROPIC_BASE_URL` apuntando a la pasarela local, `ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`) con las variables de control de contexto de Claude Code (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`). Cuando la gestión del contexto está desactivada, incompleta o configurada como valor predeterminado de Claude, el comando elimina las variables de contexto obsoletas con `Remove-Item Env:... -ErrorAction SilentlyContinue` para que los valores de sesión configurados previamente no se filtren a un nuevo lanzamiento. El botón "Copiar comando de lanzamiento de Claude Code" del panel de configuración de Claude copia el comando al portapapeles. Poverello solo genera y copia el comando — nunca lo ejecuta.
 - **Módulo de enrutamiento de modelos compartido**: `model_routing.rs` extrae la resolución de ruta-a-upstream en funciones puras compartidas por `proxy.rs` y el resolvedor de contexto, garantizando que las ventanas de contexto resuelvan los mismos modelos upstream a los que el proxy realmente reenvía.
 - **Registro de capacidad de contexto**: `model_catalog.json` es un registro estático de capacidades de contexto conocidas que cubre los modelos integrados de proveedores directos (DeepSeek, MiniMax, Kimi, MiMo V2.6 y V2.5) y los modelos integrados de OpenRouter (Poolside, Tencent, InclusionAI, StepFun, OpenAI GPT-5.6). Los modelos personalizados desconocidos de OpenRouter siguen siendo objetivos de ruta válidos, pero informan la gestión del contexto como Incomplete hasta que se agregue metadatos o se configure el modo manual.
 
@@ -89,7 +89,7 @@ Tauri v2 + React 19 + TypeScript. Diseño de dos paneles: Panel principal + Conf
 
 ```
 +------------------------------------------+
-|  Anthro Bridge                   |
+|  Poverello                   |
 |  [Iniciar/Detener pasarela] [Estado] [=] |
 +------------------------------------------+
 |  Panel principal                         |
@@ -234,7 +234,7 @@ Remove-Item Env:CLAUDE_CODE_AUTO_COMPACT_WINDOW -ErrorAction SilentlyContinue;
 Remove-Item Env:CLAUDE_AUTOCOMPACT_PCT_OVERRIDE -ErrorAction SilentlyContinue;
 ```
 
-El porcentaje de anulación solo adelanta la compactación; los valores que retrasarían la compactación más allá del valor predeterminado de Claude Code pueden ignorarse. Anthro Bridge solo genera y copia el comando — nunca lo ejecuta, y esto no prueba que una versión específica de Claude Code respete las variables (la confirmación final requiere diagnósticos de Claude Code o el comportamiento de compactación observado).
+El porcentaje de anulación solo adelanta la compactación; los valores que retrasarían la compactación más allá del valor predeterminado de Claude Code pueden ignorarse. Poverello solo genera y copia el comando — nunca lo ejecuta, y esto no prueba que una versión específica de Claude Code respete las variables (la confirmación final requiere diagnósticos de Claude Code o el comportamiento de compactación observado).
 
 ### Multilingüe
 

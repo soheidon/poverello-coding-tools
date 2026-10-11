@@ -1,8 +1,8 @@
 [English](THIRD_PARTY_INFERENCE.md) | [日本語](THIRD_PARTY_INFERENCE.ja.md) | [中文(简体)](THIRD_PARTY_INFERENCE.zh-CN.md) | [中文(繁體)](THIRD_PARTY_INFERENCE.zh-TW.md) | [한국어](THIRD_PARTY_INFERENCE.ko.md) | [Français](THIRD_PARTY_INFERENCE.fr.md) | [Deutsch](THIRD_PARTY_INFERENCE.de.md) | [Español](THIRD_PARTY_INFERENCE.es.md)
 
-# 在 Claude Desktop / Cowork on 3P 中使用 Anthro Bridge
+# 在 Claude Desktop / Cowork on 3P 中使用 Poverello
 
-Anthro Bridge 可作为 Claude Desktop / Cowork on 3P 的本地
+Poverello 可作为 Claude Desktop / Cowork on 3P 的本地
 Anthropic 兼容网关使用。
 
 Claude Desktop / Cowork on 3P 通过应用内配置窗口支持第三方推理。
@@ -12,17 +12,17 @@ Claude Desktop / Cowork on 3P 通过应用内配置窗口支持第三方推理�
 - [https://claude.com/docs/cowork/3p/installation](https://claude.com/docs/cowork/3p/installation)
 - [https://claude.com/docs/cowork/3p/configuration](https://claude.com/docs/cowork/3p/configuration)
 
-## 1. 启动 Anthro Bridge
+## 1. 启动 Poverello
 
-首先启动 Anthro Bridge，确保网关正在运行。
+首先启动 Poverello，确保网关正在运行。
 
-默认情况下，Anthro Bridge 监听：
+默认情况下，Poverello 监听：
 
 ```text
 http://127.0.0.1:4000
 ```
 
-在使用 Claude Desktop / Cowork on 3P 期间，请保持 Anthro Bridge 运行。
+在使用 Claude Desktop / Cowork on 3P 期间，请保持 Poverello 运行。
 
 ## 2. 在 Claude Desktop 中启用开发者模式
 
@@ -65,7 +65,7 @@ Gateway
 | Gateway auth scheme   | `bearer`                 |
 | Gateway extra headers | 通常留空                      |
 
-`Gateway API key` 必须与 Anthro Bridge 中配置的本地 API 密钥一致。
+`Gateway API key` 必须与 Poverello 中配置的本地 API 密钥一致。
 
 ## 5. 配置 Identity & Models
 
@@ -89,7 +89,7 @@ claude-haiku-4-5
 
 列表中的第一个模型将作为默认选择项。
 
-展开每个模型行，确认 `Model ID` 与您希望发送到 Anthro Bridge 的模型名称完全一致。
+展开每个模型行，确认 `Model ID` 与您希望发送到 Poverello 的模型名称完全一致。
 
 仅当上游提供商和所选模型确实支持扩展上下文窗口时，才启用 `Offer 1M-context variant`。
 
@@ -122,11 +122,11 @@ claude-haiku-4-5
 
 如有提示，请重启 Claude Desktop。
 
-重启后，Cowork on 3P 的请求将发送到 Anthro Bridge。Anthro Bridge 随后将请求路由到您在 Anthro Bridge 中配置的上游提供商。
+重启后，Cowork on 3P 的请求将发送到 Poverello。Poverello 随后将请求路由到您在 Poverello 中配置的上游提供商。
 
 ## Xiaomi MiMo 提供商
 
-当 Anthro Bridge 配置为使用 Direct MiMo 提供商时，来自 Claude Desktop 的推理请求将被路由到小米的 MiMo API。
+当 Poverello 配置为使用 Direct MiMo 提供商时，来自 Claude Desktop 的推理请求将被路由到小米的 MiMo API。
 
 ### MiMo-V2.6 模型
 
@@ -171,14 +171,14 @@ MiniMax-M3 支持通过 Anthropic 兼容 API 开关思考（扩展思考）功�
 | 思考关闭 | `thinking: {"type": "disabled"}` | 禁用扩展思考 |
 | 默认（未设置） | *（省略）* | API 默认值：思考关闭 |
 
-在 Anthro Bridge 设置界面中，MiniMax-M3 行会显示「思考／通常」切换开关。
+在 Poverello 设置界面中，MiniMax-M3 行会显示「思考／通常」切换开关。
 
 MiniMax-M2.x 系列模型（`MiniMax-M2.7-highspeed`）不支持关闭思考功能，固定为「仅思考」模式。
 
 > [!NOTE]
 > **Claude Desktop / Cowork on 3P 通过网关使用云端提供商**
 >
-> Claude Desktop 和 Cowork on 3P 将推理请求发送至 Anthro Bridge 网关（`http://127.0.0.1:4000`），并路由到您配置的上游云端提供商（DeepSeek、MiMo、Kimi、MiniMax、OpenRouter）。
+> Claude Desktop 和 Cowork on 3P 将推理请求发送至 Poverello 网关（`http://127.0.0.1:4000`），并路由到您配置的上游云端提供商（DeepSeek、MiMo、Kimi、MiniMax、OpenRouter）。
 >
 > **Ollama Local** 后端是 **Claude Code CLI 专用** 的，与 Claude Desktop 和 MCP 完全隔离。有关 Claude Code 的本地 LLM 配置，请参阅 [Ollama Local 指南](OLLAMA_LOCAL.zh-CN.md)。
 
@@ -186,7 +186,7 @@ MiniMax-M2.x 系列模型（`MiniMax-M2.7-highspeed`）不支持关闭思考功�
 
 ## 注意事项
 
-Anthro Bridge 是一个非官方的 Anthropic 兼容本地网关。
+Poverello 是一个非官方的 Anthropic 兼容本地网关。
 
 与 Anthropic、Moon Bridge 或任何上游模型提供商无关联。
 

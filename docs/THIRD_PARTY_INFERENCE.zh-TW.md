@@ -1,8 +1,8 @@
 [English](THIRD_PARTY_INFERENCE.md) | [日本語](THIRD_PARTY_INFERENCE.ja.md) | [中文(简体)](THIRD_PARTY_INFERENCE.zh-CN.md) | [中文(繁體)](THIRD_PARTY_INFERENCE.zh-TW.md) | [한국어](THIRD_PARTY_INFERENCE.ko.md) | [Français](THIRD_PARTY_INFERENCE.fr.md) | [Deutsch](THIRD_PARTY_INFERENCE.de.md) | [Español](THIRD_PARTY_INFERENCE.es.md)
 
-# 使用 Anthro Bridge 搭配 Claude Desktop / Cowork on 3P
+# 使用 Poverello 搭配 Claude Desktop / Cowork on 3P
 
-Anthro Bridge 可作為 Claude Desktop / Cowork on 3P 的本地 Anthropic 相容閘道使用。
+Poverello 可作為 Claude Desktop / Cowork on 3P 的本地 Anthropic 相容閘道使用。
 
 Claude Desktop / Cowork on 3P 透過應用內配置視窗支援第三方推理。
 
@@ -11,17 +11,17 @@ Claude Desktop / Cowork on 3P 透過應用內配置視窗支援第三方推理�
 - [https://claude.com/docs/cowork/3p/installation](https://claude.com/docs/cowork/3p/installation)
 - [https://claude.com/docs/cowork/3p/configuration](https://claude.com/docs/cowork/3p/configuration)
 
-## 1. 啟動 Anthro Bridge
+## 1. 啟動 Poverello
 
-先啟動 Anthro Bridge 並確保閘道正在運行。
+先啟動 Poverello 並確保閘道正在運行。
 
-Anthro Bridge 預設監聽：
+Poverello 預設監聽：
 
 ```text
 http://127.0.0.1:4000
 ```
 
-使用 Claude Desktop / Cowork on 3P 時保持 Anthro Bridge 運行。
+使用 Claude Desktop / Cowork on 3P 時保持 Poverello 運行。
 
 ## 2. 在 Claude Desktop 中啟用開發者模式
 
@@ -64,7 +64,7 @@ Gateway
 | Gateway auth scheme   | `bearer`                                   |
 | Gateway extra headers | 留空，除非需要自訂標頭 |
 
-`Gateway API key` 必須與 Anthro Bridge 中配置的本地 API 金鑰一致。
+`Gateway API key` 必須與 Poverello 中配置的本地 API 金鑰一致。
 
 ## 5. 配置身份與模型
 
@@ -88,7 +88,7 @@ claude-haiku-4-5
 
 清單中的第一個模型將作為選擇器的預設項目。
 
-對每個模型，展開列並確認 `Model ID` 正是您希望 Claude Desktop 發送給 Anthro Bridge 的模型名稱。
+對每個模型，展開列並確認 `Model ID` 正是您希望 Claude Desktop 發送給 Poverello 的模型名稱。
 
 僅在您的上游提供者和選定模型確實支援擴展上下文視窗時，才啟用 `Offer 1M-context variant`。
 
@@ -121,11 +121,11 @@ claude-haiku-4-5
 
 如有提示，重新啟動 Claude Desktop。
 
-Claude Desktop 重新啟動後，來自 Cowork on 3P 的請求將被發送到 Anthro Bridge。Anthro Bridge 然後將請求路由到在 Anthro Bridge 中配置的上游提供者。
+Claude Desktop 重新啟動後，來自 Cowork on 3P 的請求將被發送到 Poverello。Poverello 然後將請求路由到在 Poverello 中配置的上游提供者。
 
 ## Xiaomi MiMo 供應商
 
-當 Anthro Bridge 設定為使用 Direct MiMo 供應商時，來自 Claude Desktop 的推理請求將被路由至小米的 MiMo API。
+當 Poverello 設定為使用 Direct MiMo 供應商時，來自 Claude Desktop 的推理請求將被路由至小米的 MiMo API。
 
 ### MiMo-V2.6 模型
 
@@ -162,7 +162,7 @@ Direct MiMo 預設的內建路由：
 
 ## 備註
 
-Anthro Bridge 是一個非官方的 Anthropic 相容本地閘道。
+Poverello 是一個非官方的 Anthropic 相容本地閘道。
 
 它與 Anthropic、Moon Bridge 或任何上游模型提供者沒有關聯。
 
@@ -172,6 +172,6 @@ Claude Desktop / Cowork on 3P 透過 Claude 的第三方推理設定進行配置
 > [!NOTE]
 > **Claude Desktop / Cowork on 3P 透過閘道使用雲端提供商**
 >
-> Claude Desktop 與 Cowork on 3P 將推論請求發送至 Anthro Bridge 閘道（`http://127.0.0.1:4000`），並路由至您設定的上游雲端提供商（DeepSeek、MiMo、Kimi、MiniMax、OpenRouter）。
+> Claude Desktop 與 Cowork on 3P 將推論請求發送至 Poverello 閘道（`http://127.0.0.1:4000`），並路由至您設定的上游雲端提供商（DeepSeek、MiMo、Kimi、MiniMax、OpenRouter）。
 >
 > **Ollama Local** 後端專門為 **Claude Code CLI** 設計，與 Claude Desktop 及 MCP 完全隔離。有關 Claude Code 的本機 LLM 設定，請參閱 [Ollama Local 指南](OLLAMA_LOCAL.zh-TW.md)。

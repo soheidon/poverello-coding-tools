@@ -1,10 +1,10 @@
 [English](OLLAMA_LOCAL.md) | 日本語 | [中文(简体)](OLLAMA_LOCAL.zh-CN.md) | [中文(繁體)](OLLAMA_LOCAL.zh-TW.md) | [한국어](OLLAMA_LOCAL.ko.md) | [Français](OLLAMA_LOCAL.fr.md) | [Deutsch](OLLAMA_LOCAL.de.md) | [Español](OLLAMA_LOCAL.es.md)
 
-[← Anthro Bridge README に戻る](../README.md)
+[← Poverello README に戻る](../README.md)
 
 # Claude Code + Ollama Local
 
-Anthro Bridge では、Claude Desktop や MCP が使用しているクラウドプロバイダーの設定を変更することなく、Claude Code だけをローカルで動作する Ollama モデルへルーティングできます。
+Poverello では、Claude Desktop や MCP が使用しているクラウドプロバイダーの設定を変更することなく、Claude Code だけをローカルで動作する Ollama モデルへルーティングできます。
 
 ---
 
@@ -13,9 +13,9 @@ Anthro Bridge では、Claude Desktop や MCP が使用しているクラウド�
 ```text
 Claude Code
      │
-     │ Anthro Bridge Claude Code 識別マーカー (X-Anthro-Bridge-Client: claude-code)
+     │ Poverello Claude Code 識別マーカー (X-Anthro-Bridge-Client: claude-code)
      ▼
-Anthro Bridge Gateway
+Poverello Gateway
      │
      ├─ Gateway ルート (`active_route = "gateway"`) ──→ グローバルクラウドプロバイダー (DeepSeek / MiMo / OpenRouter など)
      │
@@ -25,22 +25,22 @@ Anthro Bridge Gateway
                                                      ローカルモデル
 ```
 
-Ollama Local は **Claude Code 専用** のルートです。Claude Desktop や Anthro Bridge MCP ツールが使用するグローバルなクラウドプロバイダー設定は変更されません。
+Ollama Local は **Claude Code 専用** のルートです。Claude Desktop や Poverello MCP ツールが使用するグローバルなクラウドプロバイダー設定は変更されません。
 
 ---
 
 ## 必要なもの
 
-1. **Anthro Bridge** が起動していること。
+1. **Poverello** が起動していること。
 2. **Ollama** がローカルPCでインストールされ起動していること。
 3. Ollama に少なくとも1つのモデル（`gemma4:latest`, `llama3.3:70b`, `qwen2.5-coder:32b` など）がダウンロードされているか、有効なカスタムモデルタグがあること。
-4. Anthro Bridge が生成した起動コマンドから Claude Code が起動されていること。
+4. Poverello が生成した起動コマンドから Claude Code が起動されていること。
 
 ---
 
 ## Ollama Local の設定
 
-Anthro Bridge の **設定 > APIキー** を開きます。APIキータスクの下にある **Ollama Local** 設定カードで設定します。
+Poverello の **設定 > APIキー** を開きます。APIキータスクの下にある **Ollama Local** 設定カードで設定します。
 
 ### メイン設定行
 
@@ -60,7 +60,7 @@ Anthro Bridge の **設定 > APIキー** を開きます。APIキータスクの
 
 ## インストール済みモデルの取得
 
-**更新 (`🔄 更新`)** をクリックすると、Anthro Bridge は次へリクエストを送信します：
+**更新 (`🔄 更新`)** をクリックすると、Poverello は次へリクエストを送信します：
 
 ```http
 GET http://127.0.0.1:11434/api/tags
@@ -91,7 +91,7 @@ GET http://127.0.0.1:11434/api/tags
 
 ## Thinking（思考モード）の仕様
 
-Anthro Bridge は Thinking の選択状態を Ollama が要求する Anthropic 互換フォーマットに変換します：
+Poverello は Thinking の選択状態を Ollama が要求する Anthropic 互換フォーマットに変換します：
 
 - **通常 (Normal)**:
   ```json
@@ -110,20 +110,20 @@ Anthro Bridge は Thinking の選択状態を Ollama が要求する Anthropic �
 
 - `context_window` の設定は **任意** です。
 - 値を指定した場合、Claude Code のコンテキスト管理および自動圧縮（auto-compact）計算に使用されます。
-- 未指定（`null`）の場合、Anthro Bridge がコンテキスト長を勝手に推測することはなく、既定の自動圧縮ルールに従います。
+- 未指定（`null`）の場合、Poverello がコンテキスト長を勝手に推測することはなく、既定の自動圧縮ルールに従います。
 
 ---
 
 ## Claude Code 識別マーカー
 
-Anthro Bridge が生成する Claude Code 起動コマンドは、`ANTHROPIC_CUSTOM_HEADERS` を通じて内部識別マーカーを注入します：
+Poverello が生成する Claude Code 起動コマンドは、`ANTHROPIC_CUSTOM_HEADERS` を通じて内部識別マーカーを注入します：
 
 ```text
 X-Anthro-Bridge-Client: claude-code
 ```
 
 - **ヘッダーの正規化**: 大文字小文字を問わず重複や古いマーカーを1つの正規マーカーに統一し、ユーザー独自のカスタムヘッダーを保持します。
-- **上流転送前の除去**: このマーカーは Anthro Bridge 内部のルーティング判定にのみ使用され、上流のプロバイダーや Ollama に転送される前に確実に除去されます。
+- **上流転送前の除去**: このマーカーは Poverello 内部のルーティング判定にのみ使用され、上流のプロバイダーや Ollama に転送される前に確実に除去されます。
 
 ---
 
@@ -149,11 +149,11 @@ X-Anthro-Bridge-Client: claude-code
 2. 詳細設定のエンドポイントが `http://127.0.0.1:11434` であることを確認します。
 
 ### 保存したモデルが一覧にない
-取得結果に含まれないモデルであっても、Anthro Bridge は設定を保持します。また `+ カスタムモデルタグ...` から手動入力も可能です。
+取得結果に含まれないモデルであっても、Poverello は設定を保持します。また `+ カスタムモデルタグ...` から手動入力も可能です。
 
 ### Claude Code がクラウド側へ接続される
 1. ダッシュボードで **Ollama Local** がアクティブになっていることを確認してください。
-2. Anthro Bridge で生成された起動コマンド（`Claude Code起動コマンドをコピー`）から起動したことを確認してください。
+2. Poverello で生成された起動コマンド（`Claude Code起動コマンドをコピー`）から起動したことを確認してください。
 
 ### Claude Desktop がクラウド側を使い続ける
 正常な動作です。Ollama Local は Claude Code 専用です。

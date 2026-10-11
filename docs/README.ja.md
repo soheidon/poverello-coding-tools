@@ -1,24 +1,25 @@
 [English](../README.md) | [日本語](README.ja.md) | [中文(简体)](README.zh-CN.md) | [中文(繁體)](README.zh-TW.md) | [한국어](README.ko.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md)
 
-# Anthro Bridge
+# Poverello
 
 **Claude Code / Claude Desktop をコーディングハーネスとして使用し、推論をサードパーティ LLM API にルーティングしながら、外部モデルを Google Antigravity のプランナー・レビュアーとして活用します。**
 
-Anthro Bridge は、AI 支援ソフトウェア開発のための Windows コンパニオンアプリケーションです。2 つの補完的なワークフローをサポートしています。
+Poverello は、AI 支援ソフトウェア開発のための Windows コンパニオンアプリケーションです。3 つの補完的なワークフローをサポートしています。
 
 1. **Claude Code / Claude Desktop 向け 3P ゲートウェイ** — Claude のリポジトリ探索、ツール使用、ファイル編集、テスト実行はそのままに、推論をサードパーティプロバイダーにルーティングします。
-2. **Google Antigravity 向け MCP プランナー & レビュアー** — `anthro-bridge/plan` および `anthro-bridge/review` MCP ツールを通じて、実装計画と実装後レビューを外部モデルに委任します。
+2. **Claude Code 向けローカル LLM（Ollama）** — ローカルモデルを使って、Claude Code をオフラインで実行できます。
+3. **Google Antigravity 向け MCP プランナー & レビュアー** — `anthro-bridge/plan` および `anthro-bridge/review` MCP ツールを通じて、実装計画と実装後レビューを外部モデルに委任します。
 
 ---
 
-## 2 つのメインワークフロー
+## 3 つのメインワークフロー
 
 ### 1. Claude Code / Claude Desktop と 3P ゲートウェイ
 
 ```text
 Claude Code / Claude Desktop
              ↓
-  Anthro Bridge 3P Gateway
+  Poverello 3P Gateway
              ↓
 DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo
 ```
@@ -27,7 +28,13 @@ DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo
 - **動的マルチプロファイルルーティング**: GUI からアクティブなプロバイダー、OpenRouter プロファイル、モデルルートを切り替えられます。
 - **セットアップガイド**: [Claude Desktop / Cowork 3P ゲートウェイ セットアップ](THIRD_PARTY_INFERENCE.ja.md)
 
-### 2. Antigravity と MCP プランナー & レビュアー
+### 2. Claude Code と専用ローカル LLM（Ollama）
+
+Claude Code CLI をローカルの Ollama モデルへ直接接続できます。この経路は 3P Gateway や Antigravity MCP から独立しています。
+
+- **セットアップガイド**: [Ollama Local セットアップ](OLLAMA_LOCAL.ja.md)
+
+### 3. Antigravity と MCP プランナー & レビュアー
 
 ```text
 Antigravity
@@ -44,7 +51,7 @@ Antigravity がサブスクリプションの処理能力を使って
 
 - **計画と実行の分離**: 外部モデルが高レベルの計画またはレビュー判定を生成し、Antigravity のサブスクリプション処理能力がトークン集約的なコード編集を実行します。
 - **ライブ GUI 設定**: プランナーまたはレビュアーのプロバイダー、モデル、推論努力度を切り替えると、次回の呼び出し時から即座に反映されます。
-- **セットアップガイド**: [Google Antigravity + Anthro Bridge MCP セットアップ](ANTIGRAVITY_MCP.ja.md)
+- **セットアップガイド**: [Google Antigravity + Poverello MCP セットアップ](ANTIGRAVITY_MCP.ja.md)
 
 **Antigravity グローバルコマンド:**
 
@@ -152,9 +159,9 @@ Moonshot Kimi とは別の、コーディング専用 API（`KIMI_CODE_API_KEY`�
 
 ## インストール
 
-[Releases](https://github.com/soheidon/anthro-bridge/releases) ページから最新の Windows インストーラー（`Anthro Bridge_0.24.0_x64-setup.exe`）をダウンロードして実行してください。
+[Releases](https://github.com/soheidon/poverello-coding-tools/releases) ページから最新の公開済み Windows インストーラーをダウンロードして実行してください。
 
-インストーラーは 8 言語に対応しており、アップグレード時に既存のユーザー設定を保持します。
+現在公開中のインストーラーは 8 言語に対応しています。Poverello v0.24.1 インストーラーと既存環境へのアップグレード経路は検証中で、まだ公開されていません。初回起動時に既存の設定と実行データを対応する Poverello データフォルダーへコピーし、元のフォルダーは復旧用として保持します。
 
 ---
 
@@ -162,7 +169,7 @@ Moonshot Kimi とは別の、コーディング専用 API（`KIMI_CODE_API_KEY`�
 
 ### ワークフロー 1: Claude Code / Claude Desktop 向け 3P ゲートウェイ
 
-1. Anthro Bridge の **Settings > API Key** を開き、使用するプロバイダーの API キーを設定します。
+1. Poverello の **Settings > API Key** を開き、使用するプロバイダーの API キーを設定します。
 2. ダッシュボードでプロバイダーまたは OpenRouter プロファイルを選択します。
 3. **Start Gateway** をクリックします（`http://127.0.0.1:4000` で起動）。
 4. Claude Code または Claude Desktop を接続します。
@@ -171,9 +178,9 @@ Moonshot Kimi とは別の、コーディング専用 API（`KIMI_CODE_API_KEY`�
 
 ### ワークフロー 2: Google Antigravity 向け MCP プランナー & レビュアー
 
-1. Anthro Bridge で、選択したプランナー / レビュアーモデルの API キーを設定します。
+1. Poverello で、選択したプランナー / レビュアーモデルの API キーを設定します。
 2. **MCP** タブを選択し、**Settings > Antigravity > MCP Plan Settings** でモデルを設定します。
-3. Antigravity の MCP 設定で `anthro-bridge.exe` を `["--mcp-server"]` 付きで登録します（または Anthro Bridge の **Configure Automatically** をクリックします）。
+3. Antigravity の MCP 設定で `anthro-bridge.exe` を `["--mcp-server"]` 付きで登録します（または Poverello の **Configure Automatically** をクリックします）。
 4. `/anthro-plan` で計画を作成し、`/anthro-revise` で計画を更新し、`/anthro-review` でコミット前に実装をレビューします。
 5. 完全な [Antigravity MCP セットアップガイド](ANTIGRAVITY_MCP.ja.md) に従ってください。
 
@@ -195,7 +202,7 @@ Moonshot Kimi とは別の、コーディング専用 API（`KIMI_CODE_API_KEY`�
 ## ドキュメント
 
 - [Claude Desktop / Cowork 3P ゲートウェイ セットアップ](THIRD_PARTY_INFERENCE.ja.md)
-- [Google Antigravity + Anthro Bridge MCP セットアップ](ANTIGRAVITY_MCP.ja.md)
+- [Google Antigravity + Poverello MCP セットアップ](ANTIGRAVITY_MCP.ja.md)
 - [設定リファレンス（`config.json`）](CONFIGURATION.md)
 - [プロバイダー詳細 & 推論コントロール](PROVIDERS.md)
 - [開発 & 検証ガイド](DEVELOPMENT.md)
@@ -211,7 +218,7 @@ taskkill /PID <PID> /F
 ```
 
 ### アップグレード後に設定が元に戻る場合
-マイグレーションが実行されるよう、アプリケーションを再起動してください。設定は `%APPDATA%\Anthro Bridge\config.json` に保存されています。
+マイグレーションが実行されるよう、アプリケーションを再起動してください。設定は `%APPDATA%\Poverello\config.json` に保存されています。
 
 ### MCP プランナーの呼び出しが失敗する場合
 **MCP** タブで選択したプロバイダーの API キーが設定されているか、または Windows ユーザー環境変数（例: `DEEPSEEK_API_KEY`、`OPENROUTER_API_KEY`）にエクスポートされていることを確認してください。MCP の利用に 3P ゲートウェイの起動は不要です。

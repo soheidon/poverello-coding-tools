@@ -1,10 +1,10 @@
 [English](OLLAMA_LOCAL.md) | [日本語](OLLAMA_LOCAL.ja.md) | [中文(简体)](OLLAMA_LOCAL.zh-CN.md) | [中文(繁體)](OLLAMA_LOCAL.zh-TW.md) | [한국어](OLLAMA_LOCAL.ko.md) | [Français](OLLAMA_LOCAL.fr.md) | [Deutsch](OLLAMA_LOCAL.de.md) | Español
 
-[← Volver al README de Anthro Bridge](../README.md)
+[← Volver al README de Poverello](../README.md)
 
 # Claude Code + Ollama Local
 
-Anthro Bridge puede enrutar Claude Code hacia un modelo Ollama ejecutado localmente sin modificar los proveedores en la nube configurados para Claude Desktop y MCP.
+Poverello puede enrutar Claude Code hacia un modelo Ollama ejecutado localmente sin modificar los proveedores en la nube configurados para Claude Desktop y MCP.
 
 ---
 
@@ -13,9 +13,9 @@ Anthro Bridge puede enrutar Claude Code hacia un modelo Ollama ejecutado localme
 ```text
 Claude Code
      │
-     │ Marcador Claude Code de Anthro Bridge (X-Anthro-Bridge-Client: claude-code)
+     │ Marcador Claude Code de Poverello (X-Anthro-Bridge-Client: claude-code)
      ▼
-Pasarela Anthro Bridge
+Pasarela Poverello
      │
      ├─ Ruta Gateway (`active_route = "gateway"`) ──→ Proveedor cloud global (DeepSeek / MiMo / OpenRouter / etc.)
      │
@@ -25,22 +25,22 @@ Pasarela Anthro Bridge
                                                      Modelo local
 ```
 
-Ollama Local está diseñado exclusivamente para **Claude Code**. No reemplaza al proveedor global en la nube utilizado por Claude Desktop o las herramientas MCP de Anthro Bridge.
+Ollama Local está diseñado exclusivamente para **Claude Code**. No reemplaza al proveedor global en la nube utilizado por Claude Desktop o las herramientas MCP de Poverello.
 
 ---
 
 ## Requisitos
 
-1. **Anthro Bridge** instalado y en ejecución.
+1. **Poverello** instalado y en ejecución.
 2. **Ollama** instalado y activo en su máquina local.
 3. Al menos un modelo descargado en Ollama (p. ej. `gemma4:latest`, `llama3.3:70b`, `qwen2.5-coder:32b`) o una etiqueta de modelo personalizada válida.
-4. Claude Code iniciado mediante el comando generado por Anthro Bridge.
+4. Claude Code iniciado mediante el comando generado por Poverello.
 
 ---
 
 ## Configurar Ollama Local
 
-En Anthro Bridge:
+En Poverello:
 1. Vaya a **Ajustes > Claves API**.
 2. Desplácese hasta la tarjeta de configuración de **Ollama Local** situada debajo de la tabla de claves API.
 
@@ -93,7 +93,7 @@ GET http://127.0.0.1:11434/api/tags
 
 ## Semántica de Thinking
 
-Anthro Bridge traduce su selección al formato compatible con Anthropic requerido por Ollama:
+Poverello traduce su selección al formato compatible con Anthropic requerido por Ollama:
 
 - **Normal**:
   ```json
@@ -109,8 +109,8 @@ Anthro Bridge traduce su selección al formato compatible con Anthropic requerid
 ## Ventana de contexto y compactación automática
 
 - `context_window` es **opcional**.
-- Cuando se especifica, Anthro Bridge lo utiliza para la gestión de contexto y cálculo de auto-compactación en Claude Code.
-- Si se omite (`null`), Anthro Bridge no asume un tamaño arbitrario.
+- Cuando se especifica, Poverello lo utiliza para la gestión de contexto y cálculo de auto-compactación en Claude Code.
+- Si se omite (`null`), Poverello no asume un tamaño arbitrario.
 
 ---
 
@@ -147,11 +147,11 @@ X-Anthro-Bridge-Client: claude-code
 2. Compruebe que el punto de conexión sea `http://127.0.0.1:11434`.
 
 ### El modelo guardado no aparece en la lista
-Anthro Bridge conserva el modelo configurado. También puede ingresarlo manualmente.
+Poverello conserva el modelo configurado. También puede ingresarlo manualmente.
 
 ### Claude Code sigue utilizando el proveedor en la nube
 1. Confirme en el panel que la tarjeta **Ollama Local** esté activa.
-2. Asegúrese de haber iniciado Claude Code con el comando generado por Anthro Bridge.
+2. Asegúrese de haber iniciado Claude Code con el comando generado por Poverello.
 
 ### Claude Desktop sigue utilizando el proveedor en la nube
 Comportamiento esperado. Ollama Local es exclusivo para Claude Code.

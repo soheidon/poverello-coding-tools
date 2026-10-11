@@ -1,10 +1,10 @@
 [English](OLLAMA_LOCAL.md) | [日本語](OLLAMA_LOCAL.ja.md) | [中文(简体)](OLLAMA_LOCAL.zh-CN.md) | 中文(繁體) | [한국어](OLLAMA_LOCAL.ko.md) | [Français](OLLAMA_LOCAL.fr.md) | [Deutsch](OLLAMA_LOCAL.de.md) | [Español](OLLAMA_LOCAL.es.md)
 
-[← 返回 Anthro Bridge README](../README.md)
+[← 返回 Poverello README](../README.md)
 
 # Claude Code + Ollama Local
 
-Anthro Bridge 能夠將 Claude Code 路由至本機執行的 Ollama 模型，同時保持 Claude Desktop 和 MCP 使用的雲端提供者不變。
+Poverello 能夠將 Claude Code 路由至本機執行的 Ollama 模型，同時保持 Claude Desktop 和 MCP 使用的雲端提供者不變。
 
 ---
 
@@ -13,9 +13,9 @@ Anthro Bridge 能夠將 Claude Code 路由至本機執行的 Ollama 模型，同
 ```text
 Claude Code
      │
-     │ Anthro Bridge Claude Code 識別標記 (X-Anthro-Bridge-Client: claude-code)
+     │ Poverello Claude Code 識別標記 (X-Anthro-Bridge-Client: claude-code)
      ▼
-Anthro Bridge Gateway
+Poverello Gateway
      │
      ├─ Gateway 路由 (`active_route = "gateway"`) ──→ 全域雲端提供者 (DeepSeek / MiMo / OpenRouter 等)
      │
@@ -25,22 +25,22 @@ Anthro Bridge Gateway
                                                       本機模型
 ```
 
-Ollama Local 專為 **Claude Code** 設計。它不會取代 Claude Desktop 或 Anthro Bridge MCP 工具使用的全域雲端提供者。
+Ollama Local 專為 **Claude Code** 設計。它不會取代 Claude Desktop 或 Poverello MCP 工具使用的全域雲端提供者。
 
 ---
 
 ## 環境需求
 
-1. **Anthro Bridge** 已安裝並啟動。
+1. **Poverello** 已安裝並啟動。
 2. **Ollama** 已在本機電腦上安裝並啟動。
 3. Ollama 中已下載至少一個模型（如 `gemma4:latest`、`llama3.3:70b`、`qwen2.5-coder:32b`），或具備有效的自訂模型標籤。
-4. 使用 Anthro Bridge 產生的啟動指令啟動 Claude Code。
+4. 使用 Poverello 產生的啟動指令啟動 Claude Code。
 
 ---
 
 ## 設定 Ollama Local
 
-開啟 Anthro Bridge：
+開啟 Poverello：
 1. 前往 **設定 > API 金鑰**。
 2. 在 API 金鑰表格下方找到 **Ollama Local** 設定卡片。
 
@@ -93,7 +93,7 @@ GET http://127.0.0.1:11434/api/tags
 
 ## Thinking 行為規範
 
-Anthro Bridge 將 Thinking 選取轉換為 Ollama 所需的 Anthropic 相容格式：
+Poverello 將 Thinking 選取轉換為 Ollama 所需的 Anthropic 相容格式：
 
 - **一般 (Normal)**:
   ```json
@@ -111,21 +111,21 @@ Anthro Bridge 將 Thinking 選取轉換為 Ollama 所需的 Anthropic 相容格�
 ## 上下文視窗與自動壓縮
 
 - `context_window` 為**選填**參數。
-- 指定後，Anthro Bridge 將其用於 Claude Code 上下文管理與自動壓縮（auto-compact）計算。
-- 省略（`null`）時，Anthro Bridge 不會擅自推測上下文大小，而是採用預設規則。
+- 指定後，Poverello 將其用於 Claude Code 上下文管理與自動壓縮（auto-compact）計算。
+- 省略（`null`）時，Poverello 不會擅自推測上下文大小，而是採用預設規則。
 
 ---
 
 ## Claude Code 識別標記
 
-Anthro Bridge 產生的 Claude Code 啟動指令透過 `ANTHROPIC_CUSTOM_HEADERS` 注入內部識別標記：
+Poverello 產生的 Claude Code 啟動指令透過 `ANTHROPIC_CUSTOM_HEADERS` 注入內部識別標記：
 
 ```text
 X-Anthro-Bridge-Client: claude-code
 ```
 
 - **請求標頭正規化**: 不分大小寫正規化標頭，合併或取代舊標記，並保留使用者的其他自訂請求標頭。
-- **向上游轉發前移除**: Anthro Bridge 僅在本機將其用於路由判斷，在向上游提供者或 Ollama 轉發請求前會將其完全移除。
+- **向上游轉發前移除**: Poverello 僅在本機將其用於路由判斷，在向上游提供者或 Ollama 轉發請求前會將其完全移除。
 
 ---
 
@@ -151,11 +151,11 @@ X-Anthro-Bridge-Client: claude-code
 2. 確認進階設定中的端點為 `http://127.0.0.1:11434`。
 
 ### 已儲存的模型未在清單中列出
-即使 `/api/tags` 未回傳該模型，Anthro Bridge 也會保留已儲存的設定。您也可以透過 `+ 自訂模型標籤...` 手動輸入。
+即使 `/api/tags` 未回傳該模型，Poverello 也會保留已儲存的設定。您也可以透過 `+ 自訂模型標籤...` 手動輸入。
 
 ### Claude Code 仍在使用雲端提供者
 1. 檢查儀表板，確認 **Ollama Local** 卡片處於啟用狀態。
-2. 確保使用 Anthro Bridge 產生的啟動指令（`複製 Claude Code 啟動指令`）啟動 Claude Code。
+2. 確保使用 Poverello 產生的啟動指令（`複製 Claude Code 啟動指令`）啟動 Claude Code。
 
 ### Claude Desktop 仍在使用雲端提供者
 此為正常行為。Ollama Local 僅供 Claude Code 使用。

@@ -1,6 +1,6 @@
 # Development & Verification Guide
 
-This document contains instructions for building, developing, testing, and verifying Anthro Bridge.
+This document contains instructions for building, developing, testing, and verifying Poverello.
 
 ---
 
@@ -63,10 +63,10 @@ Remove-Item Env:CARGO_BUILD_JOBS
 ```
 
 Development builds use:
-- Window title: `Anthro Bridge (DEV)`
+- Window title: `Poverello Dev`
 - Application identity: `com.soheidon.anthro-bridge.dev`
 - Port: `4000`
-- Data directory: `%APPDATA%\Anthro Bridge Dev\`
+- Data directory: `%APPDATA%\Poverello Dev\`
 - Single Binary MCP Server: `target\release\anthro-bridge.exe --mcp-server`
 
 ### Standalone MCP Server for Testing
@@ -113,10 +113,10 @@ cargo test
 Before creating a release, verify the following:
 
 - [ ] Window controls (minimize, maximize/restore, close) operate smoothly on the custom titlebar.
-- [ ] Titlebar workspace tabs (`Anthro Bridge` and `MCP`) switch views correctly and cleanly fuse with the header.
+- [ ] Titlebar workspace tabs (`Poverello` and `MCP`) switch views correctly and cleanly fuse with the header.
 - [ ] Dragging works from the title and central spacer; tabs and buttons do not drag the window.
 - [ ] Opening Settings and clicking a titlebar tab closes Settings and navigates to the target workspace.
 - [ ] Every built-in provider and OpenRouter profile saves and loads routes reliably.
 - [ ] Gateway start/stop functions reliably and reports health on `http://127.0.0.1:4000/health`.
 - [ ] Copied Claude Code launch commands contain correct base URL and context window parameters.
-- [ ] Anthro Bridge MCP server connects cleanly to Google Antigravity and executes `anthro-bridge/plan`.
+- [ ] Poverello MCP server connects cleanly to Google Antigravity and executes `anthro-bridge/plan`.

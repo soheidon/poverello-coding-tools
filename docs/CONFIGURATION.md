@@ -1,10 +1,10 @@
 # Configuration Reference
 
-This document describes the structure and settings available in Anthro Bridge's configuration (`config.json`).
+This document describes the structure and settings available in Poverello's configuration (`config.json`).
 
 Configuration files are stored under:
-- **Stable**: `%APPDATA%\Anthro Bridge\config.json`
-- **Development**: `%APPDATA%\Anthro Bridge Dev\config.json`
+- **Stable**: `%APPDATA%\Poverello\config.json`
+- **Development**: `%APPDATA%\Poverello Dev\config.json`
 
 ---
 
@@ -121,7 +121,7 @@ OpenRouter supports multiple profiles, each with its own independent configurati
 
 ## 4. Claude Code Context Management
 
-Anthro Bridge can manage context capacity to trigger proactive compaction in Claude Code.
+Poverello can manage context capacity to trigger proactive compaction in Claude Code.
 
 ### Modes
 
@@ -162,7 +162,7 @@ Claude Code CLI routing is governed independently from global provider settings.
 
 ### Route Selector (`claude_code.active_route`)
 
-- `"gateway"`: Claude Code connects to Anthro Bridge Gateway (`http://127.0.0.1:4000`), routing to the global `active_provider`.
+- `"gateway"`: Claude Code connects to Poverello Gateway (`http://127.0.0.1:4000`), routing to the global `active_provider`.
 - `"ollama"`: Claude Code connects directly to the local Ollama loopback endpoint (`http://127.0.0.1:11434/v1`).
 
 ### Third-Party Provider Configuration (`claude_code.third_party_provider`)
