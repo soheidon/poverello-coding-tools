@@ -7,7 +7,7 @@ import tauriConf from "../../src-tauri/tauri.conf.json";
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
-    title: vi.fn().mockResolvedValue("Anthro Bridge"),
+    title: vi.fn().mockResolvedValue("Poverello"),
     isMaximized: vi.fn().mockResolvedValue(false),
     onResized: vi.fn().mockResolvedValue(() => {}),
     minimize: vi.fn().mockResolvedValue(undefined),
@@ -30,7 +30,7 @@ describe("TitleBar Component", () => {
     );
 
     // App Branding
-    expect(screen.getByText("Anthro Bridge")).toBeInTheDocument();
+    expect(screen.getByText("Poverello")).toBeInTheDocument();
 
     // 3 Tabs
     expect(screen.getByRole("button", { name: /Gateway for Claude Desktop/i })).toBeInTheDocument();

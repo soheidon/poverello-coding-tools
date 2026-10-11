@@ -80,14 +80,14 @@ describe("McpSettingPanel - Antigravity Integration", () => {
         } as AntigravityCommandsInfo;
       }
       if (cmd === "select_executable_dialog") {
-        return "C:\\Users\\User\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe";
+        return "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe";
       }
       if (cmd === "configure_antigravity_mcp") {
         return {
           status: "configured",
           config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
           config_dir: "C:\\Users\\User\\.gemini\\config",
-          registered_command: "C:\\Users\\User\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe",
+          registered_command: "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe",
           registered_args: ["--mcp-server"],
           error: null,
         } as AntigravityMcpInfo;
@@ -127,7 +127,7 @@ describe("McpSettingPanel - Antigravity Integration", () => {
           status: "configured",
           config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
           config_dir: "C:\\Users\\User\\.gemini\\config",
-          registered_command: "C:\\Users\\User\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe",
+          registered_command: "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe",
           registered_args: ["--mcp-server"],
           error: null,
         } as AntigravityMcpInfo;
@@ -170,7 +170,7 @@ describe("McpSettingPanel - Antigravity Integration", () => {
           status: "configured",
           config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
           config_dir: "C:\\Users\\User\\.gemini\\config",
-          registered_command: "C:\\Users\\User\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe",
+          registered_command: "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe",
           registered_args: ["--mcp-server"],
           error: null,
         } as AntigravityMcpInfo;
@@ -279,14 +279,14 @@ describe("McpSettingPanel - Antigravity Integration", () => {
         } as AntigravityMcpInfo;
       }
       if (cmd === "select_executable_dialog") {
-        return "C:\\Users\\User\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe";
+        return "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe";
       }
       if (cmd === "configure_antigravity_mcp") {
         return {
           status: "configured",
           config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
           config_dir: "C:\\Users\\User\\.gemini\\config",
-          registered_command: "C:\\Users\\User\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe",
+          registered_command: "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe",
           registered_args: ["--mcp-server"],
           error: null,
         } as AntigravityMcpInfo;
@@ -311,7 +311,7 @@ describe("McpSettingPanel - Antigravity Integration", () => {
     });
 
     expect(invokeMock).toHaveBeenCalledWith("configure_antigravity_mcp", {
-      exePath: "C:\\Users\\User\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe",
+      exePath: "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe",
     });
 
     await waitFor(() => {
@@ -335,7 +335,7 @@ describe("McpSettingPanel - Antigravity Integration", () => {
           status: "configured",
           config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
           config_dir: "C:\\Users\\User\\.gemini\\config",
-          registered_command: "C:\\Users\\User\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe",
+          registered_command: "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe",
           registered_args: ["--mcp-server"],
           error: null,
         } as AntigravityMcpInfo;
@@ -398,7 +398,7 @@ describe("McpSettingPanel - Antigravity Integration", () => {
           status: "configured",
           config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
           config_dir: "C:\\Users\\User\\.gemini\\config",
-          registered_command: "C:\\Users\\User\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe",
+          registered_command: "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe",
           registered_args: ["--mcp-server"],
           error: null,
         } as AntigravityMcpInfo;
@@ -461,7 +461,7 @@ describe("McpSettingPanel - Antigravity Integration", () => {
           status: "configured",
           config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
           config_dir: "C:\\Users\\User\\.gemini\\config",
-          registered_command: "C:\\Users\\User\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe",
+          registered_command: "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe",
           registered_args: ["--mcp-server"],
           error: null,
         } as AntigravityMcpInfo;

@@ -31,20 +31,7 @@ use super::types::{
 
 /// Location of the ephemeral session descriptor file.
 pub fn get_session_descriptor_path() -> PathBuf {
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        PathBuf::from(appdata)
-            .join("Anthro Bridge")
-            .join("orchestrator_session.json")
-    } else if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home)
-            .join(".config")
-            .join("anthro-bridge")
-            .join("orchestrator_session.json")
-    } else {
-        std::env::temp_dir()
-            .join("anthro-bridge")
-            .join("orchestrator_session.json")
-    }
+    crate::paths::user_data_dir().join("orchestrator_session.json")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

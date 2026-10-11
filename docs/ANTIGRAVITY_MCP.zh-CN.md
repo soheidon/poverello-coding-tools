@@ -6,6 +6,8 @@
 
 Poverello 不需要单独的 MCP 服务器可执行文件。安装的单一 `anthro-bridge.exe` 同时提供桌面 GUI 应用程序和 MCP 服务器功能。Antigravity 通过附带 `--mcp-server` 参数启动同一可执行文件来进入 MCP 模式。
 
+`anthro-bridge.exe`、MCP 服务器条目 `anthro-bridge` 以及 `anthro-bridge/plan` 等工具名称为保持兼容性而保留。产品名称为 Poverello Coding Tools，应用内显示为 Poverello。
+
 ```text
 普通启动
 anthro-bridge.exe
@@ -83,7 +85,7 @@ Antigravity 使用订阅额度
 {
   "mcpServers": {
     "anthro-bridge": {
-      "command": "C:\\Users\\<USER>\\path\\to\\anthro-bridge\\gui\\src-tauri\\target\\release\\anthro-bridge.exe",
+      "command": "C:\\Users\\<USER>\\path\\to\\poverello-coding-tools\\gui\\src-tauri\\target\\release\\anthro-bridge.exe",
       "args": ["--mcp-server"]
     }
   }

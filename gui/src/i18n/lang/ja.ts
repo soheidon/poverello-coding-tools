@@ -4,7 +4,7 @@ export const nativeName = "日本語";
 
 export const translations: TranslationMap = {
   // Header
-  "header.title": "Anthro Bridge",
+  "header.title": "Poverello",
   "header.gatewayRunning": "ゲートウェイ: 実行中",
   "header.gatewayStopped": "ゲートウェイ: 停止中",
   "header.gatewayDetected": "ゲートウェイ: 外部で動作中",
@@ -48,15 +48,15 @@ export const translations: TranslationMap = {
 
   // Antigravity Integration
   "antigravity.header": "Google Antigravity 連携設定",
-  "antigravity.desc": "Google Antigravity から Anthro Bridge の MCP 機能を利用できるように設定します。",
+  "antigravity.desc": "Google Antigravity から Poverello の MCP 機能を利用できるように設定します。",
   "antigravity.mcpSectionHeader": "MCP サーバー登録",
   "antigravity.statusLabel": "状態",
   "antigravity.configPathLabel": "Antigravity設定ファイル",
-  "antigravity.targetExeLabel": "Antigravityで使用するAnthro Bridge",
+  "antigravity.targetExeLabel": "Antigravityで使用するPoverello",
   "antigravity.placeholderNotSelected": "（未選択 - [変更] ボタンから anthro-bridge.exe を選択してください）",
   "antigravity.statusConfigured": "Antigravityに登録済み",
   "antigravity.statusNotConfigured": "未設定",
-  "antigravity.statusOutdated": "選択中のAnthro Bridgeと登録内容が異なります",
+  "antigravity.statusOutdated": "選択中のPoverelloと登録内容が異なります",
   "antigravity.statusInvalid": "設定ファイルを読み込めません",
   "antigravity.btnOpenFolder": "設定フォルダを開く",
   "antigravity.btnChangeExe": "変更",
@@ -83,7 +83,7 @@ export const translations: TranslationMap = {
   "antigravity.commandBtnRemove": "削除",
   "antigravity.btnInstallAll": "すべてインストール",
   "antigravity.btnOpenSkillsFolder": "スキルフォルダを開く",
-  "antigravity.commandsMcpWarning": "⚠ Anthro Bridge MCP サーバーが Antigravity に登録されていません。コマンドを利用する前に上記の MCP 設定を登録してください。",
+  "antigravity.commandsMcpWarning": "⚠ Poverello MCP サーバーが Antigravity に登録されていません。コマンドを利用する前に上記の MCP 設定を登録してください。",
 
   // Language selector
   "language.header": "言語",

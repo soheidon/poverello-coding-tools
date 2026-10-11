@@ -7,7 +7,7 @@ This document contains instructions for building, developing, testing, and verif
 ## 1. Project Structure
 
 ```text
-anthro-bridge/
+poverello-coding-tools/
 ├── README.md
 ├── SPEC.md
 ├── docs/
@@ -79,6 +79,7 @@ cargo build --release
 ```
 
 Production Antigravity integration uses `anthro-bridge.exe --mcp-server`.
+The `anthro-bridge` executable, MCP server name, and application bundle ID are retained compatibility identifiers; the product is Poverello Coding Tools and the app is displayed as Poverello.
 
 ---
 

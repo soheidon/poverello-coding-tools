@@ -1,10 +1,10 @@
 [English](../README.md) | [日本語](README.ja.md) | [中文(简体)](README.zh-CN.md) | [中文(繁體)](README.zh-TW.md) | [한국어](README.ko.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md)
 
-# Poverello
+# Poverello Coding Tools
 
 **Claude Code / Claude Desktop를 코딩 하네스로 활용하면서 추론은 서드파티 LLM API로 라우팅하고, 외부 모델을 Google Antigravity의 플래너 및 리뷰어로 사용하세요.**
 
-Poverello는 AI 기반 소프트웨어 개발을 위한 Windows 전용 컴패니언 애플리케이션입니다. 세 가지 보완적인 워크플로를 지원합니다:
+Poverello Coding Tools(앱 표시 이름 **Poverello**)는 AI 기반 소프트웨어 개발을 위한 Windows 전용 컴패니언 애플리케이션입니다. 세 가지 보완적인 워크플로를 지원합니다:
 
 1. **Claude Code / Claude Desktop용 3P 게이트웨이** — Claude의 저장소 탐색, 도구 사용, 파일 편집, 테스트 실행 기능을 유지하면서 추론을 서드파티 프로바이더로 라우팅합니다.
 2. **Claude Code 전용 로컬 LLM (Ollama)** — 로컬 모델을 사용해 Claude Code를 오프라인으로 실행할 수 있습니다.
@@ -52,6 +52,9 @@ Antigravity가 구독 기반 용량으로
 - **계획과 실행의 분리**: 외부 모델이 고수준 계획 또는 리뷰 결과를 생성하고, Antigravity 구독 용량이 토큰 집약적인 코드 편집을 실행합니다.
 - **실시간 GUI 설정**: 플래너 또는 리뷰어의 프로바이더, 모델, 추론 강도를 변경하면 다음 호출 시 즉시 적용됩니다.
 - **설정 가이드**: [Google Antigravity + Poverello MCP 설정](ANTIGRAVITY_MCP.ko.md)
+- **선택형 Planner–Reviewer Auto-Convergence**: Orchestrator에서 제한된 수렴 워크플로를 활성화하면 계획 후보를 생성하고 독립적으로 검토합니다. 범위 내 변경으로 승인된 내용은 자동으로 추가될 수 있지만, 새 기본 계획은 반드시 사용자의 명시적 확인이 필요합니다. 실제 모델 동작은 공급자와 어댑터에 따라 다르며 모든 조합을 충분히 스모크 테스트하지는 않았습니다.
+
+실행 파일과 MCP 도구 식별자는 호환성을 위해 `anthro-bridge` 이름을 유지합니다.
 
 **Antigravity 전역 명령어:**
 
@@ -152,7 +155,7 @@ Moonshot Kimi와 별도로 운용되는 코딩 전문 API (`KIMI_CODE_API_KEY`):
 
 [Releases](https://github.com/soheidon/poverello-coding-tools/releases) 페이지에서 최신 공개 Windows 설치 프로그램을 다운로드하여 실행하세요.
 
-현재 공개된 설치 프로그램은 8개 언어를 지원합니다. Poverello v0.24.1 설치 프로그램과 기존 설치 위의 업그레이드 경로는 검증 중이며 아직 공개되지 않았습니다. 첫 실행 시 앱은 기존 설정과 실행 데이터를 해당 Poverello 데이터 폴더로 복사하고 원래 폴더를 복구용 사본으로 보존합니다.
+Windows 설치 프로그램은 8개 언어를 지원합니다. Poverello v0.24.1은 기존 애플리케이션 ID를 유지하며 Anthro Bridge에서 같은 설치 위치로 업그레이드하는 경로를 포함합니다. 첫 실행 시 `%APPDATA%\Anthro Bridge`(개발 빌드는 `%APPDATA%\Anthro Bridge Dev`)의 설정과 실행 데이터를 해당 Poverello 데이터 폴더로 복사하고 원래 폴더를 복구용 사본으로 보존하도록 설계되었습니다. 실제 Windows 환경에서의 설치, 데이터 마이그레이션, 업그레이드, 재설치, 취소 및 제거는 검증되지 않았으므로 업그레이드 전에 중요한 데이터를 백업하세요.
 
 ---
 
@@ -167,7 +170,14 @@ Moonshot Kimi와 별도로 운용되는 코딩 전문 API (`KIMI_CODE_API_KEY`):
    - **Claude Code**: 설정에서 **Copy Claude Code launch command**를 클릭하고 PowerShell에 붙여넣습니다.
    - **Claude Desktop / Cowork**: [Claude Desktop 3P 설정 가이드](THIRD_PARTY_INFERENCE.md)를 따르세요.
 
-### 워크플로 2: Google Antigravity용 MCP 플래너 & 리뷰어
+### 워크플로 2: Claude Code 전용 로컬 LLM (Ollama)
+
+1. Ollama가 로컬에서 실행 중인지 확인합니다 (`http://127.0.0.1:11434`).
+2. Poverello 대시보드에서 **Ollama Local**을 선택하거나 **설정 > Claude Code / Local LLMs**에서 모델을 구성합니다.
+3. **Copy Claude Code launch command**를 클릭하고 PowerShell에 붙여넣습니다.
+4. Claude Code가 로컬 Ollama 인스턴스에 직접 연결됩니다.
+
+### 워크플로 3: Google Antigravity용 MCP 플래너 & 리뷰어
 
 1. Poverello에서 선택한 플래너/리뷰어 모델의 API 키를 설정합니다.
 2. **MCP** 탭을 선택하고 **설정 > Antigravity > MCP Plan Settings**에서 모델을 설정합니다.

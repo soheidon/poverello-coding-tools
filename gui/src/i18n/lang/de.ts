@@ -4,7 +4,7 @@ export const nativeName = "Deutsch";
 
 export const translations: TranslationMap = {
   // Header
-  "header.title": "Anthro Bridge",
+  "header.title": "Poverello",
   "header.gatewayRunning": "Gateway: Aktiv",
   "header.gatewayStopped": "Gateway: Gestoppt",
   "header.gatewayDetected": "Gateway: Erkannt",
@@ -48,11 +48,11 @@ export const translations: TranslationMap = {
 
   // Antigravity Integration
   "antigravity.header": "Google Antigravity Integration",
-  "antigravity.desc": "Konfigurieren Sie Google Antigravity, um MCP-Funktionen von Anthro Bridge zu nutzen.",
+  "antigravity.desc": "Konfigurieren Sie Google Antigravity, um MCP-Funktionen von Poverello zu nutzen.",
   "antigravity.mcpSectionHeader": "MCP-Server-Registrierung",
   "antigravity.statusLabel": "Status",
   "antigravity.configPathLabel": "Antigravity-Konfigurationsdatei",
-  "antigravity.targetExeLabel": "Anthro Bridge-Programmdatei für Antigravity",
+  "antigravity.targetExeLabel": "Poverello-Programmdatei für Antigravity",
   "antigravity.placeholderNotSelected": "(Nicht ausgewählt - klicken Sie auf [Ändern], um anthro-bridge.exe auszuwählen)",
   "antigravity.statusConfigured": "In Antigravity registriert",
   "antigravity.statusNotConfigured": "Nicht konfiguriert",
@@ -83,7 +83,7 @@ export const translations: TranslationMap = {
   "antigravity.commandBtnRemove": "Entfernen",
   "antigravity.btnInstallAll": "Alle installieren",
   "antigravity.btnOpenSkillsFolder": "Skill-Ordner öffnen",
-  "antigravity.commandsMcpWarning": "⚠ Anthro Bridge MCP-Server ist nicht in Antigravity registriert. Registrieren Sie MCP oben, um Antigravity Commands zu verwenden.",
+  "antigravity.commandsMcpWarning": "⚠ Poverello MCP-Server ist nicht in Antigravity registriert. Registrieren Sie MCP oben, um Antigravity Commands zu verwenden.",
 
   // Language selector
   "language.header": "Sprache",

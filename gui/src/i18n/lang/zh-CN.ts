@@ -4,7 +4,7 @@ export const nativeName = "中文(简体)";
 
 export const translations: TranslationMap = {
   // Header
-  "header.title": "Anthro Bridge",
+  "header.title": "Poverello",
   "header.gatewayRunning": "网关: 运行中",
   "header.gatewayStopped": "网关: 已停止",
   "header.gatewayDetected": "网关: 外部运行中",
@@ -48,15 +48,15 @@ export const translations: TranslationMap = {
 
   // Antigravity Integration
   "antigravity.header": "Google Antigravity 集成",
-  "antigravity.desc": "配置 Google Antigravity 以使用 Anthro Bridge 的 MCP 功能。",
+  "antigravity.desc": "配置 Google Antigravity 以使用 Poverello 的 MCP 功能。",
   "antigravity.mcpSectionHeader": "MCP 服务器注册",
   "antigravity.statusLabel": "状态",
   "antigravity.configPathLabel": "Antigravity 配置文件",
-  "antigravity.targetExeLabel": "Antigravity 使用的 Anthro Bridge 可执行文件",
+  "antigravity.targetExeLabel": "Antigravity 使用的 Poverello 可执行文件",
   "antigravity.placeholderNotSelected": "（未选择 - 请点击 [更改] 按钮选择 anthro-bridge.exe）",
   "antigravity.statusConfigured": "已注册至 Antigravity",
   "antigravity.statusNotConfigured": "未配置",
-  "antigravity.statusOutdated": "所选 Anthro Bridge 与注册内容不一致",
+  "antigravity.statusOutdated": "所选 Poverello 与注册内容不一致",
   "antigravity.statusInvalid": "配置文件无法读取",
   "antigravity.btnOpenFolder": "打开设置文件夹",
   "antigravity.btnChangeExe": "更改",
@@ -83,7 +83,7 @@ export const translations: TranslationMap = {
   "antigravity.commandBtnRemove": "删除",
   "antigravity.btnInstallAll": "全部安装",
   "antigravity.btnOpenSkillsFolder": "打开技能文件夹",
-  "antigravity.commandsMcpWarning": "⚠ Anthro Bridge MCP 服务器未在 Antigravity 中注册。使用命令前请先完成上方 MCP 设置。",
+  "antigravity.commandsMcpWarning": "⚠ Poverello MCP 服务器未在 Antigravity 中注册。使用命令前请先完成上方 MCP 设置。",
 
   // Language selector
   "language.header": "语言",
@@ -716,7 +716,7 @@ export const translations: TranslationMap = {
   "orchestrator.recovery.cancelConfirm": "返回",
   "orchestrator.recovery.confirmProceed": "确认并继续",
   "orchestrator.recovery.error": "无法完成恢复",
-  "orchestrator.budget.notice": "统计本次运行中工作节点实际领取的 Antigravity 任务数。Anthro Bridge 无法直接观测服务商内部的 Token 或配额消耗。",
+  "orchestrator.budget.notice": "统计本次运行中工作节点实际领取的 Antigravity 任务数。Poverello 无法直接观测服务商内部的 Token 或配额消耗。",
   "orchestrator.budget.exhausted": "已达到 Antigravity 任务调度上限。本次运行将不再分派新任务。",
   "orchestrator.worker.disconnectedTitle": "Antigravity 工作进程已断开",
   "orchestrator.worker.disconnectedDesc": "Antigravity 工作进程已断开连接或超时未报告进度。",

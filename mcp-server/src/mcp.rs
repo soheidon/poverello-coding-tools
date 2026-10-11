@@ -156,7 +156,10 @@ pub struct SubmitTaskParams {
 pub fn get_session_descriptor_path() -> std::path::PathBuf {
     if let Ok(appdata) = std::env::var("APPDATA") {
         std::path::PathBuf::from(appdata)
-            .join("Anthro Bridge")
+            .join(match option_env!("ANTHRO_BRIDGE_CHANNEL") {
+                Some("stable") => "Poverello",
+                Some("dev") | None | Some(_) => "Poverello Dev",
+            })
             .join("orchestrator_session.json")
     } else if let Ok(home) = std::env::var("HOME") {
         std::path::PathBuf::from(home)
@@ -188,7 +191,7 @@ pub fn read_session_descriptor() -> Result<EphemeralSession, ErrorData> {
     if !session_path.exists() {
         return Err(ErrorData::internal_error(
             format!(
-                "No active Anthro Bridge orchestrator session found at '{}'. Please start a run in Anthro Bridge GUI.",
+                "No active Poverello orchestrator session found at '{}'. Please start a run in the Poverello GUI.",
                 session_path.display()
             ),
             None,

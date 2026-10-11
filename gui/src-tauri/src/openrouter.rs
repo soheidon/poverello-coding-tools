@@ -307,8 +307,8 @@ fn fetch_models_from_api(app_data_dir: &std::path::Path) -> Result<OpenRouterMod
     let resp = client
         .get("https://openrouter.ai/api/v1/models")
         .header("Authorization", format!("Bearer {}", api_key))
-        .header("HTTP-Referer", "https://github.com/soheidon/anthro-bridge")
-        .header("X-OpenRouter-Title", "Anthro Bridge")
+        .header("HTTP-Referer", "https://github.com/soheidon/poverello-coding-tools")
+        .header("X-OpenRouter-Title", "Poverello Coding Tools")
         .send()
         .map_err(|e| {
             if e.is_timeout() {

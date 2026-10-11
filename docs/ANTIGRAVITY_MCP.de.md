@@ -6,6 +6,8 @@
 
 Poverello erfordert keine separate ausführbare MCP-Serverdatei. Die installierte `anthro-bridge.exe` fungiert sowohl als Desktop-GUI-Anwendung als auch als MCP-Server. Antigravity startet den MCP-Modus durch Aufruf derselben Datei mit `--mcp-server`.
 
+`anthro-bridge.exe`, der MCP-Servereintrag `anthro-bridge` und Toolnamen wie `anthro-bridge/plan` bleiben aus Kompatibilitätsgründen erhalten. Der Produktname lautet Poverello Coding Tools; in der App wird Poverello angezeigt.
+
 ```text
 Normaler Start
 anthro-bridge.exe
@@ -83,7 +85,7 @@ Für Entwicklungs-Builds verweisen Sie direkt auf die Release-Ausführungsdatei:
 {
   "mcpServers": {
     "anthro-bridge": {
-      "command": "C:\\Users\\<USER>\\path\\to\\anthro-bridge\\gui\\src-tauri\\target\\release\\anthro-bridge.exe",
+      "command": "C:\\Users\\<USER>\\path\\to\\poverello-coding-tools\\gui\\src-tauri\\target\\release\\anthro-bridge.exe",
       "args": ["--mcp-server"]
     }
   }

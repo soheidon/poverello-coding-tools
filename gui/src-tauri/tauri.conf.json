@@ -1,6 +1,6 @@
 {
-  "productName": "Anthro Bridge",
-  "version": "0.24.0",
+  "productName": "Poverello Coding Tools",
+  "version": "0.24.1",
   "identifier": "com.soheidon.anthro-bridge",
   "build": {
     "frontendDist": "../dist",
@@ -47,7 +47,7 @@
   "app": {
     "windows": [
       {
-        "title": "Anthro Bridge",
+        "title": "Poverello",
         "width": 1150,
         "height": 720,
         "minWidth": 1030,

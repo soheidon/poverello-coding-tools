@@ -349,7 +349,7 @@ export function PlanWorkspaceSettings({ config, projectPath, onChange, t }: Prop
             id="pw-series-override"
             type="text"
             className="orchestrator-input"
-            placeholder="0.24.0"
+            placeholder="0.24.1"
             value={planWorkspaceConfig.planSeriesVersionOverride ?? ""}
             onChange={(e) =>
               updatePlanConfig({ planSeriesVersionOverride: e.target.value || undefined })

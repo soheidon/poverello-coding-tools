@@ -68,6 +68,9 @@ using subscription-backed capacity
   primary plan always requires explicit user confirmation. Real-model behavior
   varies by provider and adapter and has not been exhaustively smoke-tested.
 
+The executable and MCP tool identifiers below retain the `anthro-bridge` name
+for compatibility.
+
 **Global Antigravity commands:**
 
 - **`/anthro-plan`** — Delegate implementation planning to the configured external model.
@@ -176,7 +179,7 @@ Also available: **OpenRouter: Gemini** (Gemini 3.8 Flash · reasoning effort `lo
 
 Download the latest currently published Windows installer from the [Releases](https://github.com/soheidon/poverello-coding-tools/releases) page and run it.
 
-The current installer supports 8 languages. The Poverello v0.24.1 installer and its in-place upgrade path are still under validation and are not yet published. On first launch, the app copies existing settings and run data from `%APPDATA%\Anthro Bridge` (or `%APPDATA%\Anthro Bridge Dev` for development builds) to the corresponding Poverello data folder and retains the original folder as a recovery copy.
+The Windows installer supports 8 languages. Poverello v0.24.1 keeps the existing application identity and includes an in-place upgrade path from Anthro Bridge. On first launch, it is designed to copy settings and run data from `%APPDATA%\Anthro Bridge` (or `%APPDATA%\Anthro Bridge Dev` for development builds) to the corresponding Poverello data folder while retaining the original folder as a recovery copy. Real Windows installation, migration, upgrade, reinstall, cancellation, and uninstall flows have not been verified; back up important data before upgrading.
 
 ---
 

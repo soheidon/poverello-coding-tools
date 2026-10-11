@@ -10,7 +10,7 @@ const invokeMock = invoke as unknown as ReturnType<typeof vi.fn>;
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
-    title: vi.fn().mockResolvedValue("Anthro Bridge"),
+    title: vi.fn().mockResolvedValue("Poverello"),
     isMaximized: vi.fn().mockResolvedValue(false),
     onResized: vi.fn().mockResolvedValue(() => {}),
     minimize: vi.fn().mockResolvedValue(undefined),

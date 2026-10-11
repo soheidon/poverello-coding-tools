@@ -2110,9 +2110,9 @@ fn build_upstream_headers(incoming: &HeaderMap, route: &ProviderRoute) -> Header
     if route.provider_id == "openrouter" {
         headers.insert(
             "HTTP-Referer",
-            "https://github.com/soheidon/anthro-bridge".parse().unwrap(),
+            "https://github.com/soheidon/poverello-coding-tools".parse().unwrap(),
         );
-        headers.insert("X-OpenRouter-Title", "Anthro Bridge".parse().unwrap());
+        headers.insert("X-OpenRouter-Title", "Poverello Coding Tools".parse().unwrap());
         headers.insert(
             "X-OpenRouter-Categories",
             "cli-agent,programming-app".parse().unwrap(),

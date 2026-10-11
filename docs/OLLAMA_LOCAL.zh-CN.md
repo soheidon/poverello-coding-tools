@@ -1,6 +1,6 @@
-[English](OLLAMA_LOCAL.md) | [日本語](OLLAMA_LOCAL.ja.md) | 中文(简体) | [中文(繁體)](OLLAMA_LOCAL.zh-TW.md) | [한국어](OLLAMA_LOCAL.ko.md) | [Français](OLLAMA_LOCAL.fr.md) | [Deutsch](OLLAMA_LOCAL.de.md) | [Español](OLLAMA_LOCAL.es.md)
+[English](OLLAMA_LOCAL.md) | [日本語](OLLAMA_LOCAL.ja.md) | [中文(简体)](OLLAMA_LOCAL.zh-CN.md) | [中文(繁體)](OLLAMA_LOCAL.zh-TW.md) | [한국어](OLLAMA_LOCAL.ko.md) | [Français](OLLAMA_LOCAL.fr.md) | [Deutsch](OLLAMA_LOCAL.de.md) | [Español](OLLAMA_LOCAL.es.md)
 
-[← 返回 Poverello README](../README.md)
+[← 返回 Poverello Coding Tools README](README.zh-CN.md)
 
 # Claude Code + Ollama Local
 

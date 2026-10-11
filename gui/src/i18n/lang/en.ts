@@ -2,7 +2,7 @@ export const nativeName = "English";
 
 export const translations = {
   // Header
-  "header.title": "Anthro Bridge",
+  "header.title": "Poverello",
   "header.gatewayRunning": "Gateway: Running",
   "header.gatewayStopped": "Gateway: Stopped",
   "header.gatewayDetected": "Gateway: Detected",
@@ -46,11 +46,11 @@ export const translations = {
 
   // Antigravity Integration
   "antigravity.header": "Antigravity Integration",
-  "antigravity.desc": "Configure Anthro Bridge as an MCP server for Google Antigravity.",
+  "antigravity.desc": "Configure Poverello as an MCP server for Google Antigravity.",
   "antigravity.mcpSectionHeader": "MCP Server Registration",
   "antigravity.statusLabel": "Status",
   "antigravity.configPathLabel": "Antigravity Config File",
-  "antigravity.targetExeLabel": "Anthro Bridge Executable for Antigravity",
+  "antigravity.targetExeLabel": "Poverello Executable for Antigravity",
   "antigravity.placeholderNotSelected": "(Not selected - click [Change] to select anthro-bridge.exe)",
   "antigravity.statusConfigured": "Registered in Antigravity",
   "antigravity.statusNotConfigured": "Not configured",
@@ -81,7 +81,7 @@ export const translations = {
   "antigravity.commandBtnRemove": "Remove",
   "antigravity.btnInstallAll": "Install All Commands",
   "antigravity.btnOpenSkillsFolder": "Open Skills Folder",
-  "antigravity.commandsMcpWarning": "⚠ Anthro Bridge MCP server is not registered in Antigravity. Register MCP above to use Antigravity Commands.",
+  "antigravity.commandsMcpWarning": "⚠ Poverello MCP server is not registered in Antigravity. Register MCP above to use Antigravity Commands.",
 
   // Language selector
   "language.header": "Language",
@@ -717,7 +717,7 @@ export const translations = {
   "orchestrator.recovery.cancelConfirm": "Go back",
   "orchestrator.recovery.confirmProceed": "Confirm and continue",
   "orchestrator.recovery.error": "Recovery could not be completed",
-  "orchestrator.budget.notice": "Counts unique Antigravity task envelopes accepted by worker claims for this run. Anthro Bridge cannot observe provider-internal tokens or quota use.",
+  "orchestrator.budget.notice": "Counts unique Antigravity task envelopes accepted by worker claims for this run. Poverello cannot observe provider-internal tokens or quota use.",
   "orchestrator.budget.exhausted": "Antigravity task-dispatch budget limit reached. No further tasks will be dispatched for this run.",
   "orchestrator.worker.disconnectedTitle": "Antigravity Worker Disconnected",
   "orchestrator.worker.disconnectedDesc": "The Antigravity worker process disconnected or timed out without reporting progress.",

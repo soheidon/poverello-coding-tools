@@ -122,8 +122,8 @@ impl ProviderAdapter {
 
         if provider_id == "openrouter" {
             req = req
-                .header("HTTP-Referer", "https://github.com/soheidon/anthro-bridge")
-                .header("X-Title", "Anthro Bridge Orchestrator");
+                .header("HTTP-Referer", "https://github.com/soheidon/poverello-coding-tools")
+                .header("X-Title", "Poverello Coding Tools Orchestrator");
         }
 
         let cancel_fut = async {

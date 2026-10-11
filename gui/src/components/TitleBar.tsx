@@ -13,7 +13,7 @@ export default function TitleBar({
   onTabChange,
 }: TitleBarProps) {
   const { t } = useTranslation();
-  const [title, setTitle] = useState<string>("Anthro Bridge");
+  const [title, setTitle] = useState<string>("Poverello");
   const [isMaximized, setIsMaximized] = useState<boolean>(false);
 
   useEffect(() => {

@@ -1,10 +1,10 @@
 [English](../README.md) | [日本語](README.ja.md) | [中文(简体)](README.zh-CN.md) | [中文(繁體)](README.zh-TW.md) | [한국어](README.ko.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md)
 
-# Poverello
+# Poverello Coding Tools
 
 **以 Claude Code / Claude Desktop 作为编程框架，将推理请求路由至第三方 LLM API，并将外部模型用作 Google Antigravity 的规划器与审查器。**
 
-Poverello 是一款面向 AI 辅助软件开发的 Windows 配套应用程序，支持三种互补的工作流：
+Poverello Coding Tools（应用内显示名称为 **Poverello**）是一款面向 AI 辅助软件开发的 Windows 配套应用程序，支持三种互补的工作流：
 
 1. **面向 Claude Code / Claude Desktop 的第三方推理网关** — 保留 Claude 的代码仓库探索、工具调用、文件编辑和测试执行能力，同时将推理请求路由至第三方提供商。
 2. **Claude Code 专用本地 LLM（Ollama）** — 使用本地模型离线运行 Claude Code。
@@ -62,6 +62,9 @@ Antigravity 使用订阅容量
 - **规划与执行分离**：外部模型负责生成高层次计划或审查结论；Antigravity 订阅容量负责执行耗费大量 token 的代码编辑任务。
 - **实时图形界面配置**：切换规划器或审查器的提供商、模型或推理强度，下次调用时立即生效。
 - **配置指南**：[Google Antigravity + Poverello MCP 配置](ANTIGRAVITY_MCP.zh-CN.md)
+- **可选的 Planner–Reviewer 自动收敛**：在 Orchestrator 中启用有界收敛工作流，以生成计划候选并由独立 Reviewer 审查。获批且在范围内的更改可能会自动追加；创建新的主计划始终需要用户明确确认。实际模型行为因提供商和适配器而异，尚未对所有组合进行完整的真实模型冒烟测试。
+
+为保持兼容性，可执行文件和 MCP 工具标识仍使用 `anthro-bridge` 名称。
 
 **Antigravity 全局命令：**
 
@@ -162,7 +165,7 @@ Antigravity 使用订阅容量
 
 从 [Releases](https://github.com/soheidon/poverello-coding-tools/releases) 页面下载当前最新已发布的 Windows 安装程序并运行。
 
-当前已发布的安装程序支持 8 种语言。Poverello v0.24.1 安装程序及其覆盖现有安装的升级路径仍在验证中，尚未发布。首次启动时，应用会将现有设置和运行数据复制到对应的 Poverello 数据目录，并保留原目录作为恢复副本。
+Windows 安装程序支持 8 种语言。Poverello v0.24.1 保留现有应用标识，并包含从 Anthro Bridge 原位升级的路径。首次启动时，程序设计为将 `%APPDATA%\Anthro Bridge`（开发版为 `%APPDATA%\Anthro Bridge Dev`）中的设置和运行数据复制到对应的 Poverello 数据目录，同时保留原目录作为恢复副本。真实 Windows 环境中的安装、数据迁移、升级、重新安装、取消和卸载流程尚未验证；升级前请备份重要数据。
 
 ---
 
@@ -177,7 +180,14 @@ Antigravity 使用订阅容量
    - **Claude Code**：在 Settings 中点击 **Copy Claude Code launch command**，将命令粘贴到 PowerShell 中执行。
    - **Claude Desktop / Cowork**：请参照 [Claude Desktop 第三方推理配置指南](THIRD_PARTY_INFERENCE.md)。
 
-### 工作流 2：面向 Google Antigravity 的 MCP 规划器与审查器
+### 工作流 2：Claude Code 专用本地 LLM（Ollama）
+
+1. 确认 Ollama 正在本地运行（`http://127.0.0.1:11434`）。
+2. 在 Poverello 仪表盘选择 **Ollama Local**，或在 **Settings > Claude Code / Local LLMs** 中配置模型。
+3. 点击 **Copy Claude Code launch command** 并粘贴到 PowerShell。
+4. Claude Code 将直接连接到本地 Ollama 实例。
+
+### 工作流 3：面向 Google Antigravity 的 MCP 规划器与审查器
 
 1. 在 Poverello 中为所选规划器/审查器模型配置 API 密钥。
 2. 选择 **MCP** 标签页，并在 **Settings > Antigravity > MCP Plan Settings** 中配置模型。

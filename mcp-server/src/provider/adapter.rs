@@ -1,5 +1,5 @@
 //! DynamicBridgeProvider: resolves target provider, profile, model, and reasoning
-//! settings from Anthro Bridge's `config.json` and dispatches planning requests.
+//! settings from Poverello's `config.json` and dispatches planning requests.
 
 use std::env;
 use std::path::PathBuf;
@@ -12,16 +12,16 @@ use super::{PlanResponse, PlannerProvider, ProviderError};
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_TOKENS: u32 = 8192;
 
-/// Resolves the APPDATA configuration path for Anthro Bridge.
+/// Resolves the APPDATA configuration path for Poverello.
 pub fn resolve_anthro_bridge_config_path() -> PathBuf {
     let appdata = env::var("APPDATA")
         .or_else(|_| env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
 
     let channel_dir = match option_env!("ANTHRO_BRIDGE_CHANNEL") {
-        Some("stable") => "Anthro Bridge",
-        Some("dev") | None => "Anthro Bridge Dev",
-        Some(_) => "Anthro Bridge Dev",
+        Some("stable") => "Poverello",
+        Some("dev") | None => "Poverello Dev",
+        Some(_) => "Poverello Dev",
     };
 
     let p = PathBuf::from(appdata).join(channel_dir).join("config.json");
@@ -31,7 +31,7 @@ pub fn resolve_anthro_bridge_config_path() -> PathBuf {
 
     // Fallback: check stable directory if dev does not exist
     let p_stable = PathBuf::from(env::var("APPDATA").unwrap_or_default())
-        .join("Anthro Bridge")
+        .join("Poverello")
         .join("config.json");
     if p_stable.exists() {
         return p_stable;
@@ -106,7 +106,7 @@ pub fn resolve_mcp_target(config_path: &std::path::Path) -> Result<ResolvedMcpTa
         let api_key = env::var("DEEPSEEK_API_KEY").unwrap_or_default();
         if api_key.trim().is_empty() {
             return Err(ProviderError::Config(format!(
-                "Anthro Bridge config not found at {} and DEEPSEEK_API_KEY is not set",
+                "Poverello config not found at {} and DEEPSEEK_API_KEY is not set",
                 config_path.display()
             )));
         }

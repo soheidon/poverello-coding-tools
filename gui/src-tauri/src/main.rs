@@ -4,6 +4,10 @@
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if anthro_bridge_lib::is_mcp_server_mode(&args) {
+        if let Err(error) = anthro_bridge_lib::prepare_user_data_dir() {
+            eprintln!("[anthro-bridge] Poverello user-data migration failed: {error}");
+            std::process::exit(1);
+        }
         let rt = match tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()

@@ -1,13 +1,22 @@
 # Poverello Coding Tools — Release Notes
 
-## Unreleased — v0.24.1
+## v0.24.1 — 2026-10-12
 
-### Poverello Rebrand
+### Poverello Rebrand and Data Migration
 
 - Renamed the desktop application to Poverello Coding Tools, with Poverello as
   the concise application name, and introduced the supplied Poverello icon.
-- Existing Stable and Dev user data is copied to the new Poverello data folders
-  on first launch. The original folders are retained as recovery copies.
+- On first launch, existing Stable and Dev settings and run data are copied to
+  the corresponding Poverello data folders. The original Anthro Bridge folders
+  are retained as recovery copies.
+
+### Windows Installer Compatibility
+
+- The Windows NSIS installer keeps the existing application identity and
+  supports the in-place upgrade path from Anthro Bridge installations.
+- Real Windows installation, data migration, upgrade, reinstall, cancellation,
+  and uninstall flows have not been verified. Treat compatibility as a
+  development-release limitation; back up important data before upgrading.
 
 ## v0.24.0 — 2026-10-11
 

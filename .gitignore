@@ -39,3 +39,6 @@ docs/plan/
 .docs/plan/
 icon/
 .icon/
+!icon/
+icon/*
+!icon/Icon-Poverello03.png

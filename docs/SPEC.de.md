@@ -1,6 +1,6 @@
 [English](../SPEC.md) | [日本語](SPEC.ja.md) | [中文(简体)](SPEC.zh-CN.md) | [中文(繁體)](SPEC.zh-TW.md) | [한국어](SPEC.ko.md) | [Français](SPEC.fr.md) | [Deutsch](SPEC.de.md) | [Español](SPEC.es.md)
 
-# SPEC: Poverello
+# SPEC: Poverello Coding Tools
 
 ## Überblick
 
@@ -68,7 +68,7 @@ Ein schlankes Proxy- + GUI-Verwaltungstool, das Claude Desktop / Claude Code API
 - **OpenRouter-Preisdetails**: Die eingebauten Preise unterstützen aktuelle und überarbeitete Standardwerte für Prompt-, Ausgabe- und Cache-Eingabesätze, einschließlich der GPT-5.6-Varianten Sol, Terra, Luna und Pro. Die GUI zeigt Aktions- und Standardpreise zusammen an, wenn beide verfügbar sind.
 - **GPT-5.6-Modellunterstützung**: OpenRouter-Profile können die Modellvarianten Sol, Terra und Luna mit fähigkeitsbewusster Thinking-Steuerung und Preisnotizen für Langkontextsätze verwenden, wo zutreffend. Das eingebaute OpenAI-GPT-5.6-Balanced-Profil routet bei Neuinstallationen Opus 5 → GPT-5.6 Sol, Sonnet 5 → GPT-5.6 Terra und Haiku 4.5 → GPT-5.6 Luna mit Reasoning-Aufwand Thinking High auf allen drei Routen; vorhandenes gespeichertes Routing wird nicht automatisch geändert.
 - **Dashboard-gesteuerte Fenstergrößenberechnung**: Beim Start und bei Änderungen der Zeilenanzahl wird die Fensterhöhe aus den sichtbaren Dashboard-Karten in einem Drei-Spalten-Raster berechnet. Die Berechnung berücksichtigt Kartenhöhe, Rasterabstände, native Mindestgröße, Monitor-Arbeitsbereich, DPI-Skalierung und Fensterdekorationen, während die manuelle Größenänderung bei unveränderter Zeilenanzahl erhalten bleibt.
-- **Lokalisierter NSIS-Installer**: Der Windows-Installer bietet die Sprachauswahl Englisch, Japanisch, Chinesisch (Vereinfacht), Chinesisch (Traditionell), Koreanisch, Französisch, Deutsch und Spanisch und bündelt das Anthro-Bridge-Anwendungssymbol.
+- **Lokalisierter NSIS-Installer**: Der Windows-Installer bietet die Sprachauswahl Englisch, Japanisch, Chinesisch (Vereinfacht), Chinesisch (Traditionell), Koreanisch, Französisch, Deutsch und Spanisch und bündelt das Poverello-Anwendungssymbol.
 - **Regressionsabdeckung**: Die Vitest-Abdeckung umfasst OpenRouter-Profilreihenfolge und Speicher-Races, Produktionspreisdaten, die Semantik der Dashboard-Kartenanzahl und monitorbewusste Fenstergrößenberechnung.
 - **Neue Anbieter über OpenRouter**: InclusionAI und StepFun wurden als OpenRouter-Modellanbieter mit dedizierten Fähigkeitsflags, Thinking-Modus-Steuerung und Anbieter-Gruppierung hinzugefügt.
 - **Tencent-Hy3-Thinking-Modi**: Unterstützung für niedrigen/hohen Reasoning-Aufwand für Tencents Hunyuan-Modell. Die Thinking-Modus-Übersetzung in proxy.rs bildet `thinking_mode` auf OpenRouters `reasoning`-Format ab. Die UI zeigt Low/High als Dropdown-Optionen an.

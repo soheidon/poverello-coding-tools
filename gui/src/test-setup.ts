@@ -107,7 +107,7 @@ vi.mock("./i18n", () => {
       modeAuto: "Auto (minimum of the 3 routes)",
       modeManual: "Manual for this target",
       modeClaudeDefault: "Use Claude Code side settings",
-      modeClaudeDefaultDesc: "Anthro Bridge does not pass auto-compact settings to this target.",
+      modeClaudeDefaultDesc: "Poverello does not pass auto-compact settings to this target.",
       manualWindowLabel: "Window [tokens]",
       manualPercentLabel: "Trigger [%]",
       highPercentWarning: "A trigger above 95% leaves almost no room to compact.",

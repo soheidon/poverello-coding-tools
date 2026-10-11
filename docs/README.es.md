@@ -1,10 +1,10 @@
 [English](../README.md) | [日本語](README.ja.md) | [中文(简体)](README.zh-CN.md) | [中文(繁體)](README.zh-TW.md) | [한국어](README.ko.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md)
 
-# Poverello
+# Poverello Coding Tools
 
 **Usa Claude Code / Claude Desktop como entorno de desarrollo, enruta la inferencia a APIs de LLM de terceros y utiliza modelos externos como planificadores y revisores para Google Antigravity.**
 
-Poverello es una aplicación complementaria para Windows orientada al desarrollo de software asistido por IA. Admite tres flujos de trabajo complementarios:
+Poverello Coding Tools (que aparece en la aplicación como **Poverello**) es una aplicación complementaria para Windows orientada al desarrollo de software asistido por IA. Admite tres flujos de trabajo complementarios:
 
 1. **Gateway 3P para Claude Code / Claude Desktop** — Conserva la exploración de repositorios, el uso de herramientas, la edición de archivos y la ejecución de pruebas de Claude mientras enruta la inferencia a proveedores de terceros.
 2. **LLM local dedicado para Claude Code (Ollama)** — Ejecuta Claude Code sin conexión mediante modelos locales.
@@ -62,6 +62,9 @@ usando capacidad respaldada por suscripción
 - **División Planificación / Ejecución**: Los modelos externos generan el plan de alto nivel o el veredicto de revisión; la capacidad de suscripción de Antigravity ejecuta las ediciones de código intensivas en tokens.
 - **Configuración en Vivo desde la GUI**: Cambiar el proveedor, el modelo o el nivel de razonamiento del planificador o revisor tiene efecto inmediato en la siguiente invocación.
 - **Guía de Configuración**: [Configuración de Google Antigravity + Poverello MCP](ANTIGRAVITY_MCP.es.md)
+- **Convergencia automática opcional entre planificador y revisor**: Activa el flujo de convergencia acotado en Orchestrator para generar y revisar candidatos de plan de forma independiente. Los cambios aprobados dentro del alcance pueden añadirse automáticamente; un nuevo plan principal siempre requiere confirmación explícita del usuario. El comportamiento con modelos reales no se ha probado exhaustivamente para todos los proveedores y adaptadores.
+
+El ejecutable y los identificadores de herramientas MCP conservan el nombre `anthro-bridge` por compatibilidad.
 
 **Comandos globales de Antigravity:**
 
@@ -162,7 +165,7 @@ También disponibles: **OpenRouter: Gemini** (Gemini 3.8 Flash · nivel de razon
 
 Descarga el instalador de Windows actualmente publicado más reciente desde la página de [Releases](https://github.com/soheidon/poverello-coding-tools/releases) y ejecútalo.
 
-El instalador publicado actualmente admite 8 idiomas. El instalador Poverello v0.24.1 y su ruta de actualización sobre instalaciones existentes siguen en validación y aún no se han publicado. En el primer inicio, la aplicación copia la configuración y los datos de ejecución existentes a la carpeta de datos de Poverello correspondiente y conserva la carpeta original como copia de recuperación.
+El instalador de Windows admite 8 idiomas. Poverello v0.24.1 conserva la identidad de aplicación existente e incluye una ruta de actualización en el mismo directorio desde Anthro Bridge. En el primer inicio, está diseñado para copiar la configuración y los datos de ejecución de `%APPDATA%\Anthro Bridge` (o `%APPDATA%\Anthro Bridge Dev` en las compilaciones de desarrollo) a la carpeta de datos de Poverello correspondiente, conservando la carpeta original como copia de recuperación. No se han verificado en Windows real la instalación, migración, actualización, reinstalación, cancelación ni desinstalación; haga una copia de seguridad de los datos importantes antes de actualizar.
 
 ---
 
@@ -176,9 +179,15 @@ El instalador publicado actualmente admite 8 idiomas. El instalador Poverello v0
 4. Conecta Claude Code o Claude Desktop:
    - **Claude Code**: Haz clic en **Copy Claude Code launch command** en Settings y pégalo en PowerShell.
    - **Claude Desktop / Cowork**: Sigue la [Guía de Configuración 3P para Claude Desktop](THIRD_PARTY_INFERENCE.es.md)
-- [Ollama Local](OLLAMA_LOCAL.es.md).
 
-### Flujo de Trabajo 2: Planificador y Revisor MCP para Google Antigravity
+### Flujo de Trabajo 2: LLM locales dedicados para Claude Code (Ollama)
+
+1. Asegúrate de que Ollama se esté ejecutando localmente (`http://127.0.0.1:11434`).
+2. Selecciona **Ollama Local** en el panel de Poverello o configura los modelos en **Settings > Claude Code / Local LLMs**.
+3. Haz clic en **Copy Claude Code launch command** y pégalo en PowerShell.
+4. Claude Code se conecta directamente a tu instancia local de Ollama.
+
+### Flujo de Trabajo 3: Planificador y Revisor MCP para Google Antigravity
 
 1. Configura una clave de API para el modelo planificador/revisor elegido en Poverello.
 2. Selecciona la pestaña **MCP** y configura tu modelo en **Settings > Antigravity > MCP Plan Settings**.

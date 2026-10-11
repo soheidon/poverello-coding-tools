@@ -778,7 +778,7 @@ pub struct OrchestratorTaskEnvelope {
     pub frozen_plan: Option<super::plan_workspace::FrozenPlanPayload>,
 }
 
-/// Ephemeral runtime session descriptor written to `%APPDATA%/Anthro Bridge/orchestrator_session.json`.
+/// Ephemeral runtime session descriptor written to the active Poverello data root.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MailboxSessionDescriptor {

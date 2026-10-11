@@ -4,7 +4,7 @@ export const nativeName = "Français";
 
 export const translations: TranslationMap = {
   // Header
-  "header.title": "Anthro Bridge",
+  "header.title": "Poverello",
   "header.gatewayRunning": "Passerelle : En cours",
   "header.gatewayStopped": "Passerelle : Arrêtée",
   "header.gatewayDetected": "Passerelle : Détectée",
@@ -48,11 +48,11 @@ export const translations: TranslationMap = {
 
   // Antigravity Integration
   "antigravity.header": "Intégration Google Antigravity",
-  "antigravity.desc": "Configurez Google Antigravity pour utiliser les fonctionnalités MCP d'Anthro Bridge.",
+  "antigravity.desc": "Configurez Google Antigravity pour utiliser les fonctionnalités MCP d'Poverello.",
   "antigravity.mcpSectionHeader": "Enregistrement du serveur MCP",
   "antigravity.statusLabel": "État",
   "antigravity.configPathLabel": "Fichier de configuration Antigravity",
-  "antigravity.targetExeLabel": "Exécutable Anthro Bridge pour Antigravity",
+  "antigravity.targetExeLabel": "Exécutable Poverello pour Antigravity",
   "antigravity.placeholderNotSelected": "(Non sélectionné - cliquez sur [Modifier] pour choisir anthro-bridge.exe)",
   "antigravity.statusConfigured": "Enregistré dans Antigravity",
   "antigravity.statusNotConfigured": "Non configuré",
@@ -83,7 +83,7 @@ export const translations: TranslationMap = {
   "antigravity.commandBtnRemove": "Supprimer",
   "antigravity.btnInstallAll": "Tout installer",
   "antigravity.btnOpenSkillsFolder": "Ouvrir le dossier des compétences",
-  "antigravity.commandsMcpWarning": "⚠ Le serveur MCP Anthro Bridge n'est pas enregistré dans Antigravity. Enregistrez le MCP ci-dessus pour utiliser les commandes.",
+  "antigravity.commandsMcpWarning": "⚠ Le serveur MCP Poverello n'est pas enregistré dans Antigravity. Enregistrez le MCP ci-dessus pour utiliser les commandes.",
 
   // Language selector
   "language.header": "Langue",
@@ -716,7 +716,7 @@ export const translations: TranslationMap = {
   "orchestrator.recovery.cancelConfirm": "Retour",
   "orchestrator.recovery.confirmProceed": "Confirmer et continuer",
   "orchestrator.recovery.error": "La récupération n'a pas pu aboutir",
-  "orchestrator.budget.notice": "Compte les tâches Antigravity uniques acceptées pour cette exécution. Anthro Bridge ne peut pas observer les jetons ou quotas internes du fournisseur.",
+  "orchestrator.budget.notice": "Compte les tâches Antigravity uniques acceptées pour cette exécution. Poverello ne peut pas observer les jetons ou quotas internes du fournisseur.",
   "orchestrator.budget.exhausted": "Limite d'attribution de tâches Antigravity atteinte. Aucune autre tâche ne sera attribuée pour cette exécution.",
   "orchestrator.worker.disconnectedTitle": "Worker Antigravity déconnecté",
   "orchestrator.worker.disconnectedDesc": "Le processus worker Antigravity s'est déconnecté ou a expiré sans signaler de progression.",

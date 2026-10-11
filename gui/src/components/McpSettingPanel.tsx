@@ -806,7 +806,7 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                 </div>
               </div>
 
-              {/* Row 2: Selected / Target Anthro Bridge Executable */}
+              {/* Row 2: Selected / Target Poverello Executable */}
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#57606a", marginBottom: 4 }}>
                   {t("antigravity.targetExeLabel")}:

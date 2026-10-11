@@ -206,11 +206,20 @@ fn replace_config_from_template_atomically(path: &Path) -> Result<(), String> {
 
 /// Public entry point — resolves the real config path for the current channel.
 fn ensure_config_initialized() -> Result<PathBuf, String> {
+    prepare_user_data_dir()?;
     ensure_config_initialized_at(
         &paths::config_path(),
         paths::app_channel(),
         true, // run legacy migration for real runs
     )
+}
+
+/// Runs before either GUI startup or the embedded MCP server reads user data.
+pub fn prepare_user_data_dir() -> Result<(), String> {
+    let appdata = std::env::var("APPDATA")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    paths::migrate_user_data_dir(Path::new(&appdata), paths::app_channel())
 }
 
 /// Core logic with injectable path, channel, and migration gating.
@@ -5271,7 +5280,7 @@ fn select_executable_dialog() -> Result<Option<String>, String> {
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.OpenFileDialog
 $dialog.Filter = "Executable Files (*.exe)|*.exe|All Files (*.*)|*.*"
-$dialog.Title = "Select Anthro Bridge Executable (anthro-bridge.exe)"
+$dialog.Title = "Select Poverello Executable (anthro-bridge.exe)"
 $dialog.CheckFileExists = $true
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -5353,12 +5362,12 @@ fn remove_antigravity_mcp() -> Result<AntigravityMcpInfo, String> {
 
 pub const ANTIGRAVITY_ANTHRO_PLAN_SKILL_MD: &str = r#"---
 name: anthro-plan
-description: Create an implementation plan for the user's task using the Anthro Bridge external planner without implementing the task.
+description: Create an implementation plan for the user's task using the Poverello external planner without implementing the task.
 ---
 
 # Anthro Plan
 
-Create a comprehensive implementation plan for the requested task using the Anthro Bridge external MCP planner.
+Create a comprehensive implementation plan for the requested task using the Poverello external MCP planner.
 
 ## Instructions
 1. Inspect the repository and identify only the files and code relevant to the user's request.
@@ -5377,12 +5386,12 @@ Create a comprehensive implementation plan for the requested task using the Anth
 
 pub const ANTIGRAVITY_ANTHRO_REVISE_SKILL_MD: &str = r#"---
 name: anthro-revise
-description: Revise the current implementation plan using the Anthro Bridge external planner without implementing the task.
+description: Revise the current implementation plan using the Poverello external planner without implementing the task.
 ---
 
 # Anthro Revise
 
-Revise an existing implementation plan based on user feedback using the Anthro Bridge external MCP planner.
+Revise an existing implementation plan based on user feedback using the Poverello external MCP planner.
 
 ## Instructions
 1. Identify the implementation plan to revise using the following priority:
@@ -5405,12 +5414,12 @@ Revise an existing implementation plan based on user feedback using the Anthro B
 
 pub const ANTIGRAVITY_ANTHRO_REVIEW_SKILL_MD: &str = r#"---
 name: anthro-review
-description: Review the current implementation against the approved plan using the Anthro Bridge external reviewer without editing code or committing.
+description: Review the current implementation against the approved plan using the Poverello external reviewer without editing code or committing.
 ---
 
 # Anthro Review
 
-Review an implementation against its approved implementation plan using the Anthro Bridge external MCP review tool.
+Review an implementation against its approved implementation plan using the Poverello external MCP review tool.
 
 ## Instructions
 1. Identify the approved implementation plan using the following priority:
@@ -8276,7 +8285,7 @@ pub fn run() {
                     "/C",
                     "msg",
                     "%USERNAME%",
-                    &format!("Anthro Bridge configuration initialization failed.\n\n{}\n\nCheck the log file in %APPDATA%\\Anthro Bridge\\Communication-Logs\\ for details.", error),
+                    &format!("Poverello configuration initialization failed.\n\n{}\n\nYour existing data folders have not been deleted. Resolve the migration issue and restart the application.", error),
                 ])
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW
                 .spawn();
@@ -8306,7 +8315,7 @@ pub fn run() {
             // propagating through cross-env → tauri CLI → cargo build.
             if cfg!(debug_assertions) && paths::app_channel() == paths::AppChannel::Dev {
                 if let Some(window) = app.get_webview_window("main") {
-                    if let Err(e) = window.set_title("Anthro Bridge (DEV)") {
+                    if let Err(e) = window.set_title("Poverello Dev") {
                         tracing::warn!("Failed to set dev window title: {e}");
                     }
                 }
@@ -9913,8 +9922,8 @@ mod tests {
     /// Compute the real APPDATA-based config paths for isolation verification.
     fn real_appdata_config_paths() -> (std::path::PathBuf, std::path::PathBuf) {
         let appdata = std::env::var("APPDATA").unwrap_or_default();
-        let stable = std::path::PathBuf::from(&appdata).join("Anthro Bridge").join("config.json");
-        let dev = std::path::PathBuf::from(&appdata).join("Anthro Bridge Dev").join("config.json");
+        let stable = std::path::PathBuf::from(&appdata).join("Poverello").join("config.json");
+        let dev = std::path::PathBuf::from(&appdata).join("Poverello Dev").join("config.json");
         (stable, dev)
     }
 
