@@ -15,6 +15,18 @@
 pub(crate) const CLAUDE_ROUTES: [&str; 3] =
     ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"];
 
+/// Additional canonical routes for the Claude 5.5 generation.
+///
+/// Deliberately separate from `CLAUDE_ROUTES`: the base three are the routes
+/// every target must resolve for the auto-compact capacity basis, while the 5.5
+/// routes exist only on targets that carry an explicit mapping (currently
+/// `OpenRouter: Anthropic`). Folding them into `CLAUDE_ROUTES` would make every
+/// target without a mapping report an unresolved route and lose its
+/// context-window basis. Requests for these routes on a target without a
+/// mapping fail closed — the proxy returns `Unknown model` before dispatch.
+pub(crate) const CLAUDE_55_ROUTES: [&str; 3] =
+    ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
+
 /// Extract `models[route].upstream_model` from a scope (provider or profile).
 ///
 /// Does NOT decide whether `models` is authoritative — the caller has already
@@ -331,5 +343,40 @@ mod tests {
         let no_maps = json!({});
         assert_eq!(resolve_from_models(&no_maps, "claude-opus-5"), None);
         assert_eq!(resolve_from_model_map(&no_maps, "claude-opus-5"), None);
+    }
+
+    #[test]
+    fn claude_55_routes_resolve_only_where_mapped() {
+        let cfg = json!({
+            "providers": {
+                "anthropic-profile": {
+                    "models": {
+                        "claude-opus-5-5": { "upstream_model": "anthropic/claude-opus-5.5" },
+                        "claude-sonnet-5-5": { "upstream_model": "anthropic/claude-sonnet-5.5" },
+                        "claude-haiku-5-5": { "upstream_model": "anthropic/claude-haiku-5.5" }
+                    }
+                },
+                "deepseek": {
+                    "models": { "claude-opus-5": { "upstream_model": "deepseek-flash" } }
+                }
+            }
+        });
+
+        for route in CLAUDE_55_ROUTES {
+            assert!(
+                resolve_route_upstream_model(&cfg, "anthropic-profile", None, route).is_some(),
+                "{route} must resolve on the mapped target"
+            );
+            assert_eq!(
+                resolve_route_upstream_model(&cfg, "deepseek", None, route),
+                None,
+                "{route} must stay unresolved where it has no mapping"
+            );
+        }
+        // The base routes are unaffected by the 5.5 additions.
+        assert_eq!(
+            resolve_route_upstream_model(&cfg, "deepseek", None, "claude-opus-5"),
+            Some("deepseek-flash".to_string())
+        );
     }
 }

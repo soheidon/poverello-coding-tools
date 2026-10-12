@@ -987,3 +987,36 @@ At that point, evaluate whether the architecture provides a meaningful improveme
 - total completion time.
 
 Only after that evaluation should the MCP server be merged into the main Anthro Bridge runtime and exposed through the GUI.
+
+---
+
+## 27. Antigravity provider support: Anthropic direct and GLM direct
+
+This section extends the standalone stdio MCP planner used by Antigravity. It does not change the Poverello GUI's `direct_mcp.rs` transport, the Orchestrator, MCP tool schemas, or other MCP capabilities.
+
+### Provider selection
+
+The `plan` tool continues to read the Poverello `config.json` on each invocation. `mcp.provider`, when set, selects the provider; otherwise the existing `active_provider` fallback is retained. The legacy `DEEPSEEK_API_KEY` fallback remains available only when no config file exists. Existing DeepSeek, OpenRouter, and other configured provider behavior remains unchanged.
+
+### Anthropic direct
+
+- Provider ID: `anthropic`; API key environment variable: `ANTHROPIC_API_KEY`.
+- Send a non-streaming request to the configured Anthropic API base at `/v1/messages`, using `x-api-key` and `anthropic-version: 2023-06-01`; do not send `Authorization: Bearer`.
+- Use an Anthropic API model ID from the explicit MCP model override or configured model mapping/default. Do not convert OpenRouter namespaced IDs into Anthropic IDs.
+- Keep the planner request on the Messages API contract (`system`, one user message, `max_tokens`, `stream: false`) and extract only text content blocks. For the supported Claude 5.5 models, use adaptive thinking and configured `output_config.effort`; allow only model-compatible `between_tools`/`disabled` combinations. Reject unsupported models or thinking combinations before sending.
+
+### GLM direct
+
+- Internal Provider ID remains `zai`; API key environment variable is `ZAI_API_KEY`.
+- Supported models: `glm-5.3`, `glm-5.3-flash`, `glm-5.3-flashx`, and `glm-5.2`.
+- Send a non-streaming request to the Z.ai Anthropic Messages endpoint at `https://api.z.ai/api/anthropic/v1/messages`.
+- Authentication strictly uses `x-api-key: <key>`, `anthropic-version: 2023-06-01`, and `Content-Type: application/json`. Do not send `Authorization: Bearer`.
+- Keep the planner request on the Anthropic Messages API contract (`system`, one user message, `max_tokens`, `stream: false`).
+- Thinking and reasoning effort:
+  - For `glm-5.3`, `glm-5.3-flash`, and `glm-5.3-flashx`: thinking is always enabled (`thinking: { "type": "enabled" }`), and `reasoning_effort` is sent directly as `low`, `high`, or `max` (default `max`). Disabling thinking or specifying unsupported efforts is rejected before sending.
+  - For `glm-5.2`: disabling thinking is supported (`thinking: { "type": "disabled" }` with no `reasoning_effort`).
+- Extract text content blocks. If a model (e.g. `glm-5.3-flash`) produces only a thinking block and reaches `stop_reason: "max_tokens"` with no text content blocks, treat this as a completed non-error response and return an empty plan text rather than failing with an error.
+
+### Security and tests
+
+Provider keys stay environment-only and are redacted from upstream error bodies. Prompts and raw response bodies are not logged. HTTP fixture tests verify Anthropic and Z.ai Messages URL/headers/body/response, `x-api-key` authentication, thinking-only response handling, and zero sends for unsupported configurations. Existing timeout, malformed response, non-2xx, and secret-redaction tests remain required. No paid live API request is needed.

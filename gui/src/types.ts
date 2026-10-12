@@ -138,6 +138,8 @@ export interface ProviderConfig {
   model_map: Record<string, string>;
   visible_models: string[];
   models?: Record<string, ModelEntry>;
+  /** Legacy GLM contract/protocol block from older configs: preserved on disk, never read or written by the UI. */
+  zai?: unknown;
   profiles?: OpenRouterProfile[];
   claude_code?: ClaudeCodeProviderSection;
   hidden?: boolean;

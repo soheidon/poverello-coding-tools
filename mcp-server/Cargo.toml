@@ -2,7 +2,7 @@
 name = "anthro-bridge-mcp-server"
 version = "0.1.0"
 edition = "2021"
-description = "MCP server that generates implementation plans via DeepSeek V4 Pro"
+description = "MCP server that generates implementation plans via configured Poverello providers"
 license = "MIT"
 publish = false
 

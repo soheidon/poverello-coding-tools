@@ -113,7 +113,14 @@ export function isKnownModel(upstreamModel: string): boolean {
   return upstreamModel in MODEL_CAPABILITIES;
 }
 
-// For the ApiKeyPanel: get the selectable models for a provider
+// Selectable models for providers. `PROVIDER_MODELS` is derived directly from
+// the shared catalog's `providers` array (which includes `zai`).
+// `DIRECT_PROVIDER_MODELS` is retained for fallback compatibility.
+const DIRECT_PROVIDER_MODELS: Record<string, string[]> = {
+  zai: ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "glm-5.2"],
+};
+
+// For the ApiKeyPanel and other panels: get the selectable models for a provider
 export function getProviderModels(providerId: string): string[] {
-  return PROVIDER_MODELS[providerId] ?? [];
+  return PROVIDER_MODELS[providerId] ?? DIRECT_PROVIDER_MODELS[providerId] ?? [];
 }

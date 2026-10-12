@@ -42,6 +42,7 @@ impl SecretRedactor {
             "MOONSHOT_API_KEY",
             "KIMI_CODE_API_KEY",
             "MINIMAX_API_KEY",
+            "ZAI_API_KEY",
         ] {
             if let Ok(val) = std::env::var(env_key) {
                 let trimmed = val.trim();

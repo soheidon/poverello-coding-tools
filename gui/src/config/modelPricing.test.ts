@@ -177,14 +177,145 @@ describe("MiMo V2.6 production pricing data", () => {
     expect(ultra.inputPerMillionUsd).toBe(4.35);
     expect(ultra.outputPerMillionUsd).toBe(8.70);
     expect(ultra.cachedInputPerMillionUsd).toBe(0.036);
-    expect(ultra.pricingNoteKey).toBe("modelPricing.notes.mimoUltraSpeed");
+    // Each UltraSpeed generation carries its own note: the shared key used to
+    // describe the V2.6 row as the V2.5 model at 3× standard pricing, while this
+    // generation is 10× the V2.6 Pro price.
+    expect(ultra.pricingNoteKey).toBe("modelPricing.notes.mimoV26ProUltraSpeed");
     expect(ultra.verifiedAt).toBe("2026-09-22");
   });
 
   it("retains legacy MiMo V2.5 pricing for backward compatibility", () => {
     expect(MODEL_PRICING["mimo-v2.5"]).toBeDefined();
     expect(MODEL_PRICING["mimo-v2.5-pro"]).toBeDefined();
-    expect(MODEL_PRICING["mimo-v2.5-pro-ultraspeed"]).toBeDefined();
+    const legacyUltra = MODEL_PRICING["mimo-v2.5-pro-ultraspeed"];
+    expect(legacyUltra).toBeDefined();
+    expect(legacyUltra.pricingNoteKey).toBe("modelPricing.notes.mimoV25ProUltraSpeed");
+  });
+});
+
+describe("GLM (Z.ai Direct API) pricing data", () => {
+  it("defines Direct GLM pricing for all 4 models", () => {
+    const glm52 = MODEL_PRICING["zai:glm-5.2"];
+    expect(glm52).toBeDefined();
+    expect(glm52.inputPerMillionUsd).toBe(1.40);
+    expect(glm52.outputPerMillionUsd).toBe(4.40);
+    expect(glm52.cachedInputPerMillionUsd).toBe(0.26);
+    expect(glm52.verifiedAt).toBe("2026-10-12");
+    expect(glm52.sourceUrl).toBe("https://docs.z.ai/guides/overview/pricing");
+    expect(glm52.pricingNoteKey).toBe("modelPricing.notes.zaiPricing");
+
+    const glm53 = MODEL_PRICING["zai:glm-5.3"];
+    expect(glm53).toBeDefined();
+    expect(glm53.inputPerMillionUsd).toBe(1.40);
+    expect(glm53.outputPerMillionUsd).toBe(4.40);
+    expect(glm53.cachedInputPerMillionUsd).toBe(0.26);
+    expect(glm53.verifiedAt).toBe("2026-10-12");
+    expect(glm53.sourceUrl).toBe("https://docs.z.ai/guides/overview/pricing");
+
+    const flash = MODEL_PRICING["zai:glm-5.3-flash"];
+    expect(flash).toBeDefined();
+    expect(flash.inputPerMillionUsd).toBe(0.15);
+    expect(flash.outputPerMillionUsd).toBe(0.50);
+    expect(flash.cachedInputPerMillionUsd).toBe(0.03);
+    expect(flash.verifiedAt).toBe("2026-10-12");
+
+    const flashx = MODEL_PRICING["zai:glm-5.3-flashx"];
+    expect(flashx).toBeDefined();
+    expect(flashx.inputPerMillionUsd).toBe(0.37);
+    expect(flashx.outputPerMillionUsd).toBe(1.25);
+    expect(flashx.cachedInputPerMillionUsd).toBe(0.075);
+    expect(flashx.verifiedAt).toBe("2026-10-12");
+  });
+
+  it("keeps direct GLM namespace isolated from OpenRouter models", () => {
+    // Direct entries use zai: prefix
+    expect(MODEL_PRICING["zai:glm-5.3"]).toBeDefined();
+    // Non-prefixed raw ID is not directly in MODEL_PRICING
+    expect(MODEL_PRICING["glm-5.3"]).toBeUndefined();
+  });
+});
+
+describe("GPT-6 and GPT-6.1 OpenRouter pricing data", () => {
+  it("defines Sol and Sol Pro pricing for GPT-6.1", () => {
+    const sol = MODEL_PRICING["openai/gpt-6.1-sol"];
+    expect(sol).toBeDefined();
+    expect(sol.inputPerMillionUsd).toBe(2.00);
+    expect(sol.outputPerMillionUsd).toBe(10.00);
+    expect(sol.cachedInputPerMillionUsd).toBe(0.10);
+    expect(sol.verifiedAt).toBe("2026-10-13");
+
+    const solPro = MODEL_PRICING["openai/gpt-6.1-sol-pro"];
+    expect(solPro).toBeDefined();
+    expect(solPro.inputPerMillionUsd).toBe(2.00);
+    expect(solPro.outputPerMillionUsd).toBe(10.00);
+    expect(solPro.cachedInputPerMillionUsd).toBe(0.10);
+  });
+
+  it("defines Sol, Sol Pro, Luna, and Luna Pro pricing for GPT-6", () => {
+    const sol = MODEL_PRICING["openai/gpt-6-sol"];
+    expect(sol).toBeDefined();
+    expect(sol.inputPerMillionUsd).toBe(2.00);
+    expect(sol.outputPerMillionUsd).toBe(10.00);
+    expect(sol.cachedInputPerMillionUsd).toBe(0.20);
+
+    const solPro = MODEL_PRICING["openai/gpt-6-sol-pro"];
+    expect(solPro).toBeDefined();
+    expect(solPro.inputPerMillionUsd).toBe(2.00);
+    expect(solPro.outputPerMillionUsd).toBe(10.00);
+    expect(solPro.cachedInputPerMillionUsd).toBe(0.20);
+
+    const luna = MODEL_PRICING["openai/gpt-6-luna"];
+    expect(luna).toBeDefined();
+    expect(luna.inputPerMillionUsd).toBe(0.10);
+    expect(luna.outputPerMillionUsd).toBe(0.50);
+    expect(luna.cachedInputPerMillionUsd).toBe(0.01);
+
+    const lunaPro = MODEL_PRICING["openai/gpt-6-luna-pro"];
+    expect(lunaPro).toBeDefined();
+    expect(lunaPro.inputPerMillionUsd).toBe(0.10);
+    expect(lunaPro.outputPerMillionUsd).toBe(0.50);
+    expect(lunaPro.cachedInputPerMillionUsd).toBe(0.01);
+  });
+});
+
+describe("OpenRouter GLM 5.3 Flash promotional pricing", () => {
+  it("defines promotional and regular prices for z-ai/glm-5.3-flash", () => {
+    const flash = BUILTIN_OPENROUTER_MODELS["z-ai/glm-5.3-flash"];
+    expect(flash).toBeDefined();
+    expect(flash.pricing).toMatchObject({
+      inputPerMillionUsd: 0.075,
+      outputPerMillionUsd: 0.25,
+      cacheReadPerMillionUsd: 0.015,
+      regularInputPerMillionUsd: 0.15,
+      regularOutputPerMillionUsd: 0.5,
+      regularCacheReadPerMillionUsd: 0.03,
+    });
+    expect(MODEL_PRICING["z-ai/glm-5.3-flash"]).toMatchObject({
+      inputPerMillionUsd: 0.075,
+      outputPerMillionUsd: 0.25,
+      cachedInputPerMillionUsd: 0.015,
+      regularInputPerMillionUsd: 0.15,
+      regularOutputPerMillionUsd: 0.5,
+      regularCachedInputPerMillionUsd: 0.03,
+    });
+  });
+});
+
+describe("MiniMax M2.7 and Kimi K2.7 Code direct pricing", () => {
+  it("defines standard PAYG pricing for MiniMax M2.7 and Kimi K2.7 Code", () => {
+    const m27 = MODEL_PRICING["MiniMax-M2.7"];
+    expect(m27).toBeDefined();
+    expect(m27.inputPerMillionUsd).toBe(0.30);
+    expect(m27.outputPerMillionUsd).toBe(1.20);
+    expect(m27.cachedInputPerMillionUsd).toBe(0.06);
+    expect(m27.verifiedAt).toBe("2026-10-13");
+
+    const k27 = MODEL_PRICING["kimi-k2.7-code"];
+    expect(k27).toBeDefined();
+    expect(k27.inputPerMillionUsd).toBe(0.95);
+    expect(k27.outputPerMillionUsd).toBe(4.00);
+    expect(k27.cachedInputPerMillionUsd).toBe(0.19);
+    expect(k27.verifiedAt).toBe("2026-10-13");
   });
 });
 

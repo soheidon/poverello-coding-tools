@@ -39,6 +39,23 @@ struct ModelIdentityLogContext {
     request_model: String,
     canonical_gateway_model: String,
     upstream_model: String,
+    /// Test-only: counts the upstream sends of *this* request. Test builds carry
+    /// it from the served config, so an assertion can never observe a
+    /// concurrent test's traffic. Release builds have neither the field nor any
+    /// read of it.
+    #[cfg(test)]
+    send_observer: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
+}
+
+impl ModelIdentityLogContext {
+    /// Record that this request is about to touch the network, immediately
+    /// before `RequestBuilder::send()`. Test builds only.
+    #[cfg(test)]
+    fn record_upstream_send(&self) {
+        if let Some(counter) = &self.send_observer {
+            counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -79,7 +96,7 @@ pub fn resolve_model_capabilities(upstream_model: &str) -> ModelCapabilities {
 use model_capabilities::{
     is_gemini_model, is_inclusionai_model, is_ling_free_model, is_ling_non_thinking_model,
     is_openai_gpt56_model, is_openrouter_deepseek_model, is_poolside_reasoning_model,
-    is_stepfun_model, is_tencent_hy3,
+    is_stepfun_model, is_tencent_hy3, is_tencent_hy4, is_tencent_model,
 };
 
 // ---------------------------------------------------------------------------
@@ -163,6 +180,21 @@ pub struct ProxyConfig {
     pub non_vision_image_policy: String,
     /// Runtime-updatable normalization toggle (shared with ProxyState)
     pub normalize_response_model_identity: Arc<AtomicBool>,
+    /// Test-only: per-install upstream send observer. A test installs its own
+    /// before serving the router, so its assertions are independent of any
+    /// concurrent test. Release builds have neither the field nor a read of it.
+    #[cfg(test)]
+    pub(crate) send_observer: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
+}
+
+impl ProxyConfig {
+    /// Record an upstream send attempt for this install. Test builds only.
+    #[cfg(test)]
+    fn record_upstream_send(&self) {
+        if let Some(counter) = &self.send_observer {
+            counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
 }
 
 /// Validate a model entry's canonical reference.
@@ -437,8 +469,8 @@ pub fn resolve_proxy_config(
                     )
                 };
 
-                // Hy3 contract: force_thinking always false.
-                let force_thinking = if is_tencent_hy3(&entry.upstream_model) {
+                // Tencent contract: force_thinking always false.
+                let force_thinking = if is_tencent_model(&entry.upstream_model) {
                     false
                 } else {
                     force_thinking
@@ -578,7 +610,7 @@ pub fn resolve_proxy_config(
                     )
                 };
 
-                let force_thinking = if is_tencent_hy3(&upstream_model) {
+                let force_thinking = if is_tencent_model(&upstream_model) {
                     false
                 } else {
                     force_thinking
@@ -622,7 +654,7 @@ pub fn resolve_proxy_config(
             continue; // Skip providers not used by any active model route
         }
         let p = &cfg.providers[*provider_id];
-        let api_key = std::env::var(&p.api_key_env).map_err(|_| {
+        let api_key = crate::resolve_api_key_env_var(&p.api_key_env).ok_or_else(|| {
             format!(
                 "{} not set — set it in the API Key tab first.",
                 p.api_key_env
@@ -780,6 +812,8 @@ pub fn resolve_proxy_config(
         enable_cors: cfg.server.enable_cors,
         non_vision_image_policy: cfg.non_vision_image_policy.clone(),
         normalize_response_model_identity,
+        #[cfg(test)]
+        send_observer: None,
     })
 }
 
@@ -1174,6 +1208,49 @@ fn apply_route_request_transforms(body: &mut serde_json::Value, entry: &ModelRou
         apply_deepseek_reasoning_effort(body, entry.reasoning_effort.as_deref());
     } else if entry.provider_id != "openrouter" {
         apply_direct_provider_reasoning_effort(body, entry.reasoning_effort.as_deref());
+    }
+}
+
+/// Translate saved thinking settings for OpenRouter's Tencent Hy4 Preview.
+/// Production and tests share this function so the tested mapping cannot drift
+/// from the payload sent by the Gateway.
+fn apply_tencent_hy4_reasoning(route: &ModelRouteEntry, body: &mut serde_json::Value) {
+    if route.provider_id != "openrouter" || !is_tencent_hy4(&route.upstream_model) {
+        return;
+    }
+
+    let Some(obj) = body.as_object_mut() else {
+        return;
+    };
+
+    match route.thinking_mode_raw.as_deref() {
+        Some("thinking") => {
+            obj.remove("thinking");
+            let reasoning = match route.reasoning_effort.as_deref() {
+                Some("high") => json!({"effort": "high"}),
+                Some(effort) => json!({"effort": effort}),
+                None => json!({"effort": "high"}),
+            };
+            obj.insert("reasoning".to_string(), reasoning);
+        }
+        Some("normal") => {
+            obj.remove("thinking");
+            obj.insert("reasoning".to_string(), json!({"enabled": false}));
+        }
+        _ => {
+            let is_disabled = obj
+                .get("thinking")
+                .and_then(|thinking| thinking.get("type"))
+                .and_then(|kind| kind.as_str())
+                == Some("disabled");
+            obj.remove("thinking");
+            if is_disabled {
+                obj.insert("reasoning".to_string(), json!({"enabled": false}));
+            } else {
+                // Hy4 Preview defaults to Reasoning: High.
+                obj.insert("reasoning".to_string(), json!({"effort": "high"}));
+            }
+        }
     }
 }
 
@@ -1726,6 +1803,56 @@ fn resolve_model<'a>(
     Ok((entry, route))
 }
 
+/// Refuse a direct GLM (`zai`) request with the reason the send path produced.
+/// Every refusal is answered before a client is built, so not a byte is sent.
+fn glm_refusal(reason: String) -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "type": "error",
+            "error": { "type": "invalid_request_error", "message": reason }
+        })),
+    )
+}
+
+/// Why the token-count endpoint is refused for the direct GLM provider: Z.ai's
+/// Anthropic-compatible API documents no token-count endpoint and this Gateway
+/// never estimates a count.
+const GLM_COUNT_TOKENS_REFUSAL: &str =
+    "GLM: the token-count endpoint is not available for the direct provider; nothing was sent";
+
+fn validate_glm_client_reasoning(
+    body: &Value,
+    model: &str,
+    thinking_optional: bool,
+) -> Result<(), String> {
+    if let Some(thinking) = body.get("thinking") {
+        let is_disabled = thinking
+            .get("type")
+            .and_then(Value::as_str)
+            .map(|t| t == "disabled")
+            .unwrap_or(false)
+            || thinking.as_bool() == Some(false);
+        if is_disabled && !thinking_optional {
+            return Err(format!(
+                "GLM: thinking cannot be disabled for model '{model}' (it is always on)"
+            ));
+        }
+    }
+    if let Some(effort) = body
+        .get("output_config")
+        .and_then(|oc| oc.get("effort"))
+        .and_then(Value::as_str)
+    {
+        if !crate::ZAI_REASONING_EFFORTS.contains(&effort) {
+            return Err(format!(
+                "GLM: '{effort}' is not an accepted reasoning effort for model '{model}' (low, high, max)"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn detect_media_types(messages: &[Value]) -> (bool, bool) {
     let mut has_image = false;
     let mut has_video = false;
@@ -2069,23 +2196,44 @@ fn check_media_support(
 fn build_upstream_headers(incoming: &HeaderMap, route: &ProviderRoute) -> HeaderMap {
     let mut headers = HeaderMap::new();
 
-    let auth_value = format!("Bearer {}", route.api_key);
-    match auth_value.parse() {
-        Ok(v) => {
-            headers.insert("Authorization", v);
+    if route.provider_id == "zai" {
+        match route.api_key.parse() {
+            Ok(v) => {
+                headers.insert("x-api-key", v);
+            }
+            Err(e) => {
+                tracing::error!(
+                    "API key contains characters invalid for HTTP header. Key length: {}. Error: {}",
+                    route.api_key.len(),
+                    e
+                );
+            }
         }
-        Err(e) => {
-            tracing::error!(
-                "API key contains characters invalid for HTTP header. Key length: {}. Error: {}",
-                route.api_key.len(),
-                e
-            );
+    } else {
+        let auth_value = format!("Bearer {}", route.api_key);
+        match auth_value.parse() {
+            Ok(v) => {
+                headers.insert("Authorization", v);
+            }
+            Err(e) => {
+                tracing::error!(
+                    "API key contains characters invalid for HTTP header. Key length: {}. Error: {}",
+                    route.api_key.len(),
+                    e
+                );
+            }
         }
     }
 
     headers.insert("Content-Type", "application/json".parse().unwrap());
 
-    if let Some(ref version) = route.force_anthropic_version {
+    if route.provider_id == "zai" {
+        // Direct GLM (zai) verified endpoint strictly requires fixed "2023-06-01".
+        // To guarantee wire compatibility with the Z.ai Anthropic messages endpoint,
+        // neither incoming client anthropic-version nor route force_anthropic_version
+        // may override this value.
+        headers.insert("anthropic-version", "2023-06-01".parse().unwrap());
+    } else if let Some(ref version) = route.force_anthropic_version {
         match version.parse() {
             Ok(v) => {
                 headers.insert("anthropic-version", v);
@@ -2201,6 +2349,12 @@ async fn proxy_count_tokens(
     let model_in = body["model"].as_str().unwrap_or("").to_string();
     let (entry, route) = resolve_model(&model_in, &config, is_claude_code_3p)?;
 
+    // The direct GLM provider never answers the token-count endpoint: the
+    // request is refused here, before any client is built.
+    if entry.provider_id == crate::ZAI_PROVIDER_ID {
+        return Err(glm_refusal(GLM_COUNT_TOKENS_REFUSAL.to_string()));
+    }
+
     if !route.supports_count_tokens {
         return Err((
             StatusCode::NOT_IMPLEMENTED,
@@ -2270,6 +2424,8 @@ async fn proxy_count_tokens(
     );
 
     let client = build_reqwest_client();
+    #[cfg(test)]
+    config.record_upstream_send();
     let upstream_resp = client
         .post(format!("{}/v1/messages/count_tokens", route.upstream_url))
         .headers(build_upstream_headers(&headers, route))
@@ -2333,6 +2489,13 @@ async fn proxy_messages(
     let model_in = body["model"].as_str().unwrap_or("").to_string();
     let (entry, route) = resolve_model(&model_in, &config, is_claude_code_3p)?;
 
+    if entry.provider_id == crate::ZAI_PROVIDER_ID {
+        let thinking_optional = crate::ZAI_MODELS_THINKING_OPTIONAL.contains(&entry.upstream_model.as_str());
+        if let Err(reason) = validate_glm_client_reasoning(&body, &entry.upstream_model, thinking_optional) {
+            return Err(glm_refusal(reason));
+        }
+    }
+
     // Sanitize image blocks for non-vision models
     let (was_sanitized, image_count) =
         sanitize_body_images(&mut body, entry, &config.non_vision_image_policy);
@@ -2359,6 +2522,16 @@ async fn proxy_messages(
             model_in, entry.upstream_model, entry.provider_id,
             image_count, post_urls, post_b64s, config.non_vision_image_policy, was_sanitized
         );
+    }
+
+    // GLM over Anthropic Messages: reasoning is always on for the 5.3 series;
+    // only a saved `normal` on a thinking-optional model (GLM-5.2) disables it.
+    // The client's own `thinking` was validated above and is replaced here.
+    if entry.provider_id == crate::ZAI_PROVIDER_ID {
+        let optional =
+            crate::ZAI_MODELS_THINKING_OPTIONAL.contains(&entry.upstream_model.as_str());
+        let disabled = optional && entry.thinking_mode_raw.as_deref() == Some("normal");
+        body["thinking"] = json!({ "type": if disabled { "disabled" } else { "enabled" } });
     }
 
     // Apply thinking override + provider-specific reasoning effort injection.
@@ -2407,14 +2580,15 @@ async fn proxy_messages(
         }
     }
 
-    // OpenRouter Tencent Hy3: same shape as Poolside but `reasoning.effort` accepts
-    // low/high/max (Hy3 has no throttling of `max`; we still translate it the same way).
-    // Disabled shape is unchanged: {"reasoning": {"enabled": false}}.
+    // OpenRouter Tencent models (Hy3 / Hy4 Preview):
     let uses_tencent_reasoning =
-        entry.provider_id == "openrouter" && is_tencent_hy3(&entry.upstream_model);
+        entry.provider_id == "openrouter" && is_tencent_model(&entry.upstream_model);
 
     if uses_tencent_reasoning {
-        if let Some(obj) = body.as_object_mut() {
+        if is_tencent_hy4(&entry.upstream_model) {
+            apply_tencent_hy4_reasoning(&entry, &mut body);
+        } else if let Some(obj) = body.as_object_mut() {
+            // Hy3: existing handling untouched!
             match entry.thinking_mode_raw.as_deref() {
                 Some("thinking") => {
                     obj.remove("thinking");
@@ -2431,9 +2605,6 @@ async fn proxy_messages(
                     obj.insert("reasoning".to_string(), json!({"enabled": false}));
                 }
                 _ => {
-                    // Default: no thinking_mode set.
-                    // If the client sent thinking: {type: "disabled"}, translate to
-                    // the same reasoning-disabled shape used by Poolside.
                     let is_disabled = obj
                         .get("thinking")
                         .and_then(|t| t.get("type"))
@@ -2650,6 +2821,8 @@ async fn proxy_messages(
         request_model: model_in.clone(),
         canonical_gateway_model: entry.gateway_model.clone(),
         upstream_model: entry.upstream_model.clone(),
+        #[cfg(test)]
+        send_observer: config.send_observer.clone(),
     };
 
     tracing::debug!(
@@ -2687,6 +2860,8 @@ async fn proxy_messages(
         .await
     }
 }
+
+
 
 fn format_upstream_request_error(e: &reqwest::Error, provider_id: &str, upstream_url: &str) -> String {
     if e.is_connect() && provider_id == "ollama" {
@@ -2734,6 +2909,8 @@ async fn handle_nonstream(
     provider_id: &str,
     upstream_url: &str,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
+    #[cfg(test)]
+    log_context.record_upstream_send();
     let upstream_resp = req.send().await.map_err(|e| {
         tracing::info!(
             request_id = log_context.request_id,
@@ -2914,6 +3091,8 @@ async fn handle_stream(
     provider_id: &str,
     upstream_url: &str,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
+    #[cfg(test)]
+    log_context.record_upstream_send();
     let upstream_resp = req.send().await.map_err(|e| {
         tracing::info!(
             request_id = log_context.request_id,
@@ -4046,6 +4225,8 @@ mod tests {
             request_model: request_model.to_string(),
             canonical_gateway_model: canonical.to_string(),
             upstream_model: upstream.to_string(),
+            #[cfg(test)]
+            send_observer: None,
         }
     }
 
@@ -4678,8 +4859,12 @@ mod tests {
         body: &mut serde_json::Value,
     ) {
         let uses_tencent =
-            route.provider_id == "openrouter" && is_tencent_hy3(&route.upstream_model);
+            route.provider_id == "openrouter" && is_tencent_model(&route.upstream_model);
         if !uses_tencent {
+            return;
+        }
+        if is_tencent_hy4(&route.upstream_model) {
+            apply_tencent_hy4_reasoning(route, body);
             return;
         }
         let obj = match body.as_object_mut() {
@@ -4879,6 +5064,89 @@ mod tests {
         assert!(!caps_free.force_thinking);
     }
 
+    // ── Tencent Hy4 Preview reasoning translation tests ────────────────────────
+
+    #[test]
+    fn tencent_hy4_thinking_high_sends_effort_high() {
+        let route = make_route_with_effort(
+            "openrouter", "tencent/hy4-preview", Some("thinking"), Some("high"),
+        );
+        let mut body = json!({"thinking": {"type": "enabled"}});
+        apply_tencent_reasoning(&route, &mut body);
+        assert_eq!(body.get("thinking"), None);
+        assert_eq!(
+            body.get("reasoning"),
+            Some(&json!({"effort": "high"}))
+        );
+    }
+
+    #[test]
+    fn tencent_hy4_normal_sends_enabled_false() {
+        let route = make_route("openrouter", "tencent/hy4-preview", Some("normal"));
+        let mut body = json!({"thinking": {"type": "disabled"}});
+        apply_tencent_reasoning(&route, &mut body);
+        assert_eq!(body.get("thinking"), None);
+        assert_eq!(
+            body.get("reasoning"),
+            Some(&json!({"enabled": false}))
+        );
+    }
+
+    #[test]
+    fn tencent_hy4_client_disabled_translates_correctly() {
+        let route = make_route("openrouter", "tencent/hy4-preview", None);
+        let mut body = json!({"thinking": {"type": "disabled"}});
+        apply_tencent_reasoning(&route, &mut body);
+        assert_eq!(body.get("thinking"), None);
+        assert_eq!(
+            body.get("reasoning"),
+            Some(&json!({"enabled": false}))
+        );
+    }
+
+    #[test]
+    fn tencent_hy4_unset_defaults_to_effort_high() {
+        let route = make_route("openrouter", "tencent/hy4-preview", None);
+        let mut body = json!({"model": "tencent/hy4-preview"});
+        apply_tencent_reasoning(&route, &mut body);
+        assert_eq!(body.get("thinking"), None);
+        assert_eq!(
+            body.get("reasoning"),
+            Some(&json!({"effort": "high"}))
+        );
+    }
+
+    #[test]
+    fn tencent_hy4_preserves_unsupported_effort_without_coercion() {
+        let route_low = make_route_with_effort(
+            "openrouter", "tencent/hy4-preview", Some("thinking"), Some("low"),
+        );
+        let mut body_low = json!({"thinking": {"type": "enabled"}});
+        apply_tencent_reasoning(&route_low, &mut body_low);
+        assert_eq!(body_low.get("thinking"), None);
+        assert_eq!(
+            body_low.get("reasoning"),
+            Some(&json!({"effort": "low"}))
+        );
+
+        let route_max = make_route_with_effort(
+            "openrouter", "tencent/hy4-preview", Some("thinking"), Some("max"),
+        );
+        let mut body_max = json!({"thinking": {"type": "enabled"}});
+        apply_tencent_reasoning(&route_max, &mut body_max);
+        assert_eq!(body_max.get("thinking"), None);
+        assert_eq!(
+            body_max.get("reasoning"),
+            Some(&json!({"effort": "max"}))
+        );
+    }
+
+    #[test]
+    fn tencent_hy4_capabilities_force_thinking_false() {
+        let caps = resolve_model_capabilities("tencent/hy4-preview");
+        assert!(!caps.force_thinking);
+    }
+
     // ── Real-path regression tests for resolve_proxy_config ──────────────────
     //
     // These tests exercise the actual production code path that maps
@@ -4926,6 +5194,7 @@ mod tests {
             models: Some(models),
             openrouter_profiles: vec![],
             claude_code: None,
+            zai: None,
             hidden: false,
         };
         let mut providers = indexmap::IndexMap::new();
@@ -4947,6 +5216,807 @@ mod tests {
             orchestrator: None,
             orchestrator_provider_seed_version: None,
         }
+    }
+
+    /// Production-path proof for the Claude 5.5 routes: they are exposed and
+    /// resolved only through the built-in `OpenRouter: Anthropic` profile.
+    ///
+    /// Everything below goes through `resolve_proxy_config` (the table the live
+    /// Gateway serves requests from) and `resolve_model` (the dispatch gate the
+    /// request path calls), not through the route helpers. The unmapped case is
+    /// rejected at that gate, which runs before the upstream client is touched,
+    /// so no upstream HTTP request can be issued for it.
+    #[test]
+    fn gateway_exposes_claude_55_routes_only_on_the_anthropic_profile() {
+        let anthropic = serde_json::from_value::<crate::OpenRouterProfile>(
+            crate::build_anthropic_profile_json(crate::ANTHROPIC_OR_PROFILE_NAME),
+        )
+        .expect("the Anthropic profile must deserialize");
+        let gemini = serde_json::from_value::<crate::OpenRouterProfile>(
+            crate::build_gemini_profile_json(crate::GEMINI_PROFILE_NAME),
+        )
+        .expect("the Gemini profile must deserialize");
+
+        let mut cfg =
+            make_openrouter_config("openai/gpt-5.6-sol", Some("thinking"), Some("high"));
+        cfg.providers
+            .get_mut("openrouter")
+            .expect("openrouter provider must exist")
+            .openrouter_profiles = vec![gemini, anthropic];
+        cfg.active_openrouter_profile_id = Some(crate::ANTHROPIC_OR_PROFILE_ID.to_string());
+
+        let cache: Vec<openrouter::OpenRouterModel> = Vec::new();
+        let proxy_cfg = resolve_proxy_config(&cfg, &cache, Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config must accept the Anthropic profile");
+
+        for (route, upstream) in [
+            ("claude-opus-5-5", "anthropic/claude-opus-5.5"),
+            ("claude-sonnet-5-5", "anthropic/claude-sonnet-5.5"),
+            ("claude-haiku-5-5", "anthropic/claude-haiku-5.5"),
+        ] {
+            let entry = proxy_cfg
+                .model_route
+                .get(route)
+                .unwrap_or_else(|| panic!("{route} must be routable on the Anthropic profile"));
+            assert_eq!(entry.upstream_model, upstream, "{route} upstream");
+            assert!(
+                proxy_cfg.all_models.iter().any(|m| m == route),
+                "{route} must be listed as a visible model"
+            );
+            assert!(
+                super::resolve_model(route, &proxy_cfg, false).is_ok(),
+                "{route} must pass the Gateway dispatch gate"
+            );
+            // Effective capabilities come from the shared catalog through the
+            // profile builder — not from the model ID, its existence, or its
+            // context size. Image input is confirmed by OpenRouter's model
+            // metadata; video and reasoning effort stay off until their
+            // evidence exists (endpoint-level proof / the reasoning transform).
+            assert!(entry.supports_image_url, "{route} image url");
+            assert!(entry.supports_image_base64, "{route} image base64");
+            assert!(!entry.supports_video_url, "{route} video url stays disabled");
+            assert!(!entry.supports_video_base64, "{route} video base64 stays disabled");
+            assert!(!entry.force_thinking, "{route} force_thinking");
+            assert_eq!(
+                entry.reasoning_effort, None,
+                "{route} must not advertise an unverified reasoning effort"
+            );
+            assert_eq!(
+                entry.thinking_mode_raw.as_deref(),
+                Some("thinking"),
+                "{route} thinking mode"
+            );
+        }
+        // The base routes keep working and point at the 5.5 models on this
+        // profile; neither the route names nor their identity change.
+        assert_eq!(
+            proxy_cfg
+                .model_route
+                .get("claude-opus-5")
+                .expect("base opus route")
+                .upstream_model,
+            "anthropic/claude-opus-5.5"
+        );
+
+        // A profile without a 5.5 mapping: the routes are neither listed nor
+        // dispatchable, and the request is rejected before any upstream work.
+        cfg.active_openrouter_profile_id = Some(crate::GEMINI_PROFILE_ID.to_string());
+        let other = resolve_proxy_config(&cfg, &cache, Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config must accept the Gemini profile");
+        for route in crate::model_routing::CLAUDE_55_ROUTES {
+            assert!(
+                other.model_route.get(route).is_none(),
+                "{route} must not be routable without an explicit mapping"
+            );
+            assert!(
+                !other.all_models.iter().any(|m| m == route),
+                "{route} must not be listed without an explicit mapping"
+            );
+            let (status, _) = super::resolve_model(route, &other, false)
+                .err()
+                .expect("a request for an unmapped 5.5 route must be rejected");
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{route}");
+        }
+        // The other target still resolves its own base routes unchanged.
+        assert_eq!(
+            other
+                .model_route
+                .get("claude-opus-5")
+                .expect("base opus route")
+                .upstream_model,
+            "google/gemini-3.8-flash"
+        );
+    }
+
+    // ── Direct GLM (`zai`) Gateway gate ─────────────────────────────────────
+    //
+    // Each test installs its own upstream-send observer on the config the router
+    // serves (`install_send_observer`), and the observer is incremented
+    // immediately before `RequestBuilder::send()` — so these tests assert on the
+    // real network boundary rather than on the absence of a branch, and they
+    // hold under a parallel test runner because no test can observe another
+    // test's traffic: every GLM configuration is refused over the production
+    // router with zero sends, and an ordinary provider still reaches the client
+    // (positive control). The upstream URLs below are closed loopback ports on
+    // purpose — no test in this file can reach a live, paid API.
+
+    fn make_direct_provider_config(
+        provider_id: &str,
+        display_name: &str,
+        api_key_env: &str,
+        upstream_model: &str,
+    ) -> crate::GatewayConfigResponse {
+        let models = make_models(vec![
+            ("claude-opus-5", upstream_model, None),
+            ("claude-sonnet-5", upstream_model, None),
+            ("claude-haiku-4-5", upstream_model, None),
+        ]);
+        let provider = crate::ProviderConfig {
+            display_name: display_name.to_string(),
+            upstream_url: "http://127.0.0.1:9/never-the-selected-contract".to_string(),
+            api_key_env: api_key_env.to_string(),
+            default_model: upstream_model.to_string(),
+            force_anthropic_version: None,
+            supports_count_tokens: false,
+            supports_vision: false,
+            supports_video: false,
+            supports_thinking: true,
+            model_map: HashMap::new(),
+            visible_models: vec!["claude-opus-5".to_string()],
+            models: Some(models),
+            openrouter_profiles: vec![],
+            claude_code: None,
+            zai: None,
+            hidden: false,
+        };
+        let mut providers = indexmap::IndexMap::new();
+        providers.insert(provider_id.to_string(), provider);
+        crate::GatewayConfigResponse {
+            config_version: "1.0".to_string(),
+            active_provider: Some(provider_id.to_string()),
+            active_openrouter_profile_id: None,
+            providers,
+            server: crate::ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 4000,
+                enable_cors: false,
+            },
+            non_vision_image_policy: "replace".to_string(),
+            normalize_response_model_identity: true,
+            claude_code: None,
+            mcp: None,
+            orchestrator: None,
+            orchestrator_provider_seed_version: None,
+        }
+    }
+
+    /// Serve the production router on an ephemeral loopback port and return its
+    /// base URL. The task ends with the test's runtime.
+    async fn serve_gateway(proxy_cfg: Arc<ProxyConfig>) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind loopback listener");
+        let addr = listener.local_addr().expect("local_addr");
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, create_router(proxy_cfg)).await;
+        });
+        format!("http://{addr}")
+    }
+
+    /// Install this test's own upstream-send observer on the config the router
+    /// will serve, and hand back a handle to it. The counter is per test — it
+    /// can never observe another test's traffic, so the assertions hold under a
+    /// parallel test runner.
+    fn install_send_observer(
+        proxy_cfg: &mut ProxyConfig,
+    ) -> Arc<std::sync::atomic::AtomicUsize> {
+        let counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        proxy_cfg.send_observer = Some(counter.clone());
+        counter
+    }
+
+    fn send_count(counter: &Arc<std::sync::atomic::AtomicUsize>) -> usize {
+        counter.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Test-only key names: no test may depend on, or touch, a real credential.
+    const TEST_ZAI_KEY_ENV: &str = "_TEST_ZAI_KEY";
+    const TEST_DEEPSEEK_KEY_ENV: &str = "_TEST_DEEPSEEK_KEY";
+
+    /// A local Chat Completions fixture: it records every request it receives
+    /// and answers with the canned response, so the tests never touch the
+    /// network — a redirect to it is the only way this suite reaches an
+    /// "upstream" at all.
+    #[derive(Clone)]
+    struct ZaiFixtureState {
+        requests: Arc<std::sync::Mutex<Vec<(String, HeaderMap, Value)>>>,
+        response: Arc<String>,
+        content_type: Arc<String>,
+        status: u16,
+    }
+
+    async fn serve_zai_fixture(
+        response: &str,
+        content_type: &str,
+        status: u16,
+    ) -> (String, Arc<std::sync::Mutex<Vec<(String, HeaderMap, Value)>>>) {
+        use axum::extract::{OriginalUri, State as AxumState};
+
+        async fn handler(
+            AxumState(state): AxumState<ZaiFixtureState>,
+            OriginalUri(uri): OriginalUri,
+            headers: HeaderMap,
+            body: String,
+        ) -> Response {
+            let parsed: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+            state
+                .requests
+                .lock()
+                .expect("fixture request log")
+                .push((uri.path().to_string(), headers, parsed));
+            let mut response = Response::new(Body::from(state.response.as_str().to_string()));
+            *response.status_mut() =
+                StatusCode::from_u16(state.status).expect("fixture status");
+            response.headers_mut().insert(
+                "content-type",
+                state.content_type.parse().expect("fixture content type"),
+            );
+            response
+        }
+
+        let requests: Arc<std::sync::Mutex<Vec<(String, HeaderMap, Value)>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let state = ZaiFixtureState {
+            requests: requests.clone(),
+            response: Arc::new(response.to_string()),
+            content_type: Arc::new(content_type.to_string()),
+            status,
+        };
+        let router = Router::new()
+            .route("/*path", post(handler))
+            .with_state(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind fixture listener");
+        let addr = listener.local_addr().expect("fixture addr");
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+        (format!("http://{addr}"), requests)
+    }
+
+    fn set_route_effort(cfg: &mut crate::GatewayConfigResponse, route: &str, effort: &str) {
+        cfg.providers
+            .get_mut("zai")
+            .expect("zai provider")
+            .models
+            .as_mut()
+            .expect("models")
+            .get_mut(route)
+            .expect("route")
+            .reasoning_effort = Some(effort.to_string());
+    }
+
+    fn set_route_thinking(cfg: &mut crate::GatewayConfigResponse, route: &str, mode: &str) {
+        cfg.providers
+            .get_mut("zai")
+            .expect("zai provider")
+            .models
+            .as_mut()
+            .expect("models")
+            .get_mut(route)
+            .expect("route")
+            .thinking_mode = Some(mode.to_string());
+    }
+
+    fn set_route_media(cfg: &mut crate::GatewayConfigResponse, route: &str, accepted: bool) {
+        let entry = cfg
+            .providers
+            .get_mut("zai")
+            .expect("zai provider")
+            .models
+            .as_mut()
+            .expect("models")
+            .get_mut(route)
+            .expect("route");
+        entry.supports_image_url = Some(accepted);
+        entry.supports_image_base64 = Some(accepted);
+    }
+
+    fn glm_config(model: &str) -> crate::GatewayConfigResponse {
+        make_direct_provider_config("zai", "GLM", TEST_ZAI_KEY_ENV, model)
+    }
+
+    fn request_body() -> String {
+        json!({
+            "model": "claude-opus-5",
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": "hi"}]
+        })
+        .to_string()
+    }
+
+    /// Positive control: the send counter observes a real dispatch, so the
+    /// zero-send assertions above are meaningful. The closed loopback port
+    /// fails at connect time — locally, without a live API.
+    #[tokio::test]
+    async fn ordinary_provider_requests_still_reach_the_upstream_client() {
+        std::env::set_var(TEST_DEEPSEEK_KEY_ENV, "test-key");
+        let cfg = make_direct_provider_config(
+            "deepseek",
+            "DeepSeek",
+            TEST_DEEPSEEK_KEY_ENV,
+            "deepseek-v4-pro",
+        );
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config must accept a non-GLM provider");
+        assert!(
+            super::resolve_model("claude-opus-5", &proxy_cfg, false).is_ok(),
+            "a non-GLM provider must remain dispatchable"
+        );
+        let sends = install_send_observer(&mut proxy_cfg);
+
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+        let resp = reqwest::Client::new()
+            .post(format!("{base}/v1/messages"))
+            .header("content-type", "application/json")
+            .body(request_body())
+            .send()
+            .await
+            .expect("the Gateway must answer");
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_GATEWAY,
+            "the closed port must fail at connect time"
+        );
+        assert_eq!(
+            send_count(&sends),
+            1,
+            "this test's observer must see exactly its own upstream attempt"
+        );
+    }
+
+    /// GLM config whose upstream is a local fixture. Z.ai is reached over the
+    /// Anthropic Messages API only, so the Gateway posts `{upstream}/v1/messages`.
+    fn glm_cfg_for(model: &str, upstream: &str) -> crate::GatewayConfigResponse {
+        let mut cfg = glm_config(model);
+        cfg.providers
+            .get_mut("zai")
+            .expect("zai provider")
+            .upstream_url = upstream.to_string();
+        set_route_effort(&mut cfg, "claude-opus-5", "max");
+        cfg
+    }
+
+    fn anthropic_message_fixture(text: &str) -> String {
+        json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "glm-5.3",
+            "content": [{ "type": "text", "text": text }],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 12, "output_tokens": 4 }
+        })
+        .to_string()
+    }
+
+    async fn post_messages(base: &str, body: String) -> reqwest::Response {
+        reqwest::Client::new()
+            .post(format!("{base}/v1/messages"))
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .await
+            .expect("the Gateway must answer")
+    }
+
+    /// Every documented model goes straight to Z.ai's Anthropic Messages
+    /// endpoint: no OpenAI Chat Completions path, body shape, or translation.
+    #[tokio::test]
+    async fn glm_dispatches_anthropic_messages_for_every_allowed_model() {
+        std::env::set_var(TEST_ZAI_KEY_ENV, "test-key");
+        for model in crate::ZAI_MODELS_PAY_AS_YOU_GO {
+            let (fixture, requests) = serve_zai_fixture(
+                &anthropic_message_fixture("hello from GLM"),
+                "application/json",
+                200,
+            )
+            .await;
+            let mut cfg = glm_cfg_for(model, &fixture);
+            set_route_media(&mut cfg, "claude-opus-5", false);
+            let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+                .expect("resolve_proxy_config must accept the GLM provider");
+            let sends = install_send_observer(&mut proxy_cfg);
+            let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+            let resp = post_messages(&base, request_body()).await;
+            assert_eq!(resp.status(), StatusCode::OK, "{model}");
+            let payload: Value = resp.json().await.expect("JSON body");
+            assert_eq!(payload["type"], "message", "{model}");
+            assert_eq!(payload["content"][0]["text"], "hello from GLM", "{model}");
+            assert_eq!(payload["usage"]["input_tokens"], 12, "{model}");
+            // The client keeps seeing the route it asked for.
+            assert_eq!(payload["model"], "claude-opus-5", "{model}");
+
+            let recorded = requests.lock().expect("fixture requests");
+            assert_eq!(recorded.len(), 1, "{model}: exactly one upstream request");
+            let (path, headers, body) = &recorded[0];
+            assert_eq!(path, "/v1/messages", "{model}");
+            assert_eq!(
+                headers.get("x-api-key").and_then(|v| v.to_str().ok()),
+                Some("test-key"),
+                "{model}: must use x-api-key"
+            );
+            assert_eq!(
+                headers.get("anthropic-version").and_then(|v| v.to_str().ok()),
+                Some("2023-06-01"),
+                "{model}: must include anthropic-version 2023-06-01"
+            );
+            assert!(
+                headers.get("authorization").is_none(),
+                "{model}: must not send Authorization header"
+            );
+            assert_eq!(body["model"], json!(model), "{model}");
+            assert_eq!(body["thinking"], json!({ "type": "enabled" }), "{model}");
+            assert_eq!(body["reasoning_effort"], "max", "{model}");
+            assert_eq!(body["messages"][0]["role"], "user", "{model}");
+            assert_eq!(body["messages"][0]["content"], "hi", "{model}");
+            assert!(body.get("choices").is_none(), "{model}");
+            drop(recorded);
+            assert_eq!(send_count(&sends), 1, "{model}");
+        }
+    }
+
+    /// Gateway forces the fixed anthropic-version "2023-06-01" for GLM (`zai`),
+    /// overriding any client-supplied anthropic-version.
+    #[tokio::test]
+    async fn glm_gateway_forces_fixed_anthropic_version_and_overrides_client_header() {
+        std::env::set_var(TEST_ZAI_KEY_ENV, "test-key");
+        let (fixture, requests) = serve_zai_fixture(
+            &anthropic_message_fixture("fixed version test"),
+            "application/json",
+            200,
+        )
+        .await;
+        let mut cfg = glm_cfg_for("glm-5.3", &fixture);
+        set_route_media(&mut cfg, "claude-opus-5", false);
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config must accept the GLM provider");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let resp = reqwest::Client::new()
+            .post(format!("{base}/v1/messages"))
+            .header("content-type", "application/json")
+            .header("anthropic-version", "2024-99-99")
+            .body(request_body())
+            .send()
+            .await
+            .expect("the Gateway must answer");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let recorded = requests.lock().expect("fixture requests");
+        assert_eq!(recorded.len(), 1);
+        let (_, headers, _) = &recorded[0];
+        assert_eq!(
+            headers.get("anthropic-version").and_then(|v| v.to_str().ok()),
+            Some("2023-06-01"),
+            "GLM must receive fixed 2023-06-01 regardless of client-sent version"
+        );
+        drop(recorded);
+        assert_eq!(send_count(&sends), 1);
+    }
+
+    #[test]
+    fn build_upstream_headers_preserves_client_anthropic_version_for_non_glm() {
+        let mut incoming = HeaderMap::new();
+        incoming.insert("anthropic-version", "2024-99-99".parse().unwrap());
+
+        // For non-zai provider (e.g. anthropic without force_anthropic_version)
+        let route = ProviderRoute {
+            provider_id: "anthropic".to_string(),
+            display_name: "Anthropic".to_string(),
+            upstream_url: "https://api.anthropic.com".to_string(),
+            api_key: "test-key".to_string(),
+            api_key_env: "ANTHROPIC_API_KEY".to_string(),
+            force_anthropic_version: None,
+            supports_count_tokens: true,
+        };
+        let headers = build_upstream_headers(&incoming, &route);
+        assert_eq!(
+            headers.get("anthropic-version").and_then(|v| v.to_str().ok()),
+            Some("2024-99-99"),
+            "non-GLM provider must forward incoming client anthropic-version"
+        );
+
+        // For zai provider, incoming 2024-99-99 is overridden to 2023-06-01
+        let zai_route = ProviderRoute {
+            provider_id: "zai".to_string(),
+            display_name: "GLM".to_string(),
+            upstream_url: "https://api.z.ai".to_string(),
+            api_key: "test-key".to_string(),
+            api_key_env: "ZAI_API_KEY".to_string(),
+            force_anthropic_version: None,
+            supports_count_tokens: false,
+        };
+        let zai_headers = build_upstream_headers(&incoming, &zai_route);
+        assert_eq!(
+            zai_headers.get("anthropic-version").and_then(|v| v.to_str().ok()),
+            Some("2023-06-01"),
+            "GLM provider must override incoming client anthropic-version with 2023-06-01"
+        );
+
+        // For zai provider with explicit force_anthropic_version configured,
+        // it must STILL strictly enforce fixed 2023-06-01 to ensure endpoint compatibility.
+        let zai_route_with_custom_version = ProviderRoute {
+            provider_id: "zai".to_string(),
+            display_name: "GLM".to_string(),
+            upstream_url: "https://api.z.ai".to_string(),
+            api_key: "test-key".to_string(),
+            api_key_env: "ZAI_API_KEY".to_string(),
+            force_anthropic_version: Some("2024-05-01".to_string()),
+            supports_count_tokens: false,
+        };
+        let zai_custom_headers = build_upstream_headers(&incoming, &zai_route_with_custom_version);
+        assert_eq!(
+            zai_custom_headers.get("anthropic-version").and_then(|v| v.to_str().ok()),
+            Some("2023-06-01"),
+            "GLM provider must strictly send 2023-06-01 even if force_anthropic_version is set"
+        );
+
+        // For non-zai provider with explicit force_anthropic_version configured,
+        // it must use the configured forced version.
+        let non_zai_forced_route = ProviderRoute {
+            provider_id: "anthropic".to_string(),
+            display_name: "Anthropic".to_string(),
+            upstream_url: "https://api.anthropic.com".to_string(),
+            api_key: "test-key".to_string(),
+            api_key_env: "ANTHROPIC_API_KEY".to_string(),
+            force_anthropic_version: Some("2024-05-01".to_string()),
+            supports_count_tokens: true,
+        };
+        let non_zai_forced_headers = build_upstream_headers(&incoming, &non_zai_forced_route);
+        assert_eq!(
+            non_zai_forced_headers.get("anthropic-version").and_then(|v| v.to_str().ok()),
+            Some("2024-05-01"),
+            "non-GLM provider must respect configured force_anthropic_version"
+        );
+    }
+
+    /// The client's own reasoning request is validated; the saved route
+    /// selection is what reaches the wire.
+    #[tokio::test]
+    async fn glm_applies_the_saved_reasoning_and_refuses_what_the_model_cannot_honour() {
+        std::env::set_var(TEST_ZAI_KEY_ENV, "test-key");
+        let fixture_body = anthropic_message_fixture("ok");
+
+        // (a) Disabling thinking on the 5.3 series is refused before any send.
+        for (label, thinking) in [
+            ("object form", json!({ "type": "disabled" })),
+            ("boolean form", json!(false)),
+        ] {
+            let (fixture, requests) =
+                serve_zai_fixture(&fixture_body, "application/json", 200).await;
+            let cfg = glm_cfg_for("glm-5.3", &fixture);
+            let mut proxy_cfg =
+                resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true))).expect("config");
+            let sends = install_send_observer(&mut proxy_cfg);
+            let base = serve_gateway(Arc::new(proxy_cfg)).await;
+            let mut body: Value = serde_json::from_str(&request_body()).expect("body parses");
+            body["thinking"] = thinking;
+            let resp = post_messages(&base, body.to_string()).await;
+            assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "{label}");
+            assert_eq!(requests.lock().expect("requests").len(), 0, "{label}");
+            assert_eq!(send_count(&sends), 0, "{label}");
+        }
+
+        // (b) An undocumented effort is refused instead of being rounded.
+        let (fixture, requests) = serve_zai_fixture(&fixture_body, "application/json", 200).await;
+        let cfg = glm_cfg_for("glm-5.3", &fixture);
+        let mut proxy_cfg =
+            resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true))).expect("config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+        let mut body: Value = serde_json::from_str(&request_body()).expect("body parses");
+        body["output_config"] = json!({ "effort": "xhigh" });
+        let resp = post_messages(&base, body.to_string()).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let payload: Value = resp.json().await.expect("JSON error body");
+        assert!(
+            payload["error"]["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("xhigh"),
+            "{payload}"
+        );
+        assert_eq!(requests.lock().expect("requests").len(), 0);
+
+        // (c) A documented client effort is accepted; the saved value is sent.
+        let mut body: Value = serde_json::from_str(&request_body()).expect("body parses");
+        body["output_config"] = json!({ "effort": "high" });
+        let resp = post_messages(&base, body.to_string()).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let recorded = requests.lock().expect("requests");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, "/v1/messages");
+        assert_eq!(recorded[0].2["reasoning_effort"], "max");
+        assert_eq!(recorded[0].2["thinking"], json!({ "type": "enabled" }));
+        drop(recorded);
+        assert_eq!(send_count(&sends), 1, "only the accepted request is sent");
+    }
+
+    /// GLM-5.2 is the one documented model whose thinking may be turned off.
+    #[tokio::test]
+    async fn glm_5_2_saved_normal_sends_disabled_without_an_effort() {
+        std::env::set_var(TEST_ZAI_KEY_ENV, "test-key");
+        let (fixture, requests) = serve_zai_fixture(
+            &anthropic_message_fixture("ok"),
+            "application/json",
+            200,
+        )
+        .await;
+        let mut cfg = glm_cfg_for("glm-5.2", &fixture);
+        set_route_thinking(&mut cfg, "claude-opus-5", "normal");
+        let mut proxy_cfg =
+            resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true))).expect("config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let resp = post_messages(&base, request_body()).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let recorded = requests.lock().expect("requests");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, "/v1/messages");
+        assert_eq!(recorded[0].2["model"], "glm-5.2");
+        assert_eq!(recorded[0].2["thinking"], json!({ "type": "disabled" }));
+        assert!(recorded[0].2.get("reasoning_effort").is_none());
+        drop(recorded);
+        assert_eq!(send_count(&sends), 1);
+    }
+
+    /// An upstream error is relayed as the upstream's own status, with exactly
+    /// one request: no retry, no fallback to another protocol or endpoint.
+    #[tokio::test]
+    async fn glm_relays_upstream_errors_without_fallback() {
+        std::env::set_var(TEST_ZAI_KEY_ENV, "test-key");
+        let error_body = json!({
+            "type": "error",
+            "error": { "type": "authentication_error", "message": "bad key" }
+        })
+        .to_string();
+        let (fixture, requests) = serve_zai_fixture(&error_body, "application/json", 401).await;
+        let cfg = glm_cfg_for("glm-5.3", &fixture);
+        let mut proxy_cfg =
+            resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true))).expect("config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let resp = post_messages(&base, request_body()).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let recorded = requests.lock().expect("requests");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, "/v1/messages");
+        drop(recorded);
+        assert_eq!(send_count(&sends), 1);
+    }
+
+    /// Streaming is Anthropic SSE end to end: events pass through untouched.
+    #[tokio::test]
+    async fn glm_streams_anthropic_events_through() {
+        std::env::set_var(TEST_ZAI_KEY_ENV, "test-key");
+        let sse = concat!(
+            "event: message_start\n",
+            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"m1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"glm-5.3\",\"content\":[],\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}\n\n",
+            "event: content_block_start\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+            "event: content_block_delta\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"alpha\"}}\n\n",
+            "event: content_block_stop\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "event: message_delta\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+            "event: message_stop\n",
+            "data: {\"type\":\"message_stop\"}\n\n",
+        );
+        let (fixture, requests) = serve_zai_fixture(sse, "text/event-stream", 200).await;
+        let cfg = glm_cfg_for("glm-5.3", &fixture);
+        let mut proxy_cfg =
+            resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true))).expect("config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let mut body: Value = serde_json::from_str(&request_body()).expect("body parses");
+        body["stream"] = json!(true);
+        let resp = post_messages(&base, body.to_string()).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let text = resp.text().await.expect("stream body");
+        for needle in [
+            "event: message_start",
+            "event: content_block_start",
+            "text_delta",
+            "alpha",
+            "event: content_block_stop",
+            "event: message_delta",
+            "event: message_stop",
+            "end_turn",
+        ] {
+            assert!(text.contains(needle), "missing {needle}: {text}");
+        }
+        let recorded = requests.lock().expect("requests");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, "/v1/messages");
+        assert_eq!(recorded[0].2["stream"], true);
+        assert!(recorded[0].2.get("tool_stream").is_none());
+        drop(recorded);
+        assert_eq!(send_count(&sends), 1);
+    }
+
+    /// A legacy `zai` contract/protocol block (Coding Plan, OpenAI-compatible,
+    /// unacknowledged, or garbage) is carried verbatim on save but is never read:
+    /// it neither blocks nor redirects the API-key Anthropic Messages path.
+    #[tokio::test]
+    async fn glm_legacy_contract_block_is_inert_and_preserved() {
+        std::env::set_var(TEST_ZAI_KEY_ENV, "test-key");
+        let legacy_blocks = [
+            json!({ "contract_product": "coding_plan", "protocol_mode": "openai_chat",
+                    "contract_state": "unverified", "unverified_warning_acknowledged": false }),
+            json!({ "contract_product": "pay_as_you_go", "protocol_mode": "anthropic_messages",
+                    "contract_state": "unsupported" }),
+            json!({ "protocol_mode": "grpc", "custom_future_key": { "keep": true } }),
+        ];
+        for legacy in legacy_blocks {
+            let (fixture, requests) = serve_zai_fixture(
+                &anthropic_message_fixture("ok"),
+                "application/json",
+                200,
+            )
+            .await;
+            let mut cfg = glm_cfg_for("glm-5.3", &fixture);
+            cfg.providers.get_mut("zai").expect("zai provider").zai = Some(legacy.clone());
+
+            // Saved back unchanged: nothing rewrites the user's legacy block.
+            let saved = serde_json::to_value(&cfg.providers["zai"]).expect("serialize");
+            assert_eq!(saved["zai"], legacy);
+
+            let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+                .expect("config");
+            let sends = install_send_observer(&mut proxy_cfg);
+            let base = serve_gateway(Arc::new(proxy_cfg)).await;
+            let resp = post_messages(&base, request_body()).await;
+            assert_eq!(resp.status(), StatusCode::OK, "{legacy}");
+            let recorded = requests.lock().expect("requests");
+            assert_eq!(recorded.len(), 1, "{legacy}");
+            assert_eq!(recorded[0].0, "/v1/messages", "{legacy}");
+            assert!(recorded[0].2.get("choices").is_none(), "{legacy}");
+            drop(recorded);
+            assert_eq!(send_count(&sends), 1, "{legacy}");
+        }
+    }
+
+    /// The token-count endpoint is closed for every GLM configuration.
+    #[tokio::test]
+    async fn glm_count_tokens_is_refused() {
+        std::env::set_var(TEST_ZAI_KEY_ENV, "test-key");
+        let (fixture, requests) = serve_zai_fixture("{}", "application/json", 200).await;
+        let cfg = glm_cfg_for("glm-5.3", &fixture);
+        let mut proxy_cfg =
+            resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true))).expect("config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+        let resp = reqwest::Client::new()
+            .post(format!("{base}/v1/messages/count_tokens"))
+            .header("content-type", "application/json")
+            .body(request_body())
+            .send()
+            .await
+            .expect("the Gateway must answer");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let payload: Value = resp.json().await.expect("JSON error body");
+        let message = payload["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.starts_with("GLM:"), "{message}");
+        assert!(requests.lock().expect("requests").is_empty());
+        assert_eq!(send_count(&sends), 0);
     }
 
     fn route_force_thinking(
@@ -5493,6 +6563,7 @@ mod tests {
             models: None,
             openrouter_profiles: profiles,
             claude_code: None,
+            zai: None,
             hidden: false,
         };
         let mut providers = indexmap::IndexMap::new();
@@ -5589,6 +6660,7 @@ mod tests {
             models: Some(models),
             openrouter_profiles: vec![],
             claude_code: None,
+            zai: None,
             hidden: false,
         };
         let mut providers = indexmap::IndexMap::new();
@@ -5706,6 +6778,7 @@ mod tests {
             models: Some(models),
             openrouter_profiles: vec![],
             claude_code: None,
+            zai: None,
             hidden: false,
         };
         let mut providers = indexmap::IndexMap::new();
@@ -5786,6 +6859,7 @@ mod tests {
             models: None,
             openrouter_profiles: vec![],
             claude_code: None,
+            zai: None,
             hidden: false,
         };
         let mut providers = indexmap::IndexMap::new();
@@ -5875,6 +6949,7 @@ mod tests {
             models: None,
             openrouter_profiles: vec![],
             claude_code: None,
+            zai: None,
             hidden: false,
         };
         providers.insert("deepseek".to_string(), deepseek_provider);

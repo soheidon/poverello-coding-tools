@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within, act } from "@testing-library/react";
+import { render, screen, waitFor, within, act, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import ApiKeyPanel, { ModelSelector, type ModelSelectorProps } from "./ApiKeyPanel";
@@ -653,7 +653,7 @@ describe("Kimi Code ModelSelector", () => {
     expect(screen.getByText(/membership/i)).toBeInTheDocument();
   });
 
-  it("renders providers in the order: DeepSeek, MiniMax, Kimi, Kimi Code, MiMo, OpenRouter regardless of object key order", () => {
+  it("renders providers in the order: DeepSeek, MiMo, GLM, MiniMax, Kimi, Kimi Code, OpenRouter regardless of object key order", () => {
     const mockConfig: GatewayConfig = {
       port: 8080,
       host: "127.0.0.1",
@@ -666,6 +666,7 @@ describe("Kimi Code ModelSelector", () => {
         "kimi-code": { display_name: "Kimi Code", models: {} },
         mimo: { display_name: "MiMo", models: {} },
         kimi: { display_name: "Kimi", models: {} },
+        zai: { display_name: "GLM", models: {} },
         minimax: { display_name: "MiniMax", models: {} },
         deepseek: { display_name: "DeepSeek", models: {} },
       },
@@ -683,7 +684,7 @@ describe("Kimi Code ModelSelector", () => {
     const apiKeysSection = screen.getByText("apiKeyPanel.header").closest(".settings-tile") as HTMLElement;
     const providerRowButtons = within(apiKeysSection).getAllByRole("button").filter((btn) => btn.getAttribute("aria-expanded") !== null);
     const providerNames = providerRowButtons.map((btn) => btn.querySelector("div:nth-child(2)")?.textContent?.trim());
-    expect(providerNames).toEqual(["DeepSeek", "MiniMax", "Kimi", "Kimi Code", "MiMo", "OpenRouter"]);
+    expect(providerNames).toEqual(["DeepSeek", "MiMo", "GLM", "MiniMax", "Kimi", "Kimi Code", "OpenRouter"]);
   });
 
   it("renders MiMo V2.6 models in correct order with friendly names and no effort selector", async () => {
@@ -838,6 +839,281 @@ describe("Kimi Code ModelSelector", () => {
     // Verify endpoint, vision, context window
     expect(within(ollamaCard).getByDisplayValue("http://127.0.0.1:11434")).toBeInTheDocument();
     expect(within(ollamaCard).getByDisplayValue("131072")).toBeInTheDocument();
+  });
+});
+
+// ── Direct GLM (zai): model and reasoning-effort controls ──────────
+
+function glmConfig(
+  models: Record<string, unknown>,
+  zai?: Record<string, unknown>,
+): GatewayConfig {
+  return {
+    port: 8080,
+    host: "127.0.0.1",
+    cors_origins: [],
+    active_provider: "zai",
+    auto_compact_threshold_kb: 50,
+    claude_desktop: { enabled: true },
+    providers: {
+      zai: {
+        display_name: "GLM",
+        api_key_env: "ZAI_API_KEY",
+        default_model: "glm-5.3",
+        models,
+        ...(zai ? { zai } : {}),
+      },
+    },
+  } as unknown as GatewayConfig;
+}
+
+const GLM_ROUTE_MODELS = {
+  "claude-opus-5": { upstream_model: "glm-5.3", thinking_mode: "thinking", reasoning_effort: "max", visible: true },
+  "claude-sonnet-5": { upstream_model: "glm-5.3", thinking_mode: "thinking", reasoning_effort: "max", visible: true },
+  "claude-haiku-4-5": { upstream_model: "glm-5.3", thinking_mode: "thinking", reasoning_effort: "max", visible: true },
+};
+
+async function renderExpandedGlm(
+  models: Record<string, unknown>,
+  zai?: Record<string, unknown>,
+) {
+  render(
+    <ApiKeyPanel
+      config={glmConfig(models, zai)}
+      refreshConfig={vi.fn().mockResolvedValue(undefined)}
+      gatewayRunning={false}
+      restartGateway={vi.fn().mockResolvedValue(undefined)}
+    />,
+  );
+  await userEvent.click(screen.getByRole("button", { name: /GLM/ }));
+}
+
+describe("Direct GLM (zai) provider controls", () => {
+  it("shows the GLM provider name, the verified models, and no custom entry", async () => {
+    await renderExpandedGlm(GLM_ROUTE_MODELS);
+
+    // The provider row uses the config display name; the pre-rename label is gone.
+    expect(screen.getByRole("button", { name: /GLM/ })).toBeInTheDocument();
+    expect(screen.queryByText("Z.ai")).not.toBeInTheDocument();
+
+    // With PAYG as default, the 4 documented models are offered — and no free-text entry.
+    const modelSelects = screen
+      .getAllByRole("combobox")
+      .filter((select) => queryOptions(select)?.includes("GLM-5.3"));
+    expect(modelSelects).toHaveLength(3);
+    for (const select of modelSelects) {
+      const options = select.querySelectorAll("option");
+      expect(Array.from(options).map((o) => o.value)).toEqual([
+        "glm-5.3",
+        "glm-5.3-flash",
+        "glm-5.3-flashx",
+        "glm-5.2",
+      ]);
+      expect(Array.from(options).map((o) => o.textContent)).toEqual([
+        "GLM-5.3",
+        "GLM-5.3 Flash",
+        "GLM-5.3 FlashX",
+        "GLM-5.2",
+      ]);
+      expect(Array.from(options).some((o) => o.value === "__custom__")).toBe(false);
+    }
+    // No custom text input anywhere in the GLM panel.
+    expect(screen.queryByPlaceholderText(/model name/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a fixed Thinking mode and a selectable reasoning effort", async () => {
+    await renderExpandedGlm(GLM_ROUTE_MODELS);
+
+    // GLM-5.3 always thinks: the panel states it and offers no Normal/Thinking toggle.
+    expect(screen.getAllByText("Thinking only")).toHaveLength(3);
+    expect(screen.queryByText("Normal")).not.toBeInTheDocument();
+
+    // The effort is selectable and saves per route.
+    const effortSelects = screen
+      .getAllByRole("combobox")
+      .filter((select) => select.getAttribute("aria-label") === "Reasoning effort");
+    expect(effortSelects).toHaveLength(3);
+    for (const select of effortSelects) {
+      expect(select).not.toBeDisabled();
+      expect(Array.from(select.querySelectorAll("option")).map((o) => o.textContent)).toEqual([
+        "Low",
+        "High",
+        "Max",
+      ]);
+      expect((select as HTMLSelectElement).value).toBe("max");
+    }
+    expect(screen.queryByText("apiKeyPanel.reasoningEffortNotSentYet")).toBeNull();
+  });
+
+  it("offers the 4 documented GLM API model candidates", async () => {
+    await renderExpandedGlm(GLM_ROUTE_MODELS);
+    const selects = screen
+      .getAllByRole("combobox")
+      .filter((select) => queryOptions(select)?.includes("GLM-5.3"));
+    expect(selects).toHaveLength(3);
+    for (const select of selects) {
+      expect(Array.from(select.querySelectorAll("option")).map((o) => o.value)).toEqual([
+        "glm-5.3",
+        "glm-5.3-flash",
+        "glm-5.3-flashx",
+        "glm-5.2",
+      ]);
+    }
+  });
+
+  it("treats a saved FlashX as a normal candidate on the pay-as-you-go contract", async () => {
+    await renderExpandedGlm(
+      {
+        "claude-opus-5": { upstream_model: "glm-5.3-flashx", thinking_mode: "thinking", reasoning_effort: "max", visible: true },
+        "claude-sonnet-5": { upstream_model: "glm-5.3", thinking_mode: "thinking", reasoning_effort: "max", visible: true },
+        "claude-haiku-4-5": { upstream_model: "glm-5.3", thinking_mode: "thinking", reasoning_effort: "max", visible: true },
+      },
+      { contract_product: "pay_as_you_go", protocol_mode: "openai_chat", contract_state: "unverified" },
+    );
+
+    const opusSelect = screen
+      .getAllByRole("combobox")
+      .filter((select) => queryOptions(select)?.some((text) => text.includes("GLM-5.3 FlashX")))[0] as HTMLSelectElement;
+    expect(opusSelect).toBeDefined();
+    expect(opusSelect.value).toBe("glm-5.3-flashx");
+    // A documented candidate carries no legacy marker or reason note.
+    const options = Array.from(opusSelect.querySelectorAll("option")).map((o) => o.textContent ?? "");
+    expect(options.some((text) => text.includes("(Legacy / saved"))).toBe(false);
+    expect(screen.queryByText("apiKeyPanel.glmModelUnavailableOnContract")).not.toBeInTheDocument();
+    expect(
+      invokeMock.mock.calls.filter((c: unknown[]) => c[0] === "set_model_upstream"),
+    ).toHaveLength(0);
+  });
+
+  it("keeps an unknown saved model id verbatim on a GLM route", async () => {
+    await renderExpandedGlm(
+      {
+        "claude-opus-5": { upstream_model: "glm-9.9-experimental", thinking_mode: "thinking", reasoning_effort: "max", visible: true },
+        "claude-sonnet-5": { upstream_model: "glm-5.3", thinking_mode: "thinking", reasoning_effort: "max", visible: true },
+        "claude-haiku-4-5": { upstream_model: "glm-5.3", thinking_mode: "thinking", reasoning_effort: "max", visible: true },
+      },
+      { contract_product: "pay_as_you_go", protocol_mode: "openai_chat", contract_state: "unverified" },
+    );
+
+    const opusSelect = screen
+      .getAllByRole("combobox")
+      .filter((select) => queryOptions(select)?.some((text) => text.includes("glm-9.9-experimental")))[0] as HTMLSelectElement;
+    expect(opusSelect).toBeDefined();
+    expect(opusSelect.value).toBe("glm-9.9-experimental");
+    const options = Array.from(opusSelect.querySelectorAll("option")).map((o) => o.textContent ?? "");
+    // An unknown id is a saved value, not a contract-incompatible documented
+    // model: it keeps the plain legacy marker and is never rewritten.
+    expect(options.some((text) => text.includes("(Legacy / saved)"))).toBe(true);
+    expect(screen.queryByPlaceholderText(/model name/i)).not.toBeInTheDocument();
+    expect(
+      invokeMock.mock.calls.filter((c: unknown[]) => c[0] === "set_model_upstream"),
+    ).toHaveLength(0);
+  });
+
+  it("offers the pay-as-you-go candidates by default on routes and does not display technical connection settings", async () => {
+    await renderExpandedGlm(GLM_ROUTE_MODELS, { contract_product: "pay_as_you_go" });
+    const modelSelects = screen
+      .getAllByRole("combobox")
+      .filter((select) => queryOptions(select)?.includes("GLM-5.3"));
+    for (const select of modelSelects) {
+      expect(Array.from(select.querySelectorAll("option")).map((o) => o.value)).toEqual([
+        "glm-5.3",
+        "glm-5.3-flash",
+        "glm-5.3-flashx",
+        "glm-5.2",
+      ]);
+    }
+
+    // Normal view does not clutter with technical connection mode, notices, or accordions
+    expect(screen.queryByText("apiKeyPanel.glmConnectionMode:")).not.toBeInTheDocument();
+    expect(screen.queryByText("apiKeyPanel.glmPayAsYouGoOpenAi")).not.toBeInTheDocument();
+    expect(screen.queryByText("apiKeyPanel.glmDispatchImplementedNotice")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /apiKeyPanel\.glmWarningAck/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /apiKeyPanel\.glmAdvancedSettingsShow/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("apiKeyPanel.glmCodingPlanNotSupportedNotice")).not.toBeInTheDocument();
+  });
+
+  it("offers a thinking toggle for GLM-5.2 and hides its effort while thinking is off", async () => {
+    await renderExpandedGlm(
+      {
+        "claude-opus-5": { upstream_model: "glm-5.2", thinking_mode: "normal", reasoning_effort: "max", visible: true },
+        "claude-sonnet-5": { upstream_model: "glm-5.3", thinking_mode: "thinking", reasoning_effort: "max", visible: true },
+        "claude-haiku-4-5": { upstream_model: "glm-5.3", thinking_mode: "thinking", reasoning_effort: "max", visible: true },
+      },
+      { contract_product: "pay_as_you_go" },
+    );
+
+    // GLM-5.2 is the one documented model whose thinking may be turned off, so
+    // it — and only it — renders the Normal/Thinking toggle instead of the
+    // fixed "Thinking only" label the 5.3 routes show.
+    const isThinkingToggle = (select: HTMLElement) =>
+      Array.from(select.querySelectorAll("option"), (o) => o.textContent).join("|") ===
+      "Normal|Thinking";
+    const toggles = screen.getAllByRole("combobox").filter(isThinkingToggle);
+    expect(toggles).toHaveLength(1);
+    expect((toggles[0] as HTMLSelectElement).value).toBe("normal");
+
+    // Thinking off means no effort axis: only the two 5.3 routes keep a selector.
+    const effortSelects = () =>
+      screen
+        .getAllByRole("combobox")
+        .filter((select) => select.getAttribute("aria-label") === "Reasoning effort");
+    expect(effortSelects()).toHaveLength(2);
+
+    // Turning thinking on keeps the stored effort and saves the canonical pair.
+    await act(async () => {
+      await userEvent.selectOptions(toggles[0], "thinking");
+    });
+    const save = invokeMock.mock.calls.find((c: unknown[]) => c[0] === "set_model_upstream");
+    expect(save?.[1]).toMatchObject({
+      modelKey: "claude-opus-5",
+      upstreamModel: "glm-5.2",
+      thinkingMode: "thinking",
+      reasoningEffort: "max",
+    });
+    expect(effortSelects()).toHaveLength(3);
+  });
+
+  it("saves the canonical thinking value for a GLM route model change", async () => {
+    await renderExpandedGlm(GLM_ROUTE_MODELS, { contract_product: "pay_as_you_go" });
+
+    const modelSelects = screen
+      .getAllByRole("combobox")
+      .filter((select) => queryOptions(select)?.includes("GLM-5.3"));
+    await act(async () => {
+      await userEvent.selectOptions(modelSelects[0], "glm-5.3-flash");
+    });
+
+    const save = invokeMock.mock.calls.find((c: unknown[]) => c[0] === "set_model_upstream");
+    expect(save?.[1]).toMatchObject({
+      upstreamModel: "glm-5.3-flash",
+      thinkingMode: "thinking",
+    });
+    // The catalog capability expression is never persisted.
+    expect((save?.[1] as Record<string, unknown>).thinkingMode).not.toBe("thinking_only");
+  });
+
+  it("uses the localized GLM key placeholder and saves the API key using provider env_var fallback", async () => {
+    await renderExpandedGlm(GLM_ROUTE_MODELS);
+
+    const input = screen.getByPlaceholderText("apiKeyPanel.glmKeyPlaceholder");
+    expect(input).toBeInTheDocument();
+
+    await act(async () => {
+      await userEvent.type(input, "test-glm-key-1234");
+    });
+
+    const saveBtn = screen.getByRole("button", { name: "apiKeyPanel.saveKey" });
+    await act(async () => {
+      await userEvent.click(saveBtn);
+    });
+
+    const saveCall = invokeMock.mock.calls.find((c: unknown[]) => c[0] === "set_env_api_key");
+    expect(saveCall).toBeDefined();
+    expect(saveCall?.[1]).toEqual({
+      key: "test-glm-key-1234",
+      envVarName: "ZAI_API_KEY",
+    });
   });
 });
 

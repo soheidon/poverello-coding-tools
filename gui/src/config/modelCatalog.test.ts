@@ -7,7 +7,7 @@ import { getOrchestratorProfileDisplayName } from "./orchestratorProfileDisplayN
 describe("shared model catalog", () => {
   it("is the sole source for MCP and Orchestrator provider model choices", () => {
     expect(MODEL_CATALOG.providers.map(({ id }) => id)).toEqual([
-      "deepseek", "minimax", "kimi", "kimi-code", "mimo", "openrouter",
+      "deepseek", "mimo", "zai", "minimax", "kimi", "kimi-code", "openrouter",
     ]);
     for (const provider of MODEL_CATALOG.providers) {
         expect(getProviderModels(provider.id)).toEqual(provider.modelIds);
@@ -45,5 +45,58 @@ describe("shared model catalog", () => {
 
   it("keeps non-cloud runtime adapters outside the static catalog", () => {
     expect(MODEL_CATALOG.providers.some(({ id }) => id === "ollama" || id === "cli")).toBe(false);
+  });
+
+  it("exposes the direct GLM models in the catalog providers list", () => {
+    expect(getProviderModels("zai")).toEqual([
+      "glm-5.3",
+      "glm-5.3-flash",
+      "glm-5.3-flashx",
+      "glm-5.2",
+    ]);
+    expect(MODEL_CATALOG.providers.some(({ id }) => id === "zai")).toBe(true);
+
+    expect(MODEL_CATALOG.models["glm-5.3"].providerId).toBe("zai");
+    expect(MODEL_CATALOG.models["glm-5.3-flash"].providerId).toBe("zai");
+    expect(MODEL_CATALOG.models["glm-5.3-flashx"].providerId).toBe("zai");
+    expect(MODEL_CATALOG.contextWindows["zai:glm-5.3-flash"].context_length).toBe(1_000_000);
+    expect(MODEL_CATALOG.contextWindows["zai:glm-5.3-flashx"].context_length).toBe(1_000_000);
+    // The two Flash codes accept image input on the direct API; video stays
+    // disabled until the official block form is confirmed.
+    expect(MODEL_CAPABILITIES["glm-5.3-flash"].supports_vision).toBe(true);
+    expect(MODEL_CAPABILITIES["glm-5.3-flashx"].supports_video).toBe(false);
+    expect(MODEL_CAPABILITIES["glm-5.3-flashx"].reasoningEffortOptions).toEqual([
+      "low",
+      "high",
+      "max",
+    ]);
+    expect(getModelDisplayName("glm-5.3", "zai")).toBe("GLM-5.3");
+
+    // GLM-5.2 is the pay-as-you-go text model whose thinking may be turned off
+    // (the 5.3 series documents reasoning as impossible to disable), and the
+    // Coding Plan routes its requests to GLM-5.3 instead of serving it.
+    expect(MODEL_CATALOG.models["glm-5.2"].providerId).toBe("zai");
+    expect(MODEL_CATALOG.contextWindows["zai:glm-5.2"].context_length).toBe(1_000_000);
+    expect(MODEL_CAPABILITIES["glm-5.2"].supports_vision).toBe(false);
+    expect(MODEL_CAPABILITIES["glm-5.2"].force_thinking).toBe(false);
+    expect(MODEL_CAPABILITIES["glm-5.2"].thinkingModePolicy).toBe("toggleable");
+    expect(MODEL_CAPABILITIES["glm-5.2"].reasoningEffortOptions).toEqual([
+      "low",
+      "high",
+      "max",
+    ]);
+    expect(getModelDisplayName("glm-5.2", "zai")).toBe("GLM-5.2");
+
+    // The direct ID and the OpenRouter ID stay distinct entries.
+    expect(MODEL_CATALOG.models["z-ai/glm-5.3"].providerId).toBe("openrouter");
+    expect(MODEL_CATALOG.contextWindows["zai:glm-5.3"].context_length).toBe(1_000_000);
+    expect(MODEL_CATALOG.contextWindows["openrouter:z-ai/glm-5.3"].context_length).toBe(1_048_576);
+
+    // Thinking is mandatory and the documented effort axis is low/high/max.
+    const caps = MODEL_CAPABILITIES["glm-5.3"];
+    expect(caps.thinkingModePolicy).toBe("thinking_only");
+    expect(caps.force_thinking).toBe(true);
+    expect(caps.supportsReasoningEffort).toBe(true);
+    expect(caps.reasoningEffortOptions).toEqual(["low", "high", "max"]);
   });
 });

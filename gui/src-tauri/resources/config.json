@@ -582,6 +582,83 @@
         }
       }
     },
+    "zai": {
+      "display_name": "GLM",
+      "claude_code": { "auto_compact": { "mode": "auto" } },
+      "upstream_url": "https://api.z.ai/api/anthropic",
+      "api_key_env": "ZAI_API_KEY",
+      "default_model": "glm-5.3",
+      "force_anthropic_version": null,
+      "supports_count_tokens": false,
+      "supports_vision": false,
+      "supports_video": false,
+      "supports_thinking": true,
+      "model_map": {
+        "claude-opus-5": "glm-5.3",
+        "claude-sonnet-5": "glm-5.3",
+        "claude-haiku-4-5": "glm-5.3",
+        "glm-5.3": "glm-5.3"
+      },
+      "visible_models": [
+        "claude-opus-5",
+        "claude-sonnet-5",
+        "claude-haiku-4-5"
+      ],
+      "models": {
+        "claude-opus-5": {
+          "upstream_model": "glm-5.3",
+          "canonical": null,
+          "thinking": null,
+          "supports_vision": null,
+          "supports_video": null,
+          "visible": true,
+          "force_thinking": false,
+          "supports_non_thinking": null,
+          "supports_image_url": false,
+          "supports_image_base64": false,
+          "supports_video_url": false,
+          "supports_video_base64": false,
+          "thinking_mode": "thinking",
+          "reasoning_effort": "max"
+        },
+        "claude-sonnet-5": {
+          "upstream_model": "glm-5.3",
+          "canonical": null,
+          "thinking": null,
+          "supports_vision": null,
+          "supports_video": null,
+          "visible": true,
+          "force_thinking": false,
+          "supports_non_thinking": null,
+          "supports_image_url": false,
+          "supports_image_base64": false,
+          "supports_video_url": false,
+          "supports_video_base64": false,
+          "thinking_mode": "thinking",
+          "reasoning_effort": "max"
+        },
+        "claude-haiku-4-5": {
+          "upstream_model": "glm-5.3",
+          "canonical": null,
+          "thinking": null,
+          "supports_vision": null,
+          "supports_video": null,
+          "visible": true,
+          "force_thinking": false,
+          "supports_non_thinking": null,
+          "supports_image_url": false,
+          "supports_image_base64": false,
+          "supports_video_url": false,
+          "supports_video_base64": false,
+          "thinking_mode": "thinking",
+          "reasoning_effort": "max"
+        },
+        "glm-5.3": {
+          "upstream_model": "glm-5.3",
+          "visible": false
+        }
+      }
+    },
     "openrouter": {
       "display_name": "OpenRouter",
       "upstream_url": "https://openrouter.ai/api",
@@ -1047,6 +1124,125 @@
               "supports_video_base64": false,
               "thinking_mode": "thinking",
               "reasoning_effort": "low"
+            }
+          }
+        },
+        {
+          "id": "20e0f000-0000-4000-8000-000000000008",
+          "display_name": "OpenRouter: Anthropic",
+          "claude_code": { "auto_compact": { "mode": "auto" } },
+          "model_map": {
+            "claude-opus-5": "anthropic/claude-opus-5.5",
+            "claude-sonnet-5": "anthropic/claude-sonnet-5.5",
+            "claude-haiku-4-5": "anthropic/claude-haiku-5.5",
+            "claude-opus-5-5": "anthropic/claude-opus-5.5",
+            "claude-sonnet-5-5": "anthropic/claude-sonnet-5.5",
+            "claude-haiku-5-5": "anthropic/claude-haiku-5.5"
+          },
+          "visible_models": [
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-haiku-4-5",
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
+            "claude-haiku-5-5"
+          ],
+          "models": {
+            "claude-opus-5": {
+              "upstream_model": "anthropic/claude-opus-5.5",
+              "canonical": null,
+              "thinking": null,
+              "supports_vision": null,
+              "supports_video": null,
+              "visible": true,
+              "force_thinking": false,
+              "supports_non_thinking": null,
+              "supports_image_url": true,
+              "supports_image_base64": true,
+              "supports_video_url": false,
+              "supports_video_base64": false,
+              "thinking_mode": "thinking",
+              "reasoning_effort": null
+            },
+            "claude-sonnet-5": {
+              "upstream_model": "anthropic/claude-sonnet-5.5",
+              "canonical": null,
+              "thinking": null,
+              "supports_vision": null,
+              "supports_video": null,
+              "visible": true,
+              "force_thinking": false,
+              "supports_non_thinking": null,
+              "supports_image_url": true,
+              "supports_image_base64": true,
+              "supports_video_url": false,
+              "supports_video_base64": false,
+              "thinking_mode": "thinking",
+              "reasoning_effort": null
+            },
+            "claude-haiku-4-5": {
+              "upstream_model": "anthropic/claude-haiku-5.5",
+              "canonical": null,
+              "thinking": null,
+              "supports_vision": null,
+              "supports_video": null,
+              "visible": true,
+              "force_thinking": false,
+              "supports_non_thinking": null,
+              "supports_image_url": true,
+              "supports_image_base64": true,
+              "supports_video_url": false,
+              "supports_video_base64": false,
+              "thinking_mode": "thinking",
+              "reasoning_effort": null
+            },
+            "claude-opus-5-5": {
+              "upstream_model": "anthropic/claude-opus-5.5",
+              "canonical": null,
+              "thinking": null,
+              "supports_vision": null,
+              "supports_video": null,
+              "visible": true,
+              "force_thinking": false,
+              "supports_non_thinking": null,
+              "supports_image_url": true,
+              "supports_image_base64": true,
+              "supports_video_url": false,
+              "supports_video_base64": false,
+              "thinking_mode": "thinking",
+              "reasoning_effort": null
+            },
+            "claude-sonnet-5-5": {
+              "upstream_model": "anthropic/claude-sonnet-5.5",
+              "canonical": null,
+              "thinking": null,
+              "supports_vision": null,
+              "supports_video": null,
+              "visible": true,
+              "force_thinking": false,
+              "supports_non_thinking": null,
+              "supports_image_url": true,
+              "supports_image_base64": true,
+              "supports_video_url": false,
+              "supports_video_base64": false,
+              "thinking_mode": "thinking",
+              "reasoning_effort": null
+            },
+            "claude-haiku-5-5": {
+              "upstream_model": "anthropic/claude-haiku-5.5",
+              "canonical": null,
+              "thinking": null,
+              "supports_vision": null,
+              "supports_video": null,
+              "visible": true,
+              "force_thinking": false,
+              "supports_non_thinking": null,
+              "supports_image_url": true,
+              "supports_image_base64": true,
+              "supports_video_url": false,
+              "supports_video_base64": false,
+              "thinking_mode": "thinking",
+              "reasoning_effort": null
             }
           }
         }

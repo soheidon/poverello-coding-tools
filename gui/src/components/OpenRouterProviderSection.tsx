@@ -36,10 +36,13 @@ export function parseAutoModelSetNumber(name: string): number | null {
   return Number.isSafeInteger(value) ? value : null;
 }
 
-/** Return the locale-appropriate display name for a model set. */
-function displayModelSetName(profile: OpenRouterProfile, prefix: string): string {
-  const number = parseAutoModelSetNumber(profile.display_name);
-  return number === null ? profile.display_name : `OpenRouter ${prefix} ${number}`;
+/**
+ * Return the display name for an OpenRouter profile / model set.
+ * Uses `profile.display_name` verbatim as the source of truth,
+ * without prepending the provider name or re-translating canonical names.
+ */
+export function displayModelSetName(profile: OpenRouterProfile): string {
+  return profile.display_name;
 }
 
 // ---------------------------------------------------------------------------
@@ -317,10 +320,6 @@ export default function OpenRouterProviderSection({
     keyStatusLocal === "saved" ? t("apiKeyPanel.savedStatus") :
     keyStatusLocal === "error" ? t("apiKeyPanel.errorStatus") : null;
 
-  // ── Render ───────────────────────────────────────────────────────
-
-  const modelPrefix = t("openRouterProfile.defaultNewName"); // "Model" in en
-
   return (
     <div>
       {/* ── Clickable accordion header ──────────────────────────────── */}
@@ -483,7 +482,7 @@ export default function OpenRouterProviderSection({
                   key={profile.id}
                   profile={profile}
                   provider={provider}
-                  displayName={displayModelSetName(profile, modelPrefix)}
+                  displayName={displayModelSetName(profile)}
                   profilesCount={orderedProfiles.length}
                   gatewayRunning={gatewayRunning}
                   refreshConfig={refreshConfig}

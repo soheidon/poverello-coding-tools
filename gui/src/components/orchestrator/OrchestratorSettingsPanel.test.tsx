@@ -594,7 +594,7 @@ describe("OrchestratorSettingsPanel", () => {
 
     expect(screen.queryByRole("heading", { name: "orchestrator.settings.title" })).not.toBeInTheDocument();
     expect(container.querySelector('details[data-provider="other"]')).not.toBeInTheDocument();
-    expect(container.querySelectorAll("details[data-provider]")).toHaveLength(9);
+    expect(container.querySelectorAll("details[data-provider]")).toHaveLength(10);
     expect(screen.queryByRole("button", { name: /addProfile.*Other/i })).not.toBeInTheDocument();
     expect(container.querySelector('[data-profile-id="future-provider-profile"]')).not.toBeInTheDocument();
 

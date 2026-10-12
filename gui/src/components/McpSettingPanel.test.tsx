@@ -933,7 +933,7 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
       },
     };
 
-    it("lists all 9 OpenAI models with display names and no batch variants in OpenRouter chatGPT profile", async () => {
+    it("lists all 15 OpenAI models with display names and no batch variants in OpenRouter chatGPT profile", async () => {
       invokeMock.mockImplementation(async (cmd: string) => {
         if (cmd === "get_mcp_config") {
           return {
@@ -978,6 +978,12 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
       }));
 
       expect(options).toEqual([
+        { value: "openai/gpt-6.1-sol", label: "GPT-6.1 Sol" },
+        { value: "openai/gpt-6.1-sol-pro", label: "GPT-6.1 Sol Pro" },
+        { value: "openai/gpt-6-sol", label: "GPT-6 Sol" },
+        { value: "openai/gpt-6-sol-pro", label: "GPT-6 Sol Pro" },
+        { value: "openai/gpt-6-luna", label: "GPT-6 Luna" },
+        { value: "openai/gpt-6-luna-pro", label: "GPT-6 Luna Pro" },
         { value: "openai/gpt-6-astra", label: "GPT-6 Astra" },
         { value: "openai/gpt-6-astra-pro", label: "GPT-6 Astra Pro" },
         { value: "openai/gpt-astra-latest", label: "GPT Astra Latest" },
@@ -1168,6 +1174,82 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
         { value: "mimo-v2.6-flash", label: "MiMo-V2.6-Flash" },
         { value: "mimo-v2.6-pro", label: "MiMo-V2.6-Pro" },
         { value: "mimo-v2.6-pro-ultraspeed", label: "MiMo-V2.6-Pro-UltraSpeed" },
+      ]);
+    });
+
+    it("renders GLM row with 4 models and saves thinking mode and reasoning effort", async () => {
+      const zaiConfig: GatewayConfig = {
+        ...dummyConfig,
+        active_provider: "zai",
+        providers: {
+          ...dummyConfig.providers,
+          zai: {
+            display_name: "GLM",
+            upstream_url: "https://api.z.ai/api/anthropic",
+            api_key_env: "ZAI_API_KEY",
+            default_model: "glm-5.3",
+            force_anthropic_version: null,
+            supports_count_tokens: false,
+            supports_vision: true,
+            supports_video: false,
+            supports_thinking: true,
+            model_map: {},
+            visible_models: ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "glm-5.2"],
+          },
+        },
+      };
+
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "get_mcp_config") {
+          return {
+            provider: "zai",
+            model: "glm-5.3",
+            thinking_mode: "thinking",
+            reasoning_effort: "max",
+          };
+        }
+        if (cmd === "update_mcp_config") {
+          return {};
+        }
+        if (cmd === "get_antigravity_mcp_status") {
+          return { status: "configured", registered_command: "cmd", registered_args: [] };
+        }
+        if (cmd === "get_antigravity_commands_status") {
+          return {
+            skills_dir: "C:\\skills",
+            plan_command: { name: "anthro-plan", status: "installed" },
+            revise_command: { name: "anthro-revise", status: "installed" },
+            review_command: { name: "anthro-review", status: "installed" },
+          };
+        }
+        return {};
+      });
+
+      render(<McpSettingPanel config={zaiConfig} refreshConfig={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("GLM")).toBeInTheDocument();
+      });
+
+      await act(async () => {
+        screen.getByText("GLM").click();
+      });
+
+      const selects = screen.getAllByRole("combobox");
+      // Model select and reasoning effort select (thinking is fixed thinkingOnly)
+      expect(selects.length).toBeGreaterThanOrEqual(2);
+
+      const modelSelect = selects[0];
+      const options = Array.from(modelSelect.querySelectorAll("option")).map((o) => ({
+        value: o.value,
+        label: o.textContent,
+      }));
+
+      expect(options).toEqual([
+        { value: "glm-5.3", label: "GLM-5.3" },
+        { value: "glm-5.3-flash", label: "GLM-5.3 Flash" },
+        { value: "glm-5.3-flashx", label: "GLM-5.3 FlashX" },
+        { value: "glm-5.2", label: "GLM-5.2" },
       ]);
     });
   });

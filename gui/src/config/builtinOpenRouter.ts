@@ -106,9 +106,10 @@ export function getOpenRouterProfileVendor(profile?: {
   if (name.includes("gemini") || name.includes("google")) return "google";
   if (name.includes("deepseek")) return "deepseek";
   if (name.includes("laguna") || name.includes("poolside")) return "poolside";
-  if (name.includes("hy3") || name.includes("tencent")) return "tencent";
+  if (name.includes("hy3") || name.includes("hy4") || name.includes("tencent")) return "tencent";
   if (name.includes("inclusionai") || name.includes("ring") || name.includes("ling")) return "inclusionai";
   if (name.includes("stepfun") || name.includes("step")) return "stepfun";
+  if (name.includes("anthropic")) return "anthropic";
 
   const upstreamList: string[] = [];
   if (profile.models) upstreamList.push(...Object.values(profile.models).map((model) => model?.upstream_model || ""));

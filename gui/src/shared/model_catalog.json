@@ -10,10 +10,30 @@
       ]
     },
     {
+      "id": "mimo",
+      "label": "MiMo",
+      "modelIds": [
+        "mimo-v2.6-flash",
+        "mimo-v2.6-pro",
+        "mimo-v2.6-pro-ultraspeed"
+      ]
+    },
+    {
+      "id": "zai",
+      "label": "GLM",
+      "modelIds": [
+        "glm-5.3",
+        "glm-5.3-flash",
+        "glm-5.3-flashx",
+        "glm-5.2"
+      ]
+    },
+    {
       "id": "minimax",
       "label": "MiniMax",
       "modelIds": [
         "MiniMax-M3",
+        "MiniMax-M2.7",
         "MiniMax-M2.7-highspeed"
       ]
     },
@@ -22,6 +42,7 @@
       "label": "Kimi",
       "modelIds": [
         "kimi-k3",
+        "kimi-k2.7-code",
         "kimi-k2.6"
       ]
     },
@@ -34,24 +55,24 @@
       ]
     },
     {
-      "id": "mimo",
-      "label": "MiMo",
-      "modelIds": [
-        "mimo-v2.6-flash",
-        "mimo-v2.6-pro",
-        "mimo-v2.6-pro-ultraspeed"
-      ]
-    },
-    {
       "id": "openrouter",
       "label": "OpenRouter",
       "modelIds": [
+        "anthropic/claude-fable-5.1",
+        "anthropic/claude-haiku-5.5",
+        "anthropic/claude-opus-5.5",
+        "anthropic/claude-sonnet-5.5",
         "deepseek/deepseek-v4.1-flash",
         "deepseek/deepseek-v4-flash-0731",
         "deepseek/deepseek-v4-pro-0813",
         "poolside/laguna-s-2.1",
         "poolside/laguna-xs-2.1",
+        "tencent/hy4-preview",
         "tencent/hy3",
+        "z-ai/glm-5.3",
+        "z-ai/glm-5.3-flash",
+        "z-ai/glm-5.3-flashx",
+        "z-ai/glm-5.3-prime",
         "inclusionai/ring-2.6-1t",
         "inclusionai/ling-2.6-1t",
         "inclusionai/ling-2.6-flash",
@@ -60,6 +81,12 @@
         "google/gemini-3.8-flash",
         "stepfun/step-3.7-flash",
         "stepfun/step-3.5-flash",
+        "openai/gpt-6.1-sol",
+        "openai/gpt-6.1-sol-pro",
+        "openai/gpt-6-sol",
+        "openai/gpt-6-sol-pro",
+        "openai/gpt-6-luna",
+        "openai/gpt-6-luna-pro",
         "openai/gpt-6-astra",
         "openai/gpt-6-astra-pro",
         "openai/gpt-astra-latest",
@@ -261,7 +288,7 @@
     },
     "kimi-k2.7-code": {
       "providerId": "kimi",
-      "displayName": "kimi-k2.7-code",
+      "displayName": "Kimi K2.7 Code",
       "capabilities": {
         "supportsVision": true,
         "supportsVideo": true,
@@ -400,6 +427,210 @@
         "forceThinking": false,
         "thinkingDefault": "default",
         "thinkingPolicy": "toggleable",
+        "supportsReasoningEffort": false
+      }
+    },
+    "glm-5.2": {
+      "providerId": "zai",
+      "displayName": "GLM-5.2",
+      "capabilities": {
+        "supportsVision": false,
+        "supportsVideo": false,
+        "supportsImageUrl": false,
+        "supportsImageBase64": false,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "toggleable",
+        "supportsReasoningEffort": true,
+        "reasoningEffortOptions": ["low", "high", "max"]
+      }
+    },
+    "glm-5.3": {
+      "providerId": "zai",
+      "displayName": "GLM-5.3",
+      "capabilities": {
+        "supportsVision": false,
+        "supportsVideo": false,
+        "supportsImageUrl": false,
+        "supportsImageBase64": false,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": true,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": true,
+        "reasoningEffortOptions": ["low", "high", "max"]
+      }
+    },
+    "glm-5.3-flash": {
+      "providerId": "zai",
+      "displayName": "GLM-5.3 Flash",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": true,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": true,
+        "reasoningEffortOptions": ["low", "high", "max"]
+      }
+    },
+    "glm-5.3-flashx": {
+      "providerId": "zai",
+      "displayName": "GLM-5.3 FlashX",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": true,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": true,
+        "reasoningEffortOptions": ["low", "high", "max"]
+      }
+    },
+    "anthropic/claude-fable-5.1": {
+      "providerId": "openrouter",
+      "displayName": "Claude Fable 5.1",
+      "vendor": "Anthropic",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": false
+      }
+    },
+    "anthropic/claude-haiku-5.5": {
+      "providerId": "openrouter",
+      "displayName": "Claude Haiku 5.5",
+      "vendor": "Anthropic",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "toggleable",
+        "supportsReasoningEffort": false
+      }
+    },
+    "anthropic/claude-opus-5.5": {
+      "providerId": "openrouter",
+      "displayName": "Claude Opus 5.5",
+      "vendor": "Anthropic",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": false
+      }
+    },
+    "anthropic/claude-sonnet-5.5": {
+      "providerId": "openrouter",
+      "displayName": "Claude Sonnet 5.5",
+      "vendor": "Anthropic",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": false
+      }
+    },
+    "z-ai/glm-5.3": {
+      "providerId": "openrouter",
+      "displayName": "GLM 5.3",
+      "vendor": "GLM",
+      "capabilities": {
+        "supportsVision": false,
+        "supportsVideo": false,
+        "supportsImageUrl": false,
+        "supportsImageBase64": false,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": false
+      }
+    },
+    "z-ai/glm-5.3-flash": {
+      "providerId": "openrouter",
+      "displayName": "GLM 5.3 Flash",
+      "vendor": "GLM",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": false
+      }
+    },
+    "z-ai/glm-5.3-flashx": {
+      "providerId": "openrouter",
+      "displayName": "GLM 5.3 FlashX",
+      "vendor": "GLM",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": false
+      }
+    },
+    "z-ai/glm-5.3-prime": {
+      "providerId": "openrouter",
+      "displayName": "GLM 5.3 Prime",
+      "vendor": "GLM",
+      "capabilities": {
+        "supportsVision": false,
+        "supportsVideo": false,
+        "supportsImageUrl": false,
+        "supportsImageBase64": false,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
         "supportsReasoningEffort": false
       }
     },
@@ -548,6 +779,30 @@
         "forcedThinkingOptions": [
           "on",
           "off"
+        ]
+      }
+    },
+    "tencent/hy4-preview": {
+      "providerId": "openrouter",
+      "displayName": "Hy4 Preview",
+      "vendor": "Tencent",
+      "capabilities": {
+        "supportsVision": false,
+        "supportsVideo": false,
+        "supportsImageUrl": false,
+        "supportsImageBase64": false,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "high",
+        "thinkingPolicy": "toggleable",
+        "supportsReasoningEffort": true,
+        "reasoningEffortOptions": [
+          "high"
+        ],
+        "forcedThinkingOptions": [
+          "off",
+          "high"
         ]
       }
     },
@@ -736,6 +991,152 @@
           "low",
           "medium",
           "high"
+        ]
+      }
+    },
+    "openai/gpt-6.1-sol": {
+      "providerId": "openrouter",
+      "displayName": "GPT-6.1 Sol",
+      "vendor": "OpenAI",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "reasoning_effort",
+        "thinkingPolicy": "forced",
+        "supportsReasoningEffort": true,
+        "forcedThinkingOptions": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    },
+    "openai/gpt-6.1-sol-pro": {
+      "providerId": "openrouter",
+      "displayName": "GPT-6.1 Sol Pro",
+      "vendor": "OpenAI",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "reasoning_effort",
+        "thinkingPolicy": "forced",
+        "supportsReasoningEffort": true,
+        "forcedThinkingOptions": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    },
+    "openai/gpt-6-sol": {
+      "providerId": "openrouter",
+      "displayName": "GPT-6 Sol",
+      "vendor": "OpenAI",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "reasoning_effort",
+        "thinkingPolicy": "forced",
+        "supportsReasoningEffort": true,
+        "forcedThinkingOptions": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    },
+    "openai/gpt-6-sol-pro": {
+      "providerId": "openrouter",
+      "displayName": "GPT-6 Sol Pro",
+      "vendor": "OpenAI",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "reasoning_effort",
+        "thinkingPolicy": "forced",
+        "supportsReasoningEffort": true,
+        "forcedThinkingOptions": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    },
+    "openai/gpt-6-luna": {
+      "providerId": "openrouter",
+      "displayName": "GPT-6 Luna",
+      "vendor": "OpenAI",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "reasoning_effort",
+        "thinkingPolicy": "forced",
+        "supportsReasoningEffort": true,
+        "forcedThinkingOptions": [
+          "off",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    },
+    "openai/gpt-6-luna-pro": {
+      "providerId": "openrouter",
+      "displayName": "GPT-6 Luna Pro",
+      "vendor": "OpenAI",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "reasoning_effort",
+        "thinkingPolicy": "forced",
+        "supportsReasoningEffort": true,
+        "forcedThinkingOptions": [
+          "off",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
         ]
       }
     },
@@ -1057,6 +1458,46 @@
     }
   },
   "contextWindows": {
+    "openrouter:anthropic/claude-fable-5.1": {
+      "context_length": 1000000,
+      "source": "provider_api",
+      "verified_at": "2026-10-12"
+    },
+    "openrouter:anthropic/claude-haiku-5.5": {
+      "context_length": 1000000,
+      "source": "provider_api",
+      "verified_at": "2026-10-12"
+    },
+    "openrouter:anthropic/claude-opus-5.5": {
+      "context_length": 1000000,
+      "source": "provider_api",
+      "verified_at": "2026-10-12"
+    },
+    "openrouter:anthropic/claude-sonnet-5.5": {
+      "context_length": 1000000,
+      "source": "provider_api",
+      "verified_at": "2026-10-12"
+    },
+    "openrouter:z-ai/glm-5.3": {
+      "context_length": 1048576,
+      "source": "provider_api",
+      "verified_at": "2026-10-12"
+    },
+    "openrouter:z-ai/glm-5.3-flash": {
+      "context_length": 1048576,
+      "source": "provider_api",
+      "verified_at": "2026-10-12"
+    },
+    "openrouter:z-ai/glm-5.3-flashx": {
+      "context_length": 1048576,
+      "source": "provider_api",
+      "verified_at": "2026-10-12"
+    },
+    "openrouter:z-ai/glm-5.3-prime": {
+      "context_length": 1000000,
+      "source": "provider_api",
+      "verified_at": "2026-10-12"
+    },
     "deepseek:deepseek-flash": {
       "context_length": 1048576,
       "source": "official",
@@ -1179,6 +1620,26 @@
       "source": "official",
       "verified_at": "2026-08-02"
     },
+    "zai:glm-5.2": {
+      "context_length": 1000000,
+      "source": "official",
+      "verified_at": "2026-10-12"
+    },
+    "zai:glm-5.3": {
+      "context_length": 1000000,
+      "source": "official",
+      "verified_at": "2026-10-12"
+    },
+    "zai:glm-5.3-flash": {
+      "context_length": 1000000,
+      "source": "official",
+      "verified_at": "2026-10-12"
+    },
+    "zai:glm-5.3-flashx": {
+      "context_length": 1000000,
+      "source": "official",
+      "verified_at": "2026-10-12"
+    },
     "openrouter:google/gemini-3.1-pro-preview": {
       "context_length": 1000000,
       "source": "builtin"
@@ -1249,6 +1710,30 @@
       "context_length": 1050000,
       "source": "builtin"
     },
+    "openrouter:openai/gpt-6.1-sol": {
+      "context_length": 1050000,
+      "source": "builtin"
+    },
+    "openrouter:openai/gpt-6.1-sol-pro": {
+      "context_length": 1050000,
+      "source": "builtin"
+    },
+    "openrouter:openai/gpt-6-sol": {
+      "context_length": 1050000,
+      "source": "builtin"
+    },
+    "openrouter:openai/gpt-6-sol-pro": {
+      "context_length": 1050000,
+      "source": "builtin"
+    },
+    "openrouter:openai/gpt-6-luna": {
+      "context_length": 1050000,
+      "source": "builtin"
+    },
+    "openrouter:openai/gpt-6-luna-pro": {
+      "context_length": 1050000,
+      "source": "builtin"
+    },
     "openrouter:poolside/laguna-s-2.1": {
       "context_length": 262144,
       "source": "builtin"
@@ -1262,6 +1747,10 @@
       "source": "builtin"
     },
     "openrouter:poolside/laguna-xs-2.1:free": {
+      "context_length": 262144,
+      "source": "builtin"
+    },
+    "openrouter:tencent/hy4-preview": {
       "context_length": 262144,
       "source": "builtin"
     },

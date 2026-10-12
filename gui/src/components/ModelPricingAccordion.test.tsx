@@ -35,9 +35,10 @@ describe("ModelPricingAccordion", () => {
   it("renders current and revised standard prices for Sol, Laguna, Step, and Gemini Flash", () => {
     openPricing();
 
-    // Sol / Sol Pro ($2.000 current, $4.000 regular)
-    expect(screen.getAllByText("$2.000")).toHaveLength(5);
-    expect(screen.getAllByText("$4.000")).toHaveLength(3);
+    // Sol / Sol Pro ($2.000 current, $4.000 regular) + GPT-6 Sol/Pro, GPT-6.1 Sol/Pro ($2.000 current)
+    expect(screen.getAllByText("$2.000")).toHaveLength(9);
+    // Sol / Sol Pro regular input ($4.000) + Kimi K2.6 & Kimi K2.7 Code output ($4.000)
+    expect(screen.getAllByText("$4.000")).toHaveLength(4);
 
     // Gemini 3.7 / 3.8 Flash ($0.750 current, $1.500 regular)
     expect(screen.getAllByText("$0.750")).toHaveLength(2);
@@ -191,5 +192,18 @@ describe("ModelPricingAccordion", () => {
       expect(within(row!).getByText("$10.000")).toBeInTheDocument();
       expect(within(row!).getByText("$50.000")).toBeInTheDocument();
     }
+  });
+
+  it("renders GLM (direct API) with 4 models and separates it from OpenRouter", () => {
+    openPricing();
+
+    const rows = screen.getAllByRole("row");
+    const glmRows = rows.filter((row) => row.textContent?.includes("GLM"));
+    expect(glmRows).toHaveLength(4);
+
+    expect(screen.getByText("GLM-5.2")).toBeInTheDocument();
+    expect(screen.getByText("GLM-5.3")).toBeInTheDocument();
+    expect(screen.getByText("GLM-5.3 Flash")).toBeInTheDocument();
+    expect(screen.getByText("GLM-5.3 FlashX")).toBeInTheDocument();
   });
 });

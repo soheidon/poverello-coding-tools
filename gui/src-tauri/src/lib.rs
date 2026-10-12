@@ -1,6 +1,6 @@
 use chrono::Local;
 use model_capabilities::{try_resolve_static_context_window, ContextWindowSource};
-use model_routing::{resolve_route_upstream_model, CLAUDE_ROUTES};
+use model_routing::{resolve_route_upstream_model, CLAUDE_55_ROUTES, CLAUDE_ROUTES};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::net::TcpStream;
@@ -276,6 +276,13 @@ fn ensure_config_initialized_at(
         migrate_deepseek_legacy_flash_to_v4_1(path);
         // Idempotent: migrate legacy MiMo V2.5 exact-match defaults to MiMo V2.6 series
         migrate_mimo_legacy_v2_5_to_v2_6(path);
+        // Idempotent: complete the GLM provider's name and missing route defaults
+        migrate_zai_provider_defaults(path).map_err(|error| {
+            eprintln!(
+                "[anthro-bridge] ERROR: Config initialization failed at migrate_zai_provider_defaults: {error}"
+            );
+            error
+        })?;
         // One-time: Laguna Opus default thinking -> normal
         migrate_laguna_opus_default_to_normal(path);
         // One-time: migrate legacy OpenRouter config to multi-profile
@@ -631,7 +638,23 @@ fn ensure_orchestrator_provider_seed_initialized_at_path(path: &Path) -> Result<
 
 /// Merge new providers and model entries from the bundled config template
 /// into the user's existing config. Preserves all user customizations.
+///
+/// The merged document is installed through the same atomic writer every other
+/// config mutation uses, so a serialization, temporary-write, or install
+/// failure is returned to the caller and leaves the previous file untouched: a
+/// failed merge can never replace the user's config with partial or empty JSON.
+/// The original encoding (UTF-8 / Shift-JIS) is preserved.
 fn merge_bundled_providers(user_config: &Path) -> Result<(), String> {
+    merge_bundled_providers_with_installer(user_config, replace_config_file_atomically)
+}
+
+fn merge_bundled_providers_with_installer<F>(
+    user_config: &Path,
+    install: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&Path, &Path) -> std::io::Result<()>,
+{
     // Parse both template and user config from the embedded constant
     let template: GatewayConfigResponse = serde_json::from_str(config_template::BUNDLED_CONFIG_TEMPLATE)
         .map_err(|e| format!("Failed to parse embedded config template in merge_bundled_providers: {e}"))?;
@@ -640,11 +663,25 @@ fn merge_bundled_providers(user_config: &Path) -> Result<(), String> {
     let template_raw: serde_json::Value = serde_json::from_str(config_template::BUNDLED_CONFIG_TEMPLATE)
         .map_err(|e| format!("Failed to parse template as raw JSON: {e}"))?;
 
-    let user_raw = std::fs::read_to_string(user_config)
+    let (encoding, mut user_cfg) = read_config_value(user_config)
         .map_err(|e| format!("Cannot read user config in merge_bundled_providers: {e}"))?;
-    let mut user_cfg: serde_json::Value = serde_json::from_str(&user_raw)
-        .map_err(|e| format!("Cannot parse user config JSON in merge_bundled_providers: {e}"))?;
 
+    if !merge_bundled_providers_into(&mut user_cfg, &template, &template_raw) {
+        return Ok(());
+    }
+
+    write_config_value_with_installer(&user_cfg, encoding, user_config, install)
+}
+
+/// Add the template's missing providers and missing model keys to `user_cfg`.
+/// Returns true when anything was added. Existing values — including an
+/// already-present `zai` provider with user-selected settings — are never
+/// rewritten.
+fn merge_bundled_providers_into(
+    user_cfg: &mut serde_json::Value,
+    template: &GatewayConfigResponse,
+    template_raw: &serde_json::Value,
+) -> bool {
     let mut changed = false;
 
     // Merge new providers from template
@@ -679,13 +716,7 @@ fn merge_bundled_providers(user_config: &Path) -> Result<(), String> {
         }
     }
 
-    if changed {
-        if let Ok(merged) = serde_json::to_string_pretty(&user_cfg) {
-            let _ = std::fs::write(user_config, merged);
-        }
-    }
-
-    Ok(())
+    changed
 }
 
 /// One-time: migrate legacy OpenRouter config to multi-profile.
@@ -898,6 +929,41 @@ fn ensure_builtin_openrouter_profiles_at_path(
         profiles.push(build_deepseek_profile_json(deepseek_name));
         changed = true;
     }
+    // Anthropic: additive only, matched by fixed ID. If mistakenly renamed
+    // to "Model N" or "OpenRouter モデル 1", repair it to ANTHROPIC_OR_PROFILE_NAME.
+    // User customizations with other intentional display names are preserved.
+    // A display-name collision under a different ID leaves the user profile
+    // untouched and defers the built-in instead of renaming or overwriting user data.
+    let anthropic_name = ANTHROPIC_OR_PROFILE_NAME;
+    let mut has_anthropic = false;
+    let mut anthropic_name_collision = false;
+    for p in profiles.iter_mut() {
+        if p.get("id").and_then(|v| v.as_str()) == Some(ANTHROPIC_OR_PROFILE_ID) {
+            has_anthropic = true;
+            if let Some(cur_name) = p.get("display_name").and_then(|v| v.as_str()) {
+                if paths::parse_model_set_number(cur_name).is_some() || cur_name == "OpenRouter モデル 1" {
+                    p["display_name"] = serde_json::Value::String(anthropic_name.to_string());
+                    changed = true;
+                }
+            }
+            break;
+        }
+        if p.get("display_name").and_then(|v| v.as_str()) == Some(anthropic_name) {
+            anthropic_name_collision = true;
+        }
+    }
+    if has_anthropic {
+        // Already present under the fixed ID — keep it as saved.
+    } else if anthropic_name_collision {
+        tracing::warn!(
+            "config: built-in OpenRouter profile '{}' was not added because another profile already uses that display name; rename the existing profile to receive the built-in one",
+            anthropic_name
+        );
+    } else {
+        profiles.push(build_anthropic_profile_json(anthropic_name));
+        changed = true;
+    }
+
     // Never change active profile ID
     // Never modify non-display-name fields of existing profiles
 
@@ -1156,6 +1222,77 @@ fn migrate_minimax_m3_thinking_only(config_path: &Path) -> bool {
         return false;
     };
     std::fs::write(config_path, serialized).is_ok()
+}
+
+/// Idempotent startup completion of the direct GLM provider (`zai`).
+///
+/// - The provider shipped with the display name "Z.ai" before the rename to
+///   "GLM"; only that exact built-in value is repaired, so a name the user
+///   chose is left alone.
+/// - Each of the three canonical routes is completed **only where the value is
+///   missing or empty**: the verified model ID `glm-5.3` and the stored
+///   reasoning-effort default `max`. A value the user already has — including a
+///   legal effort, an unknown model ID, or a value of another type — is never
+///   rewritten.
+/// - A config without a `zai` provider is left untouched: this migration never
+///   invents a provider (`merge_bundled_providers` delivers it additively).
+fn migrate_zai_provider_defaults(config_path: &Path) -> Result<bool, String> {
+    let (encoding, mut config) = read_config_value(config_path)?;
+    let mut changed = false;
+
+    if let Some(display_name) = config.pointer_mut("/providers/zai/display_name") {
+        if display_name.as_str() == Some("Z.ai") {
+            *display_name = serde_json::Value::String(ZAI_DISPLAY_NAME.to_string());
+            changed = true;
+        }
+    }
+
+    if let Some(models) = config
+        .pointer_mut("/providers/zai/models")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for route in crate::model_routing::CLAUDE_ROUTES {
+            let Some(entry) = models.get_mut(route).and_then(serde_json::Value::as_object_mut)
+            else {
+                continue;
+            };
+
+            let upstream_missing = entry
+                .get("upstream_model")
+                .and_then(serde_json::Value::as_str)
+                .map(|value| value.trim().is_empty())
+                .unwrap_or(true);
+            if upstream_missing {
+                entry.insert(
+                    "upstream_model".to_string(),
+                    serde_json::Value::String(ZAI_DEFAULT_MODEL.to_string()),
+                );
+                changed = true;
+            }
+
+            let effort_missing = entry
+                .get("reasoning_effort")
+                .map(|value| match value.as_str() {
+                    Some(text) => text.trim().is_empty(),
+                    None => value.is_null(),
+                })
+                .unwrap_or(true);
+            if effort_missing {
+                entry.insert(
+                    "reasoning_effort".to_string(),
+                    serde_json::Value::String(ZAI_DEFAULT_REASONING_EFFORT.to_string()),
+                );
+                changed = true;
+            }
+        }
+    }
+
+    if !changed {
+        return Ok(false);
+    }
+
+    write_config_value(&config, encoding, config_path)?;
+    Ok(true)
 }
 
 /// Idempotent startup migration for DeepSeek V4 Pro reasoning effort.
@@ -2009,11 +2146,135 @@ pub struct ApiKeyStatus {
     env_var: String,
 }
 
+#[cfg(windows)]
+pub(crate) fn read_windows_registry_env_var(var_name: &str) -> Option<String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE,
+        KEY_READ, REG_EXPAND_SZ, REG_SZ,
+    };
+
+    let var_name_wide: Vec<u16> = std::ffi::OsStr::new(var_name)
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+
+    let read_from_key = |root: HKEY, subkey: &str| -> Option<String> {
+        let subkey_wide: Vec<u16> = std::ffi::OsStr::new(subkey)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let mut hkey: HKEY = std::ptr::null_mut();
+        let status = unsafe {
+            RegOpenKeyExW(root, subkey_wide.as_ptr(), 0, KEY_READ, &mut hkey)
+        };
+        if status != 0 {
+            return None;
+        }
+
+        let mut val_type: u32 = 0;
+        let mut data_size: u32 = 0;
+        let status = unsafe {
+            RegQueryValueExW(
+                hkey,
+                var_name_wide.as_ptr(),
+                std::ptr::null(),
+                &mut val_type,
+                std::ptr::null_mut(),
+                &mut data_size,
+            )
+        };
+        if status != 0 || data_size == 0 || (val_type != REG_SZ && val_type != REG_EXPAND_SZ) {
+            unsafe { RegCloseKey(hkey) };
+            return None;
+        }
+
+        let mut buffer: Vec<u16> = vec![0u16; (data_size as usize + 1) / 2];
+        let status = unsafe {
+            RegQueryValueExW(
+                hkey,
+                var_name_wide.as_ptr(),
+                std::ptr::null(),
+                &mut val_type,
+                buffer.as_mut_ptr() as *mut u8,
+                &mut data_size,
+            )
+        };
+        unsafe { RegCloseKey(hkey) };
+
+        if status != 0 {
+            return None;
+        }
+
+        let len = (data_size as usize) / 2;
+        let slice = if len > 0 && buffer[len - 1] == 0 {
+            &buffer[..len - 1]
+        } else {
+            &buffer[..len]
+        };
+
+        let val = String::from_utf16_lossy(slice);
+        let trimmed = val.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    };
+
+    // 1. Try HKCU\Environment (User scope)
+    if let Some(val) = read_from_key(HKEY_CURRENT_USER, "Environment") {
+        return Some(val);
+    }
+
+    // 2. Try HKLM (System scope)
+    read_from_key(
+        HKEY_LOCAL_MACHINE,
+        r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+    )
+}
+
+#[cfg(not(windows))]
+pub(crate) fn read_windows_registry_env_var(_var_name: &str) -> Option<String> {
+    None
+}
+
+/// Resolves an API key environment variable with precedence:
+/// 1. Process environment (`std::env::var`)
+/// 2. Windows Registry fallback (User HKCU\Environment, then System HKLM)
+/// If resolved from registry, sets it in current process environment (`std::env::set_var`)
+/// so subsequent lookups find it immediately.
+pub(crate) fn resolve_api_key_env_var(var_name: &str) -> Option<String> {
+    if var_name.trim().is_empty() {
+        return None;
+    }
+
+    if let Ok(val) = std::env::var(var_name) {
+        let trimmed = val.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        if let Some(val) = read_windows_registry_env_var(var_name) {
+            let trimmed = val.trim();
+            if !trimmed.is_empty() {
+                std::env::set_var(var_name, trimmed);
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+
+    None
+}
+
 #[tauri::command]
 fn check_api_key() -> Result<ApiKeyStatus, String> {
     match get_active_api_key_env() {
         Ok(env_var) => {
-            let set = std::env::var(&env_var).is_ok();
+            let set = resolve_api_key_env_var(&env_var).is_some();
             Ok(ApiKeyStatus { set, env_var })
         }
         Err(e) => Err(e),
@@ -2147,6 +2408,57 @@ fn write_model_entry_fields(
 /// For OpenRouter providers, `profile_id` is required and targets a specific profile.
 /// For non-OpenRouter providers, `profile_id` is ignored and the provider-level models are updated.
 ///
+/// GLM route rules for `set_model_upstream`. Only the documented models of the
+/// standard API are accepted, only the documented low/high/max efforts are
+/// stored, and a new selection must carry the canonical `thinking` —
+/// `thinking_only` is catalog capability metadata and is refused before the
+/// shared writer can persist it. `normal` is accepted for GLM-5.2 alone, the
+/// one model documented as allowing thinking to be disabled. This gates new
+/// write requests only: a value already stored on an untouched route is
+/// preserved.
+fn validate_zai_model_selection(
+    _provider: &serde_json::Value,
+    upstream_model: &str,
+    thinking_mode: Option<&str>,
+    reasoning_effort: Option<&str>,
+) -> Result<(), String> {
+    let model = upstream_model.trim();
+    if !ZAI_MODELS_PAY_AS_YOU_GO.contains(&model) {
+        return Err(format!(
+            "GLM: '{model}' is not a model documented for the direct provider"
+        ));
+    }
+    let effort = reasoning_effort.map(str::trim).unwrap_or("");
+    if !ZAI_REASONING_EFFORTS.contains(&effort) {
+        return Err(format!(
+            "GLM: '{effort}' is not a documented reasoning effort (low, high, max)"
+        ));
+    }
+    // `thinking_only` is catalog capability metadata, never a persisted value:
+    // a new GLM selection stores the canonical `thinking`, and `normal` is
+    // accepted for the one model documented as allowing thinking to be disabled.
+    // An untouched route keeps whatever it already has — this only validates new
+    // requests.
+    let thinking_optional = ZAI_MODELS_THINKING_OPTIONAL.contains(&model);
+    match thinking_mode.map(str::trim) {
+        Some("thinking") => Ok(()),
+        Some("normal") if thinking_optional => Ok(()),
+        other => Err(format!(
+            "GLM: thinking_mode for '{model}' must be {}, got '{}'",
+            if thinking_optional {
+                "'thinking' or 'normal'"
+            } else {
+                "'thinking' (thinking is always enabled)"
+            },
+            other.unwrap_or("")
+        )),
+    }
+}
+
+/// Pure function: update upstream model routing for one model key.
+/// For OpenRouter providers, `profile_id` is required and targets a specific profile.
+/// For non-OpenRouter providers, `profile_id` is ignored and the provider-level models are updated.
+///
 /// No-op detection: clones the target JSON node, applies the change, and compares
 /// before/after — this automatically covers capability fields, model_map sync, and
 /// any future fields added by write_capability_flags.
@@ -2228,6 +2540,17 @@ fn apply_set_model_upstream(
         if !models.is_object() {
             return Err(format!("Provider '{}' has no 'models' key", provider_id));
         }
+    }
+
+    // GLM routes carry the direct provider's contract rules: only documented
+    // models, contract-appropriate candidates, and low/high/max efforts.
+    if provider_id == ZAI_PROVIDER_ID {
+        validate_zai_model_selection(
+            provider,
+            upstream_model,
+            thinking_mode,
+            reasoning_effort,
+        )?;
     }
 
     // Clone provider's models+model_map, apply changes, compare
@@ -2543,6 +2866,9 @@ fn build_stepfun_profile_json(name: &str) -> serde_json::Value {
 const GEMINI_PROFILE_ID: &str = "f0e0f000-0000-4000-8000-000000000006";
 const GEMINI_PROFILE_NAME: &str = "OpenRouter: Gemini";
 
+const ANTHROPIC_OR_PROFILE_ID: &str = "20e0f000-0000-4000-8000-000000000008";
+const ANTHROPIC_OR_PROFILE_NAME: &str = "OpenRouter: Anthropic";
+
 fn build_gemini_profile(name: &str) -> OpenRouterProfile {
     let id = GEMINI_PROFILE_ID.to_string();
     let mut models = std::collections::HashMap::new();
@@ -2797,6 +3123,53 @@ fn build_deepseek_profile_json(name: &str) -> serde_json::Value {
         .expect("OpenRouterProfile serialization must succeed")
 }
 
+/// Built-in `OpenRouter: Anthropic` profile: the three base Claude routes plus
+/// the Claude 5.5 routes, all mapped to Anthropic models served by OpenRouter.
+///
+/// The 5.5 routes exist only on this target. Reasoning effort stays unset: the
+/// OpenRouter Anthropic reasoning transform is not implemented yet, so no
+/// effort value is sent or advertised for these routes. Capability flags come
+/// from the shared catalog through `model_entry`, so this builder and the
+/// embedded template cannot disagree on them.
+fn build_anthropic_profile(name: &str) -> OpenRouterProfile {
+    const ROUTES: [(&str, &str); 6] = [
+        ("claude-opus-5", "anthropic/claude-opus-5.5"),
+        ("claude-sonnet-5", "anthropic/claude-sonnet-5.5"),
+        ("claude-haiku-4-5", "anthropic/claude-haiku-5.5"),
+        ("claude-opus-5-5", "anthropic/claude-opus-5.5"),
+        ("claude-sonnet-5-5", "anthropic/claude-sonnet-5.5"),
+        ("claude-haiku-5-5", "anthropic/claude-haiku-5.5"),
+    ];
+
+    let mut models = std::collections::HashMap::new();
+    let mut model_map = std::collections::HashMap::new();
+    let mut visible_models = Vec::new();
+
+    for (route, upstream) in ROUTES {
+        models.insert(
+            route.to_string(),
+            model_entry(route, upstream, Some("thinking"), None),
+        );
+        model_map.insert(route.to_string(), upstream.to_string());
+        visible_models.push(route.to_string());
+    }
+
+    OpenRouterProfile {
+        id: ANTHROPIC_OR_PROFILE_ID.to_string(),
+        display_name: name.to_string(),
+        model_map,
+        visible_models,
+        models,
+        hidden: false,
+        claude_code: Some(ClaudeCodeProviderSection::default()),
+    }
+}
+
+fn build_anthropic_profile_json(name: &str) -> serde_json::Value {
+    serde_json::to_value(build_anthropic_profile(name))
+        .expect("OpenRouterProfile serialization must succeed")
+}
+
 /// Fill missing gateway model keys in a migrated profile.
 /// Existing entries are left unchanged; only gaps are backfilled from the fallback.
 fn complete_migrated_profile(
@@ -2930,7 +3303,8 @@ fn migrate_openrouter_to_profiles(
 /// The built-in profile names are preserved as-is so that the fixed
 /// display names ("OpenRouter: Laguna", "OpenRouter: Hy3",
 /// "OpenRouter: InclusionAI", "OpenRouter: StepFun",
-/// "OpenRouter: chatGPT", "OpenRouter: Gemini") are never renamed.
+/// "OpenRouter: chatGPT", "OpenRouter: Gemini", "OpenRouter: DeepSeek",
+/// "OpenRouter: Anthropic") are never renamed.
 fn normalize_openrouter_profile_names(profiles: &mut Vec<serde_json::Value>) -> bool {
     use std::collections::BTreeSet;
 
@@ -2945,7 +3319,33 @@ fn normalize_openrouter_profile_names(profiles: &mut Vec<serde_json::Value>) -> 
         GPT56_BALANCED_PROFILE_NAME,
         "OpenRouter: Gemini",
         "OpenRouter: DeepSeek",
+        ANTHROPIC_OR_PROFILE_NAME,
     ];
+
+    let mut changed = false;
+
+    // Built-in Anthropic profile repair: if mistakenly normalized to "Model N" or "OpenRouter モデル 1", restore it.
+    for profile in profiles.iter_mut() {
+        let is_anthropic_profile = profile
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map_or(false, |id| id == ANTHROPIC_OR_PROFILE_ID)
+            || profile
+                .get("models")
+                .and_then(|m| m.get("claude-opus-5-5"))
+                .and_then(|e| e.get("upstream_model"))
+                .and_then(|u| u.as_str())
+                == Some("anthropic/claude-opus-5.5");
+        if is_anthropic_profile {
+            if let Some(name) = profile.get("display_name").and_then(|v| v.as_str()) {
+                if paths::parse_model_set_number(name).is_some() || name == "OpenRouter モデル 1" {
+                    profile["display_name"] =
+                        serde_json::Value::String(ANTHROPIC_OR_PROFILE_NAME.to_string());
+                    changed = true;
+                }
+            }
+        }
+    }
 
     let mut used: BTreeSet<u32> = profiles
         .iter()
@@ -2955,8 +3355,6 @@ fn normalize_openrouter_profile_names(profiles: &mut Vec<serde_json::Value>) -> 
                 .and_then(|n| paths::parse_model_set_number(n))
         })
         .collect();
-
-    let mut changed = false;
 
     for profile in profiles.iter_mut() {
         let display_name = match profile.get("display_name").and_then(|v| v.as_str()) {
@@ -3032,7 +3430,6 @@ fn normalize_config(cfg: &mut serde_json::Value) -> bool {
     };
 
     // Now perform mutations with no live references
-    let mut changed = false;
 
     let openrouter = cfg
         .get_mut("providers")
@@ -3043,6 +3440,8 @@ fn normalize_config(cfg: &mut serde_json::Value) -> bool {
         .get_mut("profiles")
         .and_then(|p| p.as_array_mut())
         .unwrap();
+
+    let mut changed = repair_duplicate_openrouter_profile_ids(profiles_array);
 
     // 1. Empty profiles → rebuild a default pair (Laguna + Hy3).
     if needs_profiles_repair {
@@ -3328,6 +3727,60 @@ fn normalize_profile_name(name: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
+/// Allocate an OpenRouter profile ID that cannot collide with IDs already in
+/// the persisted profile list. Built-in profile builders use stable IDs, so
+/// user-created copies must replace the builder's ID before insertion.
+fn new_unique_openrouter_profile_id(profiles: &[serde_json::Value]) -> String {
+    loop {
+        let candidate = uuid::Uuid::new_v4().to_string();
+        if !profiles.iter().any(|profile| {
+            profile.get("id").and_then(serde_json::Value::as_str) == Some(candidate.as_str())
+        }) {
+            return candidate;
+        }
+    }
+}
+
+/// Repair legacy duplicate profile IDs in place, keeping the first occurrence
+/// stable and assigning fresh IDs to later occurrences. This makes old
+/// profiles created by the fixed-ID add path individually addressable again.
+fn repair_duplicate_openrouter_profile_ids(profiles: &mut [serde_json::Value]) -> bool {
+    let mut reserved: std::collections::HashSet<String> = profiles
+        .iter()
+        .filter_map(|profile| {
+            profile
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    let mut changed = false;
+    for profile in profiles {
+        let Some(id) = profile
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+        else {
+            continue;
+        };
+        if seen.insert(id) {
+            continue;
+        }
+
+        let replacement = loop {
+            let candidate = uuid::Uuid::new_v4().to_string();
+            if reserved.insert(candidate.clone()) {
+                seen.insert(candidate.clone());
+                break candidate;
+            }
+        };
+        profile["id"] = serde_json::Value::String(replacement);
+        changed = true;
+    }
+    changed
+}
+
 // ── Pure apply functions (no file I/O, operate on serde_json::Value) ──
 
 fn apply_add_openrouter_profile(
@@ -3339,7 +3792,8 @@ fn apply_add_openrouter_profile(
         .as_object_mut()
         .ok_or("OpenRouter provider not found")?;
     let profiles = provider["profiles"].as_array_mut().ok_or("no profiles array")?;
-    let profile = build_laguna_profile(&normalized);
+    let mut profile = build_laguna_profile(&normalized);
+    profile.id = new_unique_openrouter_profile_id(profiles);
     let profile_value =
         serde_json::to_value(&profile).map_err(|e| format!("JSON error: {}", e))?;
     profiles.push(profile_value.clone());
@@ -4070,7 +4524,7 @@ fn check_all_api_keys() -> Result<std::collections::HashMap<String, ApiKeyStatus
     let cfg = load_gateway_config()?;
     let mut result = std::collections::HashMap::new();
     for (provider_id, provider) in &cfg.providers {
-        let set = std::env::var(&provider.api_key_env).is_ok();
+        let set = resolve_api_key_env_var(&provider.api_key_env).is_some();
         result.insert(
             provider_id.clone(),
             ApiKeyStatus {
@@ -4935,7 +5389,7 @@ fn get_mcp_status() -> Result<McpStatusResponse, String> {
 
     let (api_key_set, api_key_env, profile_name, model, thinking_mode, reasoning_effort) = if let Some(p) = provider {
         let env_var = p.api_key_env.clone();
-        let key_set = std::env::var(&env_var).map(|k| !k.trim().is_empty()).unwrap_or(false);
+        let key_set = resolve_api_key_env_var(&env_var).is_some();
 
         let (prof_name, resolved_model, resolved_tm, resolved_re) = if provider_id == "openrouter" {
             let active_prof = if let Some(ref pid) = mcp.profile_id {
@@ -5882,10 +6336,15 @@ fn as_u8(v: &serde_json::Value) -> Option<u8> {
     v.as_u64().map(|n| n as u8)
 }
 
-/// Resolve the capacity basis for the 3 canonical Claude Code routes against
+/// Resolve the capacity basis for the canonical Claude Code routes against
 /// one target (provider or OpenRouter profile). Route→upstream resolution is
 /// the shared `model_routing` implementation (also used by the proxy), so the
 /// panel and the proxy can never disagree on which model a route uses.
+///
+/// The base three routes are always reported (even when unresolved) because
+/// callers treat a missing base route as "no capacity basis". The Claude 5.5
+/// routes are reported only when the target actually maps them, so targets
+/// without a mapping keep their three-route basis instead of appearing broken.
 fn resolve_context_routes(
     cfg: &serde_json::Value,
     provider_id: &str,
@@ -5893,8 +6352,12 @@ fn resolve_context_routes(
 ) -> Vec<EffectiveContextRoute> {
     CLAUDE_ROUTES
         .iter()
-        .map(|route| {
+        .chain(CLAUDE_55_ROUTES.iter())
+        .filter_map(|route| {
             let upstream_model = resolve_route_upstream_model(cfg, provider_id, profile_id, route);
+            if upstream_model.is_none() && !CLAUDE_ROUTES.contains(route) {
+                return None;
+            }
             let (context_window_tokens, context_window_source) = match &upstream_model {
                 Some(up) => match try_resolve_static_context_window(provider_id, up) {
                     Some(w) => (Some(w.context_length), w.source),
@@ -5902,27 +6365,35 @@ fn resolve_context_routes(
                 },
                 None => (None, ContextWindowSource::Unknown),
             };
-            EffectiveContextRoute {
+            Some(EffectiveContextRoute {
                 route: (*route).to_string(),
                 upstream_model,
                 context_window_tokens,
                 context_window_source,
-            }
+            })
         })
         .collect()
 }
 
-/// Minimum context window across the 3 canonical routes, only when ALL three
-/// routes have known lengths. Any missing route or missing metadata → `None`
+/// Minimum context window across the 3 base canonical routes, only when ALL
+/// three have known lengths. Any missing route or missing metadata → `None`
 /// (never a partial minimum), and a length that cannot fit a u32 env var is an
 /// explicit `Err`, not silently treated as "unknown".
+///
+/// Only the base routes count. Claude 5.5 routes are additive and optional, so
+/// a target that maps them must not change the capacity basis every existing
+/// target already reports.
 fn min_context_window(routes: &[EffectiveContextRoute]) -> Result<Option<u32>, String> {
-    if routes.len() != CLAUDE_ROUTES.len()
-        || routes.iter().any(|r| r.context_window_tokens.is_none())
+    let base: Vec<&EffectiveContextRoute> = routes
+        .iter()
+        .filter(|r| CLAUDE_ROUTES.contains(&r.route.as_str()))
+        .collect();
+    if base.len() != CLAUDE_ROUTES.len()
+        || base.iter().any(|r| r.context_window_tokens.is_none())
     {
         return Ok(None);
     }
-    let min_context = routes
+    let min_context = base
         .iter()
         .filter_map(|r| r.context_window_tokens)
         .min()
@@ -7286,6 +7757,32 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// Internal provider ID for the direct GLM provider. The user-facing name is
+/// "GLM"; the ID, endpoints, and model IDs keep their official values.
+pub(crate) const ZAI_PROVIDER_ID: &str = "zai";
+/// User-facing provider name; also the value the repair migration writes when
+/// it finds the pre-rename "Z.ai" name that this provider shipped with.
+pub(crate) const ZAI_DISPLAY_NAME: &str = "GLM";
+/// The only direct GLM model verified against Z.ai's official documentation.
+pub(crate) const ZAI_DEFAULT_MODEL: &str = "glm-5.3";
+/// GLM models documented for the standard pay-as-you-go API (Z.ai API reference
+/// model enums: the text schema lists GLM-5.3 and GLM-5.2, the vision schema
+/// lists the two Flash codes with `glm-5.3-flashx` as its default).
+pub(crate) const ZAI_MODELS_PAY_AS_YOU_GO: [&str; 4] =
+    ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "glm-5.2"];
+/// The only documented GLM model whose thinking may be turned off: the GLM-5.2
+/// guide documents `thinking.type: "disabled"` as an accepted value, while the
+/// GLM-5.3 series states that reasoning can no longer be disabled.
+pub(crate) const ZAI_MODELS_THINKING_OPTIONAL: [&str; 1] = ["glm-5.2"];
+/// Reasoning-effort values documented for the GLM-5.3 / GLM-5.3-Flash series.
+/// The wider API enum (medium / xhigh / minimal / none) is not documented as
+/// accepted by these models, so it is never offered or forwarded.
+pub(crate) const ZAI_REASONING_EFFORTS: [&str; 3] = ["low", "high", "max"];
+/// Stored default reasoning effort. GLM-5.3 is shipped with thinking always on
+/// and an `effort` axis documented as low/high/max with `max` as the default;
+/// the saved value is sent as `reasoning_effort` over Anthropic Messages.
+pub(crate) const ZAI_DEFAULT_REASONING_EFFORT: &str = "max";
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ProviderConfig {
     pub display_name: String,
@@ -7309,6 +7806,12 @@ pub struct ProviderConfig {
     /// Per-provider Claude Code auto-compact override
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_code: Option<ClaudeCodeProviderSection>,
+    /// Legacy `zai` settings block (contract / protocol / acknowledgment) from
+    /// older configs. It is carried through unchanged so a save never rewrites a
+    /// user's file, but nothing reads it: it is not used for dispatch, the UI, or
+    /// new saves. Z.ai is reached over Anthropic Messages with an API key only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zai: Option<serde_json::Value>,
     /// Hide this provider's card on the Dashboard (defaults to shown).
     #[serde(default, skip_serializing_if = "is_false")]
     pub hidden: bool,
@@ -8310,6 +8813,13 @@ pub fn run() {
                 app.manage(LogGuard(Mutex::new(Some(initialized.guard))));
             }
 
+            // Sync provider API keys from Windows user/system environment if missing in process
+            if let Ok(cfg) = load_gateway_config() {
+                for provider in cfg.providers.values() {
+                    let _ = resolve_api_key_env_var(&provider.api_key_env);
+                }
+            }
+
             // Dev builds get a "(DEV)" window title suffix.
             // cfg!(debug_assertions) guards against ANTHRO_BRIDGE_CHANNEL not
             // propagating through cross-env → tauri CLI → cargo build.
@@ -8360,7 +8870,7 @@ pub fn run() {
             activate_openrouter_profile,
             set_openrouter_profile_hidden,
             set_provider_hidden,
-            start_proxy,
+                start_proxy,
             stop_proxy,
             proxy_status,
             get_user_language,
@@ -8693,7 +9203,8 @@ mod tests {
     #[test]
     fn add_profile_creates_laguna_template() {
         let profile = build_laguna_profile("NewProfile");
-        assert!(profile.id.len() > 30); // UUID v4
+        // Built-in builders retain their stable IDs; the add command must
+        // replace this ID before persisting a user-created profile.
         assert!(profile.models.contains_key("claude-opus-5"));
         assert!(profile.models.contains_key("claude-sonnet-5"));
         assert!(profile.models.contains_key("claude-haiku-4-5"));
@@ -8720,6 +9231,43 @@ mod tests {
         let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
         assert_eq!(profiles.len(), 2);
         assert!(cfg["active_openrouter_profile_id"].as_str().is_some());
+    }
+
+    #[test]
+    fn normalize_repairs_duplicate_openrouter_profile_ids_idempotently() {
+        let builtin = build_laguna_profile("OpenRouter: Laguna");
+        let legacy_user_profile = build_laguna_profile("Model 1");
+        assert_eq!(builtin.id, legacy_user_profile.id);
+        let builtin_id = builtin.id.clone();
+        let legacy_value = serde_json::to_value(&legacy_user_profile).unwrap();
+        let mut cfg = json!({
+            "active_provider": "openrouter",
+            "active_openrouter_profile_id": builtin_id,
+            "providers": {
+                "openrouter": {
+                    "profiles": [
+                        serde_json::to_value(&builtin).unwrap(),
+                        legacy_value.clone()
+                    ]
+                }
+            }
+        });
+
+        assert!(normalize_config(&mut cfg));
+        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let repaired_user_id = profiles[1]["id"].as_str().unwrap();
+        assert_eq!(profiles[0]["id"], builtin_id);
+        assert_ne!(profiles[0]["id"], profiles[1]["id"]);
+        let mut expected_user = legacy_value;
+        expected_user["id"] = serde_json::Value::String(repaired_user_id.to_string());
+        assert_eq!(profiles[1], expected_user);
+        // The ambiguous legacy active ID continues to refer to the first
+        // occurrence; no unrelated active-profile migration is inferred.
+        assert_eq!(cfg["active_openrouter_profile_id"], builtin_id);
+
+        let normalized = cfg.clone();
+        assert!(!normalize_config(&mut cfg));
+        assert_eq!(cfg, normalized);
     }
 
     #[test]
@@ -8804,8 +9352,47 @@ mod tests {
         let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
         assert_eq!(profiles.len(), 2);
         assert_eq!(profiles[1]["display_name"], "NewOne");
+        assert_ne!(profiles[0]["id"], profiles[1]["id"]);
+        assert_eq!(profiles[1]["id"], outcome.value["id"]);
+        assert_eq!(
+            uuid::Uuid::parse_str(profiles[1]["id"].as_str().unwrap())
+                .unwrap()
+                .get_version_num(),
+            4
+        );
         let returned = outcome.value;
         assert_eq!(returned["display_name"], "NewOne");
+    }
+
+    #[test]
+    fn added_openrouter_profiles_have_unique_ids_and_delete_exact_target() {
+        let builtin = build_laguna_profile("OpenRouter: Laguna");
+        let builtin_id = builtin.id.clone();
+        let mut cfg = json!({
+            "active_provider": "openrouter",
+            "active_openrouter_profile_id": builtin_id,
+            "providers": {
+                "openrouter": {
+                    "profiles": [serde_json::to_value(&builtin).unwrap()]
+                }
+            }
+        });
+
+        let first = apply_add_openrouter_profile(&mut cfg, "Model 1").unwrap().value;
+        let second = apply_add_openrouter_profile(&mut cfg, "Model 2").unwrap().value;
+        let first_id = first["id"].as_str().unwrap();
+        let second_id = second["id"].as_str().unwrap();
+        assert_ne!(first_id, builtin_id);
+        assert_ne!(second_id, builtin_id);
+        assert_ne!(first_id, second_id);
+
+        apply_delete_openrouter_profile(&mut cfg, first_id).unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        assert_eq!(profiles.len(), 2);
+        assert_eq!(profiles[0]["id"], builtin_id);
+        assert_eq!(profiles[0]["display_name"], "OpenRouter: Laguna");
+        assert_eq!(profiles[1]["id"], second_id);
+        assert_eq!(profiles[1]["display_name"], "Model 2");
     }
 
     #[test]
@@ -10713,7 +11300,7 @@ mod tests {
         let profiles = result["providers"]["openrouter"]["profiles"]
             .as_array()
             .unwrap();
-        assert_eq!(profiles.len(), 7); // Laguna + Hy3 + InclusionAI + StepFun + GPT-5.6 + Gemini + DeepSeek
+        assert_eq!(profiles.len(), 8); // Laguna + Hy3 + InclusionAI + StepFun + GPT-5.6 + Gemini + DeepSeek + Anthropic
         assert!(profiles.iter().any(|p| p["id"] == LAGUNA_PROFILE_ID));
         assert!(profiles.iter().any(|p| p["id"] == HY3_PROFILE_ID));
         assert!(profiles.iter().any(|p| p["id"] == INCLUSIONAI_PROFILE_ID));
@@ -10750,8 +11337,792 @@ mod tests {
         let profiles = result["providers"]["openrouter"]["profiles"]
             .as_array()
             .unwrap();
-        // Still 7 — no duplicates
-        assert_eq!(profiles.len(), 7);
+        // Still 8 — no duplicates
+        assert_eq!(profiles.len(), 8);
+    }
+
+    #[test]
+    fn embedded_template_ships_anthropic_profile_exactly_once() {
+        let template: serde_json::Value =
+            serde_json::from_str(include_str!("../resources/config.json"))
+                .expect("template config.json must be valid JSON");
+        let profiles = template["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .expect("template must carry openrouter profiles");
+
+        let matches: Vec<&serde_json::Value> = profiles
+            .iter()
+            .filter(|p| p["id"].as_str() == Some(ANTHROPIC_OR_PROFILE_ID))
+            .collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "the embedded template must ship the Anthropic profile exactly once"
+        );
+
+        // New installs take the template entry, existing installs take the
+        // builder — they must not disagree on any route or capability field.
+        let built = build_anthropic_profile_json(ANTHROPIC_OR_PROFILE_NAME);
+        for key in ["display_name", "model_map", "visible_models", "models"] {
+            assert_eq!(
+                matches[0][key], built[key],
+                "template and builder must agree on '{key}'"
+            );
+        }
+    }
+
+    #[test]
+    fn ensure_builtin_delivers_anthropic_profile_additively() {
+        let dir = TempDir::new().unwrap();
+        // An existing install: all seven built-ins already present, one of them
+        // carrying user-only fields.
+        let mut user_laguna = build_laguna_profile_json("OpenRouter: Laguna");
+        user_laguna["api_key"] = json!("sk-user-secret");
+        user_laguna["user_note"] = json!({ "keep": [1, 2] });
+
+        let cfg = make_openrouter_config_with_profiles(
+            vec![
+                user_laguna.clone(),
+                build_hy3_profile_json("OpenRouter: Hy3"),
+                build_inclusionai_profile_json("OpenRouter: InclusionAI"),
+                build_stepfun_profile_json("OpenRouter: StepFun"),
+                build_gpt56_balanced_profile_json(GPT56_BALANCED_PROFILE_NAME),
+                build_gemini_profile_json(GEMINI_PROFILE_NAME),
+                build_deepseek_profile_json(DEEPSEEK_OR_PROFILE_NAME),
+            ],
+            Some(LAGUNA_PROFILE_ID),
+        );
+        write_config(dir.path(), &cfg);
+
+        let before = read_config(dir.path());
+        let before_profiles = before["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap()
+            .clone();
+
+        let path = dir.path().join("config.json");
+        ensure_builtin_openrouter_profiles_at_path(&path).unwrap();
+
+        let after = read_config(dir.path());
+        let after_profiles = after["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            after_profiles.len(),
+            before_profiles.len() + 1,
+            "exactly the Anthropic profile is added"
+        );
+        assert_eq!(
+            after_profiles.last().unwrap()["id"].as_str(),
+            Some(ANTHROPIC_OR_PROFILE_ID)
+        );
+        // Existing profiles — content, order, user fields, unknown JSON — are
+        // preserved exactly.
+        for (index, before_profile) in before_profiles.iter().enumerate() {
+            assert_eq!(
+                &after_profiles[index], before_profile,
+                "profile {index} must be preserved"
+            );
+        }
+        assert_eq!(
+            after["active_openrouter_profile_id"], before["active_openrouter_profile_id"],
+            "active profile selection must not change"
+        );
+        assert_eq!(
+            after["providers"]["openrouter"]["api_key_env"],
+            before["providers"]["openrouter"]["api_key_env"]
+        );
+
+        // Running again changes nothing at all.
+        let after_first_run = std::fs::read_to_string(&path).unwrap();
+        ensure_builtin_openrouter_profiles_at_path(&path).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            after_first_run,
+            "a second initialization must not rewrite the config"
+        );
+        let after_second = read_config(dir.path());
+        assert_eq!(
+            after_second["providers"]["openrouter"]["profiles"]
+                .as_array()
+                .unwrap()
+                .len(),
+            before_profiles.len() + 1
+        );
+    }
+
+    #[test]
+    fn ensure_builtin_preserves_anthropic_profile_and_defers_on_name_collision() {
+        // 1. The fixed ID already exists with user modifications: it is never
+        //    touched, not even to repair the display name.
+        let dir = TempDir::new().unwrap();
+        let mut customized = build_anthropic_profile_json("My Anthropic routes");
+        customized["user_note"] = json!("hands off");
+        let cfg = make_openrouter_config_with_profiles(vec![customized.clone()], None);
+        write_config(dir.path(), &cfg);
+
+        let path = dir.path().join("config.json");
+        ensure_builtin_openrouter_profiles_at_path(&path).unwrap();
+
+        let after = read_config(dir.path());
+        let ours: Vec<&serde_json::Value> = after["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p["id"].as_str() == Some(ANTHROPIC_OR_PROFILE_ID))
+            .collect();
+        assert_eq!(ours.len(), 1);
+        assert_eq!(
+            ours[0], &customized,
+            "an existing profile under the fixed ID must be preserved exactly as saved"
+        );
+
+        // 2. A user profile with the built-in display name under a different ID:
+        //    the user profile is kept as-is and the built-in is deferred.
+        let dir2 = TempDir::new().unwrap();
+        let user_profile = json!({
+            "id": "11111111-2222-4333-8444-555555555555",
+            "display_name": ANTHROPIC_OR_PROFILE_NAME,
+            "model_map": { "claude-opus-5": "openai/gpt-5.6-sol" },
+            "visible_models": ["claude-opus-5"],
+            "models": {
+                "claude-opus-5": {
+                    "upstream_model": "openai/gpt-5.6-sol",
+                    "canonical": null,
+                    "thinking": null,
+                    "supports_vision": null,
+                    "supports_video": null,
+                    "visible": true,
+                    "force_thinking": false,
+                    "supports_non_thinking": null,
+                    "supports_image_url": true,
+                    "supports_image_base64": true,
+                    "supports_video_url": false,
+                    "supports_video_base64": false,
+                    "thinking_mode": "thinking",
+                    "reasoning_effort": null
+                }
+            }
+        });
+        let cfg2 = make_openrouter_config_with_profiles(vec![user_profile.clone()], None);
+        write_config(dir2.path(), &cfg2);
+
+        let path2 = dir2.path().join("config.json");
+        ensure_builtin_openrouter_profiles_at_path(&path2).unwrap();
+
+        let after2 = read_config(dir2.path());
+        let profiles2 = after2["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
+        assert!(
+            !profiles2
+                .iter()
+                .any(|p| p["id"].as_str() == Some(ANTHROPIC_OR_PROFILE_ID)),
+            "the built-in must be deferred while the display name is taken"
+        );
+        let collided = profiles2
+            .iter()
+            .find(|p| p["id"].as_str() == Some("11111111-2222-4333-8444-555555555555"))
+            .expect("the user profile must still be present");
+        assert_eq!(
+            collided, &user_profile,
+            "a display-name collision must never rename or overwrite user data"
+        );
+    }
+
+    #[test]
+    fn ensure_builtin_repairs_anthropic_profile_model_1_to_canonical() {
+        let dir = TempDir::new().unwrap();
+        let mut corrupted = build_anthropic_profile_json("Model 1");
+        corrupted["user_note"] = json!("keep me");
+        let cfg = make_openrouter_config_with_profiles(vec![corrupted.clone()], None);
+        write_config(dir.path(), &cfg);
+
+        let path = dir.path().join("config.json");
+        ensure_builtin_openrouter_profiles_at_path(&path).unwrap();
+
+        let after = read_config(dir.path());
+        let profiles = after["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let anthropic = profiles
+            .iter()
+            .find(|p| p["id"].as_str() == Some(ANTHROPIC_OR_PROFILE_ID))
+            .unwrap();
+        assert_eq!(anthropic["display_name"].as_str().unwrap(), ANTHROPIC_OR_PROFILE_NAME);
+        assert_eq!(anthropic["user_note"], json!("keep me"));
+    }
+
+    #[test]
+    fn ensure_builtin_parse_failure_is_not_success() {
+        let dir = TempDir::new().unwrap();
+        let raw = "{ this is not valid json";
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, raw).unwrap();
+
+        let result = ensure_builtin_openrouter_profiles_at_path(&path);
+        assert!(
+            result.is_err(),
+            "a malformed config must fail, never report success"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            raw,
+            "a failed initialization must leave the config untouched"
+        );
+
+        // A config without the OpenRouter provider keeps the existing contract:
+        // nothing to do, and no error.
+        let dir2 = TempDir::new().unwrap();
+        let cfg = json!({ "active_provider": "deepseek", "providers": {} });
+        write_config(dir2.path(), &cfg);
+        ensure_builtin_openrouter_profiles_at_path(&dir2.path().join("config.json"))
+            .expect("a config without openrouter is not an error");
+    }
+
+    // ── Z.ai direct provider: configuration contract (W1) ──────────────
+
+    #[test]
+    fn embedded_template_ships_the_zai_provider_unselected() {
+        let template: serde_json::Value =
+            serde_json::from_str(include_str!("../resources/config.json"))
+                .expect("template config.json must be valid JSON");
+        let zai = &template["providers"]["zai"];
+        assert_eq!(zai["display_name"].as_str(), Some("GLM"));
+        assert_eq!(zai["api_key_env"].as_str(), Some("ZAI_API_KEY"));
+
+        // The three canonical routes map to the only officially confirmed
+        // direct model; the Claude 5.5 routes are absent by design.
+        let models = zai["models"].as_object().expect("zai models");
+        for route in CLAUDE_ROUTES {
+            assert_eq!(
+                models.get(route).and_then(|m| m["upstream_model"].as_str()),
+                Some("glm-5.3"),
+                "{route} must map to glm-5.3"
+            );
+        }
+        for route in CLAUDE_55_ROUTES {
+            assert!(
+                !models.contains_key(route),
+                "Z.ai must not expose the Claude 5.5 route {route}"
+            );
+        }
+
+        // A fresh install carries no contract/protocol block: Z.ai is
+        // Anthropic Messages with an API key only.
+        assert!(zai.get("zai").is_none(), "no legacy contract block in the template");
+        assert_eq!(
+            zai["upstream_url"].as_str(),
+            Some("https://api.z.ai/api/anthropic")
+        );
+    }
+
+    #[test]
+    fn merge_bundled_providers_delivers_zai_additively() {
+        let dir = TempDir::new().unwrap();
+        // An existing install without Z.ai, carrying user-only data.
+        let cfg = json!({
+            "config_version": "1.0",
+            "active_provider": "deepseek",
+            "providers": {
+                "deepseek": {
+                    "display_name": "DeepSeek",
+                    "upstream_url": "https://api.deepseek.com/anthropic",
+                    "api_key_env": "DEEPSEEK_API_KEY",
+                    "default_model": "deepseek-v4-pro",
+                    "force_anthropic_version": null,
+                    "supports_count_tokens": true,
+                    "supports_vision": false,
+                    "supports_video": false,
+                    "supports_thinking": true,
+                    "model_map": { "claude-opus-5": "deepseek-v4-pro" },
+                    "visible_models": ["claude-opus-5"],
+                    "user_note": { "keep": true }
+                }
+            },
+            "user_top_level": 7
+        });
+        write_config(dir.path(), &cfg);
+        let path = dir.path().join("config.json");
+
+        merge_bundled_providers(&path).expect("merge must succeed");
+
+        let after = read_config(dir.path());
+        assert_eq!(after["providers"]["zai"]["display_name"].as_str(), Some("GLM"));
+        assert_eq!(after["active_provider"], json!("deepseek"));
+        assert_eq!(after["user_top_level"], json!(7));
+        assert_eq!(
+            after["providers"]["deepseek"]["user_note"],
+            json!({ "keep": true }),
+            "existing provider data must be preserved"
+        );
+
+        // Re-running performs no write at all.
+        let first = std::fs::read_to_string(&path).unwrap();
+        merge_bundled_providers(&path).expect("merge must be idempotent");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), first);
+    }
+
+    /// A GLM (`zai`) provider the user already configured — contract
+    /// selection, protocol mode, route values, extra keys — must survive the
+    /// template merge verbatim, while providers the install is still missing
+    /// are added as usual.
+    #[test]
+    fn merge_bundled_providers_preserves_a_user_edited_zai_provider() {
+        let dir = TempDir::new().unwrap();
+        let template: serde_json::Value =
+            serde_json::from_str(config_template::BUNDLED_CONFIG_TEMPLATE)
+                .expect("embedded template must parse");
+        // Start from the template's own zai entry so the merge has no missing
+        // model keys to add, then apply the user's own settings.
+        let mut zai = template["providers"]["zai"].clone();
+        zai["zai"] = json!({
+            "protocol_mode": "openai_chat",
+            "contract_product": "pay_as_you_go",
+            "contract_state": "unverified"
+        });
+        zai["models"]["claude-opus-5"]["reasoning_effort"] = json!("high");
+        zai["models"]["claude-sonnet-5"]["visible"] = json!(false);
+        zai["user_note"] = json!({ "keep": true });
+
+        let cfg = json!({
+            "config_version": "1.0",
+            "active_provider": "deepseek",
+            "providers": { "zai": zai.clone() },
+            "user_top_level": 7
+        });
+        write_config(dir.path(), &cfg);
+        let path = dir.path().join("config.json");
+
+        merge_bundled_providers(&path).expect("merge must succeed");
+
+        let after = read_config(dir.path());
+        assert_eq!(
+            after["providers"]["zai"], zai,
+            "a user-edited GLM provider must be preserved verbatim"
+        );
+        assert_eq!(after["active_provider"], json!("deepseek"));
+        assert_eq!(after["user_top_level"], json!(7));
+        assert!(
+            after["providers"].get("deepseek").is_some(),
+            "providers the install is still missing are still added"
+        );
+
+        // The merge stays idempotent with a user-owned GLM block present.
+        let first = std::fs::read(&path).unwrap();
+        merge_bundled_providers(&path).expect("merge must be idempotent");
+        assert_eq!(std::fs::read(&path).unwrap(), first);
+    }
+
+    /// A failing atomic install must be reported to the caller — never
+    /// swallowed — and must leave the previous config bytes untouched.
+    #[test]
+    fn merge_bundled_providers_reports_install_failure_and_keeps_original_bytes() {
+        let dir = TempDir::new().unwrap();
+        let cfg = json!({
+            "config_version": "1.0",
+            "active_provider": "deepseek",
+            "providers": {
+                "deepseek": {
+                    "display_name": "DeepSeek",
+                    "upstream_url": "https://api.deepseek.com/anthropic",
+                    "api_key_env": "DEEPSEEK_API_KEY",
+                    "default_model": "deepseek-v4-pro",
+                    "model_map": { "claude-opus-5": "deepseek-v4-pro" }
+                }
+            },
+            "user_top_level": 7
+        });
+        write_config(dir.path(), &cfg);
+        let path = dir.path().join("config.json");
+        let before = std::fs::read(&path).unwrap();
+
+        let err = merge_bundled_providers_with_installer(&path, |_temp, _target| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "injected install failure",
+            ))
+        })
+        .expect_err("an install failure must be reported");
+
+        assert!(
+            err.contains("injected install failure"),
+            "the error must name the failure: {err}"
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "a failed merge must not replace the config"
+        );
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "the temporary file must be cleaned up"
+        );
+    }
+
+    /// The merge reads and writes the config in its original encoding, so a
+    /// Shift-JIS install is neither rejected nor silently converted to UTF-8.
+    #[test]
+    fn merge_bundled_providers_preserves_shift_jis_encoding() {
+        let dir = TempDir::new().unwrap();
+        let cfg = json!({
+            "config_version": "1.0",
+            "active_provider": "deepseek",
+            "providers": {
+                "deepseek": {
+                    "display_name": "DeepSeek",
+                    "upstream_url": "https://api.deepseek.com/anthropic",
+                    "api_key_env": "DEEPSEEK_API_KEY",
+                    "default_model": "deepseek-v4-pro",
+                    "user_note_ja": "日本語のメモ"
+                }
+            }
+        });
+        let raw = serde_json::to_string_pretty(&cfg).unwrap();
+        let (encoded, _, had_errors) = encoding_rs::SHIFT_JIS.encode(&raw);
+        assert!(!had_errors, "the fixture must be Shift-JIS encodable");
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, encoded.as_ref()).unwrap();
+
+        merge_bundled_providers(&path).expect("merge must accept a Shift-JIS config");
+
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(
+            String::from_utf8(bytes.clone()).is_err(),
+            "the config must stay Shift-JIS encoded"
+        );
+        let (decoded, _, had_errors) = encoding_rs::SHIFT_JIS.decode(&bytes);
+        assert!(!had_errors);
+        let after: serde_json::Value = serde_json::from_str(&decoded).unwrap();
+        assert_eq!(
+            after["providers"]["deepseek"]["user_note_ja"],
+            json!("日本語のメモ")
+        );
+        assert!(after["providers"].get("zai").is_some());
+    }
+
+    /// The pre-rename display name is repaired and missing route values are
+    /// completed — once. Legal saved values and other providers are untouched.
+    #[test]
+    fn zai_provider_defaults_are_completed_and_repair_the_old_name() {
+        let dir = TempDir::new().unwrap();
+        let cfg = json!({
+            "config_version": "1.0",
+            "active_provider": "zai",
+            "providers": {
+                "zai": {
+                    "display_name": "Z.ai",
+                    "api_key_env": "ZAI_API_KEY",
+                    "models": {
+                        "claude-opus-5": { "upstream_model": "glm-5.3", "thinking_mode": "thinking", "reasoning_effort": null },
+                        "claude-sonnet-5": { "upstream_model": "glm-5.3", "thinking_mode": "thinking", "reasoning_effort": "low" },
+                        "claude-haiku-4-5": { "thinking_mode": "thinking" }
+                    }
+                },
+                "deepseek": { "display_name": "DeepSeek", "user_note": { "keep": true } }
+            },
+            "user_top_level": 7
+        });
+        write_config(dir.path(), &cfg);
+        let path = dir.path().join("config.json");
+
+        assert!(
+            migrate_zai_provider_defaults(&path).expect("migration must succeed"),
+            "the first run must repair the old name and complete route values"
+        );
+
+        let after = read_config(dir.path());
+        let zai = &after["providers"]["zai"];
+        assert_eq!(zai["display_name"], json!(ZAI_DISPLAY_NAME));
+        assert_eq!(zai["models"]["claude-opus-5"]["upstream_model"], json!(ZAI_DEFAULT_MODEL));
+        assert_eq!(
+            zai["models"]["claude-opus-5"]["reasoning_effort"],
+            json!(ZAI_DEFAULT_REASONING_EFFORT)
+        );
+        assert_eq!(
+            zai["models"]["claude-sonnet-5"]["reasoning_effort"],
+            json!("low"),
+            "a legal saved effort is preserved"
+        );
+        assert_eq!(
+            zai["models"]["claude-haiku-4-5"]["upstream_model"],
+            json!(ZAI_DEFAULT_MODEL),
+            "a missing model is completed"
+        );
+        assert_eq!(
+            zai["models"]["claude-haiku-4-5"]["reasoning_effort"],
+            json!(ZAI_DEFAULT_REASONING_EFFORT)
+        );
+        assert_eq!(
+            after["providers"]["deepseek"]["user_note"],
+            json!({ "keep": true })
+        );
+        assert_eq!(after["user_top_level"], json!(7));
+
+        // Idempotent: the second run changes nothing and writes nothing.
+        let first = std::fs::read(&path).unwrap();
+        assert!(
+            !migrate_zai_provider_defaults(&path).expect("migration must be idempotent"),
+            "the second run must not report a change"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), first);
+    }
+
+    /// A name the user chose and values the migration cannot vouch for are left
+    /// exactly as they are.
+    #[test]
+    fn zai_provider_defaults_leave_a_user_chosen_name_and_unknown_values_alone() {
+        let dir = TempDir::new().unwrap();
+        let cfg = json!({
+            "config_version": "1.0",
+            "providers": {
+                "zai": {
+                    "display_name": "My GLM",
+                    "api_key_env": "ZAI_API_KEY",
+                    "models": {
+                        "claude-opus-5": { "upstream_model": "glm-legacy-x", "reasoning_effort": "medium" },
+                        "claude-sonnet-5": { "upstream_model": "glm-5.3", "reasoning_effort": 7 },
+                        "claude-haiku-4-5": { "upstream_model": "glm-5.3", "reasoning_effort": "max" }
+                    }
+                }
+            }
+        });
+        write_config(dir.path(), &cfg);
+        let path = dir.path().join("config.json");
+        let before = std::fs::read(&path).unwrap();
+
+        assert!(
+            !migrate_zai_provider_defaults(&path).expect("migration must succeed"),
+            "nothing may be rewritten when no value is missing"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+
+        let after = read_config(dir.path());
+        let zai = &after["providers"]["zai"];
+        assert_eq!(zai["display_name"], json!("My GLM"));
+        assert_eq!(zai["models"]["claude-opus-5"]["upstream_model"], json!("glm-legacy-x"));
+        assert_eq!(zai["models"]["claude-opus-5"]["reasoning_effort"], json!("medium"));
+        assert_eq!(zai["models"]["claude-sonnet-5"]["reasoning_effort"], json!(7));
+    }
+
+    /// Without the provider the migration is a no-op: it never invents a
+    /// provider that the additive template merge has not delivered.
+    #[test]
+    fn zai_provider_defaults_do_nothing_without_the_provider() {
+        let dir = TempDir::new().unwrap();
+        let cfg = json!({
+            "config_version": "1.0",
+            "active_provider": "deepseek",
+            "providers": { "deepseek": { "display_name": "DeepSeek" } }
+        });
+        write_config(dir.path(), &cfg);
+        let path = dir.path().join("config.json");
+        let before = std::fs::read(&path).unwrap();
+
+        assert!(!migrate_zai_provider_defaults(&path).expect("migration must succeed"));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(read_config(dir.path())["providers"].get("zai").is_none());
+    }
+
+    /// The shipped template and the completion migration must agree on the
+    /// built-in GLM defaults, so a fresh install and a repaired one look alike.
+    fn zai_settings_config() -> serde_json::Value {
+        json!({
+            "active_provider": "deepseek",
+            "providers": {
+                "deepseek": { "display_name": "DeepSeek" },
+                "zai": {
+                    "display_name": "GLM",
+                    "upstream_url": "https://api.z.ai/api/paas/v4",
+                    "zai": {},
+                    "models": {
+                        "claude-opus-5": { "upstream_model": "glm-5.3", "thinking_mode": "thinking", "reasoning_effort": "max" },
+                        "claude-sonnet-5": { "upstream_model": "glm-5.3", "thinking_mode": "thinking" },
+                        "claude-haiku-4-5": { "upstream_model": "glm-5.3", "thinking_mode": "thinking" }
+                    },
+                    "model_map": { "claude-opus-5": "glm-5.3" }
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn zai_model_selection_follows_the_documented_contract_allowlists() {
+        let cfg = zai_settings_config();
+        let provider = &cfg["providers"]["zai"];
+
+        // An undocumented model is refused outright.
+        let err = validate_zai_model_selection(provider, "glm-4.6", Some("thinking"), Some("max")).unwrap_err();
+        assert!(err.contains("not a model documented"), "{err}");
+
+        // Without an explicit contract selection, the documented pay-as-you-go
+        // models are allowed by default.
+        for model in ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "glm-5.2"] {
+            let mode = if model == "glm-5.2" { Some("normal") } else { Some("thinking") };
+            assert!(
+                validate_zai_model_selection(provider, model, mode, Some("max")).is_ok(),
+                "{model} must be allowed by default when unselected"
+            );
+        }
+
+        // Only the documented effort axis is stored.
+        let err = validate_zai_model_selection(provider, "glm-5.3", Some("thinking"), Some("medium")).unwrap_err();
+        assert!(err.contains("low, high, max"), "{err}");
+
+        // `thinking_only` is catalog capability metadata, never a persisted
+        // value: a new selection must carry the canonical `thinking`.
+        for mode in [Some("thinking_only"), Some("normal"), Some("default"), None] {
+            let err = validate_zai_model_selection(provider, "glm-5.3", mode, Some("max")).unwrap_err();
+            assert!(err.contains("must be 'thinking'"), "{mode:?}: {err}");
+        }
+
+        // All documented pay-as-you-go models are allowed.
+        let mut payg = cfg.clone();
+        payg["providers"]["zai"]["zai"] = json!({ "contract_product": "pay_as_you_go" });
+        let provider = &payg["providers"]["zai"];
+        for model in ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "glm-5.2"] {
+            let mode = if model == "glm-5.2" { Some("normal") } else { Some("thinking") };
+            assert!(
+                validate_zai_model_selection(provider, model, mode, Some("max")).is_ok(),
+                "{model} must be allowed on the pay-as-you-go contract"
+            );
+        }
+    }
+
+    #[test]
+    fn zai_route_saves_reject_non_canonical_values_without_touching_the_config() {
+        let mut cfg = zai_settings_config();
+        cfg["providers"]["zai"]["zai"] = json!({ "contract_product": "pay_as_you_go" });
+        // A legacy value already stored on one route stays as it is.
+        cfg["providers"]["zai"]["models"]["claude-opus-5"]["thinking_mode"] = json!("thinking_only");
+        let before = cfg.clone();
+
+        // The shared writer never stores `thinking_only`.
+        let err = apply_set_model_upstream(
+            &mut cfg,
+            "zai",
+            None,
+            "claude-sonnet-5",
+            "glm-5.3",
+            Some("thinking_only"),
+            Some("max"),
+        )
+        .unwrap_err();
+        assert!(err.contains("must be 'thinking'"), "{err}");
+        assert_eq!(cfg, before, "a refused save must not modify the config");
+
+        // The canonical value is accepted and stored.
+        let outcome = apply_set_model_upstream(
+            &mut cfg,
+            "zai",
+            None,
+            "claude-sonnet-5",
+            "glm-5.3-flash",
+            Some("thinking"),
+            Some("high"),
+        )
+        .unwrap();
+        assert!(outcome.config_changed);
+        assert_eq!(cfg["providers"]["zai"]["models"]["claude-sonnet-5"]["thinking_mode"], "thinking");
+        assert_eq!(cfg["providers"]["zai"]["models"]["claude-sonnet-5"]["reasoning_effort"], "high");
+        // The untouched route keeps its legacy value verbatim.
+        assert_eq!(cfg["providers"]["zai"]["models"]["claude-opus-5"]["thinking_mode"], "thinking_only");
+
+        // GLM-5.2 is the one documented model that may disable thinking: the
+        // canonical `normal` is accepted for it and refused for the 5.3 series,
+        // whose reasoning cannot be turned off.
+        let outcome = apply_set_model_upstream(
+            &mut cfg,
+            "zai",
+            None,
+            "claude-haiku-4-5",
+            "glm-5.2",
+            Some("normal"),
+            Some("max"),
+        )
+        .unwrap();
+        assert!(outcome.config_changed);
+        assert_eq!(
+            cfg["providers"]["zai"]["models"]["claude-haiku-4-5"]["thinking_mode"],
+            "normal"
+        );
+        let err = apply_set_model_upstream(
+            &mut cfg,
+            "zai",
+            None,
+            "claude-haiku-4-5",
+            "glm-5.3",
+            Some("normal"),
+            Some("max"),
+        )
+        .unwrap_err();
+        assert!(err.contains("thinking is always enabled"), "{err}");
+        assert_eq!(
+            cfg["providers"]["zai"]["models"]["claude-haiku-4-5"]["thinking_mode"],
+            "normal",
+            "a refused save must not modify the route"
+        );
+
+        // A FlashX request succeeds under the default pay-as-you-go catalog.
+        let mut fresh = zai_settings_config();
+        let outcome = apply_set_model_upstream(
+            &mut fresh,
+            "zai",
+            None,
+            "claude-opus-5",
+            "glm-5.3-flashx",
+            Some("thinking"),
+            Some("max"),
+        )
+        .unwrap();
+        assert!(outcome.config_changed);
+        assert_eq!(
+            fresh["providers"]["zai"]["models"]["claude-opus-5"]["upstream_model"],
+            "glm-5.3-flashx"
+        );
+
+        // An undocumented model is refused without modifying the config.
+        let fresh_before = fresh.clone();
+        let err = apply_set_model_upstream(
+            &mut fresh,
+            "zai",
+            None,
+            "claude-opus-5",
+            "glm-4.6",
+            Some("thinking"),
+            Some("max"),
+        )
+        .unwrap_err();
+        assert!(err.contains("not a model documented"), "{err}");
+        assert_eq!(fresh, fresh_before, "a refused save must not modify the config");
+    }
+
+    #[test]
+    fn embedded_template_matches_the_glm_defaults() {
+        let template: serde_json::Value =
+            serde_json::from_str(config_template::BUNDLED_CONFIG_TEMPLATE)
+                .expect("embedded template must parse");
+        let zai = &template["providers"]["zai"];
+        assert_eq!(zai["display_name"], json!(ZAI_DISPLAY_NAME));
+        assert_eq!(zai["api_key_env"], json!("ZAI_API_KEY"));
+        for route in crate::model_routing::CLAUDE_ROUTES {
+            assert_eq!(
+                zai["models"][route]["upstream_model"],
+                json!(ZAI_DEFAULT_MODEL),
+                "{route} upstream"
+            );
+            assert_eq!(
+                zai["models"][route]["reasoning_effort"],
+                json!(ZAI_DEFAULT_REASONING_EFFORT),
+                "{route} effort"
+            );
+            assert_eq!(zai["models"][route]["thinking_mode"], json!("thinking"));
+        }
+        for route in crate::model_routing::CLAUDE_55_ROUTES {
+            assert!(
+                zai["models"].get(route).is_none(),
+                "the GLM provider must not carry the Claude 5.5 route {route}"
+            );
+        }
     }
 
     #[test]
@@ -10803,8 +12174,9 @@ mod tests {
         let stepfun = build_stepfun_profile_json("OpenRouter: StepFun");
         let gpt56 = build_gpt56_balanced_profile_json(GPT56_BALANCED_PROFILE_NAME);
         let deepseek = build_deepseek_profile_json(DEEPSEEK_OR_PROFILE_NAME);
+        let anthropic = build_anthropic_profile_json(ANTHROPIC_OR_PROFILE_NAME);
         let cfg = make_openrouter_config_with_profiles(
-            vec![laguna.clone(), hy3.clone(), inclusionai.clone(), stepfun.clone(), gpt56.clone(), build_gemini_profile_json(GEMINI_PROFILE_NAME).clone(), deepseek.clone()],
+            vec![laguna.clone(), hy3.clone(), inclusionai.clone(), stepfun.clone(), gpt56.clone(), build_gemini_profile_json(GEMINI_PROFILE_NAME).clone(), deepseek.clone(), anthropic.clone()],
             None,
         );
         write_config(dir.path(), &cfg);
@@ -10881,7 +12253,7 @@ mod tests {
     #[test]
     fn normalize_preserves_builtin_profile_names() {
         use super::*;
-        // All 7 built-in profiles now have fixed UUIDs
+        // All 8 built-in profiles now have fixed UUIDs
         let laguna = build_laguna_profile_json("OpenRouter: Laguna");
         let hy3 = build_hy3_profile_json("OpenRouter: Hy3");
         let inclusionai = build_inclusionai_profile_json("OpenRouter: InclusionAI");
@@ -10889,6 +12261,7 @@ mod tests {
         let gpt56 = build_gpt56_balanced_profile_json(GPT56_BALANCED_PROFILE_NAME);
         let gemini = build_gemini_profile_json(GEMINI_PROFILE_NAME);
         let deepseek = build_deepseek_profile_json(DEEPSEEK_OR_PROFILE_NAME);
+        let anthropic = build_anthropic_profile_json(ANTHROPIC_OR_PROFILE_NAME);
         let custom_legacy = serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000099",
             "display_name": "OpenRouter: Old Model 99",
@@ -10904,6 +12277,7 @@ mod tests {
             gpt56,
             gemini,
             deepseek,
+            anthropic,
             custom_legacy,
         ];
         let changed = normalize_openrouter_profile_names(&mut profiles);
@@ -10916,8 +12290,34 @@ mod tests {
         assert_eq!(profiles[4]["display_name"].as_str().unwrap(), GPT56_BALANCED_PROFILE_NAME);
         assert_eq!(profiles[5]["display_name"].as_str().unwrap(), GEMINI_PROFILE_NAME);
         assert_eq!(profiles[6]["display_name"].as_str().unwrap(), DEEPSEEK_OR_PROFILE_NAME);
+        assert_eq!(profiles[7]["display_name"].as_str().unwrap(), ANTHROPIC_OR_PROFILE_NAME);
         // Custom legacy renamed to "Model 1" (no other numbered names in use)
-        assert_eq!(profiles[7]["display_name"].as_str().unwrap(), "Model 1");
+        assert_eq!(profiles[8]["display_name"].as_str().unwrap(), "Model 1");
+    }
+
+    #[test]
+    fn normalize_repairs_anthropic_profile_renamed_to_model_number() {
+        let corrupted = build_anthropic_profile_json("Model 1");
+        let custom = serde_json::json!({
+            "id": "custom-uuid-1",
+            "display_name": "OpenRouter: Custom",
+            "model_map": {},
+            "visible_models": [],
+            "models": {}
+        });
+        let mut profiles = vec![corrupted, custom];
+        let changed = normalize_openrouter_profile_names(&mut profiles);
+        assert!(changed);
+        // Anthropic repaired to canonical built-in name
+        assert_eq!(profiles[0]["display_name"].as_str().unwrap(), ANTHROPIC_OR_PROFILE_NAME);
+        // Custom profile can now take Model 1
+        assert_eq!(profiles[1]["display_name"].as_str().unwrap(), "Model 1");
+
+        // Second pass is a no-op
+        let changed_again = normalize_openrouter_profile_names(&mut profiles);
+        assert!(!changed_again);
+        assert_eq!(profiles[0]["display_name"].as_str().unwrap(), ANTHROPIC_OR_PROFILE_NAME);
+        assert_eq!(profiles[1]["display_name"].as_str().unwrap(), "Model 1");
     }
 
     // ── Gemini tests ────────────────────────────────────────────────────
@@ -11249,11 +12649,11 @@ mod tests {
         write_config(dir.path(), &cfg);
 
         let path = dir.path().join("config.json");
-        // First run: adds GPT-5.6 Balanced, Gemini, DeepSeek
+        // First run: adds GPT-5.6 Balanced, Gemini, DeepSeek, Anthropic
         ensure_builtin_openrouter_profiles_at_path(&path).unwrap();
         let result = read_config(dir.path());
         let profiles = result["providers"]["openrouter"]["profiles"].as_array().unwrap();
-        assert_eq!(profiles.len(), 7);
+        assert_eq!(profiles.len(), 8);
         assert!(profiles.iter().any(|p| p["id"] == GPT56_BALANCED_PROFILE_ID));
         assert!(profiles.iter().any(|p| p["id"] == GEMINI_PROFILE_ID));
         assert!(profiles.iter().any(|p| p["id"] == DEEPSEEK_OR_PROFILE_ID));
@@ -12743,6 +14143,66 @@ mod tests {
         }
     }
 
+    #[test]
+    fn auto_compact_anthropic_profile_reports_claude_55_routes() {
+        // The OpenRouter "Anthropic" preset is the only shipped target that maps
+        // the Claude 5.5 routes. It must report all six routes with known
+        // windows while its capacity basis stays the base three routes.
+        let template: serde_json::Value =
+            serde_json::from_str(include_str!("../resources/config.json"))
+                .expect("template config.json must be valid JSON");
+
+        let mut cfg = template.clone();
+        cfg["claude_code"]["auto_compact"]["enabled"] = json!(true);
+        cfg["active_provider"] = json!("openrouter");
+        cfg["active_openrouter_profile_id"] = json!("20e0f000-0000-4000-8000-000000000008");
+
+        let eff = resolve_effective_auto_compact(&cfg).unwrap();
+        assert_eq!(eff.status, AutoCompactStatus::Applied);
+        assert_eq!(
+            eff.routes.len(),
+            CLAUDE_ROUTES.len() + CLAUDE_55_ROUTES.len()
+        );
+        assert!(eff.routes.iter().all(|r| r.context_window_tokens.is_some()));
+        assert_eq!(eff.window_tokens, Some(1_000_000));
+
+        let upstream_of = |route: &str| {
+            eff.routes
+                .iter()
+                .find(|r| r.route == route)
+                .and_then(|r| r.upstream_model.clone())
+        };
+        assert_eq!(
+            upstream_of("claude-opus-5-5").as_deref(),
+            Some("anthropic/claude-opus-5.5")
+        );
+        assert_eq!(
+            upstream_of("claude-sonnet-5-5").as_deref(),
+            Some("anthropic/claude-sonnet-5.5")
+        );
+        assert_eq!(
+            upstream_of("claude-haiku-5-5").as_deref(),
+            Some("anthropic/claude-haiku-5.5")
+        );
+
+        // Targets without a 5.5 mapping keep the three-route basis and never
+        // resolve a 5.5 route (the proxy rejects those requests as unknown).
+        cfg["active_provider"] = json!("deepseek");
+        let deepseek_eff = resolve_effective_auto_compact(&cfg).unwrap();
+        assert_eq!(deepseek_eff.routes.len(), CLAUDE_ROUTES.len());
+        assert!(!deepseek_eff
+            .routes
+            .iter()
+            .any(|r| CLAUDE_55_ROUTES.contains(&r.route.as_str())));
+        assert!(CLAUDE_55_ROUTES.iter().all(|route| resolve_route_upstream_model(
+            &cfg,
+            "deepseek",
+            None,
+            route
+        )
+        .is_none()));
+    }
+
     // ── Claude Code auto-compact: launch command env generation ─────
 
     fn eff(
@@ -13552,6 +15012,36 @@ mod tests {
         assert_eq!(cfg["mcp"]["model"], "deepseek/deepseek-r1");
         assert_eq!(cfg["mcp"]["thinking_mode"], "thinking");
         assert_eq!(cfg["mcp"]["reasoning_effort"], "high");
+    }
+
+    #[test]
+    fn test_apply_update_mcp_config_zai() {
+        let mut cfg = json!({
+            "providers": {
+                "zai": {
+                    "display_name": "GLM",
+                    "api_key_env": "ZAI_API_KEY"
+                }
+            }
+        });
+
+        let mcp = McpConfig {
+            provider: Some("zai".to_string()),
+            profile_id: None,
+            model: Some("glm-5.3".to_string()),
+            thinking_mode: Some("thinking".to_string()),
+            reasoning_effort: Some("max".to_string()),
+            targets: None,
+        };
+
+        let outcome = apply_update_mcp_config(&mut cfg, mcp).unwrap();
+        assert!(outcome.config_changed);
+        assert!(!outcome.restart_gateway);
+
+        assert_eq!(cfg["mcp"]["provider"], "zai");
+        assert_eq!(cfg["mcp"]["model"], "glm-5.3");
+        assert_eq!(cfg["mcp"]["thinking_mode"], "thinking");
+        assert_eq!(cfg["mcp"]["reasoning_effort"], "max");
     }
 
     #[test]
@@ -15881,5 +17371,33 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn test_resolve_api_key_env_var_returns_none_for_empty() {
+        assert_eq!(resolve_api_key_env_var(""), None);
+        assert_eq!(resolve_api_key_env_var("   "), None);
+    }
+
+    #[test]
+    fn test_resolve_api_key_env_var_prefers_in_process_env() {
+        let test_var = "_TEST_RESOLVE_API_KEY_PREFER_ENV";
+        std::env::set_var(test_var, "sk-test-in-process-val");
+        assert_eq!(
+            resolve_api_key_env_var(test_var),
+            Some("sk-test-in-process-val".to_string())
+        );
+        std::env::remove_var(test_var);
+        assert_eq!(resolve_api_key_env_var(test_var), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_resolve_api_key_env_var_reads_registry_and_populates_process() {
+        // ZAI_API_KEY is present in User HKCU\Environment on this machine
+        let key = resolve_api_key_env_var("ZAI_API_KEY");
+        assert!(key.is_some(), "Expected ZAI_API_KEY to resolve via process or HKCU registry fallback");
+        // Verify process env is populated
+        assert!(std::env::var("ZAI_API_KEY").is_ok());
     }
 }

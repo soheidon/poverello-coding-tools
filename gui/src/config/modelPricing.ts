@@ -70,7 +70,7 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     inputPerMillionUsd: 4.35,
     outputPerMillionUsd: 8.70,
     cachedInputPerMillionUsd: 0.036,
-    pricingNoteKey: "modelPricing.notes.mimoUltraSpeed",
+    pricingNoteKey: "modelPricing.notes.mimoV26ProUltraSpeed",
     verifiedAt: "2026-09-22",
     sourceUrl: "https://dev.mi.com/mimo/api/pricing",
   },
@@ -85,7 +85,7 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     inputPerMillionUsd: 1.305,
     outputPerMillionUsd: 2.61,
     cachedInputPerMillionUsd: 0.0108,
-    pricingNoteKey: "modelPricing.notes.mimoUltraSpeed",
+    pricingNoteKey: "modelPricing.notes.mimoV25ProUltraSpeed",
     verifiedAt: "2026-07-18",
     sourceUrl: "https://mimo.mi.com/models/en-US/mimo-v2.5-pro-ultraspeed",
   },
@@ -103,7 +103,7 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     outputPerMillionUsd: 1.20,
     cachedInputPerMillionUsd: 0.06,
     pricingNoteKey: "modelPricing.notes.minimaxLongCtx",
-    verifiedAt: "2026-07-17",
+    verifiedAt: "2026-10-13",
     sourceUrl: "https://www.minimaxi.com/document/price",
   },
   "MiniMax-M2.7": {
@@ -111,14 +111,14 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     outputPerMillionUsd: 1.20,
     cachedInputPerMillionUsd: 0.06,
     pricingNoteKey: "modelPricing.notes.minimaxLongCtx",
-    verifiedAt: "2026-07-17",
+    verifiedAt: "2026-10-13",
     sourceUrl: "https://www.minimaxi.com/document/price",
   },
   "MiniMax-M2.7-highspeed": {
     inputPerMillionUsd: 0.60,
     outputPerMillionUsd: 2.40,
     cachedInputPerMillionUsd: 0.06,
-    verifiedAt: "2026-07-17",
+    verifiedAt: "2026-10-13",
     sourceUrl: "https://www.minimaxi.com/document/price",
   },
 
@@ -128,14 +128,14 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     outputPerMillionUsd: 15.00,
     cachedInputPerMillionUsd: 0.30,
     pricingNoteKey: "modelPricing.notes.kimiK3",
-    verifiedAt: "2026-07-17",
+    verifiedAt: "2026-10-13",
     sourceUrl: "https://platform.moonshot.cn/docs/pricing",
   },
   "kimi-k2.7-code": {
     inputPerMillionUsd: 0.95,
     outputPerMillionUsd: 4.00,
     cachedInputPerMillionUsd: 0.19,
-    verifiedAt: "2026-07-17",
+    verifiedAt: "2026-10-13",
     sourceUrl: "https://platform.moonshot.cn/docs/pricing",
   },
   "kimi-k2.7-code-highspeed": {
@@ -143,15 +143,49 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     outputPerMillionUsd: 8.00,
     cachedInputPerMillionUsd: 0.38,
     pricingNoteKey: "modelPricing.notes.kimiK27HighSpeed",
-    verifiedAt: "2026-07-17",
+    verifiedAt: "2026-10-13",
     sourceUrl: "https://platform.moonshot.cn/docs/pricing",
   },
   "kimi-k2.6": {
     inputPerMillionUsd: 0.95,
     outputPerMillionUsd: 4.00,
     cachedInputPerMillionUsd: 0.16,
-    verifiedAt: "2026-07-17",
+    verifiedAt: "2026-10-13",
     sourceUrl: "https://platform.moonshot.cn/docs/pricing",
+  },
+
+  // ── GLM (Z.ai Direct API) ──
+  "zai:glm-5.2": {
+    inputPerMillionUsd: 1.40,
+    outputPerMillionUsd: 4.40,
+    cachedInputPerMillionUsd: 0.26,
+    pricingNoteKey: "modelPricing.notes.zaiPricing",
+    verifiedAt: "2026-10-12",
+    sourceUrl: "https://docs.z.ai/guides/overview/pricing",
+  },
+  "zai:glm-5.3": {
+    inputPerMillionUsd: 1.40,
+    outputPerMillionUsd: 4.40,
+    cachedInputPerMillionUsd: 0.26,
+    pricingNoteKey: "modelPricing.notes.zaiPricing",
+    verifiedAt: "2026-10-12",
+    sourceUrl: "https://docs.z.ai/guides/overview/pricing",
+  },
+  "zai:glm-5.3-flash": {
+    inputPerMillionUsd: 0.15,
+    outputPerMillionUsd: 0.50,
+    cachedInputPerMillionUsd: 0.03,
+    pricingNoteKey: "modelPricing.notes.zaiPricing",
+    verifiedAt: "2026-10-12",
+    sourceUrl: "https://docs.z.ai/guides/overview/pricing",
+  },
+  "zai:glm-5.3-flashx": {
+    inputPerMillionUsd: 0.37,
+    outputPerMillionUsd: 1.25,
+    cachedInputPerMillionUsd: 0.075,
+    pricingNoteKey: "modelPricing.notes.zaiPricing",
+    verifiedAt: "2026-10-12",
+    sourceUrl: "https://docs.z.ai/guides/overview/pricing",
   },
 
   // ── OpenRouter built-in ── (single source of truth)
@@ -174,4 +208,4 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   ),
 };
 
-export const PROVIDER_PRICE_ORDER = ["deepseek", "mimo", "minimax", "kimi", "openrouter"];
+export const PROVIDER_PRICE_ORDER = ["deepseek", "mimo", "zai", "minimax", "kimi", "openrouter"];

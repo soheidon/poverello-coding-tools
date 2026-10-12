@@ -16,7 +16,26 @@ interface McpSettingPanelProps {
   refreshConfig: () => Promise<void>;
 }
 
-const MCP_PROVIDERS = MODEL_CATALOG.providers.map(({ id, label }) => ({ id, name: label }));
+const MCP_PROVIDER_ORDER = [
+  "deepseek",
+  "mimo",
+  "zai",
+  "minimax",
+  "kimi",
+  "kimi-code",
+  "openrouter",
+];
+
+const providerLabelMap = new Map(MODEL_CATALOG.providers.map((p) => [p.id, p.label]));
+const MCP_PROVIDERS = [
+  ...MCP_PROVIDER_ORDER.filter((id) => providerLabelMap.has(id)).map((id) => ({
+    id,
+    name: providerLabelMap.get(id)!,
+  })),
+  ...MODEL_CATALOG.providers
+    .filter((p) => !MCP_PROVIDER_ORDER.includes(p.id))
+    .map((p) => ({ id: p.id, name: p.label })),
+];
 
 const COL_STYLE: React.CSSProperties = {
   padding: "6px 4px",
@@ -286,7 +305,7 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
       } else {
         const p = config?.providers?.[providerId];
         const defaultOpus = p?.models?.["claude-opus-5"];
-        model = model || defaultOpus?.upstream_model || p?.default_model || "deepseek-v4-pro";
+        model = model || defaultOpus?.upstream_model || p?.default_model || (providerId === "zai" ? "glm-5.3" : "deepseek-v4-pro");
         thinking_mode = thinking_mode || defaultOpus?.thinking_mode || "thinking";
         reasoning_effort = reasoning_effort || defaultOpus?.reasoning_effort;
       }
@@ -295,7 +314,18 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
       const policy = caps?.thinkingModePolicy ?? "toggleable";
       const supportsEffort = caps?.supportsReasoningEffort || !!caps?.forcedReasoningEffort;
 
-      if (policy === "thinking_only") {
+      if (providerId === "zai") {
+        if (policy === "thinking_only") {
+          thinking_mode = "thinking";
+        } else if (policy === "toggleable") {
+          thinking_mode = thinking_mode === "normal" ? "normal" : "thinking";
+        }
+        if (supportsEffort && !reasoning_effort) {
+          reasoning_effort = "max";
+        } else if (!supportsEffort) {
+          reasoning_effort = "";
+        }
+      } else if (policy === "thinking_only") {
         thinking_mode = "thinking_only";
         reasoning_effort = "";
       } else if (!supportsEffort) {
@@ -304,7 +334,11 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
         reasoning_effort = providerId === "kimi" ? "max" : "high";
       }
 
-      return { model, thinking_mode, reasoning_effort };
+      return {
+        model: model || "",
+        thinking_mode: thinking_mode || "thinking",
+        reasoning_effort: reasoning_effort || "",
+      };
     },
     [mcpConfig, activeTargetKey, orProfiles, selectedOrProfileId, config]
   );
@@ -426,9 +460,9 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
               ? getOpenRouterModelDisplayName(setting.model)
               : getModelDisplayName(setting.model, providerId);
           const summaryText =
-            setting.thinking_mode === "thinking_only" || policy === "thinking_only"
+            (setting.thinking_mode === "thinking_only" || policy === "thinking_only") && (!supportsReasoningEffort || !setting.reasoning_effort)
               ? `${modelDisplay} (${t("apiKeyPanel.thinkingOnly")})`
-              : setting.thinking_mode === "thinking"
+              : setting.thinking_mode === "thinking" || (policy === "thinking_only" && supportsReasoningEffort)
                 ? (supportsReasoningEffort && setting.reasoning_effort
                     ? `${modelDisplay} (${setting.reasoning_effort})`
                     : `${modelDisplay} (${t("apiKeyPanel.thinkingModeOn")})`)
@@ -541,7 +575,10 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                           const newSupportsEffort = newCaps?.supportsReasoningEffort || !!newCaps?.forcedReasoningEffort;
 
                           const update: McpTargetConfig = { model: newModel };
-                          if (newPolicy === "thinking_only") {
+                          if (providerId === "zai") {
+                            update.thinking_mode = newPolicy === "toggleable" && setting.thinking_mode === "normal" ? "normal" : "thinking";
+                            update.reasoning_effort = newSupportsEffort ? (setting.reasoning_effort || "max") : "";
+                          } else if (newPolicy === "thinking_only") {
                             update.thinking_mode = "thinking_only";
                             update.reasoning_effort = "";
                           } else if (!newSupportsEffort) {
@@ -613,7 +650,8 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                     ) : null}
 
                     {/* Reasoning Effort */}
-                    {setting.thinking_mode === "thinking" && supportsReasoningEffort && policy !== "thinking_only" && (
+                    {((setting.thinking_mode === "thinking" && supportsReasoningEffort && policy !== "thinking_only") ||
+                      (providerId === "zai" && supportsReasoningEffort && (policy !== "toggleable" || setting.thinking_mode === "thinking"))) && (
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ fontSize: 11, fontWeight: 600, color: "#1f2937", whiteSpace: "nowrap" }}>
                           {t("mcp.effortLabel")}:

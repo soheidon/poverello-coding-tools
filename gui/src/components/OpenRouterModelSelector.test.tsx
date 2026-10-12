@@ -886,6 +886,106 @@ describe("OpenRouterModelSelector — regression tests", () => {
   });
 
   // ═══════════════════════════════════════════════════════════════
+  // GLM vendor classification (catalog vendor renamed "Z.ai" → "GLM")
+  // ═══════════════════════════════════════════════════════════════
+  //
+  // `vendor` is display/classification metadata only: the model IDs, the
+  // routing, and the saved upstream values stay the official `z-ai/...` IDs.
+  // The direct GLM provider is a separate provider/model ID pair; only this
+  // OpenRouter side is covered here.
+
+  describe("GLM vendor classification", () => {
+    function glmModelsResult(): OpenRouterModelsResult {
+      return {
+        models: [
+          makeModel("z-ai/glm-5.3", "GLM: GLM-5.3"),
+          makeModel("z-ai/glm-5.3-flash", "GLM: GLM-5.3 Flash"),
+          makeModel("poolside/laguna-s-2.1", "Poolside: Laguna S 2.1"),
+        ],
+        fetchedAt: "2026-10-12T00:00:00Z",
+        source: "api",
+        stale: false,
+      };
+    }
+
+    it("other_mode_lists_the_z_ai_vendor_as_GLM_openrouter_and_saves_official_ids", async () => {
+      const setModelCalls: Array<Record<string, unknown>> = [];
+      invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+        if (cmd === "openrouter_get_models") return glmModelsResult();
+        if (cmd === "set_model_upstream") {
+          setModelCalls.push({ ...args });
+          return saveOkResponse(false);
+        }
+        return null;
+      });
+
+      render(<OpenRouterModelSelector {...DEFAULT_PROPS} />);
+      await waitForReady();
+
+      const vendorSelect = screen.getByTestId("openrouter-vendor-select") as HTMLSelectElement;
+      await userEvent.selectOptions(vendorSelect, "__other");
+      await userEvent.selectOptions(vendorSelect, "z-ai");
+
+      const vendorLabel = Array.from(vendorSelect.options).find(
+        (opt) => opt.value === "z-ai",
+      )?.textContent;
+      expect(vendorLabel).toBe("GLM (OpenRouter)");
+
+      const modelSelect = screen.getByTestId("openrouter-model-select") as HTMLSelectElement;
+      const optionValues = Array.from(modelSelect.options)
+        .map((opt) => opt.value)
+        .filter(Boolean);
+      expect(optionValues).toContain("z-ai/glm-5.3");
+      expect(optionValues).toContain("z-ai/glm-5.3-flash");
+
+      await userEvent.selectOptions(modelSelect, "z-ai/glm-5.3");
+      await waitFor(() => {
+        expect(setModelCalls.length).toBeGreaterThan(0);
+      });
+      const lastCall = setModelCalls[setModelCalls.length - 1];
+      expect(lastCall.upstream_model ?? lastCall.upstreamModel).toBe("z-ai/glm-5.3");
+    });
+
+    it("real_catalog_classifies_GLM_for_vendor_and_profile_inference", async () => {
+      // The component tests above run against the shared mock registry; this
+      // test reads the real catalog-backed module to prove that the renamed
+      // vendor value still classifies models and still drives profile vendor
+      // inference.
+      const actual = await vi.importActual<typeof import("../config/builtinOpenRouter")>(
+        "../config/builtinOpenRouter",
+      );
+
+      // Vendor is metadata; the official upstream model IDs are unchanged.
+      expect(actual.BUILTIN_OPENROUTER_MODELS["z-ai/glm-5.3"]?.vendor).toBe("GLM");
+      expect(actual.getOpenRouterVendorModels("glm")).toEqual(
+        expect.arrayContaining(["z-ai/glm-5.3", "z-ai/glm-5.3-flash"]),
+      );
+
+      // Profile vendor inference follows the catalog vendor and returns the
+      // catalog's GLM models alongside the profile's own upstream IDs.
+      const officialProfile = {
+        display_name: "OpenRouter: GLM",
+        models: { "claude-opus-5": { upstream_model: "z-ai/glm-5.3" } },
+      };
+      expect(actual.getOpenRouterProfileVendor(officialProfile)).toBe("glm");
+      expect(actual.getOpenRouterModelsForProfile(officialProfile)).toContain(
+        "z-ai/glm-5.3",
+      );
+
+      // A stored ID the catalog does not know still resolves to the profile's
+      // own value: the renamed vendor never rewrites a saved model ID.
+      const customProfile = {
+        display_name: "Custom",
+        models: { "claude-opus-5": { upstream_model: "z-ai/glm-custom" } },
+      };
+      expect(actual.getOpenRouterProfileVendor(customProfile)).toBeNull();
+      expect(actual.getOpenRouterModelsForProfile(customProfile)).toContain(
+        "z-ai/glm-custom",
+      );
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
   // Google vendor selection differentiation (built-in vs other)
   // ═══════════════════════════════════════════════════════════════
 
@@ -1040,7 +1140,6 @@ describe("OpenRouterModelSelector — regression tests", () => {
 
       expect(optionValues).toEqual([
         "deepseek/deepseek-v4.1-flash",
-        "deepseek/deepseek-v4-flash-0731",
         "deepseek/deepseek-v4-pro-0813",
       ]);
       expect(modelSelect.value).toBe("deepseek/deepseek-v4.1-flash");
@@ -1098,6 +1197,13 @@ describe("OpenRouterModelSelector — regression tests", () => {
         />,
       );
       await waitForReady();
+
+      const modelSelect2 = screen.getByTestId("openrouter-model-select") as HTMLSelectElement;
+      expect(modelSelect2.value).toBe("deepseek/deepseek-v4-flash-0731");
+      const selectedOpt2 = Array.from(modelSelect2.options).find(
+        (opt) => opt.value === "deepseek/deepseek-v4-flash-0731",
+      );
+      expect(selectedOpt2?.textContent).toContain("(Legacy / saved)");
 
       thinkingSelect = screen.getByRole("combobox", {
         name: "Thinking",
@@ -1253,6 +1359,12 @@ describe("OpenRouterModelSelector — regression tests", () => {
         .filter((t) => t !== "Select a model" && t !== "Select model...");
 
       expect(optionTexts).toEqual([
+        "GPT-6.1 Sol",
+        "GPT-6.1 Sol Pro",
+        "GPT-6 Sol",
+        "GPT-6 Sol Pro",
+        "GPT-6 Luna",
+        "GPT-6 Luna Pro",
         "GPT-6 Astra",
         "GPT-6 Astra Pro",
         "GPT Astra Latest",
@@ -1337,5 +1449,526 @@ describe("OpenRouterModelSelector — regression tests", () => {
       expect(options).toEqual(["off", "low", "medium", "high", "xhigh", "max"]);
     });
 
+  });
+
+  describe("Claude 5.5 thinking state (saved value protection)", () => {
+    function claude55ModelsResult(): OpenRouterModelsResult {
+      return {
+        models: [
+          ...stableModelsResult().models,
+          makeModel("anthropic/claude-opus-5.5", "Anthropic: Claude Opus 5.5"),
+          makeModel("anthropic/claude-sonnet-5.5", "Anthropic: Claude Sonnet 5.5"),
+          makeModel("anthropic/claude-haiku-5.5", "Anthropic: Claude Haiku 5.5"),
+        ],
+        fetchedAt: "2026-07-31T00:00:00Z",
+        source: "api",
+        stale: false,
+      };
+    }
+
+    it("claude_55_shows_the_fixed_thinking_state_instead_of_normal", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return claude55ModelsResult();
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="anthropic/claude-opus-5.5"
+          currentThinkingMode="thinking"
+          currentReasoningEffort={undefined}
+        />,
+      );
+      await waitForReady();
+
+      // The saved thinking_mode is "thinking": the editor must show the
+      // model's fixed thinking state, not a dropdown whose only option is
+      // "Normal" — the state the model cannot use and which used to be
+      // displayed here.
+      expect(screen.getByText("Thinking only")).toBeInTheDocument();
+      expect(screen.queryByRole("combobox", { name: "Thinking" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "Normal" })).not.toBeInTheDocument();
+    });
+
+    // The Claude 5.5 models are not a built-in vendor group, so the tests reach
+    // them the way the UI does: Other mode → the Anthropic vendor.
+    async function openAnthropicVendor() {
+      const vendorSelect = screen.getByTestId("openrouter-vendor-select") as HTMLSelectElement;
+      await userEvent.selectOptions(vendorSelect, "__other");
+      await userEvent.selectOptions(vendorSelect, "anthropic");
+    }
+
+    async function pickModel(modelId: string) {
+      const modelSelect = screen.getByTestId("openrouter-model-select") as HTMLSelectElement;
+      await userEvent.selectOptions(modelSelect, modelId);
+    }
+
+    it("keeps a saved effort when switching between Claude 5.5 models", async () => {
+      for (const effort of ["low", "high", "max"] as const) {
+        const saves: Array<Record<string, unknown>> = [];
+        invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+          if (cmd === "openrouter_get_models") return claude55ModelsResult();
+          if (cmd === "set_model_upstream") {
+            saves.push({ ...args });
+            return saveOkResponse(false);
+          }
+          return null;
+        });
+
+        const { unmount } = render(
+          <OpenRouterModelSelector
+            {...DEFAULT_PROPS}
+            currentUpstream="poolside/laguna-s-2.1"
+            currentThinkingMode="thinking"
+            currentReasoningEffort={effort}
+          />,
+        );
+        await waitForReady();
+        await openAnthropicVendor();
+
+        // Opus 5.5 stores the route with the saved effort…
+        await pickModel("anthropic/claude-opus-5.5");
+        await waitFor(() => {
+          expect(saves.length).toBeGreaterThan(0);
+        });
+
+        // …and switching to Sonnet 5.5 must not delete or rewrite it.
+        await pickModel("anthropic/claude-sonnet-5.5");
+        await waitFor(() => {
+          expect(saves.length).toBeGreaterThan(1);
+        });
+        const last = saves[saves.length - 1];
+        expect(last.upstreamModel).toBe("anthropic/claude-sonnet-5.5");
+        expect(last.thinkingMode).toBe("thinking");
+        expect(last.reasoningEffort).toBe(effort);
+        unmount();
+      }
+    });
+
+    it("keeps an unknown saved effort verbatim on a model change", async () => {
+      const saves: Array<Record<string, unknown>> = [];
+      invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+        if (cmd === "openrouter_get_models") return claude55ModelsResult();
+        if (cmd === "set_model_upstream") {
+          saves.push({ ...args });
+          return saveOkResponse(false);
+        }
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="poolside/laguna-s-2.1"
+          currentThinkingMode="thinking"
+          currentReasoningEffort="ultra"
+        />,
+      );
+      await waitForReady();
+      await openAnthropicVendor();
+
+      await pickModel("anthropic/claude-opus-5.5");
+      await waitFor(() => {
+        expect(saves.length).toBeGreaterThan(0);
+      });
+      await pickModel("anthropic/claude-sonnet-5.5");
+      await waitFor(() => {
+        expect(saves.length).toBeGreaterThan(1);
+      });
+      const last = saves[saves.length - 1];
+      expect(last.upstreamModel).toBe("anthropic/claude-sonnet-5.5");
+      // An unknown saved value survives the model change verbatim.
+      expect(last.reasoningEffort).toBe("ultra");
+    });
+
+    it("does not invent an effort when the route has none saved", async () => {
+      const saves: Array<Record<string, unknown>> = [];
+      invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+        if (cmd === "openrouter_get_models") return claude55ModelsResult();
+        if (cmd === "set_model_upstream") {
+          saves.push({ ...args });
+          return saveOkResponse(false);
+        }
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="poolside/laguna-s-2.1"
+          currentThinkingMode="thinking"
+          currentReasoningEffort={undefined}
+        />,
+      );
+      await waitForReady();
+      await openAnthropicVendor();
+
+      await pickModel("anthropic/claude-opus-5.5");
+      await waitFor(() => {
+        expect(saves.length).toBeGreaterThan(0);
+      });
+      await pickModel("anthropic/claude-sonnet-5.5");
+      await waitFor(() => {
+        expect(saves.length).toBeGreaterThan(1);
+      });
+      // Nothing is invented when the route has no effort saved.
+      expect(saves[saves.length - 1].reasoningEffort ?? null).toBeNull();
+    });
+
+    it("shows a saved effort on a Claude 5.5 route as saved-only", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return claude55ModelsResult();
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="anthropic/claude-opus-5.5"
+          currentThinkingMode="thinking"
+          currentReasoningEffort="high"
+        />,
+      );
+      await waitForReady();
+
+      // The value is kept and shown as saved-only; per-model wire support is a
+      // separate (D2) question and is not asserted here.
+      expect(screen.getByText(/effort: high/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/not sent to the api yet|reasoningEffortNotSentYet/i),
+      ).toBeInTheDocument();
+      // Rendering alone never writes the route.
+      expect(
+        invokeMock.mock.calls.filter((c: unknown[]) => c[0] === "set_model_upstream"),
+      ).toHaveLength(0);
+    });
+
+    it("switching_to_a_claude_55_model_keeps_the_saved_thinking_value", async () => {
+      const saves: Array<Record<string, unknown>> = [];
+      invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+        if (cmd === "openrouter_get_models") return claude55ModelsResult();
+        if (cmd === "set_model_upstream") {
+          saves.push({ ...args });
+          return saveOkResponse(false);
+        }
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="poolside/laguna-s-2.1"
+          currentThinkingMode="normal"
+          currentReasoningEffort={undefined}
+        />,
+      );
+      await waitForReady();
+
+      // Other mode → the Anthropic vendor → the Claude 5.5 model.
+      const vendorSelect = screen.getByTestId("openrouter-vendor-select") as HTMLSelectElement;
+      await userEvent.selectOptions(vendorSelect, "__other");
+      await userEvent.selectOptions(vendorSelect, "anthropic");
+
+      const modelSelect = screen.getByTestId("openrouter-model-select") as HTMLSelectElement;
+      await userEvent.selectOptions(modelSelect, "anthropic/claude-opus-5.5");
+
+      await waitFor(() => {
+        expect(saves.length).toBeGreaterThan(0);
+      });
+
+      const last = saves[saves.length - 1];
+      expect(last.upstreamModel).toBe("anthropic/claude-opus-5.5");
+      // Regression: selecting this model used to write thinkingMode "normal",
+      // silently replacing the route's thinking setting with thinking disabled.
+      // The model always thinks, so the canonical "thinking" is written instead.
+      expect(last.thinkingMode).toBe("thinking");
+      expect(last.reasoningEffort ?? null).toBeNull();
+      expect(screen.getByText("Thinking only")).toBeInTheDocument();
+    });
+  });
+  describe("Anthropic vendor curated selection", () => {
+    function anthropicFullCatalogResult(): OpenRouterModelsResult {
+      return {
+        models: [
+          ...stableModelsResult().models,
+          makeModel("anthropic/claude-opus-5.5", "Anthropic: Claude Opus 5.5"),
+          makeModel("anthropic/claude-sonnet-5.5", "Anthropic: Claude Sonnet 5.5"),
+          makeModel("anthropic/claude-haiku-5.5", "Anthropic: Claude Haiku 5.5"),
+          makeModel("anthropic/claude-fable-5.1", "Anthropic: Claude Fable 5.1"),
+          makeModel("anthropic/claude-opus-latest", "Anthropic: Claude Opus Latest"),
+          makeModel("anthropic/claude-opus-5.5:batch", "Anthropic: Claude Opus 5.5:batch"),
+          makeModel("anthropic/claude-3.5-sonnet", "Anthropic: Claude 3.5 Sonnet"),
+        ],
+        fetchedAt: "2026-07-31T00:00:00Z",
+        source: "api",
+        stale: false,
+      };
+    }
+
+    it("group_mode_anthropic_vendor_shows_only_curated_models", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return anthropicFullCatalogResult();
+        if (cmd === "set_model_upstream") return saveOkResponse(false);
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="anthropic/claude-sonnet-5.5"
+          currentThinkingMode="thinking"
+        />,
+      );
+      await waitForReady();
+
+      const vendorSelect = screen.getByTestId("openrouter-vendor-select") as HTMLSelectElement;
+      expect(vendorSelect.value).toBe("anthropic");
+
+      const modelSelect = screen.getByTestId("openrouter-model-select") as HTMLSelectElement;
+      const optionValues = Array.from(modelSelect.options)
+        .map((opt) => opt.value)
+        .filter(Boolean);
+
+      // Curated built-in group must contain only official curated models in preferred order
+      expect(optionValues).toEqual([
+        "anthropic/claude-opus-5.5",
+        "anthropic/claude-sonnet-5.5",
+        "anthropic/claude-haiku-5.5",
+        "anthropic/claude-fable-5.1",
+      ]);
+      expect(optionValues).not.toContain("anthropic/claude-opus-latest");
+      expect(optionValues).not.toContain("anthropic/claude-opus-5.5:batch");
+      expect(optionValues).not.toContain("anthropic/claude-3.5-sonnet");
+      expect(optionValues).not.toContain("anthropic/claude-opus-5");
+    });
+
+    it("other_mode_anthropic_vendor_shows_all_live_openrouter_anthropic_models", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return anthropicFullCatalogResult();
+        if (cmd === "set_model_upstream") return saveOkResponse(false);
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="poolside/laguna-s-2.1"
+          currentThinkingMode="normal"
+        />,
+      );
+      await waitForReady();
+
+      // Switch to "Other" mode
+      const vendorSelect = screen.getByTestId("openrouter-vendor-select") as HTMLSelectElement;
+      await userEvent.selectOptions(vendorSelect, "__other");
+
+      // In other mode, select the "anthropic" vendor from other vendors
+      await userEvent.selectOptions(vendorSelect, "anthropic");
+
+      const modelSelect = screen.getByTestId("openrouter-model-select") as HTMLSelectElement;
+      const optionValues = Array.from(modelSelect.options)
+        .map((opt) => opt.value)
+        .filter(Boolean);
+
+      // Other mode must NOT restrict Anthropic models to curated allow-list
+      expect(optionValues).toContain("anthropic/claude-opus-5.5");
+      expect(optionValues).toContain("anthropic/claude-sonnet-5.5");
+      expect(optionValues).toContain("anthropic/claude-haiku-5.5");
+      expect(optionValues).toContain("anthropic/claude-fable-5.1");
+      expect(optionValues).toContain("anthropic/claude-opus-latest");
+      expect(optionValues).toContain("anthropic/claude-opus-5.5:batch");
+      expect(optionValues).toContain("anthropic/claude-3.5-sonnet");
+      expect(optionValues).toContain("anthropic/claude-opus-5");
+    });
+
+    it("preserves_legacy_saved_anthropic_model_with_legacy_label", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return anthropicFullCatalogResult();
+        if (cmd === "set_model_upstream") return saveOkResponse(false);
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="anthropic/claude-opus-latest"
+          currentThinkingMode="normal"
+        />,
+      );
+      await waitForReady();
+
+      const modelSelect = screen.getByTestId("openrouter-model-select") as HTMLSelectElement;
+      expect(modelSelect.value).toBe("anthropic/claude-opus-latest");
+      const selectedOption = Array.from(modelSelect.options).find(
+        (opt) => opt.value === "anthropic/claude-opus-latest",
+      );
+      expect(selectedOption).toBeDefined();
+      expect(selectedOption?.textContent).toContain("Claude Opus Latest");
+    });
+
+    it("group_mode_tencent_shows_hy4_preview_and_hy3_in_preferred_order", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return stableModelsResult();
+        if (cmd === "set_model_upstream") return saveOkResponse(false);
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="tencent/hy4-preview"
+          currentThinkingMode="thinking"
+          currentReasoningEffort="high"
+        />,
+      );
+      await waitForReady();
+
+      const vendorSelect = screen.getByTestId("openrouter-vendor-select") as HTMLSelectElement;
+      expect(vendorSelect.value).toBe("tencent");
+
+      const modelSelect = screen.getByTestId("openrouter-model-select") as HTMLSelectElement;
+      const optionValues = Array.from(modelSelect.options)
+        .map((opt) => opt.value)
+        .filter(Boolean);
+
+      expect(optionValues).toEqual([
+        "tencent/hy4-preview",
+        "tencent/hy3",
+      ]);
+      expect(modelSelect.value).toBe("tencent/hy4-preview");
+    });
+
+    it("hy4_preview_thinking_options_are_normal_and_reasoning_high_only", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return stableModelsResult();
+        if (cmd === "set_model_upstream") return saveOkResponse(false);
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="tencent/hy4-preview"
+          currentThinkingMode="thinking"
+          currentReasoningEffort="high"
+        />,
+      );
+      await waitForReady();
+
+      const thinkingSelect = screen.getByRole("combobox", {
+        name: "Thinking",
+      }) as HTMLSelectElement;
+
+      const options = Array.from(thinkingSelect.options).map((opt) => ({
+        value: opt.value,
+        text: opt.text,
+      }));
+
+      expect(options).toEqual([
+        { value: "off", text: "Normal" },
+        { value: "high", text: "Reasoning: High" },
+      ]);
+      expect(thinkingSelect.value).toBe("high");
+
+      // Verify Low, Medium, Max are NOT in the options
+      expect(options.some((o) => o.value === "low")).toBe(false);
+      expect(options.some((o) => o.value === "medium")).toBe(false);
+      expect(options.some((o) => o.value === "max")).toBe(false);
+    });
+
+    it("hy4_preview_preserves_legacy_saved_effort_without_coercing_to_high", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return stableModelsResult();
+        if (cmd === "set_model_upstream") return saveOkResponse(false);
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="tencent/hy4-preview"
+          currentThinkingMode="thinking"
+          currentReasoningEffort="low"
+        />,
+      );
+      await waitForReady();
+
+      const thinkingSelect = screen.getByRole("combobox", {
+        name: "Thinking",
+      }) as HTMLSelectElement;
+
+      expect(thinkingSelect.value).toBe("low");
+      const selectedOption = Array.from(thinkingSelect.options).find((opt) => opt.value === "low");
+      expect(selectedOption).toBeDefined();
+      expect(selectedOption?.text).toContain("(Legacy / saved)");
+    });
+
+    it("hy3_thinking_options_and_behavior_remain_untouched", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return stableModelsResult();
+        if (cmd === "set_model_upstream") return saveOkResponse(false);
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="tencent/hy3"
+          currentThinkingMode="thinking"
+          currentReasoningEffort="low"
+        />,
+      );
+      await waitForReady();
+
+      const thinkingSelect = screen.getByRole("combobox", {
+        name: "Thinking",
+      }) as HTMLSelectElement;
+
+      const options = Array.from(thinkingSelect.options).map((opt) => ({
+        value: opt.value,
+        text: opt.text,
+      }));
+
+      expect(options).toEqual([
+        { value: "off", text: "Normal" },
+        { value: "low", text: "Thinking: Low" },
+        { value: "high", text: "Thinking: High" },
+      ]);
+      expect(thinkingSelect.value).toBe("low");
+    });
+
+    it("other_mode_deepseek_vendor_shows_0731_model", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return stableModelsResult();
+        if (cmd === "set_model_upstream") return saveOkResponse(false);
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="poolside/laguna-s-2.1"
+          currentThinkingMode="normal"
+        />,
+      );
+      await waitForReady();
+
+      // Switch to Other mode
+      const vendorSelect = screen.getByTestId("openrouter-vendor-select") as HTMLSelectElement;
+      await userEvent.selectOptions(vendorSelect, "__other");
+
+      // Select deepseek in Other mode
+      await userEvent.selectOptions(vendorSelect, "deepseek");
+
+      const modelSelect = screen.getByTestId("openrouter-model-select") as HTMLSelectElement;
+      const optionValues = Array.from(modelSelect.options)
+        .map((opt) => opt.value)
+        .filter(Boolean);
+
+      expect(optionValues).toContain("deepseek/deepseek-v4-flash-0731");
+      expect(optionValues).toContain("deepseek/deepseek-v4.1-flash");
+      expect(optionValues).toContain("deepseek/deepseek-v4-pro-0813");
+    });
   });
 });

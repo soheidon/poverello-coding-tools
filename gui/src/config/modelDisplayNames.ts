@@ -20,6 +20,7 @@ export function getModelDisplayName(modelId: string, providerId?: string): strin
   // OpenRouter has its own provider-qualified display helper; keep this
   // generic legacy helper from stripping/relabeling those IDs.
   if (providerId === "openrouter") return modelId;
-  const model = catalogModels[modelId];
-  return model && model.providerId === providerId ? model.displayName : modelId;
+  const canonicalId = providerId === "zai" && modelId.startsWith("zai:") ? modelId.slice(4) : modelId;
+  const model = catalogModels[canonicalId];
+  return model && model.providerId === providerId ? model.displayName : canonicalId;
 }

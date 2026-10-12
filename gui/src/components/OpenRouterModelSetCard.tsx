@@ -77,13 +77,6 @@ export default function OpenRouterModelSetCard({
     return res;
   }, [refreshConfig, gatewayRunning, restartGateway]);
 
-  const handleDeleteProfile = useCallback(async () => {
-    if (profilesCount <= 1) return;
-    const msg = t("openRouterProfile.deleteConfirmInactive");
-    if (!confirm(msg)) return;
-    await doProfileMutation("delete_openrouter_profile", { profileId: profile.id });
-  }, [profile.id, profilesCount, t, doProfileMutation]);
-
   const startRename = useCallback(() => {
     setRenamingId(profile.id);
     setRenameText(displayName);
@@ -103,6 +96,18 @@ export default function OpenRouterModelSetCard({
     setRenamingId(null);
   }, [profile.id, profile.display_name, renameText, doProfileMutation]);
 
+  const handleDeleteProfile = useCallback(async () => {
+    if (profilesCount <= 1) return;
+    const msg = t("openRouterProfile.deleteConfirmInactive");
+    if (!confirm(msg)) {
+      // Moving keyboard focus to Delete intentionally suppresses the input's
+      // blur-save. If deletion is cancelled, finish that pending rename now.
+      if (renamingId === profile.id) await submitRename();
+      return;
+    }
+    await doProfileMutation("delete_openrouter_profile", { profileId: profile.id });
+  }, [profile.id, profilesCount, renamingId, t, submitRename, doProfileMutation]);
+
   const cancelRename = useCallback(() => {
     renameCancelRef.current = true;
     setRenamingId(null);
@@ -117,10 +122,12 @@ export default function OpenRouterModelSetCard({
     }
   }, [submitRename, cancelRename]);
 
-  const handleRenameBlur = useCallback(() => {
+  const handleRenameBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
     if (renameCancelRef.current) return;
+    const nextTarget = e.relatedTarget;
+    if (nextTarget instanceof HTMLElement && nextTarget.dataset.profileDelete === profile.id) return;
     submitRename();
-  }, [submitRename]);
+  }, [profile.id, submitRename]);
 
   // ── Visibility checkbox ──────────────────────────────────────────
 
@@ -273,6 +280,8 @@ export default function OpenRouterModelSetCard({
             <button
               type="button"
               className="btn btn-small"
+              data-profile-delete={profile.id}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={(e) => { e.stopPropagation(); handleDeleteProfile(); }}
               style={{
                 fontSize: 10,

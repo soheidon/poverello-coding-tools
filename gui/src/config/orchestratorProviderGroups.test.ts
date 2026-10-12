@@ -13,6 +13,7 @@ describe("Orchestrator provider-group mapping", () => {
     ["kimi", "provider", "kimi"],
     ["kimi-code", "provider", "kimi-code"],
     ["mimo", "provider", "mimo"],
+    ["zai", "provider", "zai"],
     ["openrouter", "provider", "openrouter"],
     ["ollama", "ollama", undefined],
     ["cli", "cli", undefined],

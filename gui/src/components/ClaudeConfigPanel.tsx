@@ -5,9 +5,9 @@ import type { ClaudeConfigCandidate, ClaudeCodeLaunchCommand, CommandResponse, G
 import { buildGatewayClientBaseUrl, GATEWAY_LOCAL_TOKEN } from "../config/gatewayConnection";
 
 const CLAUDE_DESKTOP_MODELS = [
-  { name: "claude-opus-5", labelOverride: "Opus 5" },
-  { name: "claude-sonnet-5", labelOverride: "Sonnet 5" },
-  { name: "claude-haiku-4-5",  labelOverride: "Haiku 4.5" },
+  { name: "claude-opus-5-5", labelOverride: "Opus 5.5" },
+  { name: "claude-sonnet-5-5", labelOverride: "Sonnet 5.5" },
+  { name: "claude-haiku-5-5", labelOverride: "Haiku 5.5" },
 ];
 
 function buildClaudeConfig(): object {

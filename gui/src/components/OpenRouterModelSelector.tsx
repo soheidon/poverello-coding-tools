@@ -39,6 +39,9 @@ const VENDOR_LABELS: Record<string, string> = {
   mistralai: "Mistral AI",
   "x-ai": "xAI",
   openrouter: "OpenRouter",
+  // GLM is served both directly (provider "GLM") and through OpenRouter; this
+  // selector only lists the OpenRouter path, so label it explicitly.
+  "z-ai": "GLM (OpenRouter)",
 };
 
 // ── Built-in vendor registry (single source of truth) ──────────
@@ -56,7 +59,24 @@ type BuiltinVendor = {
   models: BuiltinModelDefinition[];
 };
 
+const ANTHROPIC_PREFERRED_ORDER = [
+  "anthropic/claude-opus-5.5",
+  "anthropic/claude-sonnet-5.5",
+  "anthropic/claude-haiku-5.5",
+  "anthropic/claude-fable-5.1",
+];
+
+const TENCENT_PREFERRED_ORDER = [
+  "tencent/hy4-preview",
+  "tencent/hy3",
+];
+
 const BUILTIN_OPENROUTER_VENDORS: BuiltinVendor[] = [
+  {
+    id: "anthropic",
+    labelKey: "openRouterModels.groupAnthropic",
+    models: [], // filled below from BUILTIN_OPENROUTER_MODELS
+  },
   {
     id: "poolside",
     labelKey: "openRouterModels.groupPoolside",
@@ -100,6 +120,20 @@ for (const v of BUILTIN_OPENROUTER_VENDORS) {
   const entries = Object.entries(BUILTIN_REGISTRY)
     .filter(([, entry]) => entry.vendor.toLowerCase() === v.id)
     .map(([id, entry]) => ({ id, displayName: entry.displayName }));
+  if (v.id === "anthropic") {
+    entries.sort((a, b) => {
+      const ai = ANTHROPIC_PREFERRED_ORDER.indexOf(a.id);
+      const bi = ANTHROPIC_PREFERRED_ORDER.indexOf(b.id);
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    });
+  }
+  if (v.id === "tencent") {
+    entries.sort((a, b) => {
+      const ai = TENCENT_PREFERRED_ORDER.indexOf(a.id);
+      const bi = TENCENT_PREFERRED_ORDER.indexOf(b.id);
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    });
+  }
   v.models.push(...entries);
 }
 
@@ -112,6 +146,9 @@ const BUILTIN_MODEL_BY_ID: Map<string, { vendor: BuiltinVendor; model: BuiltinMo
   );
 
 const BUILTIN_MODEL_IDS: Set<string> = new Set(BUILTIN_MODEL_BY_ID.keys());
+
+const ANTHROPIC_VENDOR = BUILTIN_OPENROUTER_VENDORS.find((v) => v.id === "anthropic")!;
+const ANTHROPIC_MODEL_IDS = new Set(ANTHROPIC_VENDOR.models.map((m) => m.id));
 
 const POOLSIDE_VENDOR = BUILTIN_OPENROUTER_VENDORS.find((v) => v.id === "poolside")!;
 const TENCENT_VENDOR = BUILTIN_OPENROUTER_VENDORS.find((v) => v.id === "tencent")!;
@@ -128,7 +165,12 @@ const PRIMARY_POOLSIDE_MODEL_IDS = new Set(POOLSIDE_VENDOR.models.map((m) => m.i
 
 const PRIMARY_POOLSIDE_MODEL_ORDER = POOLSIDE_VENDOR.models.map((m) => m.id);
 
-const TENCENT_HY3_MODEL_IDS = new Set(TENCENT_VENDOR.models.map((m) => m.id));
+const TENCENT_HY4_MODEL_IDS = new Set(["tencent/hy4-preview"]);
+const TENCENT_HY3_MODEL_IDS = new Set(["tencent/hy3", "tencent/hy3:free"]);
+const TENCENT_CURATED_MODEL_IDS = new Set([
+  "tencent/hy4-preview",
+  "tencent/hy3",
+]);
 
 const INCLUSIONAI_VENDOR = BUILTIN_OPENROUTER_VENDORS.find((v) => v.id === "inclusionai")!;
 const STEPFUN_VENDOR = BUILTIN_OPENROUTER_VENDORS.find((v) => v.id === "stepfun")!;
@@ -137,6 +179,10 @@ const DEEPSEEK_VENDOR = BUILTIN_OPENROUTER_VENDORS.find((v) => v.id === "deepsee
 const INCLUSIONAI_MODEL_IDS = new Set(INCLUSIONAI_VENDOR.models.map((m) => m.id));
 const STEPFUN_MODEL_IDS = new Set(STEPFUN_VENDOR.models.map((m) => m.id));
 const DEEPSEEK_MODEL_IDS = new Set(DEEPSEEK_VENDOR.models.map((m) => m.id));
+const DEEPSEEK_CURATED_MODEL_IDS = new Set([
+  "deepseek/deepseek-v4.1-flash",
+  "deepseek/deepseek-v4-pro-0813",
+]);
 const DEEPSEEK_V4_1_FLASH_IDS = new Set(["deepseek/deepseek-v4.1-flash"]);
 const DEEPSEEK_LEGACY_THINKING_IDS = new Set([
   "deepseek/deepseek-v4-flash-0731",
@@ -172,6 +218,26 @@ const OPENAI_GPT56_MODEL_IDS = new Set([
   "openai/gpt-5.6-sol", "openai/gpt-5.6-sol-pro",
   "openai/gpt-5.6-terra", "openai/gpt-5.6-terra-pro",
   "openai/gpt-5.6-luna", "openai/gpt-5.6-luna-pro",
+]);
+
+// Claude 5.5 on OpenRouter always thinks: the route editor shows the fixed
+// state and must never rewrite a saved `thinking` value to `normal`.
+const ANTHROPIC_THINKING_ONLY_IDS = new Set([
+  "anthropic/claude-opus-5.5",
+  "anthropic/claude-sonnet-5.5",
+  "anthropic/claude-haiku-5.5",
+  "anthropic/claude-fable-5.1",
+]);
+
+const CURATED_BUILTIN_MODEL_IDS = new Set([
+  ...ANTHROPIC_MODEL_IDS,
+  ...PRIMARY_POOLSIDE_MODEL_IDS,
+  ...TENCENT_CURATED_MODEL_IDS,
+  ...INCLUSIONAI_MODEL_IDS,
+  ...STEPFUN_MODEL_IDS,
+  ...GEMINI_MODEL_IDS,
+  ...DEEPSEEK_CURATED_MODEL_IDS,
+  ...OPENAI_MODEL_IDS,
 ]);
 
 function findBuiltinVendorByModelId(modelId: string): BuiltinVendor | null {
@@ -349,7 +415,7 @@ function normalizeThinkingSelection(
     if (reasoningEffort === "max") return "max";
     return "high";
   }
-  if (OPENAI_ASTRA_PRO_IDS.has(modelId)) {
+  if (OPENAI_ASTRA_PRO_IDS.has(modelId) || ANTHROPIC_THINKING_ONLY_IDS.has(modelId)) {
     return "on";
   }
   if (OPENAI_GPT56_MODEL_IDS.has(modelId)) {
@@ -383,6 +449,17 @@ function normalizeThinkingSelection(
     }
     return "high";
   }
+  if (TENCENT_HY4_MODEL_IDS.has(modelId)) {
+    if (thinkingMode === "normal") return "off";
+    if (thinkingMode === "thinking") {
+      if (reasoningEffort === "high") return "high";
+      if (reasoningEffort && reasoningEffort !== "high") {
+        return reasoningEffort as ThinkingSelection;
+      }
+      return "high";
+    }
+    return "high";
+  }
   if (thinkingMode === "normal") return "off";
   if (thinkingMode === "thinking") {
     if (reasoningEffort === "max") return "max";
@@ -394,6 +471,7 @@ function normalizeThinkingSelection(
     return "on";
   }
   // No config: use model default
+  if (TENCENT_HY4_MODEL_IDS.has(modelId)) return "high";
   if (LAGUNA_S_2_1_MODEL_IDS.has(modelId)) return "max";
   if (LAGUNA_XS_2_1_MODEL_IDS.has(modelId)) return "on";
   if (RING_MODEL_IDS.has(modelId)) return "xhigh";
@@ -429,6 +507,30 @@ function findClosestThinking(
   return candidates[0].value;
 }
 
+/** The effort values the app knows about; anything else is a saved value from
+ *  another generation and is displayed, never normalized. */
+const KNOWN_EFFORT_VALUES = ["minimal", "low", "medium", "high", "xhigh", "max"];
+
+function isKnownEffortValue(value: string): boolean {
+  return KNOWN_EFFORT_VALUES.includes(value);
+}
+
+/** A model change must never delete the route's saved reasoning effort. Claude
+ *  5.5 always thinks and this editor has no effort axis for those models yet, so
+ *  a computed `null` would silently erase a saved value — and an unknown legacy
+ *  value would be normalized away by an unrelated operation. The saved value is
+ *  kept verbatim here; per-model wire support is a separate (D2) question. */
+function preserveSavedEffortOnModelChange(
+  modelId: string,
+  computed: string | null,
+  saved: string | undefined,
+): string | null {
+  if (computed !== null) return computed;
+  if (!ANTHROPIC_THINKING_ONLY_IDS.has(modelId)) return computed;
+  const trimmed = saved?.trim();
+  return trimmed ? trimmed : null;
+}
+
 function isThinkingValueSupported(
   modelId: string,
   value: ThinkingSelection,
@@ -437,7 +539,7 @@ function isThinkingValueSupported(
   if (OPENAI_ASTRA_MODEL_IDS.has(modelId)) {
     return value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max";
   }
-  if (OPENAI_ASTRA_PRO_IDS.has(modelId)) {
+  if (OPENAI_ASTRA_PRO_IDS.has(modelId) || ANTHROPIC_THINKING_ONLY_IDS.has(modelId)) {
     return value === "on";
   }
   if (OPENAI_GPT56_MODEL_IDS.has(modelId)) {
@@ -452,6 +554,9 @@ function isThinkingValueSupported(
   }
   if (LAGUNA_S_2_1_MODEL_IDS.has(modelId)) return value === "max" || value === "off";
   if (LAGUNA_XS_2_1_MODEL_IDS.has(modelId)) return value === "on" || value === "off";
+  if (TENCENT_HY4_MODEL_IDS.has(modelId)) {
+    return value === "off" || value === "high";
+  }
   if (TENCENT_HY3_MODEL_IDS.has(modelId)) {
     return value === "off" || value === "low" || value === "high";
   }
@@ -498,7 +603,7 @@ function thinkingOptionsForModel(
       { value: "max",    label: t("openRouterModels.reasoningMax") },
     ];
   }
-  if (OPENAI_ASTRA_PRO_IDS.has(modelId)) {
+  if (OPENAI_ASTRA_PRO_IDS.has(modelId) || ANTHROPIC_THINKING_ONLY_IDS.has(modelId)) {
     return [];
   }
   if (OPENAI_GPT56_MODEL_IDS.has(modelId)) {
@@ -536,6 +641,12 @@ function thinkingOptionsForModel(
     return [
       { value: "on", label: "Thinking" },
       { value: "off", label: t("apiKeyPanel.normalMode") },
+    ];
+  }
+  if (TENCENT_HY4_MODEL_IDS.has(modelId)) {
+    return [
+      { value: "off",  label: t("apiKeyPanel.normalMode") },
+      { value: "high", label: t("openRouterModels.reasoningHigh") },
     ];
   }
   if (TENCENT_HY3_MODEL_IDS.has(modelId)) {
@@ -1024,7 +1135,7 @@ export default function OpenRouterModelSelector(
   }, [selectableModels]);
 
   const otherSelectableModels = useMemo(
-    () => selectableModels.filter((m) => !BUILTIN_MODEL_IDS.has(m.id)),
+    () => selectableModels.filter((m) => !CURATED_BUILTIN_MODEL_IDS.has(m.id)),
     [selectableModels],
   );
 
@@ -1048,9 +1159,14 @@ export default function OpenRouterModelSelector(
   const visibleModelOptions = useMemo(() => {
     if (selectorMode === "group") {
       // Model list is narrowed by the selected built-in vendor.
+      if (vendorSelection === "anthropic") {
+        return primaryBuiltinModels.filter((m) =>
+          ANTHROPIC_MODEL_IDS.has(m.id),
+        );
+      }
       if (vendorSelection === "tencent") {
         return primaryBuiltinModels.filter((m) =>
-          TENCENT_HY3_MODEL_IDS.has(m.id),
+          TENCENT_CURATED_MODEL_IDS.has(m.id),
         );
       }
       if (vendorSelection === "inclusionai") {
@@ -1070,7 +1186,7 @@ export default function OpenRouterModelSelector(
       }
       if (vendorSelection === "deepseek") {
         return primaryBuiltinModels.filter((m) =>
-          DEEPSEEK_MODEL_IDS.has(m.id),
+          DEEPSEEK_CURATED_MODEL_IDS.has(m.id),
         );
       }
       if (vendorSelection === "openai") {
@@ -1394,7 +1510,13 @@ export default function OpenRouterModelSelector(
       setSaveError(null);
 
       const nextThinking: ThinkingSelection = findClosestThinking(model.id, thinkingSelection);
-      const { thinkingMode, reasoningEffort } = toStoredThinking(nextThinking);
+      const storedThinking = toStoredThinking(nextThinking);
+      const thinkingMode = storedThinking.thinkingMode;
+      const reasoningEffort = preserveSavedEffortOnModelChange(
+        model.id,
+        storedThinking.reasoningEffort,
+        currentReasoningEffort,
+      );
 
       // Optimistic update: show the new model immediately while saving.
       const previous = {
@@ -1425,7 +1547,7 @@ export default function OpenRouterModelSelector(
       }
     },
     [selectableModels, selectedModelId, modelSelection, thinkingSelection, saveModelRoute,
-      beginSave, isCurrentSave],
+      beginSave, isCurrentSave, currentReasoningEffort],
   );
 
   const handleCustomConfirm = useCallback(async () => {
@@ -1586,6 +1708,19 @@ export default function OpenRouterModelSelector(
               aria-label={t("openRouterModels.selectModel")}
             >
               <option value="">{t("openRouterModels.selectModel")}</option>
+              {modelSelection &&
+              !visibleModelOptions.some((m) => m.id === modelSelection) && (
+                <option value={modelSelection}>
+                  {`${cleanModelDisplayName(selectedUiModel ?? {
+                    id: modelSelection,
+                    displayName: modelSelection,
+                    inputModalities: [],
+                    outputModalities: [],
+                    supportedParameters: [],
+                    pricing: {},
+                  })} (Legacy / saved)`}
+                </option>
+              )}
               {visibleModelOptions.map((m) => (
                 <option key={m.id} value={m.id}>
                   {cleanModelDisplayName(m)}
@@ -1594,10 +1729,28 @@ export default function OpenRouterModelSelector(
             </select>
 
             {/* Thinking mode */}
-            {OPENAI_ASTRA_PRO_IDS.has(modelSelection) ? (
-              <span className="openrouter-mode-label" style={{ fontStyle: "italic" }}>
-                {t("apiKeyPanel.thinkingOnly")}
-              </span>
+            {(OPENAI_ASTRA_PRO_IDS.has(modelSelection) || ANTHROPIC_THINKING_ONLY_IDS.has(modelSelection)) ? (
+              <>
+                <span className="openrouter-mode-label" style={{ fontStyle: "italic" }}>
+                  {t("apiKeyPanel.thinkingOnly")}
+                </span>
+                {/* Claude 5.5: the saved effort is preserved and shown as
+                    saved-only. Whether a given model may send it is a separate
+                    wire-compatibility question — a model change never deletes
+                    the value, and unknown values are shown verbatim. */}
+                {ANTHROPIC_THINKING_ONLY_IDS.has(modelSelection) && currentReasoningEffort ? (
+                  <span
+                    style={{ fontSize: 10, color: "#6b7280" }}
+                    title={t("apiKeyPanel.reasoningEffortNotSentYet")}
+                  >
+                    {`${t("apiKeyPanel.reasoningEffort")}: ${
+                      isKnownEffortValue(currentReasoningEffort)
+                        ? currentReasoningEffort
+                        : `${currentReasoningEffort} (Legacy / saved)`
+                    } — ${t("apiKeyPanel.reasoningEffortNotSentYet")}`}
+                  </span>
+                ) : null}
+              </>
             ) : thinkingOptions.length > 0 ? (
               <>
                 <span className="openrouter-mode-label">{t("apiKeyPanel.thinkingMode")}</span>
@@ -1608,6 +1761,12 @@ export default function OpenRouterModelSelector(
                   disabled={saving || !selectedUiModel}
                   aria-label={t("openRouterModels.thinkingMode")}
                 >
+                  {thinkingSelection &&
+                  !thinkingOptions.some((option) => option.value === thinkingSelection) && (
+                    <option value={thinkingSelection}>
+                      {`${thinkingSelection} (Legacy / saved)`}
+                    </option>
+                  )}
                   {thinkingOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}

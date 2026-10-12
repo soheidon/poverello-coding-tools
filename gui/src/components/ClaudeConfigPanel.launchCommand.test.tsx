@@ -104,4 +104,30 @@ describe("ClaudeConfigPanel launch command copy", () => {
     expect(screen.getByRole("button", { name: /^claudeConfig\.copy$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /claudeConfig\.copyLaunchCommand/i })).toBeInTheDocument();
   });
+
+  it("copies Claude Desktop config with all 5.5 generation models", async () => {
+    const user = userEvent.setup();
+    const writeTextMock = installClipboardSpy();
+    render(<ClaudeConfigPanelContent />);
+    await user.click(screen.getByRole("button", { name: /claudeConfig\.header/ }));
+
+    // Click Copy config
+    await user.click(screen.getByRole("button", { name: "claudeConfig.copy" }));
+
+    expect(writeTextMock).toHaveBeenCalled();
+    const copiedJsonStr = writeTextMock.mock.calls[0][0];
+    const parsed = JSON.parse(copiedJsonStr);
+    expect(parsed.inferenceProvider).toBe("gateway");
+    expect(parsed.inferenceModels).toEqual([
+      { name: "claude-opus-5-5", labelOverride: "Opus 5.5" },
+      { name: "claude-sonnet-5-5", labelOverride: "Sonnet 5.5" },
+      { name: "claude-haiku-5-5", labelOverride: "Haiku 5.5" },
+    ]);
+
+    // Also verify JSON preview block contains 5.5 models
+    await user.click(screen.getByRole("button", { name: "claudeConfig.showJson" }));
+    expect(screen.getByText(/"name": "claude-opus-5-5"/)).toBeInTheDocument();
+    expect(screen.getByText(/"name": "claude-sonnet-5-5"/)).toBeInTheDocument();
+    expect(screen.getByText(/"name": "claude-haiku-5-5"/)).toBeInTheDocument();
+  });
 });

@@ -68,7 +68,7 @@ vi.mock("./i18n", () => {
       colCachedInput: "Cache/1M",
       colNotes: "Notes",
       disclaimer: "Pricing is approximate",
-      pricingDate: "Prices as of Sep 10, 2026",
+      pricingDate: "Prices as of Oct 13, 2026",
       notes: {
         kimiCodeSubscription: "Kimi Code is a membership subscription product with monthly/annual quotas. No public per-token API pricing applies.",
         openRouterPricing: "OpenRouter pricing",
@@ -293,6 +293,19 @@ vi.mock("./config/builtinOpenRouter", () => {
         forcedThinkingOptions: ["on", "off"],
       },
     },
+    "tencent/hy4-preview": {
+      displayName: "Hy4 Preview",
+      vendor: "tencent",
+      pricingUpdatedAt: "2026-10-13",
+      capabilities: {
+        supportsReasoningEffort: true,
+        thinking: "high",
+        thinkingModePolicy: "toggleable",
+        reasoningEffortOptions: ["high"],
+        forcedThinkingOptions: ["off", "high"],
+      },
+      pricingNoteKey: "modelPricing.notes.openrouterPricing",
+    },
     "tencent/hy3": {
       displayName: "Hy3",
       vendor: "tencent",
@@ -319,6 +332,84 @@ vi.mock("./config/builtinOpenRouter", () => {
         thinking: "thinking_mode",
         thinkingModePolicy: "forced",
         forcedThinkingOptions: ["low", "high", "off"],
+      },
+    },
+    "openai/gpt-6.1-sol": {
+      displayName: "GPT-6.1 Sol",
+      vendor: "openai",
+      pricingUpdatedAt: "2026-10-13",
+      pricing: { inputPerMillionUsd: 2.0, outputPerMillionUsd: 10.0, cacheReadPerMillionUsd: 0.1 },
+      pricingNoteKeys: ["modelPricing.notes.openrouterPricing"],
+      capabilities: {
+        supports_vision: true, supports_video: false,
+        force_thinking: false, thinking: "reasoning_effort",
+        thinkingModePolicy: "forced", supportsReasoningEffort: true,
+        forcedThinkingOptions: ["low", "medium", "high", "xhigh", "max"],
+      },
+    },
+    "openai/gpt-6.1-sol-pro": {
+      displayName: "GPT-6.1 Sol Pro",
+      vendor: "openai",
+      pricingUpdatedAt: "2026-10-13",
+      pricing: { inputPerMillionUsd: 2.0, outputPerMillionUsd: 10.0, cacheReadPerMillionUsd: 0.1 },
+      pricingNoteKeys: ["modelPricing.notes.openrouterPricing"],
+      capabilities: {
+        supports_vision: true, supports_video: false,
+        force_thinking: false, thinking: "reasoning_effort",
+        thinkingModePolicy: "forced", supportsReasoningEffort: true,
+        forcedThinkingOptions: ["low", "medium", "high", "xhigh", "max"],
+      },
+    },
+    "openai/gpt-6-sol": {
+      displayName: "GPT-6 Sol",
+      vendor: "openai",
+      pricingUpdatedAt: "2026-10-13",
+      pricing: { inputPerMillionUsd: 2.0, outputPerMillionUsd: 10.0, cacheReadPerMillionUsd: 0.2 },
+      pricingNoteKeys: ["modelPricing.notes.openrouterPricing"],
+      capabilities: {
+        supports_vision: true, supports_video: false,
+        force_thinking: false, thinking: "reasoning_effort",
+        thinkingModePolicy: "forced", supportsReasoningEffort: true,
+        forcedThinkingOptions: ["low", "medium", "high", "xhigh", "max"],
+      },
+    },
+    "openai/gpt-6-sol-pro": {
+      displayName: "GPT-6 Sol Pro",
+      vendor: "openai",
+      pricingUpdatedAt: "2026-10-13",
+      pricing: { inputPerMillionUsd: 2.0, outputPerMillionUsd: 10.0, cacheReadPerMillionUsd: 0.2 },
+      pricingNoteKeys: ["modelPricing.notes.openrouterPricing"],
+      capabilities: {
+        supports_vision: true, supports_video: false,
+        force_thinking: false, thinking: "reasoning_effort",
+        thinkingModePolicy: "forced", supportsReasoningEffort: true,
+        forcedThinkingOptions: ["low", "medium", "high", "xhigh", "max"],
+      },
+    },
+    "openai/gpt-6-luna": {
+      displayName: "GPT-6 Luna",
+      vendor: "openai",
+      pricingUpdatedAt: "2026-10-13",
+      pricing: { inputPerMillionUsd: 0.1, outputPerMillionUsd: 0.5, cacheReadPerMillionUsd: 0.01 },
+      pricingNoteKeys: ["modelPricing.notes.openrouterPricing"],
+      capabilities: {
+        supports_vision: true, supports_video: false,
+        force_thinking: false, thinking: "reasoning_effort",
+        thinkingModePolicy: "forced", supportsReasoningEffort: true,
+        forcedThinkingOptions: ["off", "low", "medium", "high", "xhigh", "max"],
+      },
+    },
+    "openai/gpt-6-luna-pro": {
+      displayName: "GPT-6 Luna Pro",
+      vendor: "openai",
+      pricingUpdatedAt: "2026-10-13",
+      pricing: { inputPerMillionUsd: 0.1, outputPerMillionUsd: 0.5, cacheReadPerMillionUsd: 0.01 },
+      pricingNoteKeys: ["modelPricing.notes.openrouterPricing"],
+      capabilities: {
+        supports_vision: true, supports_video: false,
+        force_thinking: false, thinking: "reasoning_effort",
+        thinkingModePolicy: "forced", supportsReasoningEffort: true,
+        forcedThinkingOptions: ["off", "low", "medium", "high", "xhigh", "max"],
       },
     },
     "openai/gpt-6-astra": {
@@ -532,6 +623,66 @@ vi.mock("./config/builtinOpenRouter", () => {
       },
       pricingNoteKeys: ["modelPricing.notes.openrouterPricing", "modelPricing.notes.gpt56Promotion"],
     },
+    "anthropic/claude-opus-5.5": {
+      displayName: "Claude Opus 5.5",
+      vendor: "anthropic",
+      pricingUpdatedAt: "2026-10-12",
+      capabilities: {
+        supports_vision: true,
+        supports_video: false,
+        supports_image_url: true,
+        supports_image_base64: true,
+        force_thinking: false,
+        thinking: "default",
+        thinkingModePolicy: "thinking_only",
+        supportsReasoningEffort: false,
+      },
+    },
+    "anthropic/claude-sonnet-5.5": {
+      displayName: "Claude Sonnet 5.5",
+      vendor: "anthropic",
+      pricingUpdatedAt: "2026-10-12",
+      capabilities: {
+        supports_vision: true,
+        supports_video: false,
+        supports_image_url: true,
+        supports_image_base64: true,
+        force_thinking: false,
+        thinking: "default",
+        thinkingModePolicy: "thinking_only",
+        supportsReasoningEffort: false,
+      },
+    },
+    "anthropic/claude-haiku-5.5": {
+      displayName: "Claude Haiku 5.5",
+      vendor: "anthropic",
+      pricingUpdatedAt: "2026-10-12",
+      capabilities: {
+        supports_vision: true,
+        supports_video: false,
+        supports_image_url: true,
+        supports_image_base64: true,
+        force_thinking: false,
+        thinking: "default",
+        thinkingModePolicy: "toggleable",
+        supportsReasoningEffort: false,
+      },
+    },
+    "anthropic/claude-fable-5.1": {
+      displayName: "Claude Fable 5.1",
+      vendor: "anthropic",
+      pricingUpdatedAt: "2026-10-12",
+      capabilities: {
+        supports_vision: true,
+        supports_video: false,
+        supports_image_url: true,
+        supports_image_base64: true,
+        force_thinking: false,
+        thinking: "default",
+        thinkingModePolicy: "thinking_only",
+        supportsReasoningEffort: false,
+      },
+    },
     "openrouter/auto": {
       displayName: "Auto",
       vendor: "openrouter",
@@ -563,9 +714,10 @@ vi.mock("./config/builtinOpenRouter", () => {
     if (name.includes("gemini") || name.includes("google")) return "google";
     if (name.includes("deepseek")) return "deepseek";
     if (name.includes("laguna") || name.includes("poolside")) return "poolside";
-    if (name.includes("hy3") || name.includes("tencent")) return "tencent";
+    if (name.includes("hy3") || name.includes("hy4") || name.includes("tencent")) return "tencent";
     if (name.includes("inclusionai") || name.includes("ring") || name.includes("ling")) return "inclusionai";
     if (name.includes("stepfun") || name.includes("step")) return "stepfun";
+    if (name.includes("anthropic")) return "anthropic";
 
     const upstreamList: string[] = [];
     if (profile.models) {

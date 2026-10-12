@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type MutableRefObject } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type MutableRefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n";
 import type { ApiKeyStatus, GatewayConfig, AllApiKeyStatus, ModelEntry, CommandResponse } from "../types";
@@ -15,7 +15,15 @@ import { getModelDisplayName } from "../config/modelDisplayNames";
 import OpenRouterProviderSection, { parseAutoModelSetNumber } from "./OpenRouterProviderSection";
 import type { OpenRouterProfile } from "../types";
 
-const PROVIDER_ORDER = ["deepseek", "minimax", "kimi", "kimi-code", "mimo", "openrouter"];
+const PROVIDER_ORDER = [
+  "deepseek",
+  "mimo",
+  "zai",
+  "minimax",
+  "kimi",
+  "kimi-code",
+  "openrouter",
+];
 
 const COL_STYLE: React.CSSProperties = {
   padding: "6px 10px",
@@ -53,17 +61,25 @@ export function ModelSelector({
 }: ModelSelectorProps) {
   const { t } = useTranslation();
   const providerModels = getProviderModels(providerId);
+  // GLM offers verified models (glm-5.3, glm-5.3-flash, glm-5.3-flashx, glm-5.2) and no free-text entry: a saved value
+  // the list does not contain is still shown — and stays selectable — as a
+  // "(Legacy / saved)" option instead of the custom entry.
+  const isZai = providerId === "zai";
+  const glmModels = ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "glm-5.2"];
+  const modelOptions: string[] = isZai ? glmModels : providerModels;
+  const savedIsUnavailableOnContract = false;
   const isLegacySaved = !!currentUpstream && currentUpstream !== "—" &&
-    isKnownModel(currentUpstream) && !providerModels.includes(currentUpstream);
+    !modelOptions.includes(currentUpstream) &&
+    (isKnownModel(currentUpstream) || isZai);
   const isTrulyCustom = !!currentUpstream && currentUpstream !== "—" &&
-    !isKnownModel(currentUpstream);
+    !isKnownModel(currentUpstream) && !isZai;
 
   const [selected, setSelected] = useState(
     isTrulyCustom
       ? CUSTOM_MODEL_SENTINEL
-      : currentUpstream && (providerModels.includes(currentUpstream) || isLegacySaved)
+      : currentUpstream && (modelOptions.includes(currentUpstream) || isLegacySaved)
         ? currentUpstream
-        : providerModels[0] ?? CUSTOM_MODEL_SENTINEL,
+        : modelOptions[0] ?? CUSTOM_MODEL_SENTINEL,
   );
   const [customText, setCustomText] = useState(isTrulyCustom ? currentUpstream : "");
   const [thinkingMode, setThinkingMode] = useState(
@@ -105,14 +121,19 @@ export function ModelSelector({
 
   // Sync when currentUpstream changes externally
   useEffect(() => {
-    if (currentUpstream && (providerModels.includes(currentUpstream) || isKnownModel(currentUpstream))) {
+    if (
+      currentUpstream &&
+      (providerModels.includes(currentUpstream) ||
+        isKnownModel(currentUpstream) ||
+        (isZai && currentUpstream !== "—"))
+    ) {
       setSelected(currentUpstream);
       setCustomText("");
-    } else if (currentUpstream && currentUpstream !== "—" && !isKnownModel(currentUpstream)) {
+    } else if (!isZai && currentUpstream && currentUpstream !== "—" && !isKnownModel(currentUpstream)) {
       setSelected(CUSTOM_MODEL_SENTINEL);
       setCustomText(currentUpstream);
     }
-  }, [currentUpstream, providerModels]);
+  }, [currentUpstream, providerModels, isZai]);
 
   useEffect(() => {
     if (currentThinkingMode === "normal" || currentThinkingMode === "thinking") {
@@ -318,7 +339,10 @@ export function ModelSelector({
     let modeToSave: string | undefined;
     let nextEffortVal = nextEffort;
     if (thinkingModePolicy === "thinking_only") {
-      modeToSave = "thinking_only";
+      // GLM's catalog policy is the capability expression "thinking_only"; the
+      // persisted canonical value is "thinking" and the catalog value must
+      // never be written into the config.
+      modeToSave = isZai ? "thinking" : "thinking_only";
     } else if (thinkingModePolicy === "toggleable") {
       modeToSave = thinkingMode;
     } else if (thinkingModePolicy === "forced") {
@@ -381,7 +405,10 @@ export function ModelSelector({
 
     let modeToSave: string | undefined;
     if (thinkingModePolicy === "thinking_only") {
-      modeToSave = "thinking_only";
+      // GLM's catalog policy is the capability expression "thinking_only"; the
+      // persisted canonical value is "thinking" and the catalog value must
+      // never be written into the config.
+      modeToSave = isZai ? "thinking" : "thinking_only";
     } else if (thinkingModePolicy === "toggleable") {
       modeToSave = thinkingMode;
     }
@@ -395,7 +422,10 @@ export function ModelSelector({
 
     let modeToSave: string | undefined;
     if (thinkingModePolicy === "thinking_only") {
-      modeToSave = "thinking_only";
+      // GLM's catalog policy is the capability expression "thinking_only"; the
+      // persisted canonical value is "thinking" and the catalog value must
+      // never be written into the config.
+      modeToSave = isZai ? "thinking" : "thinking_only";
     } else if (thinkingModePolicy === "toggleable") {
       modeToSave = thinkingMode;
     }
@@ -448,6 +478,29 @@ export function ModelSelector({
   const normalizedReasoningEffort =
     normalizeReasoningEffort(thinkingMode, reasoningEffort, effortOptions);
 
+  // GLM-5.3 always thinks and documents low / high / max with `max` as the
+  // default. The value is displayed read-only: the Gateway has no GLM transport
+  // yet, so this panel must not offer an editable effort that nothing can send.
+  // A stored legal value is preserved; a missing/invalid one displays the
+  // default without rewriting the config.
+  const glmEffortOptions: ReasoningEffortOption[] =
+    effortOptions ?? ["low", "high", "max"];
+  const glmEffort: ReasoningEffortOption =
+    reasoningEffort === "low" || reasoningEffort === "high" || reasoningEffort === "max"
+      ? reasoningEffort
+      : "max";
+  // GLM-5.2 is the one documented model whose thinking may be turned off. The
+  // effort axis only exists while thinking is on, so the selector hides for a
+  // `normal` route instead of offering a value nothing would send.
+  const glmShowsEffort =
+    effectivePolicy !== "toggleable" || thinkingMode === "thinking";
+  // A saved value outside the documented set is shown verbatim (never silently
+  // replaced) and is only written over when the user picks another value.
+  const glmLegacyEffort =
+    reasoningEffort && !glmEffortOptions.includes(reasoningEffort as ReasoningEffortOption)
+      ? reasoningEffort
+      : null;
+
   const statusText =
     saveStatus === "saving" ? t("apiKeyPanel.savingStatus") :
     saveStatus === "saved" ? t("apiKeyPanel.savedStatus") :
@@ -478,17 +531,30 @@ export function ModelSelector({
         value={selected}
         onChange={(e) => handleModelChange(e.target.value)}
       >
-        {providerModels.map((m) => (
+        {modelOptions.map((m) => (
           <option key={m} value={m}>{getModelDisplayName(m, providerId)}</option>
         ))}
         {isLegacySaved && currentUpstream && (
           <option key={currentUpstream} value={currentUpstream}>
-            {`${getModelDisplayName(currentUpstream, providerId)} (Legacy / saved)`}
+            {`${getModelDisplayName(currentUpstream, providerId)} (Legacy / saved${
+              savedIsUnavailableOnContract
+                ? ` — ${t("apiKeyPanel.glmModelUnavailableOnContract")}`
+                : ""
+            })`}
           </option>
         )}
-        <option value={CUSTOM_MODEL_SENTINEL}>{t("apiKeyPanel.customModel")}</option>
+        {/* GLM ships a single verified model, so there is nothing to type in:
+            an unknown saved value is offered as a saved option above. */}
+        {!isZai && (
+          <option value={CUSTOM_MODEL_SENTINEL}>{t("apiKeyPanel.customModel")}</option>
+        )}
       </select>
-      {isCustom && (
+      {savedIsUnavailableOnContract && (
+        <span style={{ fontSize: 10, color: "#92400e" }}>
+          {t("apiKeyPanel.glmModelUnavailableOnContract")}
+        </span>
+      )}
+      {isCustom && !isZai && (
         <input
           style={{
             width: 220,
@@ -571,6 +637,44 @@ export function ModelSelector({
         <span style={{ fontSize: 11, color: "#6b7280", fontStyle: "italic" }}>
           {t("apiKeyPanel.thinkingOnly")}
         </span>
+      )}
+
+      {/* Reasoning effort — GLM: selectable, saved and reloaded per route. It is
+          sent for documented GLM models over the Anthropic Messages compatible route. */}
+      {isZai && glmShowsEffort && (
+        <>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#1f2937" }}>
+            {t("apiKeyPanel.reasoningEffort")}:
+          </span>
+          <select
+            aria-label={t("apiKeyPanel.reasoningEffort")}
+            style={{
+              padding: "4px 8px",
+              fontSize: 11,
+              fontFamily: "var(--font-mono)",
+              background: "#fff",
+              color: "#1f2937",
+              border: "1px solid #d0d7de",
+              borderRadius: 4,
+              outline: "none",
+              minWidth: 90,
+              cursor: "pointer",
+            }}
+            value={glmLegacyEffort ?? glmEffort}
+            onChange={(e) => handleReasoningEffortChange(e.target.value)}
+          >
+            {glmLegacyEffort && (
+              <option key={glmLegacyEffort} value={glmLegacyEffort}>
+                {`${glmLegacyEffort} (Legacy / saved)`}
+              </option>
+            )}
+            {glmEffortOptions.map((option) => (
+              <option key={option} value={option}>
+                {getReasoningEffortLabel(option)}
+              </option>
+            ))}
+          </select>
+        </>
       )}
 
       {/* Reasoning effort — K3: low/high/max selector */}
@@ -690,14 +794,20 @@ function ProviderRow({
   refreshConfig,
   gatewayRunning,
   restartGateway,
+  refreshKeyStatus,
 }: {
   providerId: string;
-  provider: { display_name: string; api_key_env: string; hidden?: boolean };
+  provider: {
+    display_name: string;
+    api_key_env: string;
+    hidden?: boolean;
+  };
   keyStatus: ApiKeyStatus | null;
   models: Record<string, ModelEntry> | undefined;
   refreshConfig: () => Promise<void>;
   gatewayRunning: boolean;
   restartGateway: () => Promise<void>;
+  refreshKeyStatus?: () => void;
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -770,15 +880,17 @@ function ProviderRow({
   // Save API key — explicit button or Enter
   const handleKeySave = async () => {
     const trimmed = keyText.trim();
-    if (!trimmed || !keyStatus || keyStatus_ === "saving") return;
+    const envVarToUse = keyStatus?.env_var || provider.api_key_env;
+    if (!trimmed || !envVarToUse || keyStatus_ === "saving") return;
     setKeyStatusLocal("saving");
     if (keyTimerRef.current) clearTimeout(keyTimerRef.current);
     try {
-      await invoke("set_env_api_key", { key: trimmed, envVarName: keyStatus.env_var });
+      await invoke("set_env_api_key", { key: trimmed, envVarName: envVarToUse });
       setKeyStatusLocal("saved");
       setKeyText("");
       keyTimerRef.current = setTimeout(() => setKeyStatusLocal("idle"), 2000);
       refreshConfig();
+      refreshKeyStatus?.();
     } catch {
       setKeyStatusLocal("error");
     }
@@ -965,7 +1077,7 @@ function ProviderRow({
                   void handleKeySave();
                 }
               }}
-              placeholder="sk-..."
+              placeholder={providerId === "zai" ? t("apiKeyPanel.glmKeyPlaceholder") : "sk-..."}
               spellCheck={false}
               onClick={(e) => e.stopPropagation()}
             />
@@ -1519,6 +1631,7 @@ export default function ApiKeyPanel({
                 refreshConfig={refreshConfig}
                 gatewayRunning={gatewayRunning}
                 restartGateway={restartGateway}
+                refreshKeyStatus={() => invoke<AllApiKeyStatus>("check_all_api_keys").then(setAllKeyStatus).catch(() => setAllKeyStatus(null))}
               />
             );
           })}

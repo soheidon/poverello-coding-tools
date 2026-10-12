@@ -14,7 +14,15 @@ interface McpPanelProps {
   refreshConfig: () => Promise<void>;
 }
 
-const MCP_PROVIDER_ORDER = ["deepseek", "openrouter", "minimax", "mimo", "kimi", "kimi-code"];
+const MCP_PROVIDER_ORDER = [
+  "deepseek",
+  "mimo",
+  "zai",
+  "minimax",
+  "kimi",
+  "kimi-code",
+  "openrouter",
+];
 
 interface McpTileItem {
   id: string;
@@ -128,7 +136,7 @@ export default function McpPanel({ config, refreshConfig }: McpPanelProps) {
         reasoning_effort = prof?.models?.["claude-opus-5"]?.reasoning_effort;
       } else {
         const p = config?.providers?.[tile.providerId];
-        model = p?.models?.["claude-opus-5"]?.upstream_model ?? p?.default_model ?? "deepseek-v4-pro";
+        model = p?.models?.["claude-opus-5"]?.upstream_model ?? p?.default_model ?? (tile.providerId === "zai" ? "glm-5.3" : "deepseek-v4-pro");
         thinking_mode = p?.models?.["claude-opus-5"]?.thinking_mode ?? "thinking";
         reasoning_effort = p?.models?.["claude-opus-5"]?.reasoning_effort;
       }
@@ -138,7 +146,10 @@ export default function McpPanel({ config, refreshConfig }: McpPanelProps) {
     const policy = caps?.thinkingModePolicy ?? "toggleable";
     const supportsEffort = caps?.supportsReasoningEffort || !!caps?.forcedReasoningEffort;
 
-    if (policy === "thinking_only") {
+    if (tile.providerId === "zai") {
+      thinking_mode = policy === "toggleable" && thinking_mode === "normal" ? "normal" : "thinking";
+      reasoning_effort = supportsEffort ? (reasoning_effort || "max") : undefined;
+    } else if (policy === "thinking_only") {
       thinking_mode = "thinking_only";
       reasoning_effort = undefined;
     } else if (!supportsEffort) {
@@ -164,7 +175,7 @@ export default function McpPanel({ config, refreshConfig }: McpPanelProps) {
     const list: McpTileItem[] = [];
 
     // Direct providers
-    const directProviderIds = ["deepseek", "mimo", "minimax", "kimi", "kimi-code"];
+    const directProviderIds = ["deepseek", "mimo", "zai", "minimax", "kimi", "kimi-code"];
     for (const pid of directProviderIds) {
       const p = config.providers[pid];
       if (!p || p.hidden) continue;
@@ -175,7 +186,7 @@ export default function McpPanel({ config, refreshConfig }: McpPanelProps) {
 
       const model = isCurrentActive && mcpConfig.model
         ? mcpConfig.model
-        : targetSaved?.model ?? p.models?.["claude-opus-5"]?.upstream_model ?? p.default_model ?? "—";
+        : targetSaved?.model ?? p.models?.["claude-opus-5"]?.upstream_model ?? p.default_model ?? (pid === "zai" ? "glm-5.3" : "—");
 
       const caps = MODEL_CAPABILITIES[model];
       const policy = caps?.thinkingModePolicy ?? "toggleable";
@@ -183,18 +194,18 @@ export default function McpPanel({ config, refreshConfig }: McpPanelProps) {
 
       const thinkingMode = isCurrentActive && mcpConfig.thinking_mode
         ? mcpConfig.thinking_mode
-        : targetSaved?.thinking_mode ?? p.models?.["claude-opus-5"]?.thinking_mode ?? (policy === "thinking_only" ? "thinking_only" : "thinking");
+        : targetSaved?.thinking_mode ?? p.models?.["claude-opus-5"]?.thinking_mode ?? (pid === "zai" ? "thinking" : policy === "thinking_only" ? "thinking_only" : "thinking");
 
-      const reasoningEffort = !supportsEffort || policy === "thinking_only"
+      const reasoningEffort = !supportsEffort || (policy === "thinking_only" && pid !== "zai")
         ? ""
         : isCurrentActive && mcpConfig.reasoning_effort
           ? mcpConfig.reasoning_effort
-          : targetSaved?.reasoning_effort ?? p.models?.["claude-opus-5"]?.reasoning_effort ?? (pid === "kimi" ? "max" : "high");
+          : targetSaved?.reasoning_effort ?? p.models?.["claude-opus-5"]?.reasoning_effort ?? (pid === "kimi" || pid === "zai" ? "max" : "high");
 
       const thinkingSummary =
-        thinkingMode === "thinking_only" || policy === "thinking_only"
+        (thinkingMode === "thinking_only" || policy === "thinking_only") && (!supportsEffort || !reasoningEffort)
           ? `${t("mcp.thinkingLabel")}: ${t("apiKeyPanel.thinkingOnly")}`
-          : thinkingMode === "thinking"
+          : thinkingMode === "thinking" || (policy === "thinking_only" && supportsEffort)
             ? (supportsEffort && reasoningEffort ? `${t("mcp.thinkingLabel")}: ${reasoningEffort}` : `${t("mcp.thinkingLabel")}: ${t("apiKeyPanel.thinkingModeOn")}`)
             : t("popup.mode.disabled");
 

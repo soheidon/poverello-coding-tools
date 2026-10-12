@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import OpenRouterProviderSection from "./OpenRouterProviderSection";
+import OpenRouterProviderSection, { displayModelSetName } from "./OpenRouterProviderSection";
 import type { ProviderConfig, OpenRouterProfile } from "../types";
 
 function makeProfile(
@@ -38,13 +38,20 @@ const provider: ProviderConfig = {
 const profiles: OpenRouterProfile[] = [
   makeProfile("uuid-1", "Model 1"),
   makeProfile("uuid-2", "Model 2"),
-  makeProfile("uuid-3", "Model 3"),
+  makeProfile("uuid-3", "OpenRouter: DeepSeek"),
 ];
 
 const noop = async () => {};
 
 describe("OpenRouterProfileReordering", () => {
-  it("renders one accessible drag handle per profile", async () => {
+  it("preserves profile.display_name verbatim as the source of truth without prepending provider name", () => {
+    expect(displayModelSetName(makeProfile("1", "Model 1"))).toBe("Model 1");
+    expect(displayModelSetName(makeProfile("2", "Model 2"))).toBe("Model 2");
+    expect(displayModelSetName(makeProfile("3", "OpenRouter: DeepSeek"))).toBe("OpenRouter: DeepSeek");
+    expect(displayModelSetName(makeProfile("4", "Custom Workspace"))).toBe("Custom Workspace");
+  });
+
+  it("renders one accessible drag handle per profile and displays clean model set names", async () => {
     render(
       <OpenRouterProviderSection
         providerId="openrouter"
@@ -70,5 +77,14 @@ describe("OpenRouterProfileReordering", () => {
     expect(
       screen.getAllByRole("button", { name: "Drag to reorder" }),
     ).toHaveLength(profiles.length);
+
+    // Model set headers must display the saved display_name verbatim
+    expect(screen.getByText("Model 1")).toBeInTheDocument();
+    expect(screen.getByText("Model 2")).toBeInTheDocument();
+    expect(screen.getByText("OpenRouter: DeepSeek")).toBeInTheDocument();
+
+    // Must NOT prepend "OpenRouter " to generic "Model N" presets
+    expect(screen.queryByText("OpenRouter Model 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("OpenRouter モデル 1")).not.toBeInTheDocument();
   });
 });

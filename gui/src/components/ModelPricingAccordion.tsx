@@ -119,7 +119,10 @@ export default function ModelPricingAccordion() {
   }> = [];
 
   for (const providerId of PROVIDER_PRICE_ORDER) {
-    const models = PROVIDER_MODELS[providerId] ?? [];
+    const models =
+      providerId === "zai"
+        ? ["zai:glm-5.3", "zai:glm-5.3-flash", "zai:glm-5.3-flashx", "zai:glm-5.2"]
+        : PROVIDER_MODELS[providerId] ?? [];
     const displayName =
       providerId === "deepseek"
         ? "DeepSeek"
@@ -131,7 +134,9 @@ export default function ModelPricingAccordion() {
               ? "Kimi"
               : providerId === "mimo"
                 ? "MiMo"
-                : providerId;
+                : providerId === "zai"
+                  ? "GLM"
+                  : providerId;
 
     for (const model of models) {
       const p = MODEL_PRICING[model];
