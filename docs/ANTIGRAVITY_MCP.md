@@ -18,7 +18,7 @@ anthro-bridge.exe --mcp-server
 → headless stdio MCP server for Antigravity
 ```
 
-This allows agentic environments such as Google Antigravity to delegate architectural and implementation planning to external LLMs (e.g., DeepSeek V4, MiMo, Kimi, MiniMax, or OpenRouter models) via `anthro-bridge/plan`, while performing the actual token-intensive code edits, terminal commands, builds, and tests using Antigravity's subscription-backed model allocation.
+This allows agentic environments such as Google Antigravity to delegate architectural and implementation planning to external LLMs (e.g., DeepSeek V4, MiMo, Kimi, MiniMax, GLM, or OpenRouter models) via `anthro-bridge/plan`, while performing the actual token-intensive code edits, terminal commands, builds, and tests using Antigravity's subscription-backed model allocation.
 
 ---
 
@@ -93,7 +93,7 @@ For development builds, point directly to the release build executable:
 ```
 
 > [!TIP]
-> You do **not** need to write provider API keys into Antigravity's `mcp_config.json`. The MCP server leverages Poverello's credential resolution (reading from Windows user environment variables like `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `MINIMAX_API_KEY`, `XIAOMI_API_KEY`, or saved application settings).
+> You do **not** need to write provider API keys into Antigravity's `mcp_config.json`. The MCP server leverages Poverello's credential resolution (reading from Windows user environment variables like `DEEPSEEK_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `MINIMAX_API_KEY`, `XIAOMI_API_KEY`, or saved application settings).
 
 ---
 
@@ -115,7 +115,7 @@ anthro-bridge
 Poverello clearly separates model selection from detailed parameter management:
 
 1. **Top-Level `MCP` Tab (`MCP for Antigravity`)**:
-   - Displays available providers (DeepSeek, OpenRouter, MiniMax, MiMo (V2.6), Kimi) and profiles.
+   - Displays available providers (DeepSeek, OpenRouter, MiniMax, MiMo (V2.6), Kimi, GLM) and profiles.
    - Click a provider card to switch the active planner and reviewer destination immediately.
 2. **`Settings` > `Antigravity`**:
    - **MCP Plan Settings** card: Configure model selection, Thinking mode, and Reasoning Effort per provider/profile. Both `plan` and `review` share the same target configuration.

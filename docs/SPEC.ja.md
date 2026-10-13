@@ -17,7 +17,7 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
 | (axum 0.7 + reqwest プロキシ, APIキー検証, ルート解決)      |
 +-------------------------------------------------------------+
              |
-             +---> クラウドプロバイダー (DeepSeek / MiMo / Kimi / MiniMax / OpenRouter)
+             +---> クラウドプロバイダー (DeepSeek / MiMo / Kimi / MiniMax / GLM / OpenRouter)
 
 [Claude Code CLI] (active_route: "gateway")
              |
@@ -83,6 +83,8 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
 - **Claude Code 起動コマンド生成**: `build_claude_code_launch_command` は、ゲートウェイ接続変数（ローカルゲートウェイを指す `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`）と Claude Code コンテキスト制御変数（`CLAUDE_CODE_AUTO_COMPACT_WINDOW`、`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`）を組み合わせた完全な PowerShell コマンドを生成する。コンテキスト管理が無効、Incomplete、または Claude デフォルト設定の場合、コマンドは `Remove-Item Env:... -ErrorAction SilentlyContinue` で古いコンテキスト変数を削除し、以前設定されたセッション値が新しい起動に漏れないようにする。Claude 設定パネルの「Claude Code起動コマンドをコピー」ボタンがコマンドをクリップボードにコピーする。Poverello はコマンドの生成とコピーのみを行い、実行は一切しない。
 - **共有モデルルーティングモジュール**: `model_routing.rs` は、ルートから upstream への解決を `proxy.rs` とコンテキストリゾルバーが共有する純粋関数に抽出し、コンテキストウィンドウがプロキシが実際に転送する upstream モデルと同一のモデルを解決することを保証する。
 - **コンテキスト容量レジストリ**: `model_catalog.json` は、既知のコンテキスト容量の静的レジストリ。組み込みの直接プロバイダーモデル（DeepSeek、MiniMax、Kimi、MiMo V2.6 および V2.5）と組み込みの OpenRouter モデル（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-5.6）をカバーする。不明なカスタム OpenRouter モデルは有効なルートターゲットのままであるが、メタデータが追加されるか手動モードが設定されるまで、コンテキスト管理は Incomplete として報告される。
+- **GLM (Z.ai) ダイレクトプロバイダー対応**: Z.ai 公式の Messages 互換エンドポイント（`https://api.z.ai/api/anthropic/v1/messages`）を `ZAI_API_KEY` 経由で直接利用。Coding Plan トークンは非対応（送信前にフェイルクローズ）。4モデル構成（`glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx`、`glm-5.2`）。GLM-5.3 系列は推論強度（`low`, `high`, `max`）を選択可能な常時思考、GLM-5.2 は Normal/Thinking トグル。厳格な出力検証により、思考ブロックのみで最終テキストが空の場合（思考中の `max_tokens` 到達等）は Orchestrator・MCP の双方で明示的なプロバイダーエラーとしてフェイルクローズする。
+- **Antigravity ルール管理（「Antigravity Rules」タブ）**: Google Antigravity 向けの軽量 Direct Coding ルール（`pov-direct.md`）を設定・同期。YAML の `trigger` スカラーと管理ブロック（`<!-- pov-direct:managed:begin -->` ... `<!-- pov-direct:managed:end -->`）のみを操作する単一ファイルステートマシンを採用し、ユーザー独自の frontmatter、コメント、Skill インクルードを保持する。衝突耐性のある保持バックアップ、置換直前の SHA-256 および外部削除競合の検出、読み戻し検証ロールバック、旧 sidecar フォルダ存在時の保存拒否、24,000 UTF-8 バイト上限ガードを備える。8言語完全ローカライズ。
 
 ### GUI 管理ツール
 
@@ -158,6 +160,9 @@ Tauri v2 + React 19 + TypeScript。ダッシュボード + 設定の2画面構�
 | 35 | `get_claude_code_config` | sync | Claude Code のルーティング、auto_compact、third_party_provider 設定を取得 |
 | 36 | `update_claude_code_third_party` | sync | Ollama Local 設定（models, thinking_modes, context_windows, show_on_dashboard）を保存 |
 | 37 | `set_claude_code_active_route` | sync | Claude Code の有効ルート（`gateway` または `ollama`）を切り替え |
+| 38 | `get_pov_direct_status` | sync | Antigravity direct coding ルールのステータス、ハッシュ、メタデータを取得 |
+| 39 | `preview_pov_direct_content` | sync | 生成される `pov-direct.md` の内容および管理ブロックをプレビュー |
+| 40 | `apply_pov_direct_settings` | sync | バックアップ、競合検出、検証付きロールバックを伴い direct coding ルールをアトミックに保存 |
 
 ### プロキシサーバー (proxy.rs)
 

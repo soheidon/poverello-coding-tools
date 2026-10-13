@@ -347,6 +347,7 @@ Function ResetFake
   StrCpy `$PCTRegistrationVerified 0
   StrCpy `$PCTHadExistingPoverello 1
   StrCpy `$PCTLegacyUpgradePending 0
+  StrCpy `$PCTTestMissingMainBinary ""
 FunctionEnd
 Function SeedExistingSnapshot
   Call ResetFake
@@ -506,6 +507,12 @@ Section
   StrCpy `$PCTTestFailValue "NoRepair"
   Call PCTRestoreRegistrationOnFailure
   Call WriteRecoveryState
+
+  StrCpy `$R8 "missing-binary-cleanup"
+  Call SeedExistingSnapshot
+  StrCpy `$PCTTestMissingMainBinary "1"
+  Call PCTRestoreRegistrationOnFailure
+  Call WriteRecoveryState
   FileClose `$R9
 SectionEnd
 "@
@@ -539,6 +546,7 @@ Assert-True ($recoveryResults['write-failure-already-matching'] -match 'operatio
 Assert-True ($recoveryResults['delete-failure-already-absent'] -match 'operationFailed=1' -and $recoveryResults['delete-failure-already-absent'] -match 'noRepair=0:0') 'A failed delete of an already-absent optional value must remain an operation failure.'
 Assert-True ($recoveryResults['legacy-removal-success'] -match 'verified=1\|cleanup=1\|failed=0\|operationFailed=0\|registrationVerified=0\|newUninstall=0\|newPublisher=0\|legacy=1') 'Migration cleanup did not remove only new registrations and preserve the legacy registration.'
 Assert-True ($recoveryResults['clean-install-removal-success'] -match 'verified=1\|cleanup=1\|failed=0\|operationFailed=0\|registrationVerified=0\|newUninstall=0\|newPublisher=0\|legacy=0') 'Clean-install recovery did not verify removal of incomplete Poverello registrations.'
+Assert-True ($recoveryResults['missing-binary-cleanup'] -match 'verified=1\|cleanup=1\|failed=0\|operationFailed=0\|registrationVerified=0\|newUninstall=0\|newPublisher=0') 'Missing main binary must not restore old registration and must clean up instead.'
 Assert-True (-not $recoverySource.Contains('RegOpenKeyExW') -and -not $recoverySource.Contains('ReadRegStr') -and -not $recoverySource.Contains('WriteRegStr') -and -not $recoverySource.Contains('DeleteRegKey')) 'Recovery fake-backend harness must not contain operating-system registry operations.'
 Assert-True (-not $script.Contains('PCTTestRegistry') -and -not $script.Contains('PCT_NSIS_TEST_BACKEND') -and -not $hooks.Contains('!define PCT_NSIS_TEST_BACKEND')) 'Production-generated installer unexpectedly includes or enables the test backend.'
 Write-Output "Production recovery-path harness: PASS ($recoveryExe)"
@@ -1071,6 +1079,18 @@ try {
   }
   $cleanClassifyState = Get-Content -LiteralPath (Join-Path $harnessRoot 'uninstall-classification.txt') -Raw
   Assert-True ($cleanClassify.ExitCode -eq 0 -and $cleanClassifyState -match 'classification=clean\|newRegistry=0\|legacyRegistry=0\|legacyOrphan=0' -and -not (Test-Path -LiteralPath "$uncheckedRegistry.rejected")) "A fresh production classifier did not accept the unregistered uninstall state: $cleanClassifyState"
+
+  # Test uninstall when MANUPRODUCTKEY is already absent from the start.
+  # The uninstaller must treat "already absent" as success and exit code 0.
+  $absentPublisherRegistry = Join-Path $uninstallFixtureRoot 'absent-publisher-registry.ini'
+  New-PoverelloUninstallRegistryFixture $absentPublisherRegistry
+  $absentPublisherContent = [System.IO.File]::ReadAllText($absentPublisherRegistry)
+  $absentPublisherContent = $absentPublisherContent -replace '(?ms)^\[PoverelloPublisher\]\r?\nPresent=1\r?\nPath=.*?(?=\r?\n\[)', "[PoverelloPublisher]`r`nPresent=0`r`nPath="
+  [System.IO.File]::WriteAllText($absentPublisherRegistry, $absentPublisherContent, [System.Text.UTF8Encoding]::new($false))
+  $absentPublisherRun = Invoke-PoverelloUninstallHarness $absentPublisherRegistry $uncheckedTarget '0'
+  $absentPublisherState = if(Test-Path -LiteralPath $uninstallResultPath){Get-Content -LiteralPath $uninstallResultPath -Raw}else{''}
+  Assert-True ($absentPublisherRun.ExitCode -eq 0 -and $absentPublisherState.Contains('registration-verified=1')) "Uninstaller must succeed with exit code 0 even when MANUPRODUCTKEY was already absent before uninstall (state='$absentPublisherState', exit=$($absentPublisherRun.ExitCode))."
+  Assert-PoverelloKeysAbsent $absentPublisherRegistry 'Uninstall with absent MANUPRODUCTKEY left Poverello registration behind.'
 
   $absentTarget = Join-Path $uninstallFixtureRoot 'absent\Poverello'
   $env:PCT_NSIS_TEST_DATA_PATH = $absentTarget

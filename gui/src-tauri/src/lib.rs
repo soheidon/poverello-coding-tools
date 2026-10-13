@@ -19,6 +19,7 @@ mod model_routing;
 mod openrouter;
 pub mod orchestrator;
 mod paths;
+pub mod pov_direct;
 mod proxy;
 
 // ---------------------------------------------------------------------------
@@ -6133,6 +6134,40 @@ fn install_all_antigravity_commands() -> Result<AntigravityCommandsInfo, String>
 }
 
 // ---------------------------------------------------------------------------
+// Poverello Direct Coding (Antigravity Rules) Commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn get_pov_direct_status() -> Result<pov_direct::PovDirectStatus, String> {
+    let rules_dir = paths::antigravity_global_rules_dir()?;
+    let skill_file = paths::poverello_direct_skill_file()?;
+    pov_direct::inspect_pov_direct_status_at(&rules_dir, &skill_file)
+}
+
+#[tauri::command]
+fn save_pov_direct_settings(
+    request: pov_direct::PovDirectApplyRequest,
+) -> Result<pov_direct::PovDirectStatus, String> {
+    let rules_dir = paths::antigravity_global_rules_dir()?;
+    let skill_file = paths::poverello_direct_skill_file()?;
+    pov_direct::save_pov_direct_settings_at(
+        &rules_dir,
+        &skill_file,
+        request,
+    )
+}
+
+#[tauri::command]
+fn open_antigravity_rules_folder() -> Result<(), String> {
+    let dir = paths::antigravity_global_rules_dir()?;
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create global rules directory: {e}"))?;
+    }
+    open_path(dir.to_string_lossy().to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Claude Code auto-compact (v2): types, resolver, apply, commands, migration
 // ---------------------------------------------------------------------------
 
@@ -8905,6 +8940,9 @@ pub fn run() {
             install_antigravity_command,
             remove_antigravity_command,
             install_all_antigravity_commands,
+            get_pov_direct_status,
+            save_pov_direct_settings,
+            open_antigravity_rules_folder,
             openrouter::openrouter_get_models,
             get_orchestrator_config,
             update_orchestrator_config,

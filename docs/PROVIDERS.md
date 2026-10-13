@@ -11,6 +11,7 @@ This document details supported model providers, reasoning parameters, capabilit
 | Provider | Endpoint | Native / OpenRouter | Reasoning Control |
 |---|---|---|---|
 | **DeepSeek** | `https://api.deepseek.com/anthropic` | Native | Low / High / Max |
+| **GLM (Z.ai)** | `https://api.z.ai/api/anthropic/v1/messages` | Native | GLM-5.3: Low / High / Max · GLM-5.2: Normal / Thinking |
 | **MiniMax** | `https://api.minimax.io/anthropic` | Native | Model-specific |
 | **Kimi / Moonshot** | `https://api.moonshot.cn/anthropic` | Native | Thinking / Reasoning effort |
 | **MiMo / Xiaomi** | `https://api.xiaomimimo.com/anthropic` | Native | Thinking mode (`thinking` / `normal`) |
@@ -33,6 +34,20 @@ This document details supported model providers, reasoning parameters, capabilit
 
 - **Supported Models**: `deepseek-v4-pro` (V4-Pro-0813), `deepseek-flash` (DeepSeek V4.1 Flash), `deepseek-v4-flash` (V4-Flash-0731 legacy), `deepseek-v4-flash-vision-exp` (V4-Flash-Vision-Exp).
 - **Reasoning Control**: DeepSeek models support reasoning effort levels (`low`, `high`, `max`).
+
+### GLM / Z.ai
+
+- **Endpoint**: `https://api.z.ai/api/anthropic/v1/messages` (official Anthropic Messages-compatible API)
+- **Supported Models**:
+  - `glm-5.3`: Flagship reasoning model with always-on thinking.
+  - `glm-5.3-flash`: High-performance reasoning model with always-on thinking.
+  - `glm-5.3-flashx`: Ultra-fast reasoning variant with always-on thinking.
+  - `glm-5.2`: General coding model supporting both Normal and Thinking modes.
+- **Reasoning Control**:
+  - GLM-5.3 series: Always-on thinking (`thinking: {"type": "enabled"}`) with selectable effort levels (`low`, `high`, `max`).
+  - GLM-5.2: Toggle between `thinking` and `normal` (`thinking: {"type": "disabled"}`).
+- **Authentication & Scope**: PAYG API key via `ZAI_API_KEY` (or Poverello GUI). Coding Plan tokens are unsupported and fail closed before send.
+- **Output Validation**: Empty text / thinking-only responses (e.g. `stop_reason: "max_tokens"` exhausted inside thinking) fail closed with explicit provider errors across Orchestrator and MCP server.
 
 ### MiniMax
 

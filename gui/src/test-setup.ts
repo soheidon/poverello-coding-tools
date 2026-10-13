@@ -131,6 +131,65 @@ vi.mock("./i18n", () => {
       copyCommandDesc: "Pastes into a terminal session.",
       copied: "Copied!",
     },
+    antigravityRules: {
+      tabTitle: "Antigravity Rules",
+      panelTitle: "Poverello Direct Coding",
+      panelSubtitle: "Conditional rules for lightweight Antigravity software implementation",
+      status: {
+        synced: "Synced",
+        notApplied: "Not Applied",
+        externalDrift: "External Changes",
+        legacyFile: "Existing File",
+        unmanaged: "Custom File",
+        example: "Preview",
+      },
+      autoActivation: {
+        title: "Auto Activation",
+        desc: "Automatically activate for implementation & bug fixes. When OFF, rules apply only when @pov-direct is mentioned (Skill manual execution via /pov-direct is always available).",
+      },
+      webResearch: {
+        title: "Web Search",
+        requestedOnly: "Only when explicitly requested",
+        requestedOrNecessary: "When requested or strictly necessary for implementation",
+        unrestricted: "Normal judgment (unrestricted)",
+      },
+      verbosity: {
+        title: "Response Verbosity",
+        minimal: "Minimal",
+        concise: "Concise",
+        standard: "Standard",
+        detailed: "Detailed",
+      },
+      exploration: {
+        title: "Code Exploration",
+        minimal: "Minimal",
+        standard: "Standard",
+        detailed: "Detailed",
+      },
+      verification: {
+        title: "Verification Scope",
+        focused: "Focused",
+        standard: "Standard",
+        broad: "Broad",
+      },
+      ruleFile: {
+        title: "Rule File",
+        managedBadge: "Managed",
+        previewTitle: "Settings Preview",
+        sizeLabel: "Expanded rule size",
+      },
+      actions: {
+        apply: "Save & Apply",
+        openFolder: "Open Rules Folder",
+        resetDefaults: "Reset to Defaults",
+      },
+      modal: {
+        unmanagedWarning: "An unmanaged rule file was detected. Do you want to adopt it (preserving content with backup) or overwrite it?",
+        adopt: "Adopt (with backup)",
+        overwrite: "Overwrite (with backup)",
+        cancel: "Cancel",
+      },
+    },
   };
 
   return {

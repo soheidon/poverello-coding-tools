@@ -942,18 +942,112 @@ async fn glm_handles_thinking_only_max_tokens_response() {
         reasoning_effort: Some("max".into()),
         is_openrouter: false,
     };
-    let result = DynamicBridgeProvider::new()
+    let err = DynamicBridgeProvider::new()
         .with_target(target)
         .plan("system", "task")
         .await
-        .unwrap();
-    assert_eq!(result.text, "");
+        .unwrap_err();
+    match err {
+        anthro_bridge_mcp_server::provider::ProviderError::Response(msg) => {
+            assert!(
+                msg.contains("no text content") || msg.contains("max_tokens"),
+                "expected response error mentioning no text or max_tokens, got: {msg}"
+            );
+        }
+        other => panic!("expected ProviderError::Response, got {other:?}"),
+    }
 
     let requests = server.received_requests().await.unwrap();
     assert_eq!(requests.len(), 1);
     let req = &requests[0];
     assert_eq!(req.headers.get("x-api-key").unwrap(), "glm-test-secret");
     assert_eq!(req.headers.get("anthropic-version").unwrap(), "2023-06-01");
+}
+
+#[tokio::test]
+async fn glm_handles_thinking_plus_final_text_response() {
+    use anthro_bridge_mcp_server::provider::adapter::{DynamicBridgeProvider, ResolvedMcpTarget};
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/anthropic/v1/messages"))
+        .and(header("x-api-key", "glm-test-secret"))
+        .and(header("anthropic-version", "2023-06-01"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "msg_glm_flash_ok",
+            "type": "message",
+            "role": "assistant",
+            "model": "glm-5.3-flash",
+            "stop_reason": "end_turn",
+            "content": [
+                { "type": "thinking", "thinking": "deep thoughts" },
+                { "type": "text", "text": "final validated plan" }
+            ],
+            "usage": { "input_tokens": 16, "output_tokens": 64 }
+        })))
+        .mount(&server)
+        .await;
+
+    let target = ResolvedMcpTarget {
+        provider_id: "zai".into(),
+        endpoint: format!("{}/api/anthropic/v1/messages", server.uri()),
+        api_key: "glm-test-secret".into(),
+        model: "glm-5.3-flash".into(),
+        thinking_mode: Some("thinking".into()),
+        reasoning_effort: Some("max".into()),
+        is_openrouter: false,
+    };
+    let result = DynamicBridgeProvider::new()
+        .with_target(target)
+        .plan("system", "task")
+        .await
+        .unwrap();
+    assert_eq!(result.text, "final validated plan");
+    assert!(!result.text.contains("deep thoughts"));
+}
+
+#[tokio::test]
+async fn glm_handles_regular_text_response() {
+    use anthro_bridge_mcp_server::provider::adapter::{DynamicBridgeProvider, ResolvedMcpTarget};
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/anthropic/v1/messages"))
+        .and(header("x-api-key", "glm-test-secret"))
+        .and(header("anthropic-version", "2023-06-01"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "msg_glm_52",
+            "type": "message",
+            "role": "assistant",
+            "model": "glm-5.2",
+            "stop_reason": "end_turn",
+            "content": [
+                { "type": "text", "text": "ordinary text output" }
+            ],
+            "usage": { "input_tokens": 10, "output_tokens": 20 }
+        })))
+        .mount(&server)
+        .await;
+
+    let target = ResolvedMcpTarget {
+        provider_id: "zai".into(),
+        endpoint: format!("{}/api/anthropic/v1/messages", server.uri()),
+        api_key: "glm-test-secret".into(),
+        model: "glm-5.2".into(),
+        thinking_mode: Some("normal".into()),
+        reasoning_effort: None,
+        is_openrouter: false,
+    };
+    let result = DynamicBridgeProvider::new()
+        .with_target(target)
+        .plan("system", "task")
+        .await
+        .unwrap();
+    assert_eq!(result.text, "ordinary text output");
+
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let req = &requests[0];
     assert!(req.headers.get("authorization").is_none());
 }
 

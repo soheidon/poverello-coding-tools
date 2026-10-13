@@ -479,8 +479,7 @@ export function ModelSelector({
     normalizeReasoningEffort(thinkingMode, reasoningEffort, effortOptions);
 
   // GLM-5.3 always thinks and documents low / high / max with `max` as the
-  // default. The value is displayed read-only: the Gateway has no GLM transport
-  // yet, so this panel must not offer an editable effort that nothing can send.
+  // default. The Gateway routes GLM requests via Anthropic Messages compatibility.
   // A stored legal value is preserved; a missing/invalid one displays the
   // default without rewriting the config.
   const glmEffortOptions: ReasoningEffortOption[] =

@@ -639,7 +639,9 @@ impl PlannerProvider for DynamicBridgeProvider {
 
         if text.trim().is_empty() {
             if is_max_tokens_thinking_only {
-                return Ok(PlanResponse { text: String::new() });
+                return Err(ProviderError::Response(
+                    "provider completed thinking without generating final text content (max_tokens reached during thinking)".into(),
+                ));
             }
             return Err(ProviderError::Response(
                 "provider returned no text content".into(),

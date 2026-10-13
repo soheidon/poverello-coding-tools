@@ -32,9 +32,11 @@ describe("TitleBar Component", () => {
     // App Branding
     expect(screen.getByText("Poverello")).toBeInTheDocument();
 
-    // 3 Tabs
+    // Tabs
     expect(screen.getByRole("button", { name: /Gateway for Claude Desktop/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /MCP for Antigravity/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Antigravity Rules/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Orchestrator/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /header\.settings/i })).toBeInTheDocument();
 
     // Version
@@ -57,6 +59,10 @@ describe("TitleBar Component", () => {
     const mcpTab = screen.getByRole("button", { name: /MCP for Antigravity/i });
     await user.click(mcpTab);
     expect(onTabChange).toHaveBeenCalledWith("mcp");
+
+    const rulesTab = screen.getByRole("button", { name: /Antigravity Rules/i });
+    await user.click(rulesTab);
+    expect(onTabChange).toHaveBeenCalledWith("antigravityRules");
 
     const settingsTab = screen.getByRole("button", { name: /header\.settings/i });
     await user.click(settingsTab);

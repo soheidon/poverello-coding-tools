@@ -19,6 +19,7 @@ Configuration files are stored under:
     "minimax": { ... },
     "kimi": { ... },
     "mimo": { ... },
+    "zai": { ... },
     "openrouter": { ... }
   },
   "claude_code": {

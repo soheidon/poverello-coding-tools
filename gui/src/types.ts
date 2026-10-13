@@ -212,6 +212,55 @@ export interface AntigravityCommandsInfo {
   review_command: AntigravityCommandItemInfo;
 }
 
+export type WebResearchPolicy = "requested_only" | "requested_or_necessary" | "unrestricted";
+export type ResponseVerbosityPolicy = "minimal" | "concise" | "standard" | "detailed";
+export type ExplorationPolicy = "minimal" | "standard" | "detailed";
+export type VerificationPolicy = "focused" | "standard" | "broad";
+
+export interface PovDirectSettings {
+  auto_activation: boolean;
+  web_research: WebResearchPolicy;
+  response_verbosity: ResponseVerbosityPolicy;
+  repository_exploration: ExplorationPolicy;
+  verification: VerificationPolicy;
+}
+
+export type PovDirectFileState =
+  | "absent"
+  | "managed_synced"
+  | "managed_drifted"
+  | "legacy_poverello"
+  | "unmanaged_custom";
+
+export type PovDirectApplyOperation =
+  | "apply"
+  | "migrate_with_backup"
+  | "adopt_with_backup";
+
+export interface PovDirectApplyRequest {
+  settings: PovDirectSettings;
+  operation: PovDirectApplyOperation;
+  expected_state: PovDirectFileState;
+  expected_content_hash: string;
+}
+
+export interface PovDirectStatus {
+  rule_path: string;
+  skill_path: string;
+  skill_present: boolean;
+  state: PovDirectFileState;
+  settings_state: "embedded_valid" | "defaults_pending" | "legacy_requires_import" | "metadata_invalid";
+  settings: PovDirectSettings;
+  preview_text: string;
+  expanded_byte_size: number;
+  byte_limit: number;
+  can_apply: boolean;
+  available_operations: PovDirectApplyOperation[];
+  block_reason?: string | null;
+  content_hash: string;
+  legacy_sidecar_present: boolean;
+}
+
 import type { OrchestratorConfig } from "./types/orchestrator";
 
 export interface GatewayConfig {

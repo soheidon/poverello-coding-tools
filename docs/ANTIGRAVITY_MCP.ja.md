@@ -18,7 +18,7 @@ anthro-bridge.exe --mcp-server
 → Antigravity 向けヘッドレス stdio MCP サーバー
 ```
 
-これによって、Google Antigravity などのエージェント環境において、アーキテクチャ設計や実装計画の策定を外部 LLM（DeepSeek V4、MiMo、Kimi、MiniMax、OpenRouter モデル等）へ `anthro-bridge/plan` 経由で委託しながら、実際のコード編集、コマンド実行、ビルド、テストといったトークン消費の大きい作業は Antigravity のサブスクリプション枠で実行できます。
+これによって、Google Antigravity などのエージェント環境において、アーキテクチャ設計や実装計画の策定を外部 LLM（DeepSeek V4、MiMo、Kimi、MiniMax、GLM、OpenRouter モデル等）へ `anthro-bridge/plan` 経由で委託しながら、実際のコード編集、コマンド実行、ビルド、テストといったトークン消費の大きい作業は Antigravity のサブスクリプション枠で実行できます。
 
 ---
 
@@ -93,7 +93,7 @@ Antigravity がサブスク枠で
 ```
 
 > [!TIP]
-> Antigravity の `mcp_config.json` にプロバイダーの API キーを記述する必要はありません。MCP サーバーは Poverello 既存の認証解決（Windows ユーザー環境変数の `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `MINIMAX_API_KEY`, `XIAOMI_API_KEY` や Poverello の保存済み設定）を利用してキーを自動ロードします。
+> Antigravity の `mcp_config.json` にプロバイダーの API キーを記述する必要はありません。MCP サーバーは Poverello 既存の認証解決（Windows ユーザー環境変数の `DEEPSEEK_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `MINIMAX_API_KEY`, `XIAOMI_API_KEY` や Poverello の保存済み設定）を利用してキーを自動ロードします。
 
 ---
 
@@ -103,8 +103,9 @@ Antigravity の **Installed MCP Servers** 画面で、`anthro-bridge` が認識�
 
 ```text
 anthro-bridge
-  1 tool enabled
+  2 tools enabled
   - plan
+  - review
 ```
 
 ---
@@ -114,7 +115,7 @@ anthro-bridge
 Poverello では、プランナーの選択と詳細設定の役割が明確に分かれています:
 
 1. **トップレベル `MCP` タブ (`MCP for Antigravity`)**:
-   - 利用可能なプロバイダー（DeepSeek、OpenRouter、MiniMax、MiMo (V2.6)、Kimi）とプロファイルのカード一覧が表示されます。
+   - 利用可能なプロバイダー（DeepSeek、OpenRouter、MiniMax、MiMo (V2.6)、Kimi、GLM）とプロファイルのカード一覧が表示されます。
    - カードをクリックすることで、アクティブなプランナー送信先を即座に切り替えます。
 2. **`設定` > `Antigravity`**:
    - **MCP Plan 詳細設定** カード: プロバイダー/プロファイルごとに、使用モデル、Thinking モード、推論強度 (Reasoning Effort) を詳細に設定できます。

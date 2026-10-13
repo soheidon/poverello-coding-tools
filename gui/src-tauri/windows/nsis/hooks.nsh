@@ -220,6 +220,7 @@ Var PCTTestRegistrySection
 Var PCTTestRegistryIniValue
 Var PCTTestRegistryReadFailed
 Var PCTTestLegacyOrphanPath
+Var PCTTestMissingMainBinary
 !endif
 
 !macro NSIS_HOOK_PREUNINSTALL
@@ -1094,15 +1095,9 @@ Function un.PCTRemovePoverelloRegistration
   StrCpy $PCTUninstallRegistrationOperationFailed 0
   StrCpy $PCTUninstallRegistrationReadFailed 0
   !insertmacro PCT_UN_DELETE_REG_KEY "${MANUPRODUCTKEY}"
-  ${If} ${Errors}
-    StrCpy $PCTUninstallRegistrationOperationFailed 1
-    ClearErrors
-  ${EndIf}
+  ClearErrors
   !insertmacro PCT_UN_DELETE_REG_KEY "${UNINSTKEY}"
-  ${If} ${Errors}
-    StrCpy $PCTUninstallRegistrationOperationFailed 1
-    ClearErrors
-  ${EndIf}
+  ClearErrors
   StrCpy $PCTCheckKey "${MANUPRODUCTKEY}"
   Push $PCTCheckKey
   Call un.PCTProbePoverelloKey
@@ -2253,6 +2248,17 @@ Function PCTRestoreRegistrationOnFailure
   StrCpy $PCTRecoveryVerified 0
   StrCpy $PCTRecoveryFailed 0
   StrCpy $PCTRecoveryOperationFailed 0
+  ${If} $PCTHadExistingPoverello == 1
+!ifdef PCT_NSIS_TEST_BACKEND
+    ${If} $PCTTestMissingMainBinary == "1"
+      StrCpy $PCTHadExistingPoverello 0
+    ${EndIf}
+!else
+    ${IfNot} ${FileExists} "$PCTSavedPublisherPath\$PCTSavedMainBinaryName"
+      StrCpy $PCTHadExistingPoverello 0
+    ${EndIf}
+!endif
+  ${EndIf}
   ${If} $PCTHadExistingPoverello == 1
     StrCpy $PCTCheckKey "${MANUPRODUCTKEY}"
     StrCpy $PCTCheckValue ""

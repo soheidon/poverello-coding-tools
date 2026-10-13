@@ -4,15 +4,16 @@
 
 **Use Claude Code / Claude Desktop as the coding harness, route inference to third-party LLM APIs, and use external models as planners and reviewers for Google Antigravity.**
 
-Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companion application for AI-assisted software development. It supports three core workflows:
+Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companion application for AI-assisted software development. It supports four core workflows:
 
 1. **3P Gateway for Claude Code / Claude Desktop** — Keep Claude's repository exploration, tool use, file editing, and test execution while routing inference to third-party cloud providers.
 2. **Dedicated Local LLMs for Claude Code (Ollama)** — Run Claude Code completely offline with zero API costs using local Ollama models.
 3. **MCP Planner & Reviewer for Google Antigravity** — Delegate implementation planning and post-implementation review to external models via the `anthro-bridge/plan` and `anthro-bridge/review` MCP tools.
+4. **Antigravity Rules Management** — Configure, preview, and safely synchronize lightweight Poverello Direct Coding rules (`pov-direct.md`) for Antigravity.
 
 ---
 
-## Three Main Workflows
+## Four Main Workflows
 
 ### 1. Claude Code / Claude Desktop with 3P Gateway
 
@@ -83,6 +84,21 @@ for compatibility.
 /anthro-plan → Implementation & Tests → /anthro-review → Commit
 ```
 
+### 4. Antigravity Rules Management (Poverello Direct Coding)
+
+```text
+Poverello GUI ("Antigravity Rules" Tab)
+          ↓ (Verified Apply / Rollback)
+%USERPROFILE%\.gemini\config\rules\pov-direct.md
+          ↓
+Google Antigravity adheres to direct coding rules
+without expanding autonomous scope
+```
+
+- **Scope & Direction Control**: Configure lightweight direct-coding behavior for Antigravity, disabling unsolicited multi-agent planning or expanded refactoring for localized implementation tasks.
+- **Single-File Integrity**: Safely manages the YAML `trigger` condition and bounded managed marker block while strictly preserving user-defined frontmatter, custom descriptions, and skill inclusions.
+- **Fail-Safe Application**: Protected by pre-replacement SHA-256 validation, external deletion conflict checks, collision-resistant unpruned backups, verified read-back rollback, and legacy sidecar folder guards.
+
 ---
 
 ## Supported Providers
@@ -93,6 +109,7 @@ for compatibility.
 | **Kimi Code** | Direct API | kimi-for-coding, kimi-for-coding-highspeed | Thinking mode |
 | **MiniMax** | Direct API | MiniMax M3, M2.7 | Model-specific |
 | **Kimi / Moonshot** | Direct API | Kimi K2.x, Kimi K3 | Thinking / Reasoning effort |
+| **GLM (Z.ai)** | Direct API | GLM-5.3, GLM-5.3-Flash, GLM-5.3-FlashX, GLM-5.2 | GLM-5.3: Low / High / Max · GLM-5.2: Normal / Thinking |
 | **MiMo / Xiaomi** | Direct API | MiMo V2.6 Flash, Pro, Pro-UltraSpeed (V2.5 backward-compatible) | Normal / Thinking |
 | **Ollama Local** | Local Loopback | Gemma 4, Qwen 2.5, Llama 3.3, DeepSeek-R1 | Thinking (1024 budget) / Disabled |
 | **OpenRouter** | Multi-profile Gateway | See OpenRouter section below | Model-specific / Profile-specific |
@@ -103,6 +120,19 @@ Built-in **Direct DeepSeek** preset routes Opus 5 → V4.1 Flash / Max · Sonnet
 
 - `deepseek-v4.1-flash` — Current flagship reasoner ($0.27 / 1M input · $1.10 / 1M output).
 - `deepseek-v4-pro-0813` — High-quality baseline without extended reasoning ($0.27 / 1M input · $1.10 / 1M output).
+
+### GLM / Z.ai (Direct)
+
+Direct access using Z.ai's official Anthropic Messages-compatible API (`https://api.z.ai/api/anthropic/v1/messages`):
+
+- **Dedicated API Key**: Uses `ZAI_API_KEY` (pay-as-you-go). Coding Plan tokens are unsupported and fail closed before send.
+- **Models**:
+  - `glm-5.3` — Flagship reasoning model with always-on thinking.
+  - `glm-5.3-flash` — High-speed reasoning model with always-on thinking.
+  - `glm-5.3-flashx` — Ultra-low latency reasoning variant with always-on thinking.
+  - `glm-5.2` — Versatile general coding model supporting both Normal and Thinking modes.
+- **Reasoning Controls**: Selectable reasoning effort (`low`, `high`, `max`) for the GLM-5.3 family; Normal / Thinking toggle for GLM-5.2.
+- **Strict Response Validation**: Responses that contain only thinking blocks without final text (e.g., when reaching `max_tokens` mid-reasoning) fail closed with an explicit error in both Orchestrator and MCP workflows, preventing empty plan execution or silent failures.
 
 ### Kimi Code (Direct)
 
@@ -209,6 +239,13 @@ The Windows installer supports 8 languages. Poverello v0.24.1 keeps the existing
 4. Use `/anthro-plan` to design plans, `/anthro-revise` to update plans, and `/anthro-review` to review implementations before commit.
 5. Follow the complete [Antigravity MCP Setup Guide](docs/ANTIGRAVITY_MCP.md).
 
+### Workflow 4: Antigravity Rules Management (Poverello Direct Coding)
+
+1. Open Poverello and switch to the **Antigravity Rules** tab in the top navigation bar.
+2. Select the desired rule mode and inspect the generated rule preview.
+3. Click **Apply Settings** to safely write the rule to `%USERPROFILE%\.gemini\config\rules\pov-direct.md`.
+4. Existing custom comments, frontmatter fields, and backups are safely preserved.
+
 ---
 
 ## API Keys
@@ -216,6 +253,7 @@ The Windows installer supports 8 languages. Poverello v0.24.1 keeps the existing
 | Provider | Environment Variable |
 |---|---|
 | DeepSeek | `DEEPSEEK_API_KEY` |
+| GLM / Z.ai | `ZAI_API_KEY` |
 | Kimi Code | `KIMI_CODE_API_KEY` |
 | Kimi / Moonshot | `MOONSHOT_API_KEY` |
 | MiniMax | `MINIMAX_API_KEY` |

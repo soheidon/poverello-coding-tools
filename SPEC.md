@@ -17,7 +17,7 @@ A thin proxy + GUI management tool that routes Claude Desktop / Claude Code API 
 | (axum 0.7 + reqwest proxy, API key check, route resolution) |
 +-------------------------------------------------------------+
              |
-             +---> Cloud Providers (DeepSeek / MiMo / Kimi / MiniMax / OpenRouter)
+             +---> Cloud Providers (DeepSeek / MiMo / Kimi / MiniMax / GLM / OpenRouter)
 
 [Claude Code CLI] (active_route: "gateway")
              |
@@ -85,6 +85,8 @@ A thin proxy + GUI management tool that routes Claude Desktop / Claude Code API 
 - **Context capacity registry**: `model_catalog.json` is a static registry of known context capacities covering built-in direct-provider models (DeepSeek, MiniMax, Kimi, MiMo V2.6 and V2.5) and built-in OpenRouter models (Poolside, Tencent, InclusionAI, StepFun, OpenAI GPT-5.6, Google Gemini). Unknown custom OpenRouter models remain valid route targets but report context management as Incomplete until metadata is added or manual mode is configured.
 - **Google Gemini model support**: OpenRouter profiles can use Gemini 3.1 Pro Preview and Gemini 3.7 Flash as built-in models with pricing and capability data. Gemini 3.7 Flash includes promotional pricing with regular-rate strikethrough display.
 - **DeepSeek V4 pricing refresh**: Updated pricing for V4 Pro ($0.66 input, $1.98 output, $0.022 cached per million tokens) and V4 Flash ($0.22 input, $0.66 output, $0.007 cached per million tokens).
+- **GLM (Z.ai) direct provider support**: Direct access to Z.ai using the official Messages-compatible endpoint (`https://api.z.ai/api/anthropic/v1/messages`) via `ZAI_API_KEY`. Coding Plan tokens are unsupported and fail closed before send. 4-model catalog (`glm-5.3`, `glm-5.3-flash`, `glm-5.3-flashx`, `glm-5.2`). Always-on thinking for GLM-5.3 series with selectable reasoning effort (`low`, `high`, `max`); Normal/Thinking toggle for GLM-5.2. Strict output validation: empty text / thinking-only responses (e.g. `stop_reason: "max_tokens"` during thinking) fail closed with explicit provider errors across Orchestrator and MCP.
+- **Antigravity Rules Management ("Antigravity Rules" tab)**: Configures and synchronizes lightweight direct coding rules (`pov-direct.md`) for Google Antigravity. Employs a strict single-file state machine managing only the YAML `trigger` scalar and bounded managed block (`<!-- pov-direct:managed:begin -->` ... `<!-- pov-direct:managed:end -->`), preserving all user frontmatter, comments, and skill inclusions. Safety invariants include collision-resistant unpruned backups, pre-replacement SHA-256 and external deletion conflict detection, verified read-back rollback, legacy sidecar folder presence guard, and a 24,000 UTF-8 bytes limit. 8-language localization.
 
 ### GUI Management Tool
 
@@ -160,6 +162,9 @@ Settings (=):
 | 35 | `get_claude_code_config` | sync | Read Claude Code routing, auto_compact, and third_party_provider settings |
 | 36 | `update_claude_code_third_party` | sync | Save Ollama Local configuration (models, thinking_modes, context_windows, show_on_dashboard) |
 | 37 | `set_claude_code_active_route` | sync | Set Claude Code active route (`gateway` or `ollama`) |
+| 38 | `get_pov_direct_status` | sync | Read Antigravity direct coding rules status, hash, and metadata |
+| 39 | `preview_pov_direct_content` | sync | Preview generated `pov-direct.md` content and managed block |
+| 40 | `apply_pov_direct_settings` | sync | Atomically save direct coding rules with backup, conflict detection, and verified rollback |
 
 ### Proxy Server (proxy.rs)
 

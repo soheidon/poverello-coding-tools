@@ -4,8 +4,8 @@ import { useTranslation } from "../i18n";
 import { version } from "../../package.json";
 
 interface TitleBarProps {
-  activeTab?: "gateway" | "mcp" | "orchestrator" | "settings";
-  onTabChange?: (tab: "gateway" | "mcp" | "orchestrator" | "settings") => void;
+  activeTab?: "gateway" | "mcp" | "antigravityRules" | "orchestrator" | "settings";
+  onTabChange?: (tab: "gateway" | "mcp" | "antigravityRules" | "orchestrator" | "settings") => void;
 }
 
 export default function TitleBar({
@@ -128,6 +128,14 @@ export default function TitleBar({
               onClick={() => onTabChange("mcp")}
             >
               MCP for Antigravity
+            </button>
+
+            <button
+              type="button"
+              className={`titlebar-tab titlebar-tab-rules ${activeTab === "antigravityRules" ? "titlebar-tab-active" : ""}`}
+              onClick={() => onTabChange("antigravityRules")}
+            >
+              {t("antigravityRules.tabTitle")}
             </button>
 
             <button

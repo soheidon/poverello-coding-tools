@@ -460,6 +460,90 @@ pub(crate) fn parse_model_set_number(name: &str) -> Option<u32> {
 }
 
 // ---------------------------------------------------------------------------
+// Antigravity rules and Poverello Direct Coding paths
+// ---------------------------------------------------------------------------
+
+pub(crate) fn antigravity_global_rules_dir_for(home: &Path) -> PathBuf {
+    home.join(".gemini").join("config").join("rules")
+}
+
+pub(crate) fn antigravity_global_rules_dir() -> Result<PathBuf, String> {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map_err(|_| "Could not resolve user home directory (neither USERPROFILE nor HOME is set)".to_string())?;
+    Ok(antigravity_global_rules_dir_for(Path::new(&home)))
+}
+
+pub(crate) fn poverello_direct_rule_file() -> Result<PathBuf, String> {
+    Ok(antigravity_global_rules_dir()?.join("pov-direct.md"))
+}
+
+pub(crate) fn poverello_direct_skill_file() -> Result<PathBuf, String> {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map_err(|_| "Could not resolve user home directory (neither USERPROFILE nor HOME is set)".to_string())?;
+    Ok(PathBuf::from(home)
+        .join(".gemini")
+        .join("config")
+        .join("skills")
+        .join("pov-direct")
+        .join("SKILL.md"))
+}
+
+pub(crate) fn poverello_direct_settings_file() -> Result<PathBuf, String> {
+    Ok(antigravity_global_rules_dir()?.join("pov-direct.settings.json"))
+}
+
+pub(crate) fn poverello_direct_backup_dir() -> Result<PathBuf, String> {
+    Ok(antigravity_global_rules_dir()?.join("backups"))
+}
+
+pub(crate) fn format_antigravity_include_path(skill_path: &Path) -> String {
+    let path_str = skill_path.to_string_lossy().replace('\\', "/");
+    let clean_path = path_str.strip_prefix("//?/").unwrap_or(&path_str);
+    format!("@[pov-direct]({})", clean_path)
+}
+
+pub(crate) fn ensure_path_contained_in_dir(path: &Path, allowed_dir: &Path) -> Result<(), String> {
+    if !allowed_dir.exists() {
+        std::fs::create_dir_all(allowed_dir)
+            .map_err(|e| format!("Failed to create allowed directory for canonicalization: {e}"))?;
+    }
+    let canonical_dir = allowed_dir.canonicalize().map_err(|e| {
+        format!("Failed to canonicalize allowed_dir {}: {e}", allowed_dir.display())
+    })?;
+
+    let canonical_path = if path.exists() {
+        path.canonicalize().map_err(|e| format!("Failed to canonicalize path: {e}"))?
+    } else if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create parent dir: {e}"))?;
+        }
+        parent.canonicalize().map_err(|e| format!("Failed to canonicalize parent dir: {e}"))?.join(path.file_name().unwrap_or_default())
+    } else {
+        path.to_path_buf()
+    };
+
+    let mut dir_str = canonical_dir.to_string_lossy().to_lowercase().replace('\\', "/");
+    let path_str = canonical_path.to_string_lossy().to_lowercase().replace('\\', "/");
+
+    if !dir_str.ends_with('/') {
+        dir_str.push('/');
+    }
+
+    if path_str == dir_str.trim_end_matches('/') || path_str.starts_with(&dir_str) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Path traversal / symlink out of bounds: path '{}' is not contained in '{}'",
+            path.display(),
+            allowed_dir.display()
+        ))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

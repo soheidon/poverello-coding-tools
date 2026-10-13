@@ -207,7 +207,14 @@ impl ProviderAdapter {
             })?;
 
             let content = extract_content_from_response(&parsed, provider_id).ok_or_else(|| {
-                "Could not extract message content from provider response".to_string()
+                if parsed.get("stop_reason").and_then(|s| s.as_str()) == Some("max_tokens") {
+                    format!(
+                        "Provider '{}' completed thinking without generating final text content (max_tokens reached during thinking)",
+                        provider_id
+                    )
+                } else {
+                    format!("Could not extract message content from provider '{}' response", provider_id)
+                }
             })?;
 
             let tokens_used = parsed.get("usage").and_then(|u| {
@@ -334,20 +341,10 @@ fn extract_content_from_response(json: &Value, provider_id: &str) -> Option<Stri
         }
 
         if !texts.is_empty() {
-            return Some(texts.join("\n"));
-        }
-
-        // Legitimate thinking-only response rescue:
-        // For GLM (`zai` direct provider), when max_tokens is reached during thinking,
-        // Z.ai returns a thinking-only block (type == "thinking") without any text blocks.
-        // We rescue this legitimate thinking-only response ONLY when stop_reason is explicitly "max_tokens".
-        // For other stop reasons (e.g. "end_turn", "stop_sequence", or missing), or for non-zai providers,
-        // this must NOT be rescued and must return None.
-        if provider_id == "zai"
-            && has_thinking
-            && json.get("stop_reason").and_then(|s| s.as_str()) == Some("max_tokens")
-        {
-            return Some(String::new());
+            let joined = texts.join("\n");
+            if !joined.trim().is_empty() {
+                return Some(joined);
+            }
         }
     }
 
@@ -608,17 +605,93 @@ mod tests {
         };
         let mut in_data = input(Some("zai"));
         in_data.profile.model = Some("glm-5.3-flash".into());
+        let err = adapter.execute(&in_data, None).await.unwrap_err();
+        server.join().unwrap();
+
+        assert!(
+            err.contains("without generating final text content")
+                || err.contains("Could not extract message content"),
+            "expected error on thinking-only response, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn zai_provider_extracts_final_text_when_thinking_and_text_both_present() {
+        let fixture = json!({
+            "id": "msg_flash_2",
+            "type": "message",
+            "role": "assistant",
+            "model": "glm-5.3-flash",
+            "content": [
+                {
+                    "type": "thinking",
+                    "thinking": "analyzing request deeply..."
+                },
+                {
+                    "type": "text",
+                    "text": "final extracted plan content"
+                }
+            ],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 80
+            }
+        })
+        .to_string();
+
+        let (endpoint, _rx, server) = receive_request_custom(Some(&fixture));
+        let adapter = ProviderAdapter {
+            endpoint_override: Some(endpoint),
+            api_key_override: Some("test-key".into()),
+            ..ProviderAdapter::new()
+        };
+        let mut in_data = input(Some("zai"));
+        in_data.profile.model = Some("glm-5.3-flash".into());
         let output = adapter.execute(&in_data, None).await.unwrap();
         server.join().unwrap();
 
-        // Transport layer must succeed, preserve empty content for text,
-        // keep total tokens used (10 + 64 = 74), and preserve full raw_json.
-        assert_eq!(output.content, "");
-        assert_eq!(output.tokens_used, Some(74));
+        assert_eq!(output.content, "final extracted plan content");
+        assert!(!output.content.contains("analyzing request deeply..."));
+        assert_eq!(output.tokens_used, Some(90));
         assert_eq!(output.model_used, "glm-5.3-flash");
-        let raw = output.raw_json.expect("raw_json must be preserved");
-        assert!(raw.contains("analyzing request deeply..."));
-        assert!(raw.contains("max_tokens"));
+    }
+
+    #[tokio::test]
+    async fn zai_provider_extracts_standard_text_response() {
+        let fixture = json!({
+            "id": "msg_std_text",
+            "type": "message",
+            "role": "assistant",
+            "model": "glm-5.2",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "ordinary text response"
+                }
+            ],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 8,
+                "output_tokens": 20
+            }
+        })
+        .to_string();
+
+        let (endpoint, _rx, server) = receive_request_custom(Some(&fixture));
+        let adapter = ProviderAdapter {
+            endpoint_override: Some(endpoint),
+            api_key_override: Some("test-key".into()),
+            ..ProviderAdapter::new()
+        };
+        let mut in_data = input(Some("zai"));
+        in_data.profile.model = Some("glm-5.2".into());
+        let output = adapter.execute(&in_data, None).await.unwrap();
+        server.join().unwrap();
+
+        assert_eq!(output.content, "ordinary text response");
+        assert_eq!(output.tokens_used, Some(28));
+        assert_eq!(output.model_used, "glm-5.2");
     }
 
     #[tokio::test]
@@ -708,14 +781,14 @@ mod tests {
         });
         assert_eq!(extract_content_from_response(&openai_format, "deepseek"), Some("openai text".to_string()));
 
-        // 3. Z.ai thinking-only (legitimate) -> returns empty string ONLY with stop_reason == "max_tokens"
+        // 3. Z.ai thinking-only -> returns None (fail-closed, must not rescue empty text even with stop_reason == "max_tokens")
         let zai_thinking_only = json!({
             "content": [
                 { "type": "thinking", "thinking": "only thinking here" }
             ],
             "stop_reason": "max_tokens"
         });
-        assert_eq!(extract_content_from_response(&zai_thinking_only, "zai"), Some("".to_string()));
+        assert_eq!(extract_content_from_response(&zai_thinking_only, "zai"), None);
 
         // 3b. Z.ai thinking-only with other stop_reasons -> returns None (MUST NOT rescue)
         let zai_thinking_end_turn = json!({

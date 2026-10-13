@@ -73,7 +73,9 @@ if (-not $ReuseGeneratedBundle) {
       $scriptFresh = (Test-Path -LiteralPath $installerScript -PathType Leaf) -and ((Get-Item -LiteralPath $installerScript).LastWriteTimeUtc -ge $buildStartedUtc.AddSeconds(-2))
       $exeFreshOrCargoFresh = (Test-Path -LiteralPath $exePath -PathType Leaf) -and ($tauriText -match '(?i)Finished\s+`?release`?\s+profile')
       $expectedInstallerHookExpansionFailure = $tauriText.Contains('resolving install function "PCTValidatePoverelloRegistration"')
-      $expectedUninstallerHookExpansionFailure = $tauriText.Contains('resolving uninstall function "un.PCTDeleteStableUserData"')
+      $expectedUninstallerHookExpansionFailure =
+        $tauriText.Contains('resolving uninstall function "un.PCTDeleteStableUserData"') -or
+        $tauriText.Contains('resolving uninstall function "un.PCTSnapshotUpdateRegistration"')
       $expectedHookExpansionFailure =
         ($errorLines.Count -eq 1) -and
         ($expectedInstallerHookExpansionFailure -or $expectedUninstallerHookExpansionFailure) -and

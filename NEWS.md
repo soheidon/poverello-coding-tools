@@ -1,5 +1,28 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.24.2 — 2026-10-13
+
+### GLM (Z.ai) Direct Provider Support
+
+- Added Z.ai / GLM direct provider support (`zai`) across Gateway, Orchestrator, and MCP server using the official Messages-compatible API (`https://api.z.ai/api/anthropic/v1/messages`).
+- Dedicated PAYG (pay-as-you-go) API key access (`ZAI_API_KEY`); Coding Plan is unsupported and fails closed before send.
+- Added 4-model catalog support: `glm-5.3`, `glm-5.3-flash`, `glm-5.3-flashx`, and `glm-5.2`.
+- Reasoning controls: always-on thinking for GLM-5.3 series with selectable reasoning effort (`low`, `high`, `max`), and normal/thinking toggle for GLM-5.2.
+- Strict response validation: thinking-only responses without generated text (such as when `max_tokens` is reached during thinking) fail closed with explicit provider errors across Orchestrator and MCP, preventing empty plan execution or leakage.
+
+### Direct Coding Rules Management ("Antigravity Rules" Tab)
+
+- Added a top-level tab to configure and synchronize lightweight direct coding rules (`pov-direct.md`).
+- Strict single-file state machine: Poverello owns only the YAML frontmatter `trigger` scalar and the managed marker block (`<!-- pov-direct:managed:begin -->` ... `<!-- pov-direct:managed:end -->`), preserving all other frontmatter, descriptions, notes, and canonical Skill inclusions.
+- Safety guarantees: collision-resistant unpruned backups, pre-replacement SHA-256 and external deletion conflict detection, verified read-back rollback, legacy sidecar folder rejection, and strict 24,000 UTF-8 bytes expanded rule limit guard.
+- Full internationalization across all 8 supported UI languages.
+
+### Stability, Diagnostics, and UI Fixes
+
+- Fixed OpenRouter custom model-set deletion persistence.
+- Added request-scoped Gateway send observation preventing cross-test flakiness.
+- Corrected provider comments and preserved saved reasoning effort across route changes.
+
 ## v0.24.1 — 2026-10-12
 
 ### Poverello Rebrand and Data Migration

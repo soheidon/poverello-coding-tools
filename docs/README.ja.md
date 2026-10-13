@@ -4,15 +4,16 @@
 
 **Claude Code / Claude Desktop をコーディングハーネスとして使用し、推論をサードパーティ LLM API にルーティングしながら、外部モデルを Google Antigravity のプランナー・レビュアーとして活用します。**
 
-Poverello Coding Tools（アプリ内表示名 **Poverello**）は、AI 支援ソフトウェア開発のための Windows コンパニオンアプリケーションです。3 つの補完的なワークフローをサポートしています。
+Poverello Coding Tools（アプリ内表示名 **Poverello**）は、AI 支援ソフトウェア開発のための Windows コンパニオンアプリケーションです。4 つの補完的なワークフローをサポートしています。
 
 1. **Claude Code / Claude Desktop 向け 3P ゲートウェイ** — Claude のリポジトリ探索、ツール使用、ファイル編集、テスト実行はそのままに、推論をサードパーティプロバイダーにルーティングします。
 2. **Claude Code 向けローカル LLM（Ollama）** — ローカルモデルを使って、Claude Code をオフラインで実行できます。
 3. **Google Antigravity 向け MCP プランナー & レビュアー** — `anthro-bridge/plan` および `anthro-bridge/review` MCP ツールを通じて、実装計画と実装後レビューを外部モデルに委任します。
+4. **Antigravity ルール管理** — Google Antigravity 向けの軽量 Direct Coding ルール（`pov-direct.md`）を設定・プレビューし、安全に同期します。
 
 ---
 
-## 3 つのメインワークフロー
+## 4 つのメインワークフロー
 
 ### 1. Claude Code / Claude Desktop と 3P ゲートウェイ
 
@@ -68,6 +69,21 @@ Antigravity がサブスクリプションの処理能力を使って
 /anthro-plan → 実装 & テスト → /anthro-review → コミット
 ```
 
+### 4. Antigravity ルール管理（Poverello Direct Coding）
+
+```text
+Poverello GUI（"Antigravity Rules" タブ）
+          ↓（検証付き適用 / ロールバック）
+%USERPROFILE%\.gemini\config\rules\pov-direct.md
+          ↓
+Google Antigravity がスコープを無闇に広げず
+指示通りの直接実装ルールに従う
+```
+
+- **スコープと方針の制御**: Antigravity が局所的な修正タスクに対して自律的に計画立案や不要な大規模リファクタリングを広げないよう、軽量な Direct Coding ルールを構成します。
+- **単一ファイルの整合性保護**: YAML の `trigger` 条件および管理ブロック（`<!-- pov-direct:managed:begin -->` ... `<!-- pov-direct:managed:end -->`）のみを安全に更新し、ユーザー独自の frontmatter、説明文、Skill インクルードを完全に維持します。
+- **安全な適用保証**: 置換直前の SHA-256 検証、外部削除競合の検出、重複しない保持バックアップ、読み戻し検証失敗時のロールバック、旧 sidecar フォルダの存在チェックにより、安全に書き込みます。
+
 ---
 
 ## 対応プロバイダー
@@ -75,6 +91,7 @@ Antigravity がサブスクリプションの処理能力を使って
 | プロバイダー | 接続方式 | 対応ファミリー | 推論コントロール |
 |---|---|---|---|
 | **DeepSeek** | Direct API | DeepSeek V4.1 Flash, V4 Pro 0813 | Normal / Low / High / Max |
+| **GLM (Z.ai)** | Direct API | GLM-5.3, GLM-5.3-Flash, GLM-5.3-FlashX, GLM-5.2 | GLM-5.3: Low / High / Max · GLM-5.2: Normal / Thinking |
 | **Kimi Code** | Direct API | kimi-for-coding, kimi-for-coding-highspeed | Thinking モード |
 | **MiniMax** | Direct API | MiniMax M3, M2.7 | モデル固有 |
 | **Kimi / Moonshot** | Direct API | Kimi K2.x, Kimi K3 | Thinking / 推論努力度 |
@@ -88,6 +105,19 @@ Antigravity がサブスクリプションの処理能力を使って
 
 - `deepseek-v4.1-flash` — 現行フラッグシップ推論モデル（$0.27 / 1M 入力 · $1.10 / 1M 出力）。
 - `deepseek-v4-pro-0813` — 拡張推論なしの高品質ベースラインモデル（$0.27 / 1M 入力 · $1.10 / 1M 出力）。
+
+### GLM / Z.ai（ダイレクト）
+
+Z.ai 公式の Anthropic Messages 互換 API（`https://api.z.ai/api/anthropic/v1/messages`）を直接利用します。
+
+- **専用 API キー**: `ZAI_API_KEY`（従量課金）を使用します。Coding Plan トークンは非対応（送信前にフェイルクローズ）です。
+- **モデル**:
+  - `glm-5.3` — 常時思考のフラッグシップ推論モデル。
+  - `glm-5.3-flash` — 常時思考の高速推論モデル。
+  - `glm-5.3-flashx` — 常時思考の極低遅延推論モデル。
+  - `glm-5.2` — Normal / Thinking を切り替え可能な汎用コーディングモデル。
+- **推論コントロール**: GLM-5.3 ファミリーは推論努力度（`low`, `high`, `max`）を選択可能。GLM-5.2 は Normal / Thinking のトグル切り替えに対応。
+- **厳格な出力検証**: 思考ブロックのみで最終テキストが空の場合（思考中に `max_tokens` に達した場合など）、Orchestrator・MCP ともに成功扱いせず明示的なプロバイダーエラーとしてフェイルクローズし、空計画の実行や出力漏洩を防ぎます。
 
 ### Kimi Code（ダイレクト）
 
@@ -194,6 +224,13 @@ Windowsインストーラーは8言語に対応しています。Poverello v0.24
 4. `/anthro-plan` で計画を作成し、`/anthro-revise` で計画を更新し、`/anthro-review` でコミット前に実装をレビューします。
 5. 完全な [Antigravity MCP セットアップガイド](ANTIGRAVITY_MCP.ja.md) に従ってください。
 
+### ワークフロー 4: Antigravity ルール管理（Poverello Direct Coding）
+
+1. Poverello の上部タブから **Antigravity Rules** を開きます。
+2. 希望するルールモードを選択し、生成プレビューを確認します。
+3. **Apply Settings** をクリックして `%USERPROFILE%\.gemini\config\rules\pov-direct.md` へ安全に書き込みます。
+4. 既存のカスタムコメント、frontmatter、バックアップは安全に保持されます。
+
 ---
 
 ## API キー
@@ -201,6 +238,7 @@ Windowsインストーラーは8言語に対応しています。Poverello v0.24
 | プロバイダー | 環境変数 |
 |---|---|
 | DeepSeek | `DEEPSEEK_API_KEY` |
+| GLM / Z.ai | `ZAI_API_KEY` |
 | Kimi Code | `KIMI_CODE_API_KEY` |
 | Kimi / Moonshot | `MOONSHOT_API_KEY` |
 | MiniMax | `MINIMAX_API_KEY` |
