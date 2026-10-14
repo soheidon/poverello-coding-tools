@@ -20,6 +20,7 @@ mod openrouter;
 pub mod orchestrator;
 mod paths;
 pub mod pov_direct;
+pub mod pov_nerf;
 mod proxy;
 
 // ---------------------------------------------------------------------------
@@ -694,8 +695,8 @@ fn merge_bundled_providers_into(
                     user_providers[pid] = template_p.clone();
                     changed = true;
                 }
-            } else {
-                // Existing provider: merge new model entries from template
+            } else if pid != ZAI_PROVIDER_ID {
+                // Existing provider: merge new model entries from template (zai is preserved as fully user-owned)
                 if let (Some(user_models), Some(ref template_models)) =
                     (user_providers[pid].get_mut("models"), &p.models)
                 {
@@ -6168,6 +6169,40 @@ fn open_antigravity_rules_folder() -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
+// Poverello Nerf (/pov-nerf-balanced & /pov-nerf-lightweight) Commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn get_pov_nerf_commands_status() -> Result<pov_nerf::PovNerfCommandsInfo, String> {
+    let skills_dir = paths::antigravity_global_skills_dir()?;
+    Ok(pov_nerf::inspect_pov_nerf_commands_status_at(&skills_dir))
+}
+
+#[tauri::command]
+fn install_pov_nerf_command(
+    skill_id: pov_nerf::PovNerfSkillId,
+) -> Result<pov_nerf::PovNerfOperationResult, String> {
+    let skills_dir = paths::antigravity_global_skills_dir()?;
+    pov_nerf::install_nerf_skill_at(&skills_dir, skill_id)
+}
+
+#[tauri::command]
+fn update_pov_nerf_command(
+    skill_id: pov_nerf::PovNerfSkillId,
+) -> Result<pov_nerf::PovNerfOperationResult, String> {
+    let skills_dir = paths::antigravity_global_skills_dir()?;
+    pov_nerf::update_nerf_skill_at(&skills_dir, skill_id)
+}
+
+#[tauri::command]
+fn remove_pov_nerf_command(
+    skill_id: pov_nerf::PovNerfSkillId,
+) -> Result<pov_nerf::PovNerfOperationResult, String> {
+    let skills_dir = paths::antigravity_global_skills_dir()?;
+    pov_nerf::remove_nerf_skill_at(&skills_dir, skill_id)
+}
+
+// ---------------------------------------------------------------------------
 // Claude Code auto-compact (v2): types, resolver, apply, commands, migration
 // ---------------------------------------------------------------------------
 
@@ -8943,6 +8978,10 @@ pub fn run() {
             get_pov_direct_status,
             save_pov_direct_settings,
             open_antigravity_rules_folder,
+            get_pov_nerf_commands_status,
+            install_pov_nerf_command,
+            update_pov_nerf_command,
+            remove_pov_nerf_command,
             openrouter::openrouter_get_models,
             get_orchestrator_config,
             update_orchestrator_config,
@@ -11627,16 +11666,49 @@ mod tests {
         assert_eq!(zai["display_name"].as_str(), Some("GLM"));
         assert_eq!(zai["api_key_env"].as_str(), Some("ZAI_API_KEY"));
 
-        // The three canonical routes map to the only officially confirmed
-        // direct model; the Claude 5.5 routes are absent by design.
+        // The three canonical routes map to the verified role-specific defaults:
+        // Opus -> glm-5.3 / max, Sonnet -> glm-5.3-flashx / high, Haiku -> glm-5.3-flash / low.
+        // The Claude 5.5 routes are absent by design.
         let models = zai["models"].as_object().expect("zai models");
-        for route in CLAUDE_ROUTES {
-            assert_eq!(
-                models.get(route).and_then(|m| m["upstream_model"].as_str()),
-                Some("glm-5.3"),
-                "{route} must map to glm-5.3"
-            );
-        }
+        assert_eq!(
+            models
+                .get("claude-opus-5")
+                .and_then(|m| m["upstream_model"].as_str()),
+            Some("glm-5.3")
+        );
+        assert_eq!(
+            models
+                .get("claude-opus-5")
+                .and_then(|m| m["reasoning_effort"].as_str()),
+            Some("max")
+        );
+
+        assert_eq!(
+            models
+                .get("claude-sonnet-5")
+                .and_then(|m| m["upstream_model"].as_str()),
+            Some("glm-5.3-flashx")
+        );
+        assert_eq!(
+            models
+                .get("claude-sonnet-5")
+                .and_then(|m| m["reasoning_effort"].as_str()),
+            Some("high")
+        );
+
+        assert_eq!(
+            models
+                .get("claude-haiku-4-5")
+                .and_then(|m| m["upstream_model"].as_str()),
+            Some("glm-5.3-flash")
+        );
+        assert_eq!(
+            models
+                .get("claude-haiku-4-5")
+                .and_then(|m| m["reasoning_effort"].as_str()),
+            Some("low")
+        );
+
         for route in CLAUDE_55_ROUTES {
             assert!(
                 !models.contains_key(route),
@@ -11691,6 +11763,41 @@ mod tests {
             after["providers"]["deepseek"]["user_note"],
             json!({ "keep": true }),
             "existing provider data must be preserved"
+        );
+
+        // Verify the newly merged zai provider receives the canonical 3-route defaults:
+        let zai_models = &after["providers"]["zai"]["models"];
+        assert_eq!(
+            zai_models["claude-opus-5"]["upstream_model"],
+            json!("glm-5.3"),
+            "Opus route model"
+        );
+        assert_eq!(
+            zai_models["claude-opus-5"]["reasoning_effort"],
+            json!("max"),
+            "Opus route effort"
+        );
+
+        assert_eq!(
+            zai_models["claude-sonnet-5"]["upstream_model"],
+            json!("glm-5.3-flashx"),
+            "Sonnet route model"
+        );
+        assert_eq!(
+            zai_models["claude-sonnet-5"]["reasoning_effort"],
+            json!("high"),
+            "Sonnet route effort"
+        );
+
+        assert_eq!(
+            zai_models["claude-haiku-4-5"]["upstream_model"],
+            json!("glm-5.3-flash"),
+            "Haiku route model"
+        );
+        assert_eq!(
+            zai_models["claude-haiku-4-5"]["reasoning_effort"],
+            json!("low"),
+            "Haiku route effort"
         );
 
         // Re-running performs no write at all.
@@ -12142,25 +12249,143 @@ mod tests {
         let zai = &template["providers"]["zai"];
         assert_eq!(zai["display_name"], json!(ZAI_DISPLAY_NAME));
         assert_eq!(zai["api_key_env"], json!("ZAI_API_KEY"));
-        for route in crate::model_routing::CLAUDE_ROUTES {
-            assert_eq!(
-                zai["models"][route]["upstream_model"],
-                json!(ZAI_DEFAULT_MODEL),
-                "{route} upstream"
-            );
-            assert_eq!(
-                zai["models"][route]["reasoning_effort"],
-                json!(ZAI_DEFAULT_REASONING_EFFORT),
-                "{route} effort"
-            );
-            assert_eq!(zai["models"][route]["thinking_mode"], json!("thinking"));
-        }
+
+        // Opus 5 -> glm-5.3 / max
+        assert_eq!(
+            zai["models"]["claude-opus-5"]["upstream_model"],
+            json!("glm-5.3")
+        );
+        assert_eq!(
+            zai["models"]["claude-opus-5"]["reasoning_effort"],
+            json!("max")
+        );
+        assert_eq!(
+            zai["models"]["claude-opus-5"]["thinking_mode"],
+            json!("thinking")
+        );
+
+        // Sonnet 5 -> glm-5.3-flashx / high
+        assert_eq!(
+            zai["models"]["claude-sonnet-5"]["upstream_model"],
+            json!("glm-5.3-flashx")
+        );
+        assert_eq!(
+            zai["models"]["claude-sonnet-5"]["reasoning_effort"],
+            json!("high")
+        );
+        assert_eq!(
+            zai["models"]["claude-sonnet-5"]["thinking_mode"],
+            json!("thinking")
+        );
+
+        // Haiku 4.5 -> glm-5.3-flash / low
+        assert_eq!(
+            zai["models"]["claude-haiku-4-5"]["upstream_model"],
+            json!("glm-5.3-flash")
+        );
+        assert_eq!(
+            zai["models"]["claude-haiku-4-5"]["reasoning_effort"],
+            json!("low")
+        );
+        assert_eq!(
+            zai["models"]["claude-haiku-4-5"]["thinking_mode"],
+            json!("thinking")
+        );
+
         for route in crate::model_routing::CLAUDE_55_ROUTES {
             assert!(
                 zai["models"].get(route).is_none(),
                 "the GLM provider must not carry the Claude 5.5 route {route}"
             );
         }
+    }
+
+    #[test]
+    fn merge_bundled_providers_does_not_inject_missing_routes_into_existing_zai() {
+        let dir = TempDir::new().unwrap();
+        // An existing install with a user-configured zai provider that deliberately
+        // lacks the claude-sonnet-5 and claude-haiku-4-5 routes.
+        let cfg = json!({
+            "config_version": "1.0",
+            "active_provider": "zai",
+            "providers": {
+                "zai": {
+                    "display_name": "GLM",
+                    "api_key_env": "ZAI_API_KEY",
+                    "models": {
+                        "claude-opus-5": {
+                            "upstream_model": "glm-5.3",
+                            "thinking_mode": "thinking",
+                            "reasoning_effort": "max"
+                        }
+                    }
+                }
+            }
+        });
+        write_config(dir.path(), &cfg);
+        let path = dir.path().join("config.json");
+
+        merge_bundled_providers(&path).expect("merge must succeed");
+
+        let after = read_config(dir.path());
+        let models = after["providers"]["zai"]["models"].as_object().unwrap();
+        assert!(
+            models.contains_key("claude-opus-5"),
+            "existing route must be retained"
+        );
+        assert!(
+            !models.contains_key("claude-sonnet-5"),
+            "missing route key must NOT be injected into existing zai configuration"
+        );
+        assert!(
+            !models.contains_key("claude-haiku-4-5"),
+            "missing route key must NOT be injected into existing zai configuration"
+        );
+    }
+
+    #[test]
+    fn merge_bundled_providers_handles_existing_zai_with_non_object_models_safely() {
+        for non_object in [json!(null), json!([]), json!("not_an_object"), json!(123)] {
+            let dir = TempDir::new().unwrap();
+            let cfg = json!({
+                "config_version": "1.0",
+                "active_provider": "zai",
+                "providers": {
+                    "zai": {
+                        "display_name": "GLM",
+                        "api_key_env": "ZAI_API_KEY",
+                        "models": non_object
+                    }
+                }
+            });
+            write_config(dir.path(), &cfg);
+            let path = dir.path().join("config.json");
+
+            merge_bundled_providers(&path).expect("merge must succeed without panic");
+
+            let after = read_config(dir.path());
+            assert_eq!(after["providers"]["zai"]["models"], non_object);
+        }
+
+        // Also test with models omitted entirely
+        let dir = TempDir::new().unwrap();
+        let cfg = json!({
+            "config_version": "1.0",
+            "active_provider": "zai",
+            "providers": {
+                "zai": {
+                    "display_name": "GLM",
+                    "api_key_env": "ZAI_API_KEY"
+                }
+            }
+        });
+        write_config(dir.path(), &cfg);
+        let path = dir.path().join("config.json");
+
+        merge_bundled_providers(&path).expect("merge must succeed without panic");
+
+        let after = read_config(dir.path());
+        assert!(after["providers"]["zai"].get("models").is_none());
     }
 
     #[test]

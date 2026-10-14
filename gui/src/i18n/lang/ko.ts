@@ -85,6 +85,17 @@ export const translations: TranslationMap = {
   "antigravity.btnOpenSkillsFolder": "스킬 폴더 열기",
   "antigravity.commandsMcpWarning": "⚠ Poverello MCP 서버가 Antigravity에 등록되어 있지 않습니다. 명령어를 사용하기 전에 위의 MCP 설정을 먼저 등록하세요.",
 
+  // Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight)
+  "antigravity.nerfSectionHeader": "Antigravity Nerf 명령어 (/pov-nerf-balanced & /pov-nerf-lightweight)",
+  "antigravity.nerfDesc": "타겟팅된 구현 작업을 위해 탐색적 추론과 장황한 계획을 제한하는 전역 슬래시 명령어를 등록합니다.",
+  "antigravity.nerfBalancedTitle": "/pov-nerf-balanced",
+  "antigravity.nerfBalancedDesc": "집중되고 균형 잡힌 구현 작업을 위한 Poverello 지침.",
+  "antigravity.nerfLightweightTitle": "/pov-nerf-lightweight",
+  "antigravity.nerfLightweightDesc": "작고 국소화된 구현 작업을 위한 Poverello 지침.",
+  "antigravity.nerfLegacyWarning": "알림: 레거시 /pov-nerf Skill이 감지되었습니다. 그대로 유지되며 필요하지 않은 경우 수동으로 제거할 수 있습니다.",
+  "antigravity.nerfStatusModified": "수정됨 / 외부 변경 사항",
+  "antigravity.nerfRetryStatus": "다시 시도",
+
   // Antigravity Rules
   "antigravityRules.tabTitle": "Antigravity Rules",
   "antigravityRules.panelTitle": "Poverello Direct Coding",

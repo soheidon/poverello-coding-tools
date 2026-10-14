@@ -261,6 +261,41 @@ export interface PovDirectStatus {
   legacy_sidecar_present: boolean;
 }
 
+// ---- Poverello Nerf (/pov-nerf-balanced & /pov-nerf-lightweight) ----
+export type PovNerfSkillId = "balanced" | "lightweight";
+export type PovNerfSkillState = "not_installed" | "installed" | "outdated" | "modified" | "invalid";
+export type PovNerfAction = "install" | "update" | "remove";
+
+export interface PovNerfSkillEntry {
+  skill_id: PovNerfSkillId;
+  skill_name: string;
+  slash_command: string;
+  target_path: string;
+  state: PovNerfSkillState;
+  permitted_actions: PovNerfAction[];
+  diagnostic_reason: string | null;
+}
+
+export interface LegacySingleSkillNotice {
+  present: boolean;
+  path: string;
+  message: string;
+}
+
+export interface PovNerfCommandsInfo {
+  skills_dir: string;
+  skills: PovNerfSkillEntry[];
+  legacy_single_skill: LegacySingleSkillNotice | null;
+}
+
+export type PovNerfMutationOutcome = "success" | "refused" | "verification_unavailable";
+
+export interface PovNerfOperationResult {
+  outcome: PovNerfMutationOutcome;
+  skill: PovNerfSkillEntry;
+  message: string | null;
+}
+
 import type { OrchestratorConfig } from "./types/orchestrator";
 
 export interface GatewayConfig {

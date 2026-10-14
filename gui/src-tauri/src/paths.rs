@@ -478,14 +478,45 @@ pub(crate) fn poverello_direct_rule_file() -> Result<PathBuf, String> {
     Ok(antigravity_global_rules_dir()?.join("pov-direct.md"))
 }
 
-pub(crate) fn poverello_direct_skill_file() -> Result<PathBuf, String> {
+pub(crate) fn antigravity_global_skills_dir() -> Result<PathBuf, String> {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
-        .map_err(|_| "Could not resolve user home directory (neither USERPROFILE nor HOME is set)".to_string())?;
+        .map_err(|_| {
+            "Could not resolve user home directory (neither USERPROFILE nor HOME is set)"
+                .to_string()
+        })?;
     Ok(PathBuf::from(home)
         .join(".gemini")
         .join("config")
-        .join("skills")
+        .join("skills"))
+}
+
+pub(crate) fn poverello_nerf_balanced_skill_dir() -> Result<PathBuf, String> {
+    Ok(antigravity_global_skills_dir()?.join("pov-nerf-balanced"))
+}
+
+pub(crate) fn poverello_nerf_balanced_skill_file() -> Result<PathBuf, String> {
+    Ok(poverello_nerf_balanced_skill_dir()?.join("SKILL.md"))
+}
+
+pub(crate) fn poverello_nerf_lightweight_skill_dir() -> Result<PathBuf, String> {
+    Ok(antigravity_global_skills_dir()?.join("pov-nerf-lightweight"))
+}
+
+pub(crate) fn poverello_nerf_lightweight_skill_file() -> Result<PathBuf, String> {
+    Ok(poverello_nerf_lightweight_skill_dir()?.join("SKILL.md"))
+}
+
+pub(crate) fn poverello_nerf_legacy_skill_dir() -> Result<PathBuf, String> {
+    Ok(antigravity_global_skills_dir()?.join("pov-nerf"))
+}
+
+pub(crate) fn poverello_nerf_legacy_skill_file() -> Result<PathBuf, String> {
+    Ok(poverello_nerf_legacy_skill_dir()?.join("SKILL.md"))
+}
+
+pub(crate) fn poverello_direct_skill_file() -> Result<PathBuf, String> {
+    Ok(antigravity_global_skills_dir()?
         .join("pov-direct")
         .join("SKILL.md"))
 }

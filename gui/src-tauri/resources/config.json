@@ -595,8 +595,8 @@
       "supports_thinking": true,
       "model_map": {
         "claude-opus-5": "glm-5.3",
-        "claude-sonnet-5": "glm-5.3",
-        "claude-haiku-4-5": "glm-5.3",
+        "claude-sonnet-5": "glm-5.3-flashx",
+        "claude-haiku-4-5": "glm-5.3-flash",
         "glm-5.3": "glm-5.3"
       },
       "visible_models": [
@@ -622,7 +622,7 @@
           "reasoning_effort": "max"
         },
         "claude-sonnet-5": {
-          "upstream_model": "glm-5.3",
+          "upstream_model": "glm-5.3-flashx",
           "canonical": null,
           "thinking": null,
           "supports_vision": null,
@@ -635,10 +635,10 @@
           "supports_video_url": false,
           "supports_video_base64": false,
           "thinking_mode": "thinking",
-          "reasoning_effort": "max"
+          "reasoning_effort": "high"
         },
         "claude-haiku-4-5": {
-          "upstream_model": "glm-5.3",
+          "upstream_model": "glm-5.3-flash",
           "canonical": null,
           "thinking": null,
           "supports_vision": null,
@@ -651,7 +651,7 @@
           "supports_video_url": false,
           "supports_video_base64": false,
           "thinking_mode": "thinking",
-          "reasoning_effort": "max"
+          "reasoning_effort": "low"
         },
         "glm-5.3": {
           "upstream_model": "glm-5.3",

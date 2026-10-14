@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n";
-import type { GatewayConfig, McpConfig, McpTargetConfig, AntigravityMcpInfo, AntigravityCommandsInfo } from "../types";
+import type { GatewayConfig, McpConfig, McpTargetConfig, AntigravityMcpInfo, AntigravityCommandsInfo, PovNerfCommandsInfo, PovNerfSkillId, PovNerfOperationResult } from "../types";
 import { getMcpTargetKey } from "../types";
 import { MODEL_CAPABILITIES, MODEL_CATALOG, getProviderModels, isKnownModel } from "../modelCapabilities";
 import { getVisibleOpenRouterProfiles } from "../dashboardTiles";
@@ -83,6 +83,17 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
   const [commandsSavedMessage, setCommandsSavedMessage] = useState(false);
   const [commandsError, setCommandsError] = useState<string | null>(null);
 
+  // ── Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight) State ──
+  const [nerfInfo, setNerfInfo] = useState<PovNerfCommandsInfo | null>(null);
+  const [nerfStatusLoading, setNerfStatusLoading] = useState<boolean>(false);
+  const [nerfLoadingSkill, setNerfLoadingSkill] = useState<string | null>(null);
+  const [nerfSavedMessage, setNerfSavedMessage] = useState<string | null>(null);
+  const [nerfStatusError, setNerfStatusError] = useState<string | null>(null);
+  const [nerfOpError, setNerfOpError] = useState<string | null>(null);
+  const nerfRefreshReqIdRef = useRef<number>(0);
+  const nerfStatusLoadingRef = useRef<boolean>(false);
+  const nerfLoadingSkillRef = useRef<string | null>(null);
+
   const refreshAgStatus = useCallback(async () => {
     try {
       const info = await invoke<AntigravityMcpInfo>("get_antigravity_mcp_status");
@@ -116,11 +127,126 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
     }
   }, []);
 
+  const refreshNerfStatus = useCallback(async () => {
+    const reqId = ++nerfRefreshReqIdRef.current;
+    nerfStatusLoadingRef.current = true;
+    setNerfStatusLoading(true);
+    try {
+      const res = await invoke<PovNerfCommandsInfo>("get_pov_nerf_commands_status");
+      if (reqId !== nerfRefreshReqIdRef.current) {
+        return;
+      }
+      if (res && Array.isArray(res.skills) && res.skills.length > 0) {
+        setNerfInfo(res);
+        setNerfStatusError(null);
+      } else {
+        setNerfInfo(null);
+      }
+    } catch (e: unknown) {
+      if (reqId !== nerfRefreshReqIdRef.current) {
+        return;
+      }
+      console.error("Failed to load /pov-nerf commands status:", e);
+      setNerfInfo(null);
+      setNerfStatusError(String(e));
+    } finally {
+      if (reqId === nerfRefreshReqIdRef.current) {
+        nerfStatusLoadingRef.current = false;
+        setNerfStatusLoading(false);
+      }
+    }
+  }, []);
+
+  const handleInstallNerf = useCallback(async (skillId: PovNerfSkillId) => {
+    if (nerfLoadingSkillRef.current !== null || nerfStatusLoadingRef.current) {
+      return;
+    }
+    nerfLoadingSkillRef.current = skillId;
+    setNerfLoadingSkill(skillId);
+    setNerfOpError(null);
+    setNerfSavedMessage(null);
+    try {
+      const res = await invoke<PovNerfOperationResult>("install_pov_nerf_command", { skillId });
+      await refreshNerfStatus();
+      if (res.outcome === "success") {
+        setNerfOpError(null);
+        setNerfSavedMessage(skillId);
+        setTimeout(() => setNerfSavedMessage(null), 2500);
+      } else {
+        setNerfOpError(res.message ?? "Operation refused");
+      }
+    } catch (e: unknown) {
+      console.error(`Failed to install ${skillId}:`, e);
+      setNerfOpError(String(e));
+      await refreshNerfStatus();
+    } finally {
+      nerfLoadingSkillRef.current = null;
+      setNerfLoadingSkill(null);
+    }
+  }, [refreshNerfStatus]);
+
+  const handleUpdateNerf = useCallback(async (skillId: PovNerfSkillId) => {
+    if (nerfLoadingSkillRef.current !== null || nerfStatusLoadingRef.current) {
+      return;
+    }
+    nerfLoadingSkillRef.current = skillId;
+    setNerfLoadingSkill(skillId);
+    setNerfOpError(null);
+    setNerfSavedMessage(null);
+    try {
+      const res = await invoke<PovNerfOperationResult>("update_pov_nerf_command", { skillId });
+      await refreshNerfStatus();
+      if (res.outcome === "success") {
+        setNerfOpError(null);
+        setNerfSavedMessage(skillId);
+        setTimeout(() => setNerfSavedMessage(null), 2500);
+      } else {
+        setNerfOpError(res.message ?? "Operation refused");
+      }
+    } catch (e: unknown) {
+      console.error(`Failed to update ${skillId}:`, e);
+      setNerfOpError(String(e));
+      await refreshNerfStatus();
+    } finally {
+      nerfLoadingSkillRef.current = null;
+      setNerfLoadingSkill(null);
+    }
+  }, [refreshNerfStatus]);
+
+  const handleRemoveNerf = useCallback(async (skillId: PovNerfSkillId) => {
+    if (nerfLoadingSkillRef.current !== null || nerfStatusLoadingRef.current) {
+      return;
+    }
+    nerfLoadingSkillRef.current = skillId;
+    setNerfLoadingSkill(skillId);
+    setNerfOpError(null);
+    setNerfSavedMessage(null);
+    try {
+      const res = await invoke<PovNerfOperationResult>("remove_pov_nerf_command", { skillId });
+      await refreshNerfStatus();
+      if (res.outcome === "success") {
+        setNerfOpError(null);
+        setNerfSavedMessage(skillId);
+        setTimeout(() => setNerfSavedMessage(null), 2500);
+      } else {
+        setNerfOpError(res.message ?? "Operation refused");
+      }
+    } catch (e: unknown) {
+      console.error(`Failed to remove ${skillId}:`, e);
+      setNerfOpError(String(e));
+      await refreshNerfStatus();
+    } finally {
+      nerfLoadingSkillRef.current = null;
+      setNerfLoadingSkill(null);
+    }
+  }, [refreshNerfStatus]);
+
   useEffect(() => {
     void refreshMcp();
     void refreshAgStatus();
     void refreshAgCommandsStatus();
-  }, [refreshMcp, refreshAgStatus, refreshAgCommandsStatus]);
+    void refreshNerfStatus();
+  }, [refreshMcp, refreshAgStatus, refreshAgCommandsStatus, refreshNerfStatus]);
 
   const handleOpenAgFolder = useCallback(async () => {
     try {
@@ -1044,6 +1170,202 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                   );
                 })}
               </div>
+            </div>
+
+            {/* Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight) */}
+            <div
+              style={{
+                marginTop: 20,
+                padding: "16px 20px",
+                backgroundColor: "#ffffff",
+                border: "1px solid #d0d7de",
+                borderRadius: 8,
+                display: "flex",
+                flexDirection: "column",
+                gap: 14,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1f2937", display: "flex", alignItems: "center", gap: 8 }}>
+                    <span>{t("antigravity.nerfSectionHeader")}</span>
+                    {(nerfLoadingSkill !== null || nerfStatusLoading) && <span style={{ fontSize: 11, color: "#656d76" }}>...</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#57606a", marginTop: 4 }}>
+                    {t("antigravity.nerfDesc")}
+                  </div>
+                </div>
+              </div>
+
+              {/* Legacy /pov-nerf detected notice */}
+              {nerfInfo?.legacy_single_skill?.present && (
+                <div style={{ padding: "8px 12px", backgroundColor: "#fff8c5", color: "#6e4a00", borderRadius: 6, fontSize: 12, border: "1px solid #d4a72c" }}>
+                  <div>⚠ {nerfInfo.legacy_single_skill.message}</div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, marginTop: 4, color: "#57606a" }}>
+                    {nerfInfo.legacy_single_skill.path}
+                  </div>
+                </div>
+              )}
+
+              {/* Operation error banner (Install / Update / Remove failure) */}
+              {nerfOpError && (
+                <div
+                  style={{
+                    padding: "8px 12px",
+                    backgroundColor: "#ffebe9",
+                    color: "#cf222e",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    border: "1px solid #ffc1ba",
+                  }}
+                >
+                  <div>⚠ {nerfOpError}</div>
+                </div>
+              )}
+
+              {/* Status fetch error banner with localized retry control */}
+              {nerfStatusError && (
+                <div
+                  style={{
+                    padding: "8px 12px",
+                    backgroundColor: "#ffebe9",
+                    color: "#cf222e",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    border: "1px solid #ffc1ba",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ flex: "1 1 auto" }}>⚠ {nerfStatusError}</div>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: 11, padding: "3px 8px", flexShrink: 0 }}
+                    onClick={() => void refreshNerfStatus()}
+                    disabled={nerfLoadingSkill !== null}
+                  >
+                    {t("antigravity.nerfRetryStatus")}
+                  </button>
+                </div>
+              )}
+
+              {/* 2 Skill Cards */}
+              {!nerfInfo || !Array.isArray(nerfInfo.skills) || nerfInfo.skills.length === 0 ? (
+                <div style={{ fontSize: 12, color: "#656d76", padding: "12px 0" }}>
+                  {t("antigravity.nerfDesc")}
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {nerfInfo.skills.map((skill) => {
+                    const id = skill.skill_id;
+                    const isActionLoading = nerfLoadingSkill === id;
+                    const isAnyLoading = nerfLoadingSkill !== null || nerfStatusLoading;
+                    const isSaved = nerfSavedMessage === id;
+                    const titleKey = id === "balanced" ? "antigravity.nerfBalancedTitle" : "antigravity.nerfLightweightTitle";
+                    const descKey = id === "balanced" ? "antigravity.nerfBalancedDesc" : "antigravity.nerfLightweightDesc";
+
+                    return (
+                      <div
+                        key={id}
+                        style={{
+                          background: "#fff",
+                          border: "1px solid #e1e4e8",
+                          borderRadius: 6,
+                          padding: "10px 14px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: 10,
+                        }}
+                      >
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 320px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 700, color: "#1f2937" }}>
+                              {t(titleKey)}
+                            </span>
+                            <div>
+                              {skill.state === "invalid" ? (
+                                <span style={{ fontSize: 11, color: "#cf222e", fontWeight: 600 }}>
+                                  ⚠ {t("antigravity.commandStatusInvalid")}
+                                </span>
+                              ) : skill.state === "modified" ? (
+                                <span style={{ fontSize: 11, color: "#9a6700", fontWeight: 600 }}>
+                                  ⚠ {t("antigravity.nerfStatusModified")}
+                                </span>
+                              ) : skill.state === "outdated" ? (
+                                <span style={{ fontSize: 11, color: "#9a6700", fontWeight: 600 }}>
+                                  ⚠ {t("antigravity.commandStatusOutdated")}
+                                </span>
+                              ) : skill.state === "installed" ? (
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: "#1a7f37", fontWeight: 600 }}>
+                                  <span>✓</span> {t("antigravity.commandStatusInstalled")}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 11, color: "#656d76", fontWeight: 500 }}>
+                                  {t("antigravity.commandStatusNotInstalled")}
+                                </span>
+                              )}
+                            </div>
+                            {isSaved && (
+                              <span style={{ fontSize: 11, color: "#1a7f37", fontWeight: 600 }}>
+                                ✓ {t("antigravity.savedMessage")}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 11, color: "#57606a" }}>
+                            {t(descKey)}
+                          </div>
+                          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "#8c959f", wordBreak: "break-all" }}>
+                            {skill.target_path}
+                          </div>
+                          {skill.diagnostic_reason && (
+                            <div style={{ fontSize: 11, color: skill.state === "invalid" ? "#cf222e" : "#9a6700", marginTop: 2 }}>
+                              {skill.diagnostic_reason}
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {skill.permitted_actions.includes("install") && (
+                            <button
+                              className="btn btn-primary"
+                              style={{ fontSize: 11, padding: "4px 10px" }}
+                              onClick={() => void handleInstallNerf(id)}
+                              disabled={isAnyLoading}
+                            >
+                              {isActionLoading ? "..." : t("antigravity.commandBtnInstall")}
+                            </button>
+                          )}
+                          {skill.permitted_actions.includes("update") && (
+                            <button
+                              className="btn btn-primary"
+                              style={{ fontSize: 11, padding: "4px 10px" }}
+                              onClick={() => void handleUpdateNerf(id)}
+                              disabled={isAnyLoading}
+                            >
+                              {isActionLoading ? "..." : t("antigravity.commandBtnUpdate")}
+                            </button>
+                          )}
+                          {skill.permitted_actions.includes("remove") && (
+                            <button
+                              className="btn btn-danger"
+                              style={{ fontSize: 11, padding: "4px 10px" }}
+                              onClick={() => void handleRemoveNerf(id)}
+                              disabled={isAnyLoading}
+                            >
+                              {isActionLoading ? "..." : t("antigravity.commandBtnRemove")}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
       </div>
     </>

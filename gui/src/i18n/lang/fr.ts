@@ -85,6 +85,17 @@ export const translations: TranslationMap = {
   "antigravity.btnOpenSkillsFolder": "Ouvrir le dossier des compétences",
   "antigravity.commandsMcpWarning": "⚠ Le serveur MCP Poverello n'est pas enregistré dans Antigravity. Enregistrez le MCP ci-dessus pour utiliser les commandes.",
 
+  // Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight)
+  "antigravity.nerfSectionHeader": "Commandes Nerf Antigravity (/pov-nerf-balanced et /pov-nerf-lightweight)",
+  "antigravity.nerfDesc": "Enregistre des commandes slash globales limitant le raisonnement exploratoire et la planification verbeuse pour les tâches de mise en œuvre ciblées.",
+  "antigravity.nerfBalancedTitle": "/pov-nerf-balanced",
+  "antigravity.nerfBalancedDesc": "Conseils Poverello pour un travail d'implémentation ciblé et équilibré.",
+  "antigravity.nerfLightweightTitle": "/pov-nerf-lightweight",
+  "antigravity.nerfLightweightDesc": "Conseils Poverello pour les petites tâches d'implémentation localisées.",
+  "antigravity.nerfLegacyWarning": "Avis : Un Skill hérité /pov-nerf a été détecté. Il est conservé intact et peut être supprimé manuellement s'il n'est plus nécessaire.",
+  "antigravity.nerfStatusModified": "Modifié / Modifications externes",
+  "antigravity.nerfRetryStatus": "Réessayer",
+
   // Antigravity Rules
   "antigravityRules.tabTitle": "Antigravity Rules",
   "antigravityRules.panelTitle": "Poverello Direct Coding",

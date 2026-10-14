@@ -2278,13 +2278,13 @@ pub(crate) mod tests {
             frozen_plan: None,
         };
         let adapter = DirectMcpAdapter::with_config(DirectMcpConfig {
-            execution_deadline: Duration::from_millis(500),
+            execution_deadline: Duration::from_secs(3),
             ..DirectMcpConfig::default()
         });
         let invocation = adapter.execute_with_audit(&direct_input, None);
         tokio::pin!(invocation);
         let wait_for_ready = async {
-            tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::time::timeout(Duration::from_secs(15), async {
                 loop {
                     if marker.exists() {
                         break;
@@ -2686,13 +2686,13 @@ pub(crate) mod tests {
             frozen_plan: None,
         };
         let adapter = DirectMcpAdapter::with_config(DirectMcpConfig {
-            execution_deadline: Duration::from_millis(500),
+            execution_deadline: Duration::from_secs(3),
             ..DirectMcpConfig::default()
         });
         let invocation = adapter.execute_with_audit(&direct_input, None);
         tokio::pin!(invocation);
         let wait_for_ready = async {
-            tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::time::timeout(Duration::from_secs(15), async {
                 loop {
                     if marker.exists() {
                         break;

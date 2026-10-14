@@ -1,5 +1,28 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.25.3 — 2026-10-14
+
+### Antigravity Nerf Commands (`/pov-nerf-balanced` & `/pov-nerf-lightweight`)
+
+- Added two independent global Skills and slash commands under Antigravity Settings:
+  - `/pov-nerf-balanced` (`C:\Users\<user>\.gemini\config\skills\pov-nerf-balanced\SKILL.md`): Focused reasoning and concise planning for implementation work. Suppresses excessive exploratory reading and verbose explanations while preserving correctness, safety constraints, and required tests.
+  - `/pov-nerf-lightweight` (`C:\Users\<user>\.gemini\config\skills\pov-nerf-lightweight\SKILL.md`): Focused guidance for small, localized implementation tasks; it avoids unnecessary planning and unrelated exploration while retaining the context needed for safe, correct work.
+- Managed independently via GUI with individual Install and Remove controls per Skill (no batch mutations). Update is unavailable until a prior canonical Skill version is explicitly supported.
+- Fail-closed ownership and safety model:
+  - Deterministic UTF-8 LF SHA-256 digest verification over canonical template bodies, excluding the single managed marker comment line.
+  - Safe lifecycle operations: exclusive creation (`create_new`) for installation and file-only deletion for removal (never deletes the containing directory). Updates are refused without changing files because no prior canonical version is currently supported.
+  - Refuses to overwrite or modify unmanaged, externally edited, or custom files (`Unmanaged` state).
+  - Informational detection of legacy `/pov-nerf` Skills without performing destructive mutations or silent upgrades.
+
+### GLM (Z.ai) Canonical Route Defaults
+
+- Updated initial GLM (`zai`) defaults for clean installations and unconfigured Provider seeding (`merge_bundled_providers`):
+  - `claude-opus-5`: `glm-5.3` with `reasoning_effort: "max"`
+  - `claude-sonnet-5`: `glm-5.3-flashx` with `reasoning_effort: "high"`
+  - `claude-haiku-4-5`: `glm-5.3-flash` with `reasoning_effort: "low"`
+- In this seed/merge update (`merge_bundled_providers`), an already-present `providers.zai` entry is left unchanged: its custom route models and reasoning efforts are preserved, and missing `zai` route keys are not injected from the bundled template.
+- The normal merge may still add other missing bundled providers or model entries using its existing additive behavior. Existing custom profiles and legacy startup-migration behavior are unchanged by this update.
+
 ## v0.24.2 — 2026-10-13
 
 ### GLM (Z.ai) Direct Provider Support

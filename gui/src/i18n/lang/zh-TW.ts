@@ -85,6 +85,17 @@ export const translations: TranslationMap = {
   "antigravity.btnOpenSkillsFolder": "開啟技能資料夾",
   "antigravity.commandsMcpWarning": "⚠ Poverello MCP 伺服器尚未在 Antigravity 中註冊。使用指令前請先完成上方 MCP 設定。",
 
+  // Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight)
+  "antigravity.nerfSectionHeader": "Antigravity Nerf 指令 (/pov-nerf-balanced 與 /pov-nerf-lightweight)",
+  "antigravity.nerfDesc": "註冊全域斜線指令，限制針對性實作任務中的探索性推理與冗長規劃。",
+  "antigravity.nerfBalancedTitle": "/pov-nerf-balanced",
+  "antigravity.nerfBalancedDesc": "針對專注、均衡實作工作的 Poverello 指導。",
+  "antigravity.nerfLightweightTitle": "/pov-nerf-lightweight",
+  "antigravity.nerfLightweightDesc": "針對小型、局部實作任務的 Poverello 指導。",
+  "antigravity.nerfLegacyWarning": "注意：偵測到舊版 /pov-nerf Skill。它將保持原樣，如不再需要可手動刪除。",
+  "antigravity.nerfStatusModified": "已修改 / 外部變更",
+  "antigravity.nerfRetryStatus": "重試",
+
   // Antigravity Rules
   "antigravityRules.tabTitle": "Antigravity Rules",
   "antigravityRules.panelTitle": "Poverello Direct Coding",
