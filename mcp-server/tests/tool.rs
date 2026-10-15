@@ -67,6 +67,15 @@ fn review_args(task: &str, plan: &str, diff: &str, status: &str) -> CallToolRequ
     CallToolRequestParams::new("review").with_arguments(args.as_object().unwrap().clone())
 }
 
+fn revise_args(task: &str, current_plan: &str, feedback: &str) -> CallToolRequestParams {
+    let args = serde_json::json!({
+        "task": task,
+        "current_plan": current_plan,
+        "feedback": feedback,
+    });
+    CallToolRequestParams::new("revise").with_arguments(args.as_object().unwrap().clone())
+}
+
 #[tokio::test]
 async fn exposes_plan_and_review_tools() {
     let (server_transport, client_transport) = tokio::io::duplex(4096);
@@ -83,7 +92,7 @@ async fn exposes_plan_and_review_tools() {
     let client = DummyClientHandler.serve(client_transport).await.unwrap();
 
     let tools = client.list_all_tools().await.unwrap();
-    assert_eq!(tools.len(), 5);
+    assert_eq!(tools.len(), 6);
 
     // 1. Verify plan tool
     let plan_tool = tools.iter().find(|t| t.name == "plan").expect("plan tool missing");
@@ -103,7 +112,21 @@ async fn exposes_plan_and_review_tools() {
     assert_eq!(typed_frozen_schema["properties"]["schemaVersion"]["type"], "integer");
     assert_eq!(typed_frozen_schema["properties"]["contentDigest"]["type"], "string");
 
-    // 2. Verify review tool
+    // 2. Verify revise tool
+    let revise_tool = tools.iter().find(|t| t.name == "revise").expect("revise tool missing");
+    assert!(revise_tool.description.as_ref().is_some_and(|d| !d.is_empty()));
+    let revise_schema = &revise_tool.input_schema;
+    assert_eq!(revise_schema.get("type").and_then(|v| v.as_str()), Some("object"));
+    let revise_req = revise_schema.get("required").and_then(|v| v.as_array()).unwrap();
+    assert!(revise_req.contains(&serde_json::json!("task")));
+    assert!(revise_req.contains(&serde_json::json!("current_plan")));
+    assert!(revise_req.contains(&serde_json::json!("feedback")));
+    assert!(!revise_req.contains(&serde_json::json!("context")));
+    assert!(!revise_req.contains(&serde_json::json!("constraints")));
+    assert!(!revise_req.contains(&serde_json::json!("plan_context")));
+    assert!(!revise_req.contains(&serde_json::json!("frozen_plan")));
+
+    // 3. Verify review tool
     let review_tool = tools.iter().find(|t| t.name == "review").expect("review tool missing");
     assert!(review_tool.description.as_ref().is_some_and(|d| !d.is_empty()));
     let review_schema = &review_tool.input_schema;
@@ -117,7 +140,7 @@ async fn exposes_plan_and_review_tools() {
     assert!(!review_req.contains(&serde_json::json!("review_mode")));
     assert!(!review_req.contains(&serde_json::json!("additional_context")));
 
-    // 3. Verify orchestrator tools
+    // 4. Verify orchestrator tools
     assert!(tools.iter().any(|t| t.name == "orchestrator_claim_task"));
     assert!(tools.iter().any(|t| t.name == "orchestrator_report_progress"));
     assert!(tools.iter().any(|t| t.name == "orchestrator_submit_result"));
@@ -223,6 +246,112 @@ async fn valid_review_call_returns_verdict() {
         .and_then(|c| c.as_text())
         .map(|t| t.text.as_str());
     assert_eq!(text, Some("# Review Summary\n\nDecision: Approved\nCommit readiness: READY"));
+
+    let _ = client.cancel().await;
+}
+
+#[tokio::test]
+async fn valid_revise_call_returns_plan_as_text_content() {
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+
+    let tool = PlannerTool::new(FakeProvider {
+        text: "1. Revised Step X\n2. Revised Step Y".into(),
+    });
+    tokio::spawn(async move {
+        if let Ok(service) = tool.serve(server_transport).await {
+            let _ = service.waiting().await;
+        }
+    });
+
+    let client = DummyClientHandler.serve(client_transport).await.unwrap();
+
+    let result = client
+        .call_tool(revise_args("add a button", "Old plan: 1. Do A", "Change A to B"))
+        .await
+        .unwrap();
+
+    assert_eq!(result.is_error, Some(false));
+    let text = result
+        .content
+        .first()
+        .and_then(|c| c.as_text())
+        .map(|t| t.text.as_str());
+    assert_eq!(text, Some("1. Revised Step X\n2. Revised Step Y"));
+
+    let _ = client.cancel().await;
+}
+
+#[tokio::test]
+async fn revise_rejects_empty_required_parameters() {
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+
+    let tool = PlannerTool::new(FakeProvider {
+        text: "unused".into(),
+    });
+    tokio::spawn(async move {
+        if let Ok(service) = tool.serve(server_transport).await {
+            let _ = service.waiting().await;
+        }
+    });
+
+    let client = DummyClientHandler.serve(client_transport).await.unwrap();
+
+    // Empty task
+    let err = client
+        .call_tool(revise_args("   ", "old plan", "feedback"))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("`task` must not be empty"));
+
+    // Empty current_plan
+    let err = client
+        .call_tool(revise_args("task", "   ", "feedback"))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("`current_plan` must not be empty"));
+
+    // Empty feedback
+    let err = client
+        .call_tool(revise_args("task", "old plan", "   "))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("`feedback` must not be empty"));
+
+    let _ = client.cancel().await;
+}
+
+#[tokio::test]
+async fn revise_dispatches_exactly_once_with_proper_sections() {
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let tool = PlannerTool::new(CountingProvider {
+        calls: Arc::clone(&calls),
+        captured_users: Arc::clone(&captured),
+        text: "revised output".into(),
+    });
+    tokio::spawn(async move {
+        if let Ok(service) = tool.serve(server_transport).await {
+            let _ = service.waiting().await;
+        }
+    });
+
+    let client = DummyClientHandler.serve(client_transport).await.unwrap();
+
+    let result = client
+        .call_tool(revise_args("task X", "current plan Y", "user feedback Z"))
+        .await
+        .unwrap();
+
+    assert_eq!(result.is_error, Some(false));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    let prompts = captured.lock().unwrap();
+    assert_eq!(prompts.len(), 1);
+    assert!(prompts[0].contains("## Task\n\ntask X"));
+    assert!(prompts[0].contains("## Current Implementation Plan\n\ncurrent plan Y"));
+    assert!(prompts[0].contains("## Requested Revisions and Feedback\n\nuser feedback Z"));
 
     let _ = client.cancel().await;
 }

@@ -1,5 +1,5 @@
 //! `anthro-bridge-mcp-server` — a standalone or embedded MCP server exposing
-//! a single `plan` tool.
+//! `plan`, `revise`, and `review` tools (plus orchestrator workflow tools).
 //!
 //! The library target exists so integration tests under `tests/` and the main
 //! Poverello GUI crate (`gui/src-tauri`) can run the MCP server without

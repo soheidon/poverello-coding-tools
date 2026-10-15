@@ -8,7 +8,7 @@ Poverello Coding Tools(앱 표시 이름 **Poverello**)는 AI 기반 소프트�
 
 1. **Claude Code / Claude Desktop용 3P 게이트웨이** — Claude의 저장소 탐색, 도구 사용, 파일 편집, 테스트 실행 기능을 유지하면서 추론을 서드파티 프로바이더로 라우팅합니다.
 2. **Claude Code 전용 로컬 LLM (Ollama)** — 로컬 모델을 사용해 Claude Code를 오프라인으로 실행할 수 있습니다.
-3. **Google Antigravity용 MCP 플래너 & 리뷰어** — `anthro-bridge/plan` 및 `anthro-bridge/review` MCP 도구를 통해 구현 계획 수립과 구현 후 리뷰를 외부 모델에 위임합니다.
+3. **Google Antigravity용 MCP 플래너 & 리뷰어** — `poverello/plan` 및 `poverello/review` MCP 도구를 통해 구현 계획 수립과 구현 후 리뷰를 외부 모델에 위임합니다.
 
 ---
 
@@ -58,14 +58,14 @@ Antigravity가 구독 기반 용량으로
 
 **Antigravity 전역 명령어:**
 
-- **`/anthro-plan`** — 구현 계획 수립을 설정된 외부 모델에 위임합니다.
-- **`/anthro-revise`** — 새로운 피드백이나 제약 조건에 따라 기존 계획을 수정합니다.
-- **`/anthro-review`** — 커밋 전에 완료된 구현을 승인된 계획과 대조하여 리뷰하고, 명시적으로 READY / NOT READY 판정을 내립니다.
+- **`/pov-plan`** — 구현 계획 수립을 설정된 외부 모델에 위임합니다.
+- **`/pov-revise`** — 새로운 피드백이나 제약 조건에 따라 기존 계획을 수정합니다.
+- **`/pov-review`** — 커밋 전에 완료된 구현을 승인된 계획과 대조하여 리뷰하고, 명시적으로 READY / NOT READY 판정을 내립니다.
 
 **권장 워크플로:**
 
 ```text
-/anthro-plan → 구현 및 테스트 → /anthro-review → 커밋
+/pov-plan → 구현 및 테스트 → /pov-review → 커밋
 ```
 
 ---
@@ -182,7 +182,7 @@ Windows 설치 프로그램은 8개 언어를 지원합니다. Poverello v0.24.1
 1. Poverello에서 선택한 플래너/리뷰어 모델의 API 키를 설정합니다.
 2. **MCP** 탭을 선택하고 **설정 > Antigravity > MCP Plan Settings**에서 모델을 설정합니다.
 3. Antigravity의 MCP 설정에 `anthro-bridge.exe`를 `["--mcp-server"]` 인수와 함께 등록하거나, Poverello에서 **Configure Automatically**를 클릭합니다.
-4. `/anthro-plan`으로 계획을 수립하고, `/anthro-revise`로 계획을 수정하며, `/anthro-review`로 커밋 전 구현을 리뷰합니다.
+4. `/pov-plan`으로 계획을 수립하고, `/pov-revise`로 계획을 수정하며, `/pov-review`로 커밋 전 구현을 리뷰합니다.
 5. 전체 [Antigravity MCP 설정 가이드](ANTIGRAVITY_MCP.ko.md)를 참고하세요.
 
 ---

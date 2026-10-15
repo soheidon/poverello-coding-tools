@@ -8,7 +8,7 @@ Poverello Coding Tools (affiché dans l’application sous le nom **Poverello**)
 
 1. **Passerelle 3P pour Claude Code / Claude Desktop** — Conservez l'exploration de dépôts, l'utilisation d'outils, l'édition de fichiers et l'exécution de tests de Claude tout en routant les inférences vers des fournisseurs tiers.
 2. **LLM local dédié à Claude Code (Ollama)** — Exécutez Claude Code hors ligne avec des modèles locaux.
-3. **Planificateur & Réviseur MCP pour Google Antigravity** — Déléguez la planification d'implémentation et la révision post-implémentation à des modèles externes via les outils MCP `anthro-bridge/plan` et `anthro-bridge/review`.
+3. **Planificateur & Réviseur MCP pour Google Antigravity** — Déléguez la planification d'implémentation et la révision post-implémentation à des modèles externes via les outils MCP `poverello/plan` et `poverello/review`.
 
 ---
 
@@ -68,14 +68,14 @@ L’exécutable et les identifiants des outils MCP conservent le nom `anthro-bri
 
 **Commandes globales Antigravity :**
 
-- **`/anthro-plan`** — Délègue la planification d'implémentation au modèle externe configuré.
-- **`/anthro-revise`** — Révise un plan existant en fonction de nouveaux retours ou contraintes.
-- **`/anthro-review`** — Révise une implémentation terminée par rapport au plan approuvé avant le commit, avec des verdicts explicites READY / NOT READY.
+- **`/pov-plan`** — Délègue la planification d'implémentation au modèle externe configuré.
+- **`/pov-revise`** — Révise un plan existant en fonction de nouveaux retours ou contraintes.
+- **`/pov-review`** — Révise une implémentation terminée par rapport au plan approuvé avant le commit, avec des verdicts explicites READY / NOT READY.
 
 **Flux de travail recommandé :**
 
 ```text
-/anthro-plan → Implémentation & Tests → /anthro-review → Commit
+/pov-plan → Implémentation & Tests → /pov-review → Commit
 ```
 
 ---
@@ -192,7 +192,7 @@ L’installateur Windows prend en charge 8 langues. Poverello v0.24.1 conserve l
 1. Configurez une clé API pour le modèle planificateur/réviseur choisi dans Poverello.
 2. Sélectionnez l'onglet **MCP** et configurez votre modèle dans **Paramètres > Antigravity > MCP Plan Settings**.
 3. Enregistrez `anthro-bridge.exe` avec `["--mcp-server"]` dans la configuration MCP d'Antigravity (ou cliquez sur **Configure Automatically** dans Poverello).
-4. Utilisez `/anthro-plan` pour concevoir des plans, `/anthro-revise` pour mettre à jour des plans, et `/anthro-review` pour réviser les implémentations avant le commit.
+4. Utilisez `/pov-plan` pour concevoir des plans, `/pov-revise` pour mettre à jour des plans, et `/pov-review` pour réviser les implémentations avant le commit.
 5. Suivez le [Guide complet de configuration du MCP Antigravity](ANTIGRAVITY_MCP.fr.md).
 
 ---

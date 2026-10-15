@@ -8,7 +8,7 @@ Poverello Coding Tools（应用内显示名称为 **Poverello**）是一款面�
 
 1. **面向 Claude Code / Claude Desktop 的第三方推理网关** — 保留 Claude 的代码仓库探索、工具调用、文件编辑和测试执行能力，同时将推理请求路由至第三方提供商。
 2. **Claude Code 专用本地 LLM（Ollama）** — 使用本地模型离线运行 Claude Code。
-3. **面向 Google Antigravity 的 MCP 规划器与审查器** — 通过 `anthro-bridge/plan` 和 `anthro-bridge/review` MCP 工具，将实现规划与实现后审查委托给外部模型。
+3. **面向 Google Antigravity 的 MCP 规划器与审查器** — 通过 `poverello/plan` 和 `poverello/review` MCP 工具，将实现规划与实现后审查委托给外部模型。
 
 ---
 
@@ -68,14 +68,14 @@ Antigravity 使用订阅容量
 
 **Antigravity 全局命令：**
 
-- **`/anthro-plan`** — 将实现规划委托给已配置的外部模型。
-- **`/anthro-revise`** — 根据新的反馈或约束条件修订现有计划。
-- **`/anthro-review`** — 在提交前，针对已批准的计划审查已完成的实现，并给出明确的 READY / NOT READY 结论。
+- **`/pov-plan`** — 将实现规划委托给已配置的外部模型。
+- **`/pov-revise`** — 根据新的反馈或约束条件修订现有计划。
+- **`/pov-review`** — 在提交前，针对已批准的计划审查已完成的实现，并给出明确的 READY / NOT READY 结论。
 
 **推荐工作流：**
 
 ```text
-/anthro-plan → 实现与测试 → /anthro-review → 提交
+/pov-plan → 实现与测试 → /pov-review → 提交
 ```
 
 ---
@@ -192,7 +192,7 @@ Windows 安装程序支持 8 种语言。Poverello v0.24.1 保留现有应用标
 1. 在 Poverello 中为所选规划器/审查器模型配置 API 密钥。
 2. 选择 **MCP** 标签页，并在 **Settings > Antigravity > MCP Plan Settings** 中配置模型。
 3. 在 Antigravity 的 MCP 配置中注册 `anthro-bridge.exe`，并附加参数 `["--mcp-server"]`（或在 Poverello 中点击 **Configure Automatically**）。
-4. 使用 `/anthro-plan` 制定计划，使用 `/anthro-revise` 更新计划，使用 `/anthro-review` 在提交前审查实现。
+4. 使用 `/pov-plan` 制定计划，使用 `/pov-revise` 更新计划，使用 `/pov-review` 在提交前审查实现。
 5. 请参阅完整的 [Antigravity MCP 配置指南](ANTIGRAVITY_MCP.zh-CN.md)。
 
 ---

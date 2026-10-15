@@ -1,5 +1,5 @@
-//! MCP tool layer: defines the `plan` tool, validates its arguments, builds the
-//! planning prompts, and converts provider results/errors into MCP types.
+//! MCP tool layer: defines the `plan`, `revise`, and `review` tools, validates arguments, builds the
+//! prompts, and converts provider results/errors into MCP types.
 //!
 //! Prompt ownership lives here; provider HTTP details live in
 //! [`crate::provider`].
@@ -26,6 +26,38 @@ pub struct PlanParams {
     /// Relevant repository information collected by the calling agent.
     #[schemars(description = "Relevant repository context collected by the calling agent")]
     pub context: String,
+
+    /// Explicit limitations or constraints (optional).
+    #[schemars(description = "Explicit limitations or constraints (optional)")]
+    pub constraints: Option<String>,
+
+    /// Authoritative structured Plan Context provided by the Orchestrator (optional).
+    #[schemars(description = "Authoritative structured Plan Context provided by the Orchestrator (optional)")]
+    pub plan_context: Option<String>,
+
+    /// Authoritative structured FrozenPlanPayload provided by the Orchestrator (required for plan-bound requests).
+    #[schemars(description = "Structured frozen plan payload. Required whenever plan_context identifies a resolved plan.")]
+    pub frozen_plan: Option<StructuredFrozenPlanPayload>,
+}
+
+/// Arguments accepted by the `revise` tool.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ReviseParams {
+    /// A concise statement of what the user wants changed or implemented.
+    #[schemars(description = "A concise statement of the task being planned")]
+    pub task: String,
+
+    /// The existing implementation plan to be revised.
+    #[schemars(description = "The existing implementation plan to be revised")]
+    pub current_plan: String,
+
+    /// User feedback, reviewer objections, or new requirements guiding the revision.
+    #[schemars(description = "User feedback, reviewer objections, or new requirements guiding the revision")]
+    pub feedback: String,
+
+    /// Relevant repository information collected by the calling agent (optional).
+    #[schemars(description = "Relevant repository context collected by the calling agent (optional)")]
+    pub context: Option<String>,
 
     /// Explicit limitations or constraints (optional).
     #[schemars(description = "Explicit limitations or constraints (optional)")]
@@ -244,6 +276,27 @@ impl<P: PlannerProvider> PlannerTool<P> {
             Ok(plan) => Ok(CallToolResult::success(vec![ContentBlock::text(plan.text)])),
             Err(err) => {
                 tracing::error!(error = %err, "planner provider error");
+                Err(provider_error_to_mcp(err))
+            }
+        }
+    }
+
+    #[tool(
+        description = "Revise an existing implementation plan based on user feedback, reviewer objections, or updated requirements."
+    )]
+    async fn revise(
+        &self,
+        Parameters(params): Parameters<ReviseParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        validate_revise_params(&params)?;
+
+        let system_prompt = build_revise_system_prompt();
+        let user_prompt = build_revise_user_prompt(&params);
+
+        match self.provider.plan(&system_prompt, &user_prompt).await {
+            Ok(plan) => Ok(CallToolResult::success(vec![ContentBlock::text(plan.text)])),
+            Err(err) => {
+                tracing::error!(error = %err, "planner provider error during revise");
                 Err(provider_error_to_mcp(err))
             }
         }
@@ -571,18 +624,11 @@ pub fn format_structured_plan_context(ctx: &StructuredPlanContext) -> String {
     s
 }
 
-fn validate_plan_params(params: &PlanParams) -> Result<(), ErrorData> {
-    if params.task.trim().is_empty() {
-        return Err(ErrorData::invalid_params("`task` must not be empty", None));
-    }
-    if params.context.trim().is_empty() {
-        return Err(ErrorData::invalid_params(
-            "`context` must not be empty",
-            None,
-        ));
-    }
-
-    let parsed_plan_ctx = if let Some(ref raw_ctx) = params.plan_context {
+fn validate_plan_context_and_frozen_plan(
+    plan_context: Option<&str>,
+    frozen_plan: Option<&StructuredFrozenPlanPayload>,
+) -> Result<(), ErrorData> {
+    let parsed_plan_ctx = if let Some(raw_ctx) = plan_context {
         let trimmed = raw_ctx.trim();
         if !trimmed.is_empty() {
             let parsed: Result<StructuredPlanContext, _> = serde_json::from_str(trimmed);
@@ -604,14 +650,14 @@ fn validate_plan_params(params: &PlanParams) -> Result<(), ErrorData> {
 
     let is_plan_bound = parsed_plan_ctx.as_ref().is_some_and(StructuredPlanContext::is_plan_bound);
 
-    if is_plan_bound && params.frozen_plan.is_none() {
+    if is_plan_bound && frozen_plan.is_none() {
         return Err(ErrorData::invalid_params(
             "`frozen_plan` is required when `plan_context` identifies a resolved plan",
             None,
         ));
     }
 
-    if let Some(payload) = params.frozen_plan.as_ref() {
+    if let Some(payload) = frozen_plan {
         if payload.schema_version != 1 {
             return Err(ErrorData::invalid_params(
                 format!("`frozen_plan.schema_version` is unsupported: {}", payload.schema_version),
@@ -786,6 +832,38 @@ fn validate_plan_params(params: &PlanParams) -> Result<(), ErrorData> {
     Ok(())
 }
 
+fn validate_plan_params(params: &PlanParams) -> Result<(), ErrorData> {
+    if params.task.trim().is_empty() {
+        return Err(ErrorData::invalid_params("`task` must not be empty", None));
+    }
+    if params.context.trim().is_empty() {
+        return Err(ErrorData::invalid_params(
+            "`context` must not be empty",
+            None,
+        ));
+    }
+    validate_plan_context_and_frozen_plan(params.plan_context.as_deref(), params.frozen_plan.as_ref())
+}
+
+fn validate_revise_params(params: &ReviseParams) -> Result<(), ErrorData> {
+    if params.task.trim().is_empty() {
+        return Err(ErrorData::invalid_params("`task` must not be empty", None));
+    }
+    if params.current_plan.trim().is_empty() {
+        return Err(ErrorData::invalid_params(
+            "`current_plan` must not be empty",
+            None,
+        ));
+    }
+    if params.feedback.trim().is_empty() {
+        return Err(ErrorData::invalid_params(
+            "`feedback` must not be empty",
+            None,
+        ));
+    }
+    validate_plan_context_and_frozen_plan(params.plan_context.as_deref(), params.frozen_plan.as_ref())
+}
+
 pub fn resolve_review_mode(mode: Option<&str>) -> Result<&'static str, ErrorData> {
     match mode {
         None => Ok("standard"),
@@ -904,6 +982,72 @@ pub fn build_user_prompt_with_plan_context_and_frozen_plan(
     }
 
     if let Some(constraints) = constraints {
+        if !constraints.trim().is_empty() {
+            sections.push(format!("## Constraints\n\n{}", constraints));
+        }
+    }
+
+    sections.join("\n\n")
+}
+
+/// Builds the revise system prompt (constant role instructions for revising plans).
+pub fn build_revise_system_prompt() -> String {
+    [
+        "You are a software implementation planner, not an implementation agent.",
+        "Your task is to revise an existing implementation plan based on user feedback, reviewer objections, or updated requirements.",
+        "You produce a concrete, ordered, updated implementation plan that will be handed to an autonomous coding agent.",
+        "",
+        "Follow these rules strictly:",
+        "",
+        "- Address the requested revisions and feedback directly and thoroughly.",
+        "- Preserve valid, unaffected sections of the previous plan; do not discard workable details unnecessarily.",
+        "- Base conclusions only on the context and existing plan supplied. Do not invent files, functions, types, or behavior that are not mentioned.",
+        "- Explicitly distinguish confirmed facts from assumptions. Label assumptions clearly.",
+        "- Prefer minimal, targeted changes. Avoid broad refactors or unrelated cleanup unless requested.",
+        "- Preserve existing behavior outside the requested scope.",
+        "- Provide an ordered sequence of implementation steps.",
+        "- Provide concrete verification steps, including relevant build and test commands.",
+        "- Never claim that a change has already been made.",
+        "- Never invent or fabricate test results.",
+        "- Never assume access to the repository beyond the supplied context; you cannot read, edit, or execute anything yourself.",
+        "",
+        "Return a complete revised plan that can be followed directly by an autonomous coding agent.",
+    ]
+    .join("\n")
+}
+
+/// Builds the revise user prompt from `ReviseParams`.
+pub fn build_revise_user_prompt(params: &ReviseParams) -> String {
+    let mut sections = vec![
+        format!("## Task\n\n{}", params.task),
+        format!("## Current Implementation Plan\n\n{}", params.current_plan),
+        format!("## Requested Revisions and Feedback\n\n{}", params.feedback),
+    ];
+
+    if let Some(ref ctx) = params.context {
+        if !ctx.trim().is_empty() {
+            sections.push(format!("## Repository context\n\n{}", ctx));
+        }
+    }
+
+    if let Some(payload) = params.frozen_plan.as_ref() {
+        sections.push(format!(
+            "## Approved Frozen Implementation Plan\n\n{}",
+            payload.effective_plan_content
+        ));
+    }
+
+    if let Some(ref pc) = params.plan_context {
+        if !pc.trim().is_empty() {
+            if let Ok(ctx) = serde_json::from_str::<StructuredPlanContext>(pc.trim()) {
+                sections.push(format_structured_plan_context(&ctx));
+            } else {
+                sections.push(format!("## Plan Context\n\n{}", pc.trim()));
+            }
+        }
+    }
+
+    if let Some(ref constraints) = params.constraints {
         if !constraints.trim().is_empty() {
             sections.push(format!("## Constraints\n\n{}", constraints));
         }

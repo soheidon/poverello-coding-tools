@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n";
-import type { GatewayConfig, McpConfig, McpTargetConfig, AntigravityMcpInfo, AntigravityCommandsInfo, PovNerfCommandsInfo, PovNerfSkillId, PovNerfOperationResult } from "../types";
+import type { TranslationKey } from "../i18n/lang/en";
+import type { GatewayConfig, McpConfig, McpTargetConfig, AntigravityMcpInfo, AntigravityCommandsInfo, AntigravityCommandInstallOutcome, PovNerfCommandsInfo, PovNerfSkillId, PovNerfOperationResult } from "../types";
 import { getMcpTargetKey } from "../types";
 import { MODEL_CAPABILITIES, MODEL_CATALOG, getProviderModels, isKnownModel } from "../modelCapabilities";
 import { getVisibleOpenRouterProfiles } from "../dashboardTiles";
@@ -98,7 +99,7 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
     try {
       const info = await invoke<AntigravityMcpInfo>("get_antigravity_mcp_status");
       setAgInfo(info);
-      setSelectedExePath(info.registered_command ?? "");
+      setSelectedExePath(info.registered_command ?? info.legacy_command ?? "");
       setAgError(null);
     } catch (e: unknown) {
       console.error("Failed to load Antigravity MCP status:", e);
@@ -361,8 +362,12 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
     try {
       const updated = await invoke<AntigravityCommandsInfo>("install_all_antigravity_commands");
       setCommandsInfo(updated);
-      setCommandsSavedMessage(true);
-      setTimeout(() => setCommandsSavedMessage(false), 2500);
+      const outcomes = updated.install_all_results ?? [];
+      const completed = outcomes.length === 3 && outcomes.every(
+        (result) => result.outcome === "installed" || result.outcome === "already_current",
+      );
+      setCommandsSavedMessage(completed);
+      if (completed) setTimeout(() => setCommandsSavedMessage(false), 2500);
     } catch (e: unknown) {
       console.error("Failed to install all Antigravity commands:", e);
       setCommandsError(String(e));
@@ -370,6 +375,14 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
       setCommandsLoading(false);
     }
   }, []);
+
+  const installOutcomeLabelKeys = {
+    installed: "antigravity.commandInstallOutcomeInstalled",
+    already_current: "antigravity.commandInstallOutcomeAlreadyCurrent",
+    refused: "antigravity.commandInstallOutcomeRefused",
+    failed: "antigravity.commandInstallOutcomeFailed",
+    not_attempted: "antigravity.commandInstallOutcomeNotAttempted",
+  } as const satisfies Record<AntigravityCommandInstallOutcome, TranslationKey>;
 
   // Active top-level target key
   const activeProviderId = mcpConfig.provider ?? config?.active_provider ?? "deepseek";
@@ -1004,9 +1017,15 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                   </button>
                 </div>
               </div>
+
+              {agInfo?.legacy_status === "configured" && (
+                <div style={{ marginTop: 10, fontSize: 11, color: "#57606a", background: "#ffffff", border: "1px solid #d0d7de", borderRadius: 4, padding: "6px 10px" }}>
+                  ℹ {t("antigravity.mcpLegacyPreserved")}
+                </div>
+              )}
             </div>
 
-            {/* Block 2: Antigravity Commands (/anthro-plan & /anthro-revise) */}
+            {/* Block 2: Antigravity Commands (/pov-plan, /pov-revise, /pov-review) */}
             <div style={{ background: "#f6f8fa", border: "1px solid #d0d7de", borderRadius: 6, padding: "12px 14px", marginBottom: 12 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -1054,9 +1073,38 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                 </div>
               )}
 
+              {commandsInfo &&
+                ((commandsInfo.legacy_plan_command?.status && commandsInfo.legacy_plan_command.status !== "not_installed") ||
+                  (commandsInfo.legacy_revise_command?.status && commandsInfo.legacy_revise_command.status !== "not_installed") ||
+                  (commandsInfo.legacy_review_command?.status && commandsInfo.legacy_review_command.status !== "not_installed")) && (
+                  <div style={{ margin: "0 0 10px 0", padding: "8px 12px", background: "#f6f8fa", border: "1px solid #d0d7de", borderRadius: 6, fontSize: 12 }}>
+                    <div style={{ fontWeight: 600, color: "#24292f", marginBottom: 2 }}>
+                      ℹ {t("antigravity.legacyNoticeTitle")}
+                    </div>
+                    <div style={{ color: "#57606a", fontSize: 11 }}>
+                      {t("antigravity.legacyNoticeDesc")}
+                    </div>
+                  </div>
+              )}
+
               {commandsError && (
                 <div style={{ margin: "0 0 10px 0", padding: "6px 10px", background: "#ffebe9", border: "1px solid #ff8182", borderRadius: 4, fontSize: 11, color: "#cf222e" }}>
                   {commandsError}
+                </div>
+              )}
+
+              {commandsInfo?.install_all_results && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  style={{ margin: "0 0 10px 0", padding: "8px 10px", background: "#fff8c5", border: "1px solid #d4a72c", borderRadius: 4, fontSize: 11, color: "#6e4a00" }}
+                >
+                  {commandsInfo.install_all_results.map((result) => (
+                    <div key={result.name}>
+                      <strong>{result.name}</strong>: {t(installOutcomeLabelKeys[result.outcome])}
+                      {result.message ? ` — ${result.message}` : ""}
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -1067,22 +1115,22 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                     item: commandsInfo?.plan_command,
                     titleKey: "antigravity.commandPlanTitle" as const,
                     descKey: "antigravity.commandPlanDesc" as const,
-                    fallbackName: "anthro-plan",
-                    fallbackCmd: "/anthro-plan",
+                    fallbackName: "pov-plan",
+                    fallbackCmd: "/pov-plan",
                   },
                   {
                     item: commandsInfo?.revise_command,
                     titleKey: "antigravity.commandReviseTitle" as const,
                     descKey: "antigravity.commandReviseDesc" as const,
-                    fallbackName: "anthro-revise",
-                    fallbackCmd: "/anthro-revise",
+                    fallbackName: "pov-revise",
+                    fallbackCmd: "/pov-revise",
                   },
                   {
                     item: commandsInfo?.review_command,
                     titleKey: "antigravity.commandReviewTitle" as const,
                     descKey: "antigravity.commandReviewDesc" as const,
-                    fallbackName: "anthro-review",
-                    fallbackCmd: "/anthro-review",
+                    fallbackName: "pov-review",
+                    fallbackCmd: "/pov-review",
                   },
                 ].map(({ item, titleKey, descKey, fallbackName, fallbackCmd }) => {
                   const cmdName = item?.name ?? fallbackName;
@@ -1132,6 +1180,9 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                         <div style={{ fontSize: 11, color: "#57606a" }}>
                           {t(descKey)}
                         </div>
+                        {item?.status === "invalid" && item.error && (
+                          <div style={{ fontSize: 11, color: "#cf222e" }}>{item.error}</div>
+                        )}
                       </div>
 
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

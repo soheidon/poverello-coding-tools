@@ -6,7 +6,7 @@
 
 Poverello ne nécessite aucun exécutable de serveur MCP séparé. Le fichier unique `anthro-bridge.exe` installé fournit à la fois l'application de bureau GUI et le serveur MCP. Antigravity démarre le mode MCP en exécutant ce même fichier avec l'argument `--mcp-server`.
 
-`anthro-bridge.exe`, l’entrée de serveur MCP `anthro-bridge` et les noms d’outils tels que `anthro-bridge/plan` sont conservés pour assurer la compatibilité. Le nom du produit est Poverello Coding Tools et l’application s’affiche sous le nom Poverello.
+La clé canonique du serveur MCP est `poverello` et expose `poverello/plan`, `poverello/revise` et `poverello/review`. L’exécutable `anthro-bridge.exe`, l’ancienne clé `anthro-bridge` et les anciens outils `anthro-bridge/*` sont conservés uniquement pour la compatibilité. Le produit s’appelle Poverello Coding Tools et l’application affiche Poverello.
 
 ```text
 Lancement normal
@@ -18,7 +18,7 @@ anthro-bridge.exe --mcp-server
 → Serveur MCP stdio headless pour Antigravity
 ```
 
-Cela permet aux environnements d'agents tels que Google Antigravity de déléguer la conception architecturale et la planification d'implémentation à des modèles LLM externes (DeepSeek V4, MiMo, Kimi, MiniMax ou modèles OpenRouter) via `anthro-bridge/plan`, tout en effectuant les modifications de code, commandes de terminal, compilations et tests intensifs en tokens avec le quota d'abonnement Antigravity.
+Cela permet aux environnements d'agents tels que Google Antigravity de déléguer la conception architecturale et la planification d'implémentation à des modèles LLM externes (DeepSeek V4, MiMo, Kimi, MiniMax ou modèles OpenRouter) via `poverello/plan`, tout en effectuant les modifications de code, commandes de terminal, compilations et tests intensifs en tokens avec le quota d'abonnement Antigravity.
 
 ---
 
@@ -121,7 +121,7 @@ Poverello sépare clairement le choix du planificateur de la gestion détaillée
 
 ---
 
-## 6. Utilisation des commandes Antigravity (`/anthro-plan` & `/anthro-revise`) (Recommandé)
+## 6. Utilisation des commandes Antigravity (`/pov-plan` & `/pov-revise`) (Recommandé)
 
 Depuis **Paramètres > Antigravity > Intégration Google Antigravity**, installez les compétences globales pour utiliser les commandes slash dans tous vos espaces de travail Antigravity :
 
@@ -129,18 +129,24 @@ Depuis **Paramètres > Antigravity > Intégration Google Antigravity**, installe
 
 ### Créer un nouveau plan d'implémentation :
 ```text
-/anthro-plan <description de la tâche ou de la fonctionnalité à implémenter>
+/pov-plan <description de la tâche ou de la fonctionnalité à implémenter>
 ```
-*Collecte le contexte du dépôt, appelle `anthro-bridge/plan` et s'arrête proprement après avoir présenté le plan sans modifier de fichiers ni lancer de builds.*
+*Collecte le contexte du dépôt, appelle `poverello/plan` et s'arrête proprement après avoir présenté le plan sans modifier de fichiers ni lancer de builds.*
 
 ### Réviser un plan d'implémentation existant :
 ```text
-/anthro-revise <retours ou nouvelles contraintes à intégrer>
+/pov-revise <retours ou nouvelles contraintes à intégrer>
 ```
-*Identifie le plan actuel (contexte actif ou `implementation_plan.md`), transmet le plan et vos retours à `anthro-bridge/plan`, et met à jour le plan tout en préservant les sections intactes.*
+*Identifie le plan actuel (contexte actif ou `implementation_plan.md`), transmet le plan et vos retours à `poverello/plan`, et met à jour le plan tout en préservant les sections intactes.*
+
+### Réviser l’implémentation par rapport au plan approuvé :
+```text
+/pov-review
+```
+*Examine le plan approuvé, les différences de l’arbre de travail, les fichiers pertinents non suivis et les résultats des tests, puis présente la revue de l’implémentation. Cette commande est en lecture seule et ne modifie aucun fichier.*
 
 > [!IMPORTANT]
-> Lors de l'exécution via `/anthro-plan` ou `/anthro-revise`, la commande gère l'unique appel au planificateur. Aucune règle d'espace de travail ne déclenchera d'appel redondant.
+> Lors de l'exécution via `/pov-plan` ou `/pov-revise`, la commande gère l'unique appel au planificateur. Aucune règle d'espace de travail ne déclenchera d'appel redondant.
 
 ---
 
@@ -158,24 +164,24 @@ description: Use for implementation, debugging, architectural changes, or multi-
 
 For non-trivial implementation tasks in this repository:
 
-1. If the current task is being executed through the `/anthro-plan` or `/anthro-revise` command, do NOT invoke `anthro-bridge/plan` separately. The command workflow owns the planner call.
+1. If the current task is being executed through the `/pov-plan` or `/pov-revise` command, do NOT invoke `poverello/plan` separately. The command workflow owns the planner call.
 2. First inspect the repository yourself and identify the files and code relevant to the task.
 3. Summarize only the context necessary for implementation planning.
-4. Call the `anthro-bridge/plan` MCP tool exactly once with:
+4. Call the `poverello/plan` MCP tool exactly once with:
    - the user's task;
    - the relevant repository context;
    - important constraints.
    Note: "Exactly once" means duplicate planner calls are prohibited once a successful usable result is obtained. If the tool call itself fails or returns an unusable response (e.g. transport or decoding error), exactly 1 recovery retry is permitted.
 5. Use the returned DeepSeek plan as the basis for implementation.
 6. Perform file edits, builds, and tests yourself.
-7. Do not call `anthro-bridge/plan` again unless the implementation encounters a major unresolved problem.
+7. Do not call `poverello/plan` again unless the implementation encounters a major unresolved problem.
 8. Do not ask the user to repeat this workflow.
 9. Do not use the planner for trivial tasks such as a one-word text change unless planning would materially help.
 ```
 
 ### Politique de déclenchement :
 - **Tâches mineures / localisées (Trivial / localized tasks)** (correction de coquille, modification d'une ligne, ajustement syntaxique) : Le planificateur n'est pas appelé.
-- **Tâches complexes (Non-trivial tasks)** (modifications d'architecture, fonctionnalités multi-fichiers, débogage complexe) : Antigravity analyse le code, appelle `anthro-bridge/plan` 1 seule fois, puis implémente le code selon le plan retourné.
+- **Tâches complexes (Non-trivial tasks)** (modifications d'architecture, fonctionnalités multi-fichiers, débogage complexe) : Antigravity analyse le code, appelle `poverello/plan` 1 seule fois, puis implémente le code selon le plan retourné.
 
 ---
 
@@ -186,7 +192,7 @@ Utilisateur : "Refactorisez la fonctionnalité X pour prendre en charge plusieur
     ↓
 Antigravity inspecte les fichiers et résume le contexte
     ↓
-Antigravity déclenche automatiquement l'appel à anthro-bridge/plan (1 fois)
+Antigravity déclenche automatiquement l'appel à poverello/plan (1 fois)
     ↓
 Poverello envoie la requête au modèle externe sélectionné
     ↓
@@ -202,7 +208,7 @@ Antigravity applique les modifications et exécute les tests
 ## 9. Remarques importantes
 
 - **Fonctionnement indépendant** : Le serveur MCP fonctionne de manière totalement indépendante de la passerelle 3P Gateway. Il n'est pas nécessaire d'activer la passerelle 3P pour utiliser le MCP.
-- **Facturation séparée** : Les appels à `anthro-bridge/plan` sont facturés par le fournisseur d'API externe concerné. Les modifications et tests ultérieurs utilisent le quota de votre abonnement Antigravity.
+- **Facturation séparée** : Les appels à `poverello/plan` sont facturés par le fournisseur d'API externe concerné. Les modifications et tests ultérieurs utilisent le quota de votre abonnement Antigravity.
 - **Prise en compte immédiate** : Les changements de paramètres dans l'interface GUI d'Poverello s'appliquent immédiatement dès le prochain appel à `plan()`.
 
 ---

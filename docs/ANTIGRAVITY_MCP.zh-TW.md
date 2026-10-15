@@ -6,7 +6,7 @@
 
 Poverello 不需要單獨的 MCP 伺服器執行檔。安裝的單一 `anthro-bridge.exe` 同時提供桌面 GUI 應用程式與 MCP 伺服器功能。Antigravity 透過附加 `--mcp-server` 參數啟動同一執行檔來進入 MCP 模式。
 
-`anthro-bridge.exe`、MCP 伺服器項目 `anthro-bridge`，以及 `anthro-bridge/plan` 等工具名稱為維持相容性而保留。產品名稱為 Poverello Coding Tools，應用程式內顯示為 Poverello。
+正式的 MCP 伺服器鍵為 `poverello`，並提供 `poverello/plan`、`poverello/revise` 和 `poverello/review`。執行檔 `anthro-bridge.exe`、舊伺服器鍵 `anthro-bridge` 和舊工具 `anthro-bridge/*` 僅為相容性而保留。產品名稱為 Poverello Coding Tools，應用程式內顯示為 Poverello。
 
 ```text
 一般啟動
@@ -18,7 +18,7 @@ anthro-bridge.exe --mcp-server
 → 面向 Antigravity 的無前端 stdio MCP 伺服器
 ```
 
-這使得 Google Antigravity 等代理型編碼環境能夠將架構設計與實作規劃委託給外部大型語言模型（如 DeepSeek V4、MiMo、Kimi、MiniMax 或 OpenRouter 模型）透過 `anthro-bridge/plan` 完成，而實際的高 Token 消耗程式碼編輯、指令執行、建置與測試則使用 Antigravity 訂閱所包含的模型額度。
+這使得 Google Antigravity 等代理型編碼環境能夠將架構設計與實作規劃委託給外部大型語言模型（如 DeepSeek V4、MiMo、Kimi、MiniMax 或 OpenRouter 模型）透過 `poverello/plan` 完成，而實際的高 Token 消耗程式碼編輯、指令執行、建置與測試則使用 Antigravity 訂閱所包含的模型額度。
 
 ---
 
@@ -125,7 +125,7 @@ Poverello 明確劃分了規劃器選擇與詳細參數管理的職責：
 
 ---
 
-## 6. 使用 Antigravity Commands (`/anthro-plan` & `/anthro-revise`)（推薦）
+## 6. 使用 Antigravity Commands (`/pov-plan` & `/pov-revise`)（推薦）
 
 在 **設定 > Antigravity** 的 **Google Antigravity 整合** 卡片中安裝全域技能後，可在所有 Antigravity 工作區中使用斜線指令：
 
@@ -133,18 +133,24 @@ Poverello 明確劃分了規劃器選擇與詳細參數管理的職責：
 
 ### 建立新實作計畫:
 ```text
-/anthro-plan <要實作的課題或功能描述>
+/pov-plan <要實作的課題或功能描述>
 ```
-*收集程式庫情境，呼叫 `anthro-bridge/plan`，在展示計畫後安全停止，不進行檔案修改或執行建置指令。*
+*收集程式庫情境，呼叫 `poverello/plan`，在展示計畫後安全停止，不進行檔案修改或執行建置指令。*
 
 ### 修訂現有實作計畫:
 ```text
-/anthro-revise <要反映的回饋或變更需求>
+/pov-revise <要反映的回饋或變更需求>
 ```
-*從作用中情境或 `implementation_plan.md` 中確定目前實作計畫，連同回饋一起傳遞給 `anthro-bridge/plan` 進行修訂，同時保留未受影響的部分。*
+*從作用中情境或 `implementation_plan.md` 中確定目前實作計畫，連同回饋一起傳遞給 `poverello/plan` 進行修訂，同時保留未受影響的部分。*
+
+### 依據已核准的計畫審查實作：
+```text
+/pov-review
+```
+*檢查已核准的計畫、工作樹差異、相關未追蹤檔案及測試結果，並回報實作審查結果。此指令為唯讀，不會修改檔案。*
 
 > [!IMPORTANT]
-> 透過 `/anthro-plan` 或 `/anthro-revise` 執行時，由指令自身管理單次 planner 呼叫，Workspace Rule 不會觸發額外的重複 planner 呼叫。
+> 透過 `/pov-plan` 或 `/pov-revise` 執行時，由指令自身管理單次 planner 呼叫，Workspace Rule 不會觸發額外的重複 planner 呼叫。
 
 ---
 
@@ -162,24 +168,24 @@ description: Use for implementation, debugging, architectural changes, or multi-
 
 For non-trivial implementation tasks in this repository:
 
-1. If the current task is being executed through the `/anthro-plan` or `/anthro-revise` command, do NOT invoke `anthro-bridge/plan` separately. The command workflow owns the planner call.
+1. If the current task is being executed through the `/pov-plan` or `/pov-revise` command, do NOT invoke `poverello/plan` separately. The command workflow owns the planner call.
 2. First inspect the repository yourself and identify the files and code relevant to the task.
 3. Summarize only the context necessary for implementation planning.
-4. Call the `anthro-bridge/plan` MCP tool exactly once with:
+4. Call the `poverello/plan` MCP tool exactly once with:
    - the user's task;
    - the relevant repository context;
    - important constraints.
    Note: "Exactly once" means duplicate planner calls are prohibited once a successful usable result is obtained. If the tool call itself fails or returns an unusable response (e.g. transport or decoding error), exactly 1 recovery retry is permitted.
 5. Use the returned DeepSeek plan as the basis for implementation.
 6. Perform file edits, builds, and tests yourself.
-7. Do not call `anthro-bridge/plan` again unless the implementation encounters a major unresolved problem.
+7. Do not call `poverello/plan` again unless the implementation encounters a major unresolved problem.
 8. Do not ask the user to repeat this workflow.
 9. Do not use the planner for trivial tasks such as a one-word text change unless planning would materially help.
 ```
 
 ### 觸發策略:
 - **微小 / 局部任務 (Trivial / localized tasks)**（如修改錯字、單行微調、語法調整）：不會觸發規劃器。
-- **非普通任務 (Non-trivial tasks)**（架構設計變更、跨多檔案功能實作、複雜除錯等）：Antigravity 會調查程式庫情境，呼叫 1 次 `anthro-bridge/plan`，並根據返回的計畫進行實作。
+- **非普通任務 (Non-trivial tasks)**（架構設計變更、跨多檔案功能實作、複雜除錯等）：Antigravity 會調查程式庫情境，呼叫 1 次 `poverello/plan`，並根據返回的計畫進行實作。
 
 ---
 
@@ -190,7 +196,7 @@ For non-trivial implementation tasks in this repository:
     ↓
 Antigravity 探索程式碼並總結情境
     ↓
-Antigravity 自動觸發 anthro-bridge/plan 工具呼叫 (僅1次)
+Antigravity 自動觸發 poverello/plan 工具呼叫 (僅1次)
     ↓
 Poverello 向選定的外部模型發送請求
     ↓
@@ -206,7 +212,7 @@ Antigravity 執行程式碼編輯、執行測試並驗證修改
 ## 9. 重要說明
 
 - **獨立運作**：MCP 伺服器完全獨立於 Poverello 3P Gateway 運作。無需啟動（開啟）3P Gateway 即可使用 MCP 工具。
-- **帳單分開**：呼叫 `anthro-bridge/plan` 會產生由相應提供者收取的 API 費用。隨後的檔案編輯與測試消耗 Antigravity 自身的訂閱額度。
+- **帳單分開**：呼叫 `poverello/plan` 會產生由相應提供者收取的 API 費用。隨後的檔案編輯與測試消耗 Antigravity 自身的訂閱額度。
 - **即時生效**：在 Poverello GUI 中變更規劃器提供者或模型參數將在下一次 `plan()` 呼叫時立即生效。
 
 ---

@@ -8,7 +8,7 @@ Poverello Coding Tools（アプリ内表示名 **Poverello**）は、AI 支援�
 
 1. **Claude Code / Claude Desktop 向け 3P ゲートウェイ** — Claude のリポジトリ探索、ツール使用、ファイル編集、テスト実行はそのままに、推論をサードパーティプロバイダーにルーティングします。
 2. **Claude Code 向けローカル LLM（Ollama）** — ローカルモデルを使って、Claude Code をオフラインで実行できます。
-3. **Google Antigravity 向け MCP プランナー & レビュアー** — `anthro-bridge/plan` および `anthro-bridge/review` MCP ツールを通じて、実装計画と実装後レビューを外部モデルに委任します。
+3. **Google Antigravity 向け MCP プランナー & レビュアー** — `poverello/plan` および `poverello/review` MCP ツールを通じて、実装計画と実装後レビューを外部モデルに委任します。
 4. **Antigravity ルール管理** — Google Antigravity 向けの軽量 Direct Coding ルール（`pov-direct.md`）を設定・プレビューし、安全に同期します。
 
 ---
@@ -59,14 +59,14 @@ Antigravity がサブスクリプションの処理能力を使って
 
 **Antigravity グローバルコマンド:**
 
-- **`/anthro-plan`** — 設定済み外部モデルに実装計画を委任します。
-- **`/anthro-revise`** — 新しいフィードバックや制約に基づいて既存の計画を修正します。
-- **`/anthro-review`** — コミット前に承認済み計画に対して完成した実装をレビューし、明示的に READY / NOT READY の判定を行います。
+- **`/pov-plan`** — 設定済み外部モデルに実装計画を委任します。
+- **`/pov-revise`** — 新しいフィードバックや制約に基づいて既存の計画を修正します。
+- **`/pov-review`** — コミット前に承認済み計画に対して完成した実装をレビューし、明示的に READY / NOT READY の判定を行います。
 
 **推奨ワークフロー:**
 
 ```text
-/anthro-plan → 実装 & テスト → /anthro-review → コミット
+/pov-plan → 実装 & テスト → /pov-review → コミット
 ```
 
 ### 4. Antigravity ルール管理（Poverello Direct Coding）
@@ -221,7 +221,7 @@ Windowsインストーラーは8言語に対応しています。Poverello v0.24
 1. Poverello で、選択したプランナー / レビュアーモデルの API キーを設定します。
 2. **MCP** タブを選択し、**Settings > Antigravity > MCP Plan Settings** でモデルを設定します。
 3. Antigravity の MCP 設定で `anthro-bridge.exe` を `["--mcp-server"]` 付きで登録します（または Poverello の **Configure Automatically** をクリックします）。
-4. `/anthro-plan` で計画を作成し、`/anthro-revise` で計画を更新し、`/anthro-review` でコミット前に実装をレビューします。
+4. `/pov-plan` で計画を作成し、`/pov-revise` で計画を更新し、`/pov-review` でコミット前に実装をレビューします。
 5. 完全な [Antigravity MCP セットアップガイド](ANTIGRAVITY_MCP.ja.md) に従ってください。
 
 ### ワークフロー 4: Antigravity ルール管理（Poverello Direct Coding）

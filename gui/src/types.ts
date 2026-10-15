@@ -193,6 +193,9 @@ export interface AntigravityMcpInfo {
   registered_command?: string | null;
   registered_args?: string[] | null;
   error?: string | null;
+  legacy_status?: AntigravityMcpStatus | null;
+  legacy_command?: string | null;
+  legacy_args?: string[] | null;
 }
 
 export type AntigravitySkillStatus = "not_installed" | "installed" | "outdated" | "invalid";
@@ -210,6 +213,18 @@ export interface AntigravityCommandsInfo {
   plan_command: AntigravityCommandItemInfo;
   revise_command: AntigravityCommandItemInfo;
   review_command: AntigravityCommandItemInfo;
+  legacy_plan_command?: AntigravityCommandItemInfo | null;
+  legacy_revise_command?: AntigravityCommandItemInfo | null;
+  legacy_review_command?: AntigravityCommandItemInfo | null;
+  install_all_results?: AntigravityCommandInstallResult[] | null;
+}
+
+export type AntigravityCommandInstallOutcome = "installed" | "already_current" | "refused" | "failed" | "not_attempted";
+
+export interface AntigravityCommandInstallResult {
+  name: string;
+  outcome: AntigravityCommandInstallOutcome;
+  message?: string | null;
 }
 
 export type WebResearchPolicy = "requested_only" | "requested_or_necessary" | "unrestricted";

@@ -115,3 +115,38 @@ fn resolve_review_mode_handles_valid_and_invalid_modes() {
     let err3 = resolve_review_mode(Some("careful")).unwrap_err();
     assert!(err3.message.contains("Invalid `review_mode`: 'careful'"));
 }
+
+#[test]
+fn revise_system_prompt_defines_planner_role_and_feedback_handling() {
+    use anthro_bridge_mcp_server::mcp::build_revise_system_prompt;
+
+    let prompt = build_revise_system_prompt();
+    assert!(prompt.contains("implementation planner, not an implementation agent"));
+    assert!(prompt.contains("revise an existing implementation plan based on user feedback"));
+    assert!(prompt.contains("Address the requested revisions and feedback directly and thoroughly"));
+    assert!(prompt.contains("Preserve valid, unaffected sections of the previous plan"));
+    assert!(prompt.contains("Never claim that a change has already been made"));
+    assert!(prompt.contains("Never invent or fabricate test results"));
+}
+
+#[test]
+fn revise_user_prompt_formats_sections_reliably() {
+    use anthro_bridge_mcp_server::mcp::{build_revise_user_prompt, ReviseParams};
+
+    let params = ReviseParams {
+        task: "Update authentication flow".to_string(),
+        current_plan: "1. Add JWT check\n2. Redirect on expiry".to_string(),
+        feedback: "Do not use JWT; use session cookies instead".to_string(),
+        context: Some("AuthContext.tsx uses React Context".to_string()),
+        constraints: Some("Preserve backward compatibility".to_string()),
+        plan_context: None,
+        frozen_plan: None,
+    };
+
+    let prompt = build_revise_user_prompt(&params);
+    assert!(prompt.contains("## Task\n\nUpdate authentication flow"));
+    assert!(prompt.contains("## Current Implementation Plan\n\n1. Add JWT check\n2. Redirect on expiry"));
+    assert!(prompt.contains("## Requested Revisions and Feedback\n\nDo not use JWT; use session cookies instead"));
+    assert!(prompt.contains("## Repository context\n\nAuthContext.tsx uses React Context"));
+    assert!(prompt.contains("## Constraints\n\nPreserve backward compatibility"));
+}

@@ -8,7 +8,7 @@ Poverello Coding Tools（應用程式內顯示名稱為 **Poverello**）是一�
 
 1. **Claude Code / Claude Desktop 的第三方閘道（3P Gateway）** — 保留 Claude 的程式庫探索、工具使用、檔案編輯與測試執行功能，同時將推論請求路由至第三方供應商。
 2. **Claude Code 專用本機 LLM（Ollama）** — 使用本機模型離線執行 Claude Code。
-3. **Google Antigravity 的 MCP 規劃器與審查器** — 透過 `anthro-bridge/plan` 和 `anthro-bridge/review` MCP 工具，將實作規劃與實作後審查委派給外部模型處理。
+3. **Google Antigravity 的 MCP 規劃器與審查器** — 透過 `poverello/plan` 和 `poverello/review` MCP 工具，將實作規劃與實作後審查委派給外部模型處理。
 
 ---
 
@@ -68,14 +68,14 @@ Antigravity 使用訂閱容量
 
 **Antigravity 全域指令：**
 
-- **`/anthro-plan`** — 將實作規劃委派給已設定的外部模型。
-- **`/anthro-revise`** — 根據新的回饋或限制條件修改現有計畫。
-- **`/anthro-review`** — 在提交前，對照已核准的計畫審查已完成的實作，並給出明確的 READY / NOT READY 結論。
+- **`/pov-plan`** — 將實作規劃委派給已設定的外部模型。
+- **`/pov-revise`** — 根據新的回饋或限制條件修改現有計畫。
+- **`/pov-review`** — 在提交前，對照已核准的計畫審查已完成的實作，並給出明確的 READY / NOT READY 結論。
 
 **建議工作流程：**
 
 ```text
-/anthro-plan → 實作與測試 → /anthro-review → 提交
+/pov-plan → 實作與測試 → /pov-review → 提交
 ```
 
 ---
@@ -192,7 +192,7 @@ Windows 安裝程式支援 8 種語言。Poverello v0.24.1 保留既有應用程
 1. 在 Poverello 中為您選擇的規劃器 / 審查器模型設定 API 金鑰。
 2. 選擇 **MCP** 標籤，並在 **Settings > Antigravity > MCP Plan Settings** 中設定您的模型。
 3. 在 Antigravity 的 MCP 設定中以 `["--mcp-server"]` 參數註冊 `anthro-bridge.exe`（或在 Poverello 中點擊 **Configure Automatically**）。
-4. 使用 `/anthro-plan` 設計計畫、`/anthro-revise` 更新計畫，以及 `/anthro-review` 在提交前審查實作成果。
+4. 使用 `/pov-plan` 設計計畫、`/pov-revise` 更新計畫，以及 `/pov-review` 在提交前審查實作成果。
 5. 請參閱完整的 [Antigravity MCP 設定指南](ANTIGRAVITY_MCP.zh-TW.md)。
 
 ---

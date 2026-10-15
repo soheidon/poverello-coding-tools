@@ -8,7 +8,7 @@ Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companio
 
 1. **3P Gateway for Claude Code / Claude Desktop** — Keep Claude's repository exploration, tool use, file editing, and test execution while routing inference to third-party cloud providers.
 2. **Dedicated Local LLMs for Claude Code (Ollama)** — Run Claude Code completely offline with zero API costs using local Ollama models.
-3. **MCP Planner & Reviewer for Google Antigravity** — Delegate implementation planning and post-implementation review to external models via the `anthro-bridge/plan` and `anthro-bridge/review` MCP tools.
+3. **MCP Planner & Reviewer for Google Antigravity** — Delegate implementation planning and post-implementation review to external models via the canonical `poverello/plan`, `poverello/revise`, and `poverello/review` MCP tools (with `anthro-bridge/*` maintained for backward compatibility).
 4. **Antigravity Rules Management** — Configure, preview, and safely synchronize lightweight Poverello Direct Coding rules (`pov-direct.md`) for Antigravity.
 
 ---
@@ -69,19 +69,19 @@ using subscription-backed capacity
   primary plan always requires explicit user confirmation. Real-model behavior
   varies by provider and adapter and has not been exhaustively smoke-tested.
 
-The executable and MCP tool identifiers below retain the `anthro-bridge` name
-for compatibility.
+The executable retains the `anthro-bridge.exe` name, and the legacy `anthro-bridge`
+MCP server key and `/anthro-*` skills remain supported for backward compatibility.
 
 **Global Antigravity commands:**
 
-- **`/anthro-plan`** — Delegate implementation planning to the configured external model.
-- **`/anthro-revise`** — Revise an existing plan based on new feedback or constraints.
-- **`/anthro-review`** — Review a completed implementation against the approved plan before commit, with explicit READY / NOT READY verdicts.
+- **`/pov-plan`** (legacy `/anthro-plan`) — Delegate implementation planning to the configured external model.
+- **`/pov-revise`** (legacy `/anthro-revise`) — Revise an existing plan based on new feedback or constraints.
+- **`/pov-review`** (legacy `/anthro-review`) — Review a completed implementation against the approved plan before commit, with explicit READY / NOT READY verdicts.
 
 **Recommended workflow:**
 
 ```text
-/anthro-plan → Implementation & Tests → /anthro-review → Commit
+/pov-plan → Implementation & Tests → /pov-review → Commit
 ```
 
 ### 4. Antigravity Rules Management (Poverello Direct Coding)
@@ -235,8 +235,8 @@ The Windows installer supports 8 languages. Poverello v0.24.1 keeps the existing
 
 1. Configure an API key for your chosen planner/reviewer model in Poverello.
 2. Select the **MCP** tab and configure your model in **Settings > Antigravity > MCP Plan Settings**.
-3. Register `anthro-bridge.exe` with `["--mcp-server"]` in Antigravity's MCP configuration (or click **Configure Automatically** in Poverello).
-4. Use `/anthro-plan` to design plans, `/anthro-revise` to update plans, and `/anthro-review` to review implementations before commit.
+3. Register `anthro-bridge.exe` with `["--mcp-server"]` under server key `poverello` in Antigravity's MCP configuration (or click **Configure Automatically** in Poverello).
+4. Use `/pov-plan` to design plans, `/pov-revise` to update plans, and `/pov-review` to review implementations before commit (legacy `/anthro-*` commands remain recognized).
 5. Follow the complete [Antigravity MCP Setup Guide](docs/ANTIGRAVITY_MCP.md).
 
 ### Workflow 4: Antigravity Rules Management (Poverello Direct Coding)

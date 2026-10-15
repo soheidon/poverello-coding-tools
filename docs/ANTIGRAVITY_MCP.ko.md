@@ -6,7 +6,7 @@
 
 Poverello는 별도의 독립된 MCP 서버 실행 파일을 필요로 하지 않습니다. 설치된 단일 `anthro-bridge.exe`가 데스크톱 GUI 애플리케이션과 MCP 서버 기능을 모두 제공합니다. Antigravity는 동일한 실행 파일을 `--mcp-server` 인자와 함께 실행하여 MCP 모드로 진입합니다.
 
-`anthro-bridge.exe`, MCP 서버 항목 `anthro-bridge`, `anthro-bridge/plan`과 같은 도구 이름은 호환성을 위해 유지됩니다. 제품명은 Poverello Coding Tools이며 앱에는 Poverello로 표시됩니다.
+정식 MCP 서버 키는 `poverello`이며 `poverello/plan`, `poverello/revise`, `poverello/review`를 제공합니다. 실행 파일 `anthro-bridge.exe`, 이전 서버 키 `anthro-bridge`, 이전 도구 `anthro-bridge/*`는 호환성을 위해서만 유지됩니다. 제품명은 Poverello Coding Tools이며 앱에는 Poverello로 표시됩니다.
 
 ```text
 일반 실행
@@ -18,7 +18,7 @@ anthro-bridge.exe --mcp-server
 → Antigravity용 헤드리스 stdio MCP 서버
 ```
 
-이를 통해 Google Antigravity와 같은 에이전트 환경에서 아키텍처 설계 및 구현 계획 수립을 외부 LLM(DeepSeek V4, MiMo, Kimi, MiniMax 또는 OpenRouter 모델 등)에 `anthro-bridge/plan`을 통해 위임하면서, 실제 토큰 소모가 많은 코드 수정, 명령어 실행, 빌드, 테스트는 Antigravity의 구독 모델 용량으로 수행할 수 있습니다.
+이를 통해 Google Antigravity와 같은 에이전트 환경에서 아키텍처 설계 및 구현 계획 수립을 외부 LLM(DeepSeek V4, MiMo, Kimi, MiniMax 또는 OpenRouter 모델 등)에 `poverello/plan`을 통해 위임하면서, 실제 토큰 소모가 많은 코드 수정, 명령어 실행, 빌드, 테스트는 Antigravity의 구독 모델 용량으로 수행할 수 있습니다.
 
 ---
 
@@ -125,7 +125,7 @@ Poverello는 플래너 선택과 상세 파라미터 관리의 역할을 명확�
 
 ---
 
-## 6. Antigravity Commands (`/anthro-plan` & `/anthro-revise`) 활용 (권장)
+## 6. Antigravity Commands (`/pov-plan` & `/pov-revise`) 활용 (권장)
 
 **설정 > Antigravity**의 **Google Antigravity 연동** 카드에서 전역 스킬을 설치하면 모든 Antigravity 워크스페이스에서 슬래시 명령어를 사용할 수 있습니다:
 
@@ -133,18 +133,24 @@ Poverello는 플래너 선택과 상세 파라미터 관리의 역할을 명확�
 
 ### 새로운 구현 계획 생성:
 ```text
-/anthro-plan <구현하려는 과제 또는 기능 설명>
+/pov-plan <구현하려는 과제 또는 기능 설명>
 ```
-*저장소 컨텍스트를 수집하고 `anthro-bridge/plan`을 호출한 뒤, 파일 수정이나 빌드 명령 실행 없이 안전하게 멈추어 계획을 제시합니다.*
+*저장소 컨텍스트를 수집하고 `poverello/plan`을 호출한 뒤, 파일 수정이나 빌드 명령 실행 없이 안전하게 멈추어 계획을 제시합니다.*
 
 ### 기존 구현 계획 수정 및 피드백 반영:
 ```text
-/anthro-revise <반영할 피드백 또는 변경 사항>
+/pov-revise <반영할 피드백 또는 변경 사항>
 ```
-*활성 컨텍스트 또는 `implementation_plan.md`에서 현재 구현 계획을 확인하고, 피드백과 함께 `anthro-bridge/plan`에 전달하여 영향을 받지 않은 부분을 보존하면서 계획을 업데이트합니다.*
+*활성 컨텍스트 또는 `implementation_plan.md`에서 현재 구현 계획을 확인하고, 피드백과 함께 `poverello/plan`에 전달하여 영향을 받지 않은 부분을 보존하면서 계획을 업데이트합니다.*
+
+### 승인된 계획에 따른 구현 검토:
+```text
+/pov-review
+```
+*승인된 계획, 작업 트리 차이, 관련 미추적 파일 및 테스트 결과를 확인하고 구현 검토를 보고합니다. 읽기 전용이며 파일을 수정하지 않습니다.*
 
 > [!IMPORTANT]
-> `/anthro-plan` 또는 `/anthro-revise`를 통해 실행 중일 때는 명령어 자체가 단일 planner 호출을 관리하므로 Workspace Rule로 인한 중복 planner 호출이 발생하지 않습니다.
+> `/pov-plan` 또는 `/pov-revise`를 통해 실행 중일 때는 명령어 자체가 단일 planner 호출을 관리하므로 Workspace Rule로 인한 중복 planner 호출이 발생하지 않습니다.
 
 ---
 
@@ -162,24 +168,24 @@ description: Use for implementation, debugging, architectural changes, or multi-
 
 For non-trivial implementation tasks in this repository:
 
-1. If the current task is being executed through the `/anthro-plan` or `/anthro-revise` command, do NOT invoke `anthro-bridge/plan` separately. The command workflow owns the planner call.
+1. If the current task is being executed through the `/pov-plan` or `/pov-revise` command, do NOT invoke `poverello/plan` separately. The command workflow owns the planner call.
 2. First inspect the repository yourself and identify the files and code relevant to the task.
 3. Summarize only the context necessary for implementation planning.
-4. Call the `anthro-bridge/plan` MCP tool exactly once with:
+4. Call the `poverello/plan` MCP tool exactly once with:
    - the user's task;
    - the relevant repository context;
    - important constraints.
    Note: "Exactly once" means duplicate planner calls are prohibited once a successful usable result is obtained. If the tool call itself fails or returns an unusable response (e.g. transport or decoding error), exactly 1 recovery retry is permitted.
 5. Use the returned DeepSeek plan as the basis for implementation.
 6. Perform file edits, builds, and tests yourself.
-7. Do not call `anthro-bridge/plan` again unless the implementation encounters a major unresolved problem.
+7. Do not call `poverello/plan` again unless the implementation encounters a major unresolved problem.
 8. Do not ask the user to repeat this workflow.
 9. Do not use the planner for trivial tasks such as a one-word text change unless planning would materially help.
 ```
 
 ### 트리거 정책:
 - **경미하거나 국소적인 작업 (Trivial / localized tasks)** (예: 오타 수정, 한 줄 수정, 사소한 문법 정리 등): 플래너를 호출하지 않습니다.
-- **주요 작업 (Non-trivial tasks)** (아키텍처 변경, 여러 파일에 걸친 기능 구현, 복잡한 디버깅 등): Antigravity가 코드베이스를 조사하고 `anthro-bridge/plan`을 1회 호출하여 반환된 계획을 기반으로 구현을 진행합니다.
+- **주요 작업 (Non-trivial tasks)** (아키텍처 변경, 여러 파일에 걸친 기능 구현, 복잡한 디버깅 등): Antigravity가 코드베이스를 조사하고 `poverello/plan`을 1회 호출하여 반환된 계획을 기반으로 구현을 진행합니다.
 
 ---
 
@@ -190,7 +196,7 @@ For non-trivial implementation tasks in this repository:
     ↓
 Antigravity가 코드를 조사하고 컨텍스트 요약
     ↓
-Antigravity가 자동으로 anthro-bridge/plan 도구 호출 (정확히 1회)
+Antigravity가 자동으로 poverello/plan 도구 호출 (정확히 1회)
     ↓
 Poverello가 선택된 외부 모델로 프롬프트 전송
     ↓
@@ -206,7 +212,7 @@ Antigravity가 파일 수정 및 테스트 실행
 ## 9. 중요 참고 사항
 
 - **독립적인 작동**: MCP 서버는 Poverello 3P Gateway와 완전히 독립적으로 작동합니다. MCP 도구를 사용하기 위해 3P Gateway를 실행(ON)해 둘 필요는 없습니다.
-- **과금 분리**: `anthro-bridge/plan` 호출에는 선택한 제공업체의 API 비용이 발생합니다. 이후의 파일 수정 및 테스트는 Antigravity 자체의 구독 용량을 사용합니다.
+- **과금 분리**: `poverello/plan` 호출에는 선택한 제공업체의 API 비용이 발생합니다. 이후의 파일 수정 및 테스트는 Antigravity 자체의 구독 용량을 사용합니다.
 - **실시간 반영**: Poverello GUI에서 플래너 제공업체나 모델 설정을 변경하면 다음 `plan()` 호출 시 즉시 적용됩니다.
 ��게 멈추고 사용자의 확인을 기다립니다.
 
@@ -226,16 +232,16 @@ description: Use for implementation, debugging, architectural changes, or multi-
 
 For non-trivial implementation tasks in this repository:
 
-1. If the current task is being executed through the `/anthro-plan` or `/anthro-revise` command, do NOT invoke `anthro-bridge/plan` separately. The command workflow owns the single planner call.
+1. If the current task is being executed through the `/pov-plan` or `/pov-revise` command, do NOT invoke `poverello/plan` separately. The command workflow owns the single planner call.
 2. First inspect the repository yourself and identify the files and code relevant to the task.
 3. Summarize only the context necessary for implementation planning.
-4. Call the `anthro-bridge/plan` MCP tool exactly once with:
+4. Call the `poverello/plan` MCP tool exactly once with:
    - the user's task;
    - the relevant repository context;
    - important constraints.
 5. Use the returned plan as the basis for implementation.
 6. Perform file edits, builds, and tests yourself.
-7. Do not call `anthro-bridge/plan` again unless the implementation encounters a major unresolved problem.
+7. Do not call `poverello/plan` again unless the implementation encounters a major unresolved problem.
 8. Do not ask the user to repeat this workflow.
 9. Do not use the planner for trivial tasks such as a one-word text change unless planning would materially help.
 ```
@@ -249,7 +255,7 @@ For non-trivial implementation tasks in this repository:
     ↓
 Antigravity가 코드를 조사하고 컨텍스트 요약
     ↓
-Antigravity가 자동으로 anthro-bridge/plan 도구 호출
+Antigravity가 자동으로 poverello/plan 도구 호출
     ↓
 Poverello가 선택된 외부 모델로 프롬프트 전송
     ↓
@@ -265,7 +271,7 @@ Antigravity가 파일 수정 및 테스트 실행
 ## 9. 중요 참고 사항
 
 - **독립적인 작동**: MCP 서버는 Poverello 3P Gateway와 독립적으로 작동합니다. MCP 도구를 사용하기 위해 3P Gateway가 실행 중일 필요는 없습니다.
-- **과금 분리**: `anthro-bridge/plan` 호출에는 선택한 제공업체의 API 비용이 발생합니다. 이후의 파일 수정 및 테스트는 Antigravity 자체의 구독 용량을 사용합니다.
+- **과금 분리**: `poverello/plan` 호출에는 선택한 제공업체의 API 비용이 발생합니다. 이후의 파일 수정 및 테스트는 Antigravity 자체의 구독 용량을 사용합니다.
 - **실시간 반영**: Poverello GUI에서 플래너 설정을 변경하면 다음 `plan()` 호출 시 즉시 적용됩니다.
 
 ---

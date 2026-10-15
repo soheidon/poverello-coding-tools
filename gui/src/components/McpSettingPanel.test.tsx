@@ -573,6 +573,50 @@ describe("McpSettingPanel - Antigravity Integration", () => {
     });
   });
 
+  it("shows every per-Skill outcome when Install All is refused during preflight", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_mcp_config") return {};
+      if (cmd === "get_antigravity_mcp_status") return { status: "configured" };
+      if (cmd === "get_antigravity_commands_status") {
+        return {
+          skills_dir: "C:\\skills",
+          plan_command: { name: "pov-plan", slash_command: "/pov-plan", status: "not_installed", skill_path: "", error: null },
+          revise_command: { name: "pov-revise", slash_command: "/pov-revise", status: "invalid", skill_path: "", error: "Modified by user" },
+          review_command: { name: "pov-review", slash_command: "/pov-review", status: "not_installed", skill_path: "", error: null },
+        };
+      }
+      if (cmd === "install_all_antigravity_commands") {
+        return {
+          skills_dir: "C:\\skills",
+          plan_command: { name: "pov-plan", slash_command: "/pov-plan", status: "not_installed", skill_path: "", error: null },
+          revise_command: { name: "pov-revise", slash_command: "/pov-revise", status: "invalid", skill_path: "", error: "Modified by user" },
+          review_command: { name: "pov-review", slash_command: "/pov-review", status: "not_installed", skill_path: "", error: null },
+          install_all_results: [
+            { name: "pov-plan", outcome: "not_attempted", message: "Skipped because another target failed preflight" },
+            { name: "pov-revise", outcome: "refused", message: "Modified by user" },
+            { name: "pov-review", outcome: "not_attempted", message: "Skipped because another target failed preflight" },
+          ],
+        };
+      }
+      return null;
+    });
+
+    render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+    const installAll = await screen.findByRole("button", { name: /antigravity\.btnInstallAll/i });
+    expect(screen.getByText("Modified by user")).toBeInTheDocument();
+    expect(screen.queryAllByRole("button", { name: /antigravity\.commandBtnUpdate/i })).toHaveLength(0);
+    expect(screen.queryAllByRole("button", { name: /antigravity\.commandBtnRemove/i })).toHaveLength(0);
+    await userEvent.click(installAll);
+
+    const resultPanel = await screen.findByRole("status");
+    expect(resultPanel.textContent).toContain("pov-plan");
+    expect(resultPanel.textContent).toContain("antigravity.commandInstallOutcomeNotAttempted");
+    expect(resultPanel.textContent).toContain("pov-revise");
+    expect(resultPanel.textContent).toContain("antigravity.commandInstallOutcomeRefused");
+    expect(resultPanel.textContent).toContain("Modified by user");
+    expect(resultPanel.textContent).toContain("pov-review");
+  });
+
   it("shows MCP warning when MCP is not configured", async () => {
     invokeMock.mockImplementation(async (cmd: string) => {
       if (cmd === "get_mcp_config") {
@@ -631,6 +675,82 @@ describe("McpSettingPanel - Antigravity Integration", () => {
 
 
     expect(screen.getByText(/antigravity\.commandsMcpWarning/i)).toBeInTheDocument();
+  });
+
+  it("displays canonical /pov-* commands and shows legacy notice when legacy skills exist", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_mcp_config") {
+        return {
+          provider: "deepseek",
+          model: "deepseek-v4-pro",
+          thinking_mode: "thinking",
+          reasoning_effort: "high",
+        };
+      }
+      if (cmd === "get_antigravity_mcp_status") {
+        return {
+          status: "configured",
+          legacy_status: "configured",
+          config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+          config_dir: "C:\\Users\\User\\.gemini\\config",
+          registered_command: null,
+          registered_args: null,
+          legacy_command: "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe",
+          legacy_args: ["--mcp-server"],
+          error: null,
+        } as AntigravityMcpInfo;
+      }
+      if (cmd === "get_antigravity_commands_status") {
+        return {
+          skills_dir: "C:\\Users\\User\\.gemini\\config\\skills",
+          plan_command: {
+            name: "pov-plan",
+            slash_command: "/pov-plan",
+            status: "not_installed",
+            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-plan\\SKILL.md",
+            error: null,
+          },
+          revise_command: {
+            name: "pov-revise",
+            slash_command: "/pov-revise",
+            status: "not_installed",
+            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-revise\\SKILL.md",
+            error: null,
+          },
+          review_command: {
+            name: "pov-review",
+            slash_command: "/pov-review",
+            status: "not_installed",
+            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-review\\SKILL.md",
+            error: null,
+          },
+          legacy_plan_command: {
+            name: "anthro-plan",
+            slash_command: "/anthro-plan",
+            status: "installed",
+            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\anthro-plan\\SKILL.md",
+            error: null,
+          },
+        } as AntigravityCommandsInfo;
+      }
+      return null;
+    });
+
+    render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/antigravity\.header/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/antigravity\.commandPlanTitle/i)).toBeInTheDocument();
+    expect(screen.getByText(/antigravity\.commandReviseTitle/i)).toBeInTheDocument();
+    expect(screen.getByText(/antigravity\.commandReviewTitle/i)).toBeInTheDocument();
+    expect(screen.getByText(/antigravity\.legacyNoticeTitle/i)).toBeInTheDocument();
+    expect(screen.getByText(/antigravity\.legacyNoticeDesc/i)).toBeInTheDocument();
+    expect(screen.getByText(/antigravity\.mcpLegacyPreserved/i)).toBeInTheDocument();
+
+    const exeInput = screen.getByDisplayValue("C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe");
+    expect(exeInput).toBeInTheDocument();
   });
 });
 

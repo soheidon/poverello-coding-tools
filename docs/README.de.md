@@ -8,7 +8,7 @@ Poverello Coding Tools (in der App als **Poverello** angezeigt) ist eine Windows
 
 1. **3P-Gateway für Claude Code / Claude Desktop** — Behalte Claudes Repository-Erkundung, Tool-Nutzung, Dateibearbeitung und Testausführung bei, während die Inferenz an Drittanbieter weitergeleitet wird.
 2. **Dediziertes lokales LLM für Claude Code (Ollama)** — Führe Claude Code mit lokalen Modellen offline aus.
-3. **MCP-Planer & Reviewer für Google Antigravity** — Delegiere Implementierungsplanung und Nachimplementierungsüberprüfung über die MCP-Tools `anthro-bridge/plan` und `anthro-bridge/review` an externe Modelle.
+3. **MCP-Planer & Reviewer für Google Antigravity** — Delegiere Implementierungsplanung und Nachimplementierungsüberprüfung über die MCP-Tools `poverello/plan` und `poverello/review` an externe Modelle.
 
 ---
 
@@ -68,14 +68,14 @@ Die ausführbare Datei und die MCP-Toolnamen behalten aus Kompatibilitätsgründ
 
 **Globale Antigravity-Befehle:**
 
-- **`/anthro-plan`** — Delegiere die Implementierungsplanung an das konfigurierte externe Modell.
-- **`/anthro-revise`** — Überarbeite einen bestehenden Plan auf der Grundlage neuer Anforderungen oder Einschränkungen.
-- **`/anthro-review`** — Überprüfe eine abgeschlossene Implementierung anhand des genehmigten Plans vor dem Commit, mit expliziten READY / NOT READY-Urteilen.
+- **`/pov-plan`** — Delegiere die Implementierungsplanung an das konfigurierte externe Modell.
+- **`/pov-revise`** — Überarbeite einen bestehenden Plan auf der Grundlage neuer Anforderungen oder Einschränkungen.
+- **`/pov-review`** — Überprüfe eine abgeschlossene Implementierung anhand des genehmigten Plans vor dem Commit, mit expliziten READY / NOT READY-Urteilen.
 
 **Empfohlener Arbeitsablauf:**
 
 ```text
-/anthro-plan → Implementierung & Tests → /anthro-review → Commit
+/pov-plan → Implementierung & Tests → /pov-review → Commit
 ```
 
 ---
@@ -193,7 +193,7 @@ Das Windows-Installationsprogramm unterstützt 8 Sprachen. Poverello v0.24.1 beh
 1. Konfiguriere in Poverello einen API-Schlüssel für dein gewähltes Planer-/Reviewer-Modell.
 2. Wähle den **MCP**-Tab und konfiguriere dein Modell unter **Einstellungen > Antigravity > MCP-Planeinstellungen**.
 3. Registriere `anthro-bridge.exe` mit `["--mcp-server"]` in Antigravitys MCP-Konfiguration (oder klicke in Poverello auf **Automatisch konfigurieren**).
-4. Verwende `/anthro-plan` zum Erstellen von Plänen, `/anthro-revise` zum Aktualisieren von Plänen und `/anthro-review` zum Überprüfen von Implementierungen vor dem Commit.
+4. Verwende `/pov-plan` zum Erstellen von Plänen, `/pov-revise` zum Aktualisieren von Plänen und `/pov-review` zum Überprüfen von Implementierungen vor dem Commit.
 5. Folge der vollständigen [Antigravity MCP-Einrichtungsanleitung](ANTIGRAVITY_MCP.de.md).
 
 ---

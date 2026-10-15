@@ -191,7 +191,7 @@ Claude Code CLI routing is governed independently from global provider settings.
 
 ## 6. MCP Planning Configuration
 
-The `mcp` section configures the model used when external agents call `anthro-bridge/plan`:
+The `mcp` section configures the model used when external agents call `poverello/plan`:
 
 ```json
 {

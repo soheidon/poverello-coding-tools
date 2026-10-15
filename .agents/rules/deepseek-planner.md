@@ -7,10 +7,10 @@ description: Use for implementation, debugging, architectural changes, or multi-
 
 For non-trivial implementation tasks in this repository:
 
-1. If the current task is being executed through the `/anthro-plan` or `/anthro-revise` command, do NOT invoke `anthro-bridge/plan` separately. The command workflow owns the planner call.
+1. If the current task is being executed through the `/pov-plan` or `/pov-revise` command (or legacy `/anthro-plan` / `/anthro-revise`), do NOT invoke `poverello/plan` (or `anthro-bridge/plan`) separately. The command workflow owns the planner call.
 2. First inspect the repository yourself and identify the files and code relevant to the task.
 3. Summarize only the context necessary for implementation planning.
-4. Call the `anthro-bridge/plan` MCP tool exactly once with:
+4. Call the canonical `poverello/plan` MCP tool (or legacy `anthro-bridge/plan` if `poverello` is not yet configured) exactly once with:
    - the user's task;
    - the relevant repository context;
    - important constraints.
@@ -18,6 +18,6 @@ For non-trivial implementation tasks in this repository:
 5. Immediately save the returned plan to `docs/plan/<index>_<descriptive_name>.md` with a sequential index number and descriptive filename, and update `docs/plan/README.md` catalog.
 6. Use the returned DeepSeek plan as the basis for implementation.
 7. Perform file edits, builds, and tests yourself.
-8. Do not call `anthro-bridge/plan` again unless the implementation encounters a major unresolved problem.
+8. Do not call `poverello/plan` (or `anthro-bridge/plan`) again unless the implementation encounters a major unresolved problem.
 9. Do not ask the user to repeat this workflow.
 10. Do not use the planner for trivial tasks such as a one-word text change unless planning would materially help.

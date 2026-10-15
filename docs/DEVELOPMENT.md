@@ -120,4 +120,4 @@ Before creating a release, verify the following:
 - [ ] Every built-in provider and OpenRouter profile saves and loads routes reliably.
 - [ ] Gateway start/stop functions reliably and reports health on `http://127.0.0.1:4000/health`.
 - [ ] Copied Claude Code launch commands contain correct base URL and context window parameters.
-- [ ] Poverello MCP server connects cleanly to Google Antigravity and executes `anthro-bridge/plan`.
+- [ ] Poverello MCP server connects cleanly to Google Antigravity and executes `poverello/plan`.

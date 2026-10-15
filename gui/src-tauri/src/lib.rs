@@ -5460,6 +5460,12 @@ pub struct AntigravityMcpInfo {
     pub registered_command: Option<String>,
     pub registered_args: Option<Vec<String>>,
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_status: Option<AntigravityMcpStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_args: Option<Vec<String>>,
 }
 
 pub fn antigravity_mcp_config_dir() -> Result<PathBuf, String> {
@@ -5473,6 +5479,55 @@ pub fn antigravity_mcp_config_dir() -> Result<PathBuf, String> {
 pub fn antigravity_mcp_config_path() -> Result<PathBuf, String> {
     let dir = antigravity_mcp_config_dir()?;
     Ok(dir.join("mcp_config.json"))
+}
+
+fn inspect_mcp_server_entry(
+    entry: Option<&serde_json::Value>,
+    server_name: &str,
+) -> (
+    AntigravityMcpStatus,
+    Option<String>,
+    Option<Vec<String>>,
+    Option<String>,
+) {
+    let Some(entry) = entry else {
+        return (AntigravityMcpStatus::NotConfigured, None, None, None);
+    };
+    let invalid = |reason: &str| {
+        (
+            AntigravityMcpStatus::Invalid,
+            None,
+            None,
+            Some(format!("'{server_name}' entry in mcpServers {reason}")),
+        )
+    };
+    let Some(object) = entry.as_object() else {
+        return invalid("must be an object");
+    };
+    let Some(command) = object.get("command").and_then(serde_json::Value::as_str) else {
+        return invalid("must contain a string 'command'");
+    };
+    if command.trim().is_empty() {
+        return invalid("'command' must not be empty");
+    }
+    let Some(args) = object
+        .get("args")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|items| {
+            items
+                .iter()
+                .map(|item| item.as_str().map(str::to_owned))
+                .collect::<Option<Vec<_>>>()
+        })
+    else {
+        return invalid("must contain an 'args' array containing only strings");
+    };
+    (
+        AntigravityMcpStatus::Configured,
+        Some(command.to_owned()),
+        Some(args),
+        None,
+    )
 }
 
 pub fn inspect_antigravity_mcp_status_at(config_path: &Path) -> AntigravityMcpInfo {
@@ -5490,6 +5545,9 @@ pub fn inspect_antigravity_mcp_status_at(config_path: &Path) -> AntigravityMcpIn
             registered_command: None,
             registered_args: None,
             error: None,
+            legacy_status: Some(AntigravityMcpStatus::NotConfigured),
+            legacy_command: None,
+            legacy_args: None,
         };
     }
 
@@ -5503,6 +5561,9 @@ pub fn inspect_antigravity_mcp_status_at(config_path: &Path) -> AntigravityMcpIn
                 registered_command: None,
                 registered_args: None,
                 error: Some(format!("Failed to read config file: {e}")),
+                legacy_status: Some(AntigravityMcpStatus::Invalid),
+                legacy_command: None,
+                legacy_args: None,
             };
         }
     };
@@ -5517,6 +5578,9 @@ pub fn inspect_antigravity_mcp_status_at(config_path: &Path) -> AntigravityMcpIn
                 registered_command: None,
                 registered_args: None,
                 error: Some(format!("Invalid JSON syntax: {e}")),
+                legacy_status: Some(AntigravityMcpStatus::Invalid),
+                legacy_command: None,
+                legacy_args: None,
             };
         }
     };
@@ -5529,6 +5593,9 @@ pub fn inspect_antigravity_mcp_status_at(config_path: &Path) -> AntigravityMcpIn
             registered_command: None,
             registered_args: None,
             error: Some("Top-level value of mcp_config.json must be a JSON object".to_string()),
+            legacy_status: Some(AntigravityMcpStatus::Invalid),
+            legacy_command: None,
+            legacy_args: None,
         };
     }
 
@@ -5541,55 +5608,29 @@ pub fn inspect_antigravity_mcp_status_at(config_path: &Path) -> AntigravityMcpIn
                 registered_command: None,
                 registered_args: None,
                 error: Some("'mcpServers' in mcp_config.json must be a JSON object".to_string()),
+                legacy_status: Some(AntigravityMcpStatus::Invalid),
+                legacy_command: None,
+                legacy_args: None,
             };
         }
     }
 
-    let anthro_entry = json_val
-        .get("mcpServers")
-        .and_then(|servers| servers.get("anthro-bridge"));
-
-    let Some(entry) = anthro_entry else {
-        return AntigravityMcpInfo {
-            status: AntigravityMcpStatus::NotConfigured,
-            config_path: config_path_str,
-            config_dir: config_dir_str,
-            registered_command: None,
-            registered_args: None,
-            error: None,
-        };
-    };
-
-    if !entry.is_object() {
-        return AntigravityMcpInfo {
-            status: AntigravityMcpStatus::Invalid,
-            config_path: config_path_str,
-            config_dir: config_dir_str,
-            registered_command: None,
-            registered_args: None,
-            error: Some("'anthro-bridge' entry in mcpServers must be an object".to_string()),
-        };
-    }
-
-    let cmd = entry
-        .get("command")
-        .and_then(|c| c.as_str())
-        .map(|s| s.to_string());
-    let args: Option<Vec<String>> = entry.get("args").and_then(|a| {
-        a.as_array().map(|arr| {
-            arr.iter()
-                .filter_map(|item| item.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-    });
+    let servers = json_val.get("mcpServers");
+    let (status, registered_command, registered_args, error) =
+        inspect_mcp_server_entry(servers.and_then(|s| s.get("poverello")), "poverello");
+    let (legacy_status, legacy_command, legacy_args, _legacy_error) =
+        inspect_mcp_server_entry(servers.and_then(|s| s.get("anthro-bridge")), "anthro-bridge");
 
     AntigravityMcpInfo {
-        status: AntigravityMcpStatus::Configured,
+        status,
         config_path: config_path_str,
         config_dir: config_dir_str,
-        registered_command: cmd,
-        registered_args: args,
-        error: None,
+        registered_command,
+        registered_args,
+        error,
+        legacy_status: Some(legacy_status),
+        legacy_command,
+        legacy_args,
     }
 }
 
@@ -5649,13 +5690,36 @@ pub fn configure_antigravity_mcp_at(
         .entry("mcpServers")
         .or_insert_with(|| serde_json::json!({}));
 
-    mcp_servers.as_object_mut().unwrap().insert(
-        "anthro-bridge".to_string(),
-        serde_json::json!({
-            "command": trimmed,
-            "args": ["--mcp-server"]
-        }),
-    );
+    let servers_obj = mcp_servers.as_object_mut().unwrap();
+
+    // Check for conflicting 'poverello' entry
+    if let Some(existing_poverello) = servers_obj.get("poverello") {
+        let (status, existing_cmd, existing_args, error) =
+            inspect_mcp_server_entry(Some(existing_poverello), "poverello");
+        if status == AntigravityMcpStatus::Invalid {
+            return Err(error.unwrap_or_else(|| {
+                "The existing 'poverello' MCP entry is malformed".to_string()
+            }));
+        }
+        let target_args = vec!["--mcp-server".to_string()];
+        let is_identical = existing_cmd.as_deref() == Some(trimmed)
+            && existing_args.as_ref() == Some(&target_args);
+        if !is_identical {
+            return Err(
+                "A conflicting 'poverello' MCP server is already registered with different command or arguments. Manual resolution required.".to_string(),
+            );
+        }
+        // If identical, this is an idempotent no-op for poverello, preserving everything else!
+    } else {
+        // Additive configuration: add 'poverello', preserve 'anthro-bridge' and other servers
+        servers_obj.insert(
+            "poverello".to_string(),
+            serde_json::json!({
+                "command": trimmed,
+                "args": ["--mcp-server"]
+            }),
+        );
+    }
 
     let serialized = serde_json::to_string_pretty(&json_val)
         .map_err(|e| format!("Failed to serialize updated config: {e}"))?;
@@ -5691,7 +5755,7 @@ pub fn remove_antigravity_mcp_at(config_path: &Path) -> Result<AntigravityMcpInf
     }
 
     if let Some(servers) = json_val.get_mut("mcpServers").and_then(|s| s.as_object_mut()) {
-        servers.remove("anthro-bridge");
+        servers.remove("poverello");
     }
 
     let serialized = serde_json::to_string_pretty(&json_val)
@@ -5813,8 +5877,116 @@ fn remove_antigravity_mcp() -> Result<AntigravityMcpInfo, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Google Antigravity Commands: /anthro-plan & /anthro-revise (Global Skills)
+// Google Antigravity Commands: /pov-plan, /pov-revise, /pov-review (Canonical Global Skills)
+// and legacy /anthro-plan, /anthro-revise, /anthro-review (Compatibility)
 // ---------------------------------------------------------------------------
+
+pub const ANTIGRAVITY_POV_PLAN_SKILL_MD: &str = r#"---
+name: pov-plan
+description: Create an implementation plan for the user's task using the Poverello external planner without implementing the task.
+---
+
+# Pov Plan
+
+Create a comprehensive implementation plan for the requested task using the Poverello external MCP planner.
+
+## Instructions
+1. Inspect the repository and identify only the files and code relevant to the user's request.
+2. Read the relevant implementation, configuration, and tests needed to understand the task.
+3. Summarize only the repository context necessary for implementation planning.
+4. Call `poverello/plan` exactly once with:
+   - the user's task;
+   - the relevant repository context;
+   - important implementation constraints.
+5. Use the returned external-model plan to produce the final comprehensive implementation plan.
+6. Do not edit files.
+7. Do not run implementation commands.
+8. Do not begin implementation.
+9. Stop after presenting the implementation plan.
+"#;
+
+pub const ANTIGRAVITY_POV_REVISE_SKILL_MD: &str = r#"---
+name: pov-revise
+description: Revise the current implementation plan using the Poverello external planner without implementing the task.
+---
+
+# Pov Revise
+
+Revise an existing implementation plan based on user feedback using the Poverello external MCP planner.
+
+## Instructions
+1. Identify the implementation plan to revise using the following priority:
+   - Priority 1: An implementation plan present in the active conversation context.
+   - Priority 2: An active implementation plan artifact (e.g. `implementation_plan.md`).
+   - If neither is found, STOP immediately and ask the user to provide or specify the plan to revise. Do not guess from historical transcripts.
+2. Identify the user's requested revisions, feedback, or new constraints.
+3. Inspect additional repository context only if needed.
+4. Call `poverello/revise` exactly once with:
+   - the original task;
+   - the current implementation plan;
+   - the requested revisions and feedback;
+   - newly relevant constraints or repository context.
+5. Produce the revised implementation plan, preserving valid sections of the previous plan unless the revisions require changing them.
+6. Do not edit files.
+7. Do not run implementation commands.
+8. Do not begin implementation.
+9. Stop after presenting the revised implementation plan.
+"#;
+
+pub const ANTIGRAVITY_POV_REVIEW_SKILL_MD: &str = r#"---
+name: pov-review
+description: Review the current implementation against the approved plan using the Poverello external reviewer without editing code or committing.
+---
+
+# Pov Review
+
+Review an implementation against its approved implementation plan using the Poverello external MCP review tool.
+
+## Instructions
+1. Identify the approved implementation plan using the following priority:
+   - Priority 1: An approved implementation plan present in the active conversation context.
+   - Priority 2: An active implementation plan artifact (e.g. `implementation_plan.md`).
+   - If neither is found, STOP immediately and ask the user to provide or specify the plan to review. Do not guess from historical transcripts or older plan files (review tool calls = 0).
+2. Collect working tree changes and status:
+   - Inspect git status: run `git status --short`.
+   - Collect tracked changes: run `git diff HEAD` to capture all staged and unstaged modifications from HEAD to the working tree.
+   - Collect untracked changes: for all review-relevant untracked files (source, tests, configs, scripts, resources, docs) appearing as `??` in `git status --short`, read their content and append as synthetic diff blocks:
+     ```text
+     --- UNTRACKED FILE: path/to/file ---
+     <content>
+     ```
+   - For large binary, vendor, or generated files that cannot be transmitted in full, provide explicit metadata instead (path, type, size, omission reason).
+   - Do not silently truncate the review payload. If the complete relevant diff cannot fit within context, STOP and report that the review cannot be performed reliably rather than requesting an approval from incomplete evidence.
+3. Inspect relevant code and bridge context:
+   - Read adjacent source files, contract boundaries, caller/callee invariants, or surrounding repository context when required to understand invariants.
+   - Distill the relevant findings into `additional_context`. Never assume repository files inspected by the host agent are automatically visible to the external reviewer model.
+4. Collect test results:
+   - Local test execution is not subject to the exactly-once rule.
+   - Run targeted tests, regression tests, full test suites, package/build validation (`R CMD check`, `cargo test`, `npm test/build`), statistical-invariance checks, reproducibility checks, RNG/deterministic-seed tests, serial/parallel equivalence checks, or other domain-appropriate verification as many times as necessary to collect sufficient review evidence.
+   - Tests may be run iteratively: results from one test may justify running additional focused checks before the final review evidence is assembled.
+   - For documentation-only changes, testing may be omitted if code logic and packaging invariants are unaffected.
+5. Call `poverello/review`:
+   - The exactly-once rule applies strictly to `poverello/review` tool calls, not to local test execution or evidence collection.
+   - Call `poverello/review` exactly once upon receipt of a usable verdict.
+   - A usable verdict must contain one of the following consistent pairs:
+     - `Decision: Approved` with `Commit readiness: READY`
+     - `Decision: Approved with recommendations` with `Commit readiness: READY`
+     - `Decision: Not approved` with `Commit readiness: NOT READY`
+   - Any response missing these sections, containing an unsupported decision, or presenting contradictory readiness (e.g. `Approved` + `NOT READY`) is unusable.
+   - Duplicate review calls are prohibited once a usable verdict is obtained.
+   - If the tool call itself fails or returns an unusable response (e.g. transport, decoding error, or inconsistent verdict), exactly 1 recovery retry is permitted.
+   - Supply:
+     - `task`: Concise statement of what was implemented.
+     - `approved_plan`: The exact text of the approved plan.
+     - `git_diff`: Tracked diff (`git diff HEAD`) plus review-relevant untracked files.
+     - `git_status`: Output of `git status --short`.
+     - `test_results`: Test summary (if applicable).
+     - `additional_context`: Surrounding contracts or constraints inspected by the host agent.
+6. Present the returned review verdict verbatim (Approved / Approved with recommendations / Not approved) along with the Plan Compliance Matrix and Blocking Issues.
+7. Do not edit files.
+8. Do not create git commits, tags, or releases.
+9. Stop after presenting the review verdict.
+"#;
 
 pub const ANTIGRAVITY_ANTHRO_PLAN_SKILL_MD: &str = r#"---
 name: anthro-plan
@@ -5923,7 +6095,7 @@ Review an implementation against its approved implementation plan using the Pove
 9. Stop after presenting the review verdict.
 "#;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AntigravitySkillStatus {
     NotInstalled,
@@ -5947,6 +6119,31 @@ pub struct AntigravityCommandsInfo {
     pub plan_command: AntigravityCommandItemInfo,
     pub revise_command: AntigravityCommandItemInfo,
     pub review_command: AntigravityCommandItemInfo,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_plan_command: Option<AntigravityCommandItemInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_revise_command: Option<AntigravityCommandItemInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_review_command: Option<AntigravityCommandItemInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_all_results: Option<Vec<AntigravityCommandInstallResult>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AntigravityCommandInstallOutcome {
+    Installed,
+    AlreadyCurrent,
+    Refused,
+    Failed,
+    NotAttempted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AntigravityCommandInstallResult {
+    pub name: String,
+    pub outcome: AntigravityCommandInstallOutcome,
+    pub message: Option<String>,
 }
 
 fn antigravity_global_skills_dir() -> Result<PathBuf, String> {
@@ -5959,40 +6156,111 @@ fn antigravity_global_skills_dir() -> Result<PathBuf, String> {
         .join("skills"))
 }
 
-fn normalize_skill_content_for_comparison(content: &str) -> String {
-    content
-        .replace("\r\n", "\n")
-        .replace('\r', "\n")
-        .trim_end()
-        .to_string()
+fn path_component_is_link_or_reparse(metadata: &std::fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        return metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0;
+    }
+    #[cfg(not(windows))]
+    false
+}
+
+fn ensure_no_link_or_reparse_components(path: &Path) -> Result<(), String> {
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component.as_os_str());
+        match std::fs::symlink_metadata(&current) {
+            Ok(metadata) if path_component_is_link_or_reparse(&metadata) => {
+                return Err(format!(
+                    "Refusing to follow a symlink or reparse point: {}",
+                    current.display()
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => {
+                return Err(format!(
+                    "Failed to inspect path component {}: {error}",
+                    current.display()
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn resolve_allowed_antigravity_command(name: &str) -> Result<(&'static str, &'static str, &'static str), String> {
     match name {
+        "pov-plan" => Ok(("pov-plan", "/pov-plan", ANTIGRAVITY_POV_PLAN_SKILL_MD)),
+        "pov-revise" => Ok(("pov-revise", "/pov-revise", ANTIGRAVITY_POV_REVISE_SKILL_MD)),
+        "pov-review" => Ok(("pov-review", "/pov-review", ANTIGRAVITY_POV_REVIEW_SKILL_MD)),
         "anthro-plan" => Ok(("anthro-plan", "/anthro-plan", ANTIGRAVITY_ANTHRO_PLAN_SKILL_MD)),
         "anthro-revise" => Ok(("anthro-revise", "/anthro-revise", ANTIGRAVITY_ANTHRO_REVISE_SKILL_MD)),
         "anthro-review" => Ok(("anthro-review", "/anthro-review", ANTIGRAVITY_ANTHRO_REVIEW_SKILL_MD)),
-        _ => Err(format!("Unsupported Antigravity command name: '{name}'. Only 'anthro-plan', 'anthro-revise', and 'anthro-review' are supported.")),
+        _ => Err(format!(
+            "Unsupported Antigravity command name: '{name}'. Only canonical ('pov-plan', 'pov-revise', 'pov-review') and legacy ('anthro-plan', 'anthro-revise', 'anthro-review') commands are supported."
+        )),
     }
 }
 
-pub fn inspect_antigravity_command_status_at(skills_root: &Path, name: &str) -> Result<AntigravityCommandItemInfo, String> {
+pub fn inspect_antigravity_command_status_at(
+    skills_root: &Path,
+    name: &str,
+) -> Result<AntigravityCommandItemInfo, String> {
+    inspect_antigravity_command_status_with_reader(skills_root, name, &|path| std::fs::read(path))
+}
+
+fn inspect_antigravity_command_status_with_reader<F>(
+    skills_root: &Path,
+    name: &str,
+    read_file: &F,
+) -> Result<AntigravityCommandItemInfo, String>
+where
+    F: Fn(&Path) -> std::io::Result<Vec<u8>>,
+{
     let (clean_name, slash_cmd, canonical) = resolve_allowed_antigravity_command(name)?;
     let skill_folder = skills_root.join(clean_name);
     let skill_file = skill_folder.join("SKILL.md");
     let skill_path_str = skill_file.to_string_lossy().to_string();
 
-    if !skill_file.exists() {
+    if let Err(error) = ensure_no_link_or_reparse_components(&skill_file) {
         return Ok(AntigravityCommandItemInfo {
             name: clean_name.to_string(),
             slash_command: slash_cmd.to_string(),
-            status: AntigravitySkillStatus::NotInstalled,
+            status: AntigravitySkillStatus::Invalid,
             skill_path: skill_path_str,
-            error: None,
+            error: Some(error),
         });
     }
 
-    if !skill_file.is_file() {
+    let file_metadata = match std::fs::symlink_metadata(&skill_file) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(AntigravityCommandItemInfo {
+                name: clean_name.to_string(),
+                slash_command: slash_cmd.to_string(),
+                status: AntigravitySkillStatus::NotInstalled,
+                skill_path: skill_path_str,
+                error: None,
+            });
+        }
+        Err(error) => {
+            return Ok(AntigravityCommandItemInfo {
+                name: clean_name.to_string(),
+                slash_command: slash_cmd.to_string(),
+                status: AntigravitySkillStatus::Invalid,
+                skill_path: skill_path_str,
+                error: Some(format!("Failed to inspect SKILL.md: {error}")),
+            });
+        }
+    };
+
+    if !file_metadata.is_file() {
         return Ok(AntigravityCommandItemInfo {
             name: clean_name.to_string(),
             slash_command: slash_cmd.to_string(),
@@ -6002,12 +6270,9 @@ pub fn inspect_antigravity_command_status_at(skills_root: &Path, name: &str) -> 
         });
     }
 
-    match std::fs::read_to_string(&skill_file) {
+    match read_file(&skill_file) {
         Ok(content) => {
-            let normalized_existing = normalize_skill_content_for_comparison(&content);
-            let normalized_canonical = normalize_skill_content_for_comparison(canonical);
-
-            if normalized_existing == normalized_canonical {
+            if content == canonical.as_bytes() {
                 Ok(AntigravityCommandItemInfo {
                     name: clean_name.to_string(),
                     slash_command: slash_cmd.to_string(),
@@ -6019,9 +6284,12 @@ pub fn inspect_antigravity_command_status_at(skills_root: &Path, name: &str) -> 
                 Ok(AntigravityCommandItemInfo {
                     name: clean_name.to_string(),
                     slash_command: slash_cmd.to_string(),
-                    status: AntigravitySkillStatus::Outdated,
+                    status: AntigravitySkillStatus::Invalid,
                     skill_path: skill_path_str,
-                    error: None,
+                    error: Some(
+                        "Skill content differs from the exact Poverello template; it may contain user edits, so automatic update/removal is refused"
+                            .to_string(),
+                    ),
                 })
             }
         }
@@ -6035,59 +6303,111 @@ pub fn inspect_antigravity_command_status_at(skills_root: &Path, name: &str) -> 
     }
 }
 
-pub fn install_antigravity_command_at(skills_root: &Path, name: &str) -> Result<AntigravityCommandItemInfo, String> {
-    let (clean_name, _, canonical) = resolve_allowed_antigravity_command(name)?;
-    let skill_folder = skills_root.join(clean_name);
-    if !skill_folder.exists() {
-        std::fs::create_dir_all(&skill_folder)
-            .map_err(|e| format!("Failed to create skill directory: {e}"))?;
-    }
-
-    let skill_file = skill_folder.join("SKILL.md");
-    if skill_file.exists() && skill_file.is_file() {
-        let backup_path = skill_folder.join("SKILL.md.bak");
-        let _ = std::fs::copy(&skill_file, &backup_path);
-    }
-
-    // Atomic write via .tmp
-    let temp_path = skill_folder.join("SKILL.md.tmp");
-    std::fs::write(&temp_path, canonical)
-        .map_err(|e| format!("Failed to write temporary SKILL.md: {e}"))?;
-    std::fs::rename(&temp_path, &skill_file)
-        .map_err(|e| format!("Failed to atomically replace SKILL.md: {e}"))?;
-
-    inspect_antigravity_command_status_at(skills_root, clean_name)
+pub fn install_antigravity_command_at(
+    skills_root: &Path,
+    name: &str,
+) -> Result<AntigravityCommandItemInfo, String> {
+    install_antigravity_command_with_reader(skills_root, name, &|path| std::fs::read(path))
 }
 
-pub fn remove_antigravity_command_at(skills_root: &Path, name: &str) -> Result<AntigravityCommandItemInfo, String> {
-    let (clean_name, _, _) = resolve_allowed_antigravity_command(name)?;
+fn install_antigravity_command_with_reader<F>(
+    skills_root: &Path,
+    name: &str,
+    read_file: &F,
+) -> Result<AntigravityCommandItemInfo, String>
+where
+    F: Fn(&Path) -> std::io::Result<Vec<u8>>,
+{
+    let (clean_name, _, canonical) = resolve_allowed_antigravity_command(name)?;
+    if clean_name.starts_with("anthro-") {
+        return Err("Legacy Anthro Skills are status-only and cannot be installed by this operation".to_string());
+    }
+    let current = inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file)?;
+    match current.status {
+        AntigravitySkillStatus::Installed => return Ok(current),
+        AntigravitySkillStatus::Invalid | AntigravitySkillStatus::Outdated => {
+            return Err(current.error.unwrap_or_else(|| {
+                "Existing Skill is modified or unmanaged; refusing to overwrite it".to_string()
+            }));
+        }
+        AntigravitySkillStatus::NotInstalled => {}
+    }
     let skill_folder = skills_root.join(clean_name);
     let skill_file = skill_folder.join("SKILL.md");
+    ensure_no_link_or_reparse_components(&skill_folder)?;
+    std::fs::create_dir_all(&skill_folder).map_err(|e| format!("Failed to create skill directory: {e}"))?;
+    ensure_no_link_or_reparse_components(&skill_file)?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&skill_file)
+        .map_err(|e| format!("Failed to create SKILL.md without overwriting an existing file: {e}"))?;
+    use std::io::Write;
+    file.write_all(canonical.as_bytes())
+        .map_err(|e| format!("Failed to write newly created SKILL.md; partial file was preserved for inspection: {e}"))?;
 
-    if skill_file.exists() {
-        if skill_file.is_file() {
-            let backup_path = skill_folder.join("SKILL.md.bak");
-            let _ = std::fs::copy(&skill_file, &backup_path);
-            std::fs::remove_file(&skill_file)
-                .map_err(|e| format!("Failed to remove SKILL.md: {e}"))?;
-        } else {
-            return Err("Target SKILL.md path exists but is not a regular file".to_string());
+    inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file)
+}
+
+pub fn remove_antigravity_command_at(
+    skills_root: &Path,
+    name: &str,
+) -> Result<AntigravityCommandItemInfo, String> {
+    remove_antigravity_command_with_reader(skills_root, name, &|path| std::fs::read(path))
+}
+
+fn remove_antigravity_command_with_reader<F>(
+    skills_root: &Path,
+    name: &str,
+    read_file: &F,
+) -> Result<AntigravityCommandItemInfo, String>
+where
+    F: Fn(&Path) -> std::io::Result<Vec<u8>>,
+{
+    let (clean_name, _, _) = resolve_allowed_antigravity_command(name)?;
+    let current = inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file)?;
+    match current.status {
+        AntigravitySkillStatus::NotInstalled => return Ok(current),
+        AntigravitySkillStatus::Invalid | AntigravitySkillStatus::Outdated => {
+            return Err(current.error.unwrap_or_else(|| {
+                "Existing Skill is modified or unmanaged; refusing to remove it".to_string()
+            }));
         }
+        AntigravitySkillStatus::Installed => {}
     }
+    let skill_folder = skills_root.join(clean_name);
+    let skill_file = skill_folder.join("SKILL.md");
+    ensure_no_link_or_reparse_components(&skill_file)?;
+    let current_bytes = read_file(&skill_file)
+        .map_err(|e| format!("Failed to recheck SKILL.md before removal: {e}"))?;
+    let (_, _, canonical) = resolve_allowed_antigravity_command(clean_name)?;
+    if current_bytes != canonical.as_bytes() {
+        return Err(
+            "Skill content changed immediately before removal; refusing to delete it".to_string(),
+        );
+    }
+    std::fs::remove_file(&skill_file).map_err(|e| format!("Failed to remove SKILL.md: {e}"))?;
 
     inspect_antigravity_command_status_at(skills_root, clean_name)
 }
 
 pub fn get_antigravity_commands_info_at(skills_root: &Path) -> Result<AntigravityCommandsInfo, String> {
-    let plan_command = inspect_antigravity_command_status_at(skills_root, "anthro-plan")?;
-    let revise_command = inspect_antigravity_command_status_at(skills_root, "anthro-revise")?;
-    let review_command = inspect_antigravity_command_status_at(skills_root, "anthro-review")?;
+    let plan_command = inspect_antigravity_command_status_at(skills_root, "pov-plan")?;
+    let revise_command = inspect_antigravity_command_status_at(skills_root, "pov-revise")?;
+    let review_command = inspect_antigravity_command_status_at(skills_root, "pov-review")?;
+    let legacy_plan_command = Some(inspect_antigravity_command_status_at(skills_root, "anthro-plan")?);
+    let legacy_revise_command = Some(inspect_antigravity_command_status_at(skills_root, "anthro-revise")?);
+    let legacy_review_command = Some(inspect_antigravity_command_status_at(skills_root, "anthro-review")?);
 
     Ok(AntigravityCommandsInfo {
         skills_dir: skills_root.to_string_lossy().to_string(),
         plan_command,
         revise_command,
         review_command,
+        legacy_plan_command,
+        legacy_revise_command,
+        legacy_review_command,
+        install_all_results: None,
     })
 }
 
@@ -6121,11 +6441,104 @@ fn remove_antigravity_command(name: String) -> Result<AntigravityCommandsInfo, S
     get_antigravity_commands_info_at(&root)
 }
 
+fn install_all_antigravity_commands_with<F>(
+    skills_root: &Path,
+    mut install_one: F,
+) -> Result<AntigravityCommandsInfo, String>
+where
+    F: FnMut(&Path, &str) -> Result<AntigravityCommandItemInfo, String>,
+{
+    const NAMES: [&str; 3] = ["pov-plan", "pov-revise", "pov-review"];
+    let preflight = NAMES
+        .iter()
+        .map(|name| inspect_antigravity_command_status_at(skills_root, name))
+        .collect::<Result<Vec<_>, _>>()?;
+    let has_unsafe_target = preflight.iter().any(|item| {
+        matches!(
+            item.status,
+            AntigravitySkillStatus::Invalid | AntigravitySkillStatus::Outdated
+        )
+    });
+    let mut results = Vec::with_capacity(NAMES.len());
+
+    if has_unsafe_target {
+        for item in &preflight {
+            let (outcome, message) = match item.status {
+                AntigravitySkillStatus::Installed => {
+                    (AntigravityCommandInstallOutcome::AlreadyCurrent, None)
+                }
+                AntigravitySkillStatus::NotInstalled => (
+                    AntigravityCommandInstallOutcome::NotAttempted,
+                    Some("Skipped because another target failed preflight".to_string()),
+                ),
+                AntigravitySkillStatus::Invalid | AntigravitySkillStatus::Outdated => (
+                    AntigravityCommandInstallOutcome::Refused,
+                    item.error.clone(),
+                ),
+            };
+            results.push(AntigravityCommandInstallResult {
+                name: item.name.clone(),
+                outcome,
+                message,
+            });
+        }
+        let mut info = get_antigravity_commands_info_at(skills_root)?;
+        info.install_all_results = Some(results);
+        return Ok(info);
+    }
+
+    let mut stopped = false;
+    for (name, item) in NAMES.iter().zip(preflight.iter()) {
+        if item.status == AntigravitySkillStatus::Installed {
+            results.push(AntigravityCommandInstallResult {
+                name: (*name).to_string(),
+                outcome: AntigravityCommandInstallOutcome::AlreadyCurrent,
+                message: None,
+            });
+        } else if stopped {
+            results.push(AntigravityCommandInstallResult {
+                name: (*name).to_string(),
+                outcome: AntigravityCommandInstallOutcome::NotAttempted,
+                message: Some("Skipped after an earlier installation failure".to_string()),
+            });
+        } else {
+            match install_one(skills_root, name) {
+                Ok(installed) if installed.status == AntigravitySkillStatus::Installed => {
+                    results.push(AntigravityCommandInstallResult {
+                        name: (*name).to_string(),
+                        outcome: AntigravityCommandInstallOutcome::Installed,
+                        message: None,
+                    });
+                }
+                Ok(installed) => {
+                    stopped = true;
+                    results.push(AntigravityCommandInstallResult {
+                        name: (*name).to_string(),
+                        outcome: AntigravityCommandInstallOutcome::Failed,
+                    message: installed.error.or_else(|| {
+                        Some("Install did not produce a synced Skill".to_string())
+                    }),
+                    });
+                }
+                Err(error) => {
+                    stopped = true;
+                    results.push(AntigravityCommandInstallResult {
+                        name: (*name).to_string(),
+                        outcome: AntigravityCommandInstallOutcome::Failed,
+                        message: Some(error),
+                    });
+                }
+            }
+        }
+    }
+
+    let mut info = get_antigravity_commands_info_at(skills_root)?;
+    info.install_all_results = Some(results);
+    Ok(info)
+}
+
 pub fn install_all_antigravity_commands_at(skills_root: &Path) -> Result<AntigravityCommandsInfo, String> {
-    install_antigravity_command_at(skills_root, "anthro-plan")?;
-    install_antigravity_command_at(skills_root, "anthro-revise")?;
-    install_antigravity_command_at(skills_root, "anthro-review")?;
-    get_antigravity_commands_info_at(skills_root)
+    install_all_antigravity_commands_with(skills_root, install_antigravity_command_at)
 }
 
 #[tauri::command]
@@ -15351,10 +15764,12 @@ mod tests {
         std::fs::write(&other_exe, "other dummy exe content").unwrap();
         let other_exe_str = other_exe.to_string_lossy().to_string();
 
-        // 1. Missing file -> NotConfigured
+        // 1. Missing file -> NotConfigured for both canonical and legacy
         let info = inspect_antigravity_mcp_status_at(&config_path);
         assert_eq!(info.status, AntigravityMcpStatus::NotConfigured);
+        assert_eq!(info.legacy_status, Some(AntigravityMcpStatus::NotConfigured));
         assert!(info.registered_command.is_none());
+        assert!(info.legacy_command.is_none());
 
         // 2. Validation errors
         // Empty path
@@ -15366,59 +15781,82 @@ mod tests {
         std::fs::write(&text_file, "text").unwrap();
         assert!(configure_antigravity_mcp_at(&config_path, &text_file.to_string_lossy()).is_err());
 
-        // 3. Configure with explicit valid exe
+        // 3. Configure with explicit valid exe -> adds canonical 'poverello' entry
         let info = configure_antigravity_mcp_at(&config_path, &fake_exe_str).unwrap();
         assert_eq!(info.status, AntigravityMcpStatus::Configured);
         assert_eq!(info.registered_command.as_deref(), Some(fake_exe_str.as_str()));
         assert_eq!(info.registered_args, Some(vec!["--mcp-server".to_string()]));
+        assert_eq!(info.legacy_status, Some(AntigravityMcpStatus::NotConfigured));
 
-        // 4. Existing other servers and fields are preserved
+        // 4. Additive config: existing other servers, legacy 'anthro-bridge', and unknown fields are preserved
         let mut parsed: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
         parsed.as_object_mut().unwrap().insert("customTopLevel".to_string(), serde_json::json!("preserved_val"));
-        parsed.get_mut("mcpServers").unwrap().as_object_mut().unwrap().insert("github".to_string(), serde_json::json!({"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]}));
+        parsed.get_mut("mcpServers").unwrap().as_object_mut().unwrap().insert(
+            "anthro-bridge".to_string(),
+            serde_json::json!({"command": fake_exe_str.as_str(), "args": ["--mcp-server"]}),
+        );
+        parsed.get_mut("mcpServers").unwrap().as_object_mut().unwrap().insert(
+            "github".to_string(),
+            serde_json::json!({"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]}),
+        );
         std::fs::write(&config_path, serde_json::to_string_pretty(&parsed).unwrap()).unwrap();
 
-        // Re-configure with other_exe -> updates anthro-bridge, preserves github and customTopLevel
-        let info = configure_antigravity_mcp_at(&config_path, &other_exe_str).unwrap();
+        // Inspect reflects both canonical 'poverello' and legacy 'anthro-bridge' as Configured
+        let info = inspect_antigravity_mcp_status_at(&config_path);
         assert_eq!(info.status, AntigravityMcpStatus::Configured);
-        assert_eq!(info.registered_command.as_deref(), Some(other_exe_str.as_str()));
+        assert_eq!(info.legacy_status, Some(AntigravityMcpStatus::Configured));
+        assert_eq!(info.legacy_command.as_deref(), Some(fake_exe_str.as_str()));
 
-        let final_parsed: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
-        assert_eq!(final_parsed.get("customTopLevel").and_then(|v| v.as_str()), Some("preserved_val"));
-        assert!(final_parsed.get("mcpServers").unwrap().get("github").is_some());
+        // 5. Idempotent configuration: calling configure with identical command and args succeeds
+        let info = configure_antigravity_mcp_at(&config_path, &fake_exe_str).unwrap();
+        assert_eq!(info.status, AntigravityMcpStatus::Configured);
+
+        // 6. Conflicting 'poverello' entry fails closed without overwriting
+        let err = configure_antigravity_mcp_at(&config_path, &other_exe_str).unwrap_err();
+        assert!(err.contains("conflicting 'poverello' MCP server"));
+
+        // Verify on disk that 'poverello' still has fake_exe_str and anthro-bridge is untouched
+        let on_disk: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
         assert_eq!(
-            final_parsed.get("mcpServers").unwrap().get("anthro-bridge").unwrap().get("command").and_then(|v| v.as_str()),
-            Some(other_exe_str.as_str())
+            on_disk.get("mcpServers").unwrap().get("poverello").unwrap().get("command").and_then(|v| v.as_str()),
+            Some(fake_exe_str.as_str())
         );
+        assert_eq!(
+            on_disk.get("mcpServers").unwrap().get("anthro-bridge").unwrap().get("command").and_then(|v| v.as_str()),
+            Some(fake_exe_str.as_str())
+        );
+        assert_eq!(on_disk.get("customTopLevel").and_then(|v| v.as_str()), Some("preserved_val"));
 
-        // 5. Remove -> removes only anthro-bridge, preserves github and customTopLevel
+        // 7. Remove -> removes only 'poverello', preserves legacy 'anthro-bridge', github, and customTopLevel
         let info = remove_antigravity_mcp_at(&config_path).unwrap();
         assert_eq!(info.status, AntigravityMcpStatus::NotConfigured);
+        assert_eq!(info.legacy_status, Some(AntigravityMcpStatus::Configured));
 
         let post_remove: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
         assert_eq!(post_remove.get("customTopLevel").and_then(|v| v.as_str()), Some("preserved_val"));
         assert!(post_remove.get("mcpServers").unwrap().get("github").is_some());
-        assert!(post_remove.get("mcpServers").unwrap().get("anthro-bridge").is_none());
+        assert!(post_remove.get("mcpServers").unwrap().get("anthro-bridge").is_some());
+        assert!(post_remove.get("mcpServers").unwrap().get("poverello").is_none());
 
-        // 6. Verify .bak backup exists
+        // 8. Verify .bak backup exists
         let backup_path = config_path.with_extension("json.bak");
         assert!(backup_path.exists());
         let backup_content: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&backup_path).unwrap()).unwrap();
-        assert!(backup_content.get("mcpServers").unwrap().get("anthro-bridge").is_some());
+        assert!(backup_content.get("mcpServers").unwrap().get("poverello").is_some());
 
-        // 7. Invalid JSON syntax -> Invalid
+        // 9. Invalid JSON syntax -> Invalid
         std::fs::write(&config_path, "{ broken json ...").unwrap();
         let info = inspect_antigravity_mcp_status_at(&config_path);
         assert_eq!(info.status, AntigravityMcpStatus::Invalid);
         assert!(info.error.is_some());
 
-        // 8. Structural anomaly (mcpServers is a string or array, not an object) -> Invalid, configure returns Err
+        // 10. Structural anomaly (mcpServers is a string or array, not an object) -> Invalid, configure returns Err
         std::fs::write(&config_path, r#"{"mcpServers": "not an object"}"#).unwrap();
         let info = inspect_antigravity_mcp_status_at(&config_path);
         assert_eq!(info.status, AntigravityMcpStatus::Invalid);
         assert!(configure_antigravity_mcp_at(&config_path, &fake_exe_str).is_err());
 
-        // 9. Structural anomaly (top-level is an array, not an object) -> Invalid, configure returns Err
+        // 11. Structural anomaly (top-level is an array, not an object) -> Invalid, configure returns Err
         std::fs::write(&config_path, r#"["item1", "item2"]"#).unwrap();
         let info = inspect_antigravity_mcp_status_at(&config_path);
         assert_eq!(info.status, AntigravityMcpStatus::Invalid);
@@ -15426,124 +15864,181 @@ mod tests {
     }
 
     #[test]
+    fn test_antigravity_mcp_entries_reject_lossy_or_malformed_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("mcp_config.json");
+        let fake_exe = dir.path().join("poverello.exe");
+        std::fs::write(&fake_exe, "fixture").unwrap();
+        let executable = fake_exe.to_string_lossy().to_string();
+
+        let malformed_entries = vec![
+            serde_json::json!(null),
+            serde_json::json!({}),
+            serde_json::json!({"command": 7, "args": ["--mcp-server"]}),
+            serde_json::json!({"command": "", "args": ["--mcp-server"]}),
+            serde_json::json!({"command": "poverello.exe"}),
+            serde_json::json!({"command": "poverello.exe", "args": null}),
+            serde_json::json!({"command": "poverello.exe", "args": "--mcp-server"}),
+            serde_json::json!({"command": "poverello.exe", "args": ["--mcp-server", 7]}),
+        ];
+
+        for entry in &malformed_entries {
+            let original = serde_json::json!({"custom": {"keep": true}, "mcpServers": {"poverello": entry}});
+            let original_bytes = serde_json::to_vec(&original).unwrap();
+            std::fs::write(&config_path, &original_bytes).unwrap();
+            let info = inspect_antigravity_mcp_status_at(&config_path);
+            assert_eq!(info.status, AntigravityMcpStatus::Invalid, "entry was treated as configured: {entry}");
+            assert!(info.error.is_some());
+            assert!(configure_antigravity_mcp_at(&config_path, &executable).is_err());
+            assert_eq!(std::fs::read(&config_path).unwrap(), original_bytes, "malformed canonical entry was rewritten: {entry}");
+        }
+
+        for entry in &malformed_entries {
+            let config = serde_json::json!({"mcpServers": {"anthro-bridge": entry}});
+            std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+            let info = inspect_antigravity_mcp_status_at(&config_path);
+            assert_eq!(info.legacy_status, Some(AntigravityMcpStatus::Invalid), "legacy entry was treated as configured: {entry}");
+        }
+
+        let valid = serde_json::json!({
+            "mcpServers": {
+                "poverello": {"command": executable, "args": ["--mcp-server"]},
+                "anthro-bridge": {"command": "legacy.exe", "args": ["--mcp-server"]}
+            }
+        });
+        std::fs::write(&config_path, serde_json::to_vec(&valid).unwrap()).unwrap();
+        let info = inspect_antigravity_mcp_status_at(&config_path);
+        assert_eq!(info.status, AntigravityMcpStatus::Configured);
+        assert_eq!(info.legacy_status, Some(AntigravityMcpStatus::Configured));
+    }
+
+    #[test]
     fn test_antigravity_skills_lifecycle() {
         let temp_dir = tempfile::tempdir().unwrap();
         let skills_root = temp_dir.path();
 
-        // 1. Whitelisting check: invalid command names rejected
+        // 1. Whitelisting check: invalid command names and traversal rejected; canonical & legacy accepted
         assert!(resolve_allowed_antigravity_command("arbitrary_command").is_err());
         assert!(resolve_allowed_antigravity_command("../sneaky").is_err());
         assert!(install_antigravity_command_at(skills_root, "invalid_name").is_err());
         assert!(remove_antigravity_command_at(skills_root, "invalid_name").is_err());
 
-        // 2. Initially NotInstalled for all commands
+        assert!(resolve_allowed_antigravity_command("pov-plan").is_ok());
+        assert!(resolve_allowed_antigravity_command("pov-revise").is_ok());
+        assert!(resolve_allowed_antigravity_command("pov-review").is_ok());
+        assert!(resolve_allowed_antigravity_command("anthro-plan").is_ok());
+        assert!(resolve_allowed_antigravity_command("anthro-revise").is_ok());
+        assert!(resolve_allowed_antigravity_command("anthro-review").is_ok());
+
+        // 2. Initially NotInstalled for all canonical and legacy commands
         let info = get_antigravity_commands_info_at(skills_root).unwrap();
         assert_eq!(info.plan_command.status, AntigravitySkillStatus::NotInstalled);
         assert_eq!(info.revise_command.status, AntigravitySkillStatus::NotInstalled);
         assert_eq!(info.review_command.status, AntigravitySkillStatus::NotInstalled);
-        assert_eq!(info.plan_command.slash_command, "/anthro-plan");
-        assert_eq!(info.revise_command.slash_command, "/anthro-revise");
-        assert_eq!(info.review_command.slash_command, "/anthro-review");
+        assert_eq!(info.plan_command.slash_command, "/pov-plan");
+        assert_eq!(info.revise_command.slash_command, "/pov-revise");
+        assert_eq!(info.review_command.slash_command, "/pov-review");
 
-        // 3. Install anthro-plan
-        let plan_info = install_antigravity_command_at(skills_root, "anthro-plan").unwrap();
+        assert_eq!(info.legacy_plan_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
+        assert_eq!(info.legacy_revise_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
+        assert_eq!(info.legacy_review_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
+
+        // 3. Install canonical pov-plan
+        let plan_info = install_antigravity_command_at(skills_root, "pov-plan").unwrap();
         assert_eq!(plan_info.status, AntigravitySkillStatus::Installed);
-        let plan_file = skills_root.join("anthro-plan").join("SKILL.md");
+        let plan_file = skills_root.join("pov-plan").join("SKILL.md");
         assert!(plan_file.exists());
         let written = std::fs::read_to_string(&plan_file).unwrap();
-        assert!(written.contains("name: anthro-plan"));
+        assert!(written.contains("name: pov-plan"));
+        assert!(written.contains("poverello/plan"));
 
-        // 4. Install anthro-revise and anthro-review
-        let revise_info = install_antigravity_command_at(skills_root, "anthro-revise").unwrap();
+        // Verify legacy anthro-plan remains NotInstalled and absent
+        let info = get_antigravity_commands_info_at(skills_root).unwrap();
+        assert_eq!(info.plan_command.status, AntigravitySkillStatus::Installed);
+        assert_eq!(info.legacy_plan_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
+        assert!(!skills_root.join("anthro-plan").exists());
+
+        // 4. Install canonical pov-revise and pov-review
+        let revise_info = install_antigravity_command_at(skills_root, "pov-revise").unwrap();
         assert_eq!(revise_info.status, AntigravitySkillStatus::Installed);
-        let revise_file = skills_root.join("anthro-revise").join("SKILL.md");
+        let revise_file = skills_root.join("pov-revise").join("SKILL.md");
         assert!(revise_file.exists());
+        let revise_written = std::fs::read_to_string(&revise_file).unwrap();
+        assert!(revise_written.contains("name: pov-revise"));
+        assert!(revise_written.contains("poverello/revise"));
 
-        let review_info = install_antigravity_command_at(skills_root, "anthro-review").unwrap();
+        let review_info = install_antigravity_command_at(skills_root, "pov-review").unwrap();
         assert_eq!(review_info.status, AntigravitySkillStatus::Installed);
-        let review_file = skills_root.join("anthro-review").join("SKILL.md");
+        let review_file = skills_root.join("pov-review").join("SKILL.md");
         assert!(review_file.exists());
         let review_written = std::fs::read_to_string(&review_file).unwrap();
-        assert!(review_written.contains("name: anthro-review"));
+        assert!(review_written.contains("name: pov-review"));
+        assert!(review_written.contains("poverello/review"));
         assert!(review_written.contains("git diff HEAD"));
 
-        // 5. Newline normalization check (CRLF vs LF does NOT trigger Outdated)
-        let crlf_content = ANTIGRAVITY_ANTHRO_PLAN_SKILL_MD.replace('\n', "\r\n");
-        std::fs::write(&plan_file, crlf_content).unwrap();
-        let plan_info_crlf = inspect_antigravity_command_status_at(skills_root, "anthro-plan").unwrap();
-        assert_eq!(plan_info_crlf.status, AntigravitySkillStatus::Installed);
+        // 5. Coexistence: a pre-existing legacy Skill is detected but never installed by new setup.
+        assert!(install_antigravity_command_at(skills_root, "anthro-plan").is_err());
+        let (_, _, legacy_template) = resolve_allowed_antigravity_command("anthro-plan").unwrap();
+        let legacy_plan_file = skills_root.join("anthro-plan").join("SKILL.md");
+        std::fs::create_dir_all(legacy_plan_file.parent().unwrap()).unwrap();
+        std::fs::write(&legacy_plan_file, legacy_template).unwrap();
+        assert!(legacy_plan_file.exists());
+        assert!(plan_file.exists());
 
-        // 6. User modifies skill content -> Outdated detected
-        std::fs::write(&plan_file, "# Custom modification\nInstructions").unwrap();
-        let plan_info_mod = inspect_antigravity_command_status_at(skills_root, "anthro-plan").unwrap();
-        assert_eq!(plan_info_mod.status, AntigravitySkillStatus::Outdated);
+        let info = get_antigravity_commands_info_at(skills_root).unwrap();
+        assert_eq!(info.plan_command.status, AntigravitySkillStatus::Installed);
+        assert_eq!(info.legacy_plan_command.as_ref().unwrap().status, AntigravitySkillStatus::Installed);
 
-        // 7. Update -> Overwrites with canonical and creates .bak backup
-        let plan_info_updated = install_antigravity_command_at(skills_root, "anthro-plan").unwrap();
-        assert_eq!(plan_info_updated.status, AntigravitySkillStatus::Installed);
-        let backup_file = skills_root.join("anthro-plan").join("SKILL.md.bak");
-        assert!(backup_file.exists());
-        let backup_content = std::fs::read_to_string(&backup_file).unwrap();
-        assert!(backup_content.contains("Custom modification"));
+        // 6. User modifies legacy skill -> Invalid detected on legacy, canonical unaffected.
+        std::fs::write(&legacy_plan_file, "# Custom legacy modification").unwrap();
+        let info = get_antigravity_commands_info_at(skills_root).unwrap();
+        assert_eq!(info.plan_command.status, AntigravitySkillStatus::Installed);
+        assert_eq!(info.legacy_plan_command.as_ref().unwrap().status, AntigravitySkillStatus::Invalid);
+        assert!(remove_antigravity_command_at(skills_root, "anthro-plan").is_err());
+        assert_eq!(std::fs::read_to_string(&legacy_plan_file).unwrap(), "# Custom legacy modification");
 
-        // 8. Add a custom user file to anthro-plan directory
-        let user_custom_note = skills_root.join("anthro-plan").join("my_notes.txt");
+        // 7. User modifies canonical skill -> Invalid detected, and destructive operations refuse.
+        std::fs::write(&plan_file, "# Custom canonical modification").unwrap();
+        let plan_info_mod = inspect_antigravity_command_status_at(skills_root, "pov-plan").unwrap();
+        assert_eq!(plan_info_mod.status, AntigravitySkillStatus::Invalid);
+        assert!(plan_info_mod.error.as_deref().unwrap().contains("user edits"));
+        assert!(install_antigravity_command_at(skills_root, "pov-plan").is_err());
+        assert!(remove_antigravity_command_at(skills_root, "pov-plan").is_err());
+        let backup_file = skills_root.join("pov-plan").join("SKILL.md.bak");
+        assert!(!backup_file.exists());
+        assert_eq!(std::fs::read_to_string(&plan_file).unwrap(), "# Custom canonical modification");
+
+        // Legacy file was NOT touched by canonical update
+        let legacy_content = std::fs::read_to_string(&legacy_plan_file).unwrap();
+        assert!(legacy_content.contains("Custom legacy modification"));
+
+        // 9. Add a custom user file to pov-plan directory
+        let user_custom_note = skills_root.join("pov-plan").join("my_notes.txt");
         std::fs::write(&user_custom_note, "important notes").unwrap();
 
-        // 9. Safe remove -> Deletes only SKILL.md, preserves .bak and my_notes.txt and folder
-        let plan_info_removed = remove_antigravity_command_at(skills_root, "anthro-plan").unwrap();
+        // 10. Restore the exact canonical bytes, then remove only SKILL.md and preserve sibling/user files.
+        let (_, _, canonical_plan) = resolve_allowed_antigravity_command("pov-plan").unwrap();
+        std::fs::write(&plan_file, canonical_plan).unwrap();
+        let plan_info_removed = remove_antigravity_command_at(skills_root, "pov-plan").unwrap();
         assert_eq!(plan_info_removed.status, AntigravitySkillStatus::NotInstalled);
         assert!(!plan_file.exists());
-        assert!(backup_file.exists());
+        assert!(!backup_file.exists());
         assert!(user_custom_note.exists());
-        assert!(skills_root.join("anthro-plan").exists());
+        assert!(skills_root.join("pov-plan").exists());
+        assert!(legacy_plan_file.exists());
         assert!(revise_file.exists());
         assert!(review_file.exists());
 
-        // 10. Invalid SKILL.md (directory named SKILL.md)
-        let broken_dir = skills_root.join("broken_test");
-        std::fs::create_dir_all(broken_dir.join("SKILL.md")).unwrap();
-        let _broken_status = inspect_antigravity_command_status_at(&broken_dir.parent().unwrap(), "anthro-plan");
-        // Re-check anthro-plan when SKILL.md is a directory
-        std::fs::create_dir_all(skills_root.join("anthro-plan").join("SKILL.md")).unwrap();
-        let info_invalid = inspect_antigravity_command_status_at(skills_root, "anthro-plan").unwrap();
+        // 11. Invalid SKILL.md (directory named SKILL.md)
+        std::fs::create_dir_all(skills_root.join("pov-plan").join("SKILL.md")).unwrap();
+        let info_invalid = inspect_antigravity_command_status_at(skills_root, "pov-plan").unwrap();
         assert_eq!(info_invalid.status, AntigravitySkillStatus::Invalid);
         assert!(info_invalid.error.is_some());
-
-        // 11. Dedicated full lifecycle for /anthro-review:
-        // NotInstalled -> install -> Installed -> simulate canonical change -> Outdated -> update -> Installed -> remove -> NotInstalled
-        let temp_review_dir = tempfile::tempdir().unwrap();
-        let review_root = temp_review_dir.path();
-
-        // Initially NotInstalled
-        let review_initial = inspect_antigravity_command_status_at(review_root, "anthro-review").unwrap();
-        assert_eq!(review_initial.status, AntigravitySkillStatus::NotInstalled);
-
-        // Install
-        let review_installed = install_antigravity_command_at(review_root, "anthro-review").unwrap();
-        assert_eq!(review_installed.status, AntigravitySkillStatus::Installed);
-        let review_installed_file = review_root.join("anthro-review").join("SKILL.md");
-        assert!(review_installed_file.exists());
-
-        // User edits skill content -> Outdated
-        std::fs::write(&review_installed_file, "# Modified anthro-review").unwrap();
-        let review_outdated = inspect_antigravity_command_status_at(review_root, "anthro-review").unwrap();
-        assert_eq!(review_outdated.status, AntigravitySkillStatus::Outdated);
-
-        // Update -> Installed and backup created
-        let review_updated = install_antigravity_command_at(review_root, "anthro-review").unwrap();
-        assert_eq!(review_updated.status, AntigravitySkillStatus::Installed);
-        let review_backup = review_root.join("anthro-review").join("SKILL.md.bak");
-        assert!(review_backup.exists());
-        assert!(std::fs::read_to_string(&review_backup).unwrap().contains("Modified anthro-review"));
-
-        // Remove -> NotInstalled
-        let review_removed = remove_antigravity_command_at(review_root, "anthro-review").unwrap();
-        assert_eq!(review_removed.status, AntigravitySkillStatus::NotInstalled);
-        assert!(!review_installed_file.exists());
+        assert!(install_antigravity_command_at(skills_root, "pov-plan").is_err());
+        assert!(remove_antigravity_command_at(skills_root, "pov-plan").is_err());
 
         // 12. Backend install_all_antigravity_commands_at verification:
-        // Fresh directory -> call production install_all_antigravity_commands_at -> all 3 commands Installed and on disk
+        // Fresh directory -> call production install_all_antigravity_commands_at -> all 3 canonical commands Installed on disk; legacy absent
         let temp_all_dir = tempfile::tempdir().unwrap();
         let all_root = temp_all_dir.path();
 
@@ -15551,17 +16046,130 @@ mod tests {
         assert_eq!(initial_all.plan_command.status, AntigravitySkillStatus::NotInstalled);
         assert_eq!(initial_all.revise_command.status, AntigravitySkillStatus::NotInstalled);
         assert_eq!(initial_all.review_command.status, AntigravitySkillStatus::NotInstalled);
+        assert_eq!(initial_all.legacy_plan_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
 
         // Call production install_all_antigravity_commands_at directly
         let installed_all = install_all_antigravity_commands_at(all_root).unwrap();
         assert_eq!(installed_all.plan_command.status, AntigravitySkillStatus::Installed);
         assert_eq!(installed_all.revise_command.status, AntigravitySkillStatus::Installed);
         assert_eq!(installed_all.review_command.status, AntigravitySkillStatus::Installed);
+        let all_results = installed_all.install_all_results.as_ref().unwrap();
+        assert!(all_results.iter().all(|r| r.outcome == AntigravityCommandInstallOutcome::Installed));
 
-        // Verify disk files
-        assert!(all_root.join("anthro-plan").join("SKILL.md").exists());
-        assert!(all_root.join("anthro-revise").join("SKILL.md").exists());
-        assert!(all_root.join("anthro-review").join("SKILL.md").exists());
+        let repeated_all = install_all_antigravity_commands_at(all_root).unwrap();
+        assert!(repeated_all.install_all_results.as_ref().unwrap().iter().all(
+            |r| r.outcome == AntigravityCommandInstallOutcome::AlreadyCurrent
+        ));
+
+        // Verify disk files: only canonical pov-* created, legacy NOT created
+        assert!(all_root.join("pov-plan").join("SKILL.md").exists());
+        assert!(all_root.join("pov-revise").join("SKILL.md").exists());
+        assert!(all_root.join("pov-review").join("SKILL.md").exists());
+        assert!(!all_root.join("anthro-plan").exists());
+        assert!(!all_root.join("anthro-revise").exists());
+        assert!(!all_root.join("anthro-review").exists());
+
+        // 13. Unsafe target preflight refuses the batch before installing any absent target.
+        let unsafe_dir = tempfile::tempdir().unwrap();
+        let unsafe_root = unsafe_dir.path();
+        let modified = unsafe_root.join("pov-revise").join("SKILL.md");
+        std::fs::create_dir_all(modified.parent().unwrap()).unwrap();
+        std::fs::write(&modified, "user-owned revise content").unwrap();
+        let preflight_result = install_all_antigravity_commands_at(unsafe_root).unwrap();
+        assert!(!unsafe_root.join("pov-plan").join("SKILL.md").exists());
+        assert_eq!(std::fs::read_to_string(&modified).unwrap(), "user-owned revise content");
+        assert!(!unsafe_root.join("pov-review").join("SKILL.md").exists());
+        let outcomes = preflight_result.install_all_results.unwrap();
+        assert_eq!(outcomes[0].outcome, AntigravityCommandInstallOutcome::NotAttempted);
+        assert_eq!(outcomes[1].outcome, AntigravityCommandInstallOutcome::Refused);
+        assert_eq!(outcomes[2].outcome, AntigravityCommandInstallOutcome::NotAttempted);
+
+        // 14. Inject a deterministic mid-sequence I/O error; preserve successes and report the rest.
+        let failure_dir = tempfile::tempdir().unwrap();
+        let failure_root = failure_dir.path();
+        let partial = install_all_antigravity_commands_with(failure_root, |root, name| {
+            if name == "pov-revise" {
+                return Err("injected I/O failure".to_string());
+            }
+            install_antigravity_command_at(root, name)
+        })
+        .unwrap();
+        let outcomes = partial.install_all_results.unwrap();
+        assert_eq!(outcomes[0].outcome, AntigravityCommandInstallOutcome::Installed);
+        assert_eq!(outcomes[1].outcome, AntigravityCommandInstallOutcome::Failed);
+        assert_eq!(outcomes[1].message.as_deref(), Some("injected I/O failure"));
+        assert_eq!(outcomes[2].outcome, AntigravityCommandInstallOutcome::NotAttempted);
+        assert!(failure_root.join("pov-plan").join("SKILL.md").exists());
+        assert!(!failure_root.join("pov-revise").join("SKILL.md").exists());
+        assert!(!failure_root.join("pov-review").join("SKILL.md").exists());
+    }
+
+    #[test]
+    fn test_antigravity_skill_read_error_fails_closed_without_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills_root = dir.path();
+        let skill_file = skills_root.join("pov-plan").join("SKILL.md");
+        std::fs::create_dir_all(skill_file.parent().unwrap()).unwrap();
+        let (_, _, canonical) = resolve_allowed_antigravity_command("pov-plan").unwrap();
+        std::fs::write(&skill_file, canonical).unwrap();
+        let before = std::fs::read(&skill_file).unwrap();
+        let deny_read = |_path: &Path| -> std::io::Result<Vec<u8>> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "injected read denial",
+            ))
+        };
+
+        let status = inspect_antigravity_command_status_with_reader(
+            skills_root,
+            "pov-plan",
+            &deny_read,
+        )
+        .unwrap();
+        assert_eq!(status.status, AntigravitySkillStatus::Invalid);
+        assert!(status.error.as_deref().unwrap().contains("injected read denial"));
+
+        assert!(install_antigravity_command_with_reader(skills_root, "pov-plan", &deny_read).is_err());
+        assert!(remove_antigravity_command_with_reader(skills_root, "pov-plan", &deny_read).is_err());
+        assert_eq!(std::fs::read(&skill_file).unwrap(), before);
+        assert!(!skill_file.with_extension("md.bak").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_antigravity_skill_symlink_target_is_refused() {
+        use std::os::unix::fs::symlink;
+
+        let root_dir = tempfile::tempdir().unwrap();
+        let external_dir = tempfile::tempdir().unwrap();
+        let skill_dir = root_dir.path().join("pov-plan");
+        symlink(external_dir.path(), &skill_dir).unwrap();
+
+        let info = inspect_antigravity_command_status_at(root_dir.path(), "pov-plan").unwrap();
+        assert_eq!(info.status, AntigravitySkillStatus::Invalid);
+        assert!(info.error.as_deref().unwrap().contains("symlink or reparse point"));
+        assert!(install_antigravity_command_at(root_dir.path(), "pov-plan").is_err());
+        assert!(!external_dir.path().join("SKILL.md").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_antigravity_skill_reparse_target_is_refused_when_symlink_creation_is_available() {
+        use std::os::windows::fs::symlink_dir;
+
+        let root_dir = tempfile::tempdir().unwrap();
+        let external_dir = tempfile::tempdir().unwrap();
+        let skill_dir = root_dir.path().join("pov-plan");
+        if symlink_dir(external_dir.path(), &skill_dir).is_err() {
+            eprintln!("Skipping reparse-point test: Windows symlink creation is not permitted");
+            return;
+        }
+
+        let info = inspect_antigravity_command_status_at(root_dir.path(), "pov-plan").unwrap();
+        assert_eq!(info.status, AntigravitySkillStatus::Invalid);
+        assert!(info.error.as_deref().unwrap().contains("symlink or reparse point"));
+        assert!(install_antigravity_command_at(root_dir.path(), "pov-plan").is_err());
+        assert!(!external_dir.path().join("SKILL.md").exists());
     }
 
     #[test]
