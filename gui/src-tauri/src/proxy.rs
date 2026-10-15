@@ -1197,11 +1197,88 @@ fn apply_thinking_override(body: &mut serde_json::Value, entry: &ModelRouteEntry
     }
 }
 
+fn apply_anthropic_direct_transforms(body: &mut serde_json::Value, entry: &ModelRouteEntry) {
+    let model = entry.upstream_model.as_str();
+    let model_kind = if model == "claude-opus-5-5" || model.starts_with("claude-opus-5-5-") {
+        "opus"
+    } else if model == "claude-sonnet-5-5" || model.starts_with("claude-sonnet-5-5-") {
+        "sonnet"
+    } else {
+        "haiku"
+    };
+
+    if let Some(obj) = body.as_object_mut() {
+        obj.remove("reasoning_effort");
+        obj.remove("reasoning");
+    }
+
+    let client_thinking_disabled = body
+        .get("thinking")
+        .and_then(|t| t.get("type"))
+        .and_then(Value::as_str)
+        .map(|t| t == "disabled")
+        .unwrap_or(false)
+        || body.get("thinking").and_then(Value::as_bool) == Some(false);
+
+    let is_normal = entry.thinking_mode_raw.as_deref() == Some("normal") || client_thinking_disabled;
+
+    let thinking = match model_kind {
+        "opus" => json!({ "type": "adaptive" }),
+        "sonnet" => {
+            if is_normal {
+                json!({ "type": "between_tools" })
+            } else {
+                json!({ "type": "adaptive" })
+            }
+        }
+        "haiku" => {
+            if is_normal {
+                json!({ "type": "disabled" })
+            } else {
+                json!({ "type": "adaptive" })
+            }
+        }
+        _ => json!({ "type": "adaptive" }),
+    };
+
+    body["thinking"] = thinking;
+
+    let client_effort = body
+        .get("output_config")
+        .and_then(|oc| oc.get("effort"))
+        .and_then(Value::as_str)
+        .map(|s| s.to_string());
+
+    let effective_effort = entry.reasoning_effort.as_deref().or(client_effort.as_deref());
+
+    if let Some(effort) = effective_effort {
+        let oc = body
+            .as_object_mut()
+            .and_then(|obj| {
+                obj.entry("output_config")
+                    .or_insert_with(|| json!({}))
+                    .as_object_mut()
+            });
+        if let Some(oc) = oc {
+            oc.insert("effort".to_string(), json!(effort));
+        }
+    } else if let Some(oc) = body.get("output_config").and_then(|v| v.as_object()) {
+        if oc.is_empty() {
+            body.as_object_mut().map(|obj| obj.remove("output_config"));
+        }
+    }
+}
+
 /// Apply thinking override + provider-specific reasoning effort injection.
 ///
 /// This is the production function called by `proxy_messages()`.
 /// Tests call the same function to validate the actual payload path.
 fn apply_route_request_transforms(body: &mut serde_json::Value, entry: &ModelRouteEntry) {
+    if entry.provider_id == crate::ANTHROPIC_PROVIDER_ID {
+        apply_anthropic_direct_transforms(body, entry);
+        return;
+    }
+
     apply_thinking_override(body, entry);
 
     if entry.provider_id == "deepseek" {
@@ -1853,6 +1930,124 @@ fn validate_glm_client_reasoning(
     Ok(())
 }
 
+fn anthropic_refusal(reason: String) -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "type": "error",
+            "error": { "type": "invalid_request_error", "message": reason }
+        })),
+    )
+}
+
+fn extract_sampling_param_f64(
+    body: &Value,
+    key: &str,
+) -> crate::orchestrator::adapters::provider::SamplingParam<f64> {
+    match body.get(key) {
+        None => crate::orchestrator::adapters::provider::SamplingParam::Omitted,
+        Some(Value::Null) => crate::orchestrator::adapters::provider::SamplingParam::ExplicitNull,
+        Some(v) => match v.as_f64() {
+            Some(n) if n.is_finite() => {
+                crate::orchestrator::adapters::provider::SamplingParam::Value(n)
+            }
+            _ => crate::orchestrator::adapters::provider::SamplingParam::InvalidType,
+        },
+    }
+}
+
+fn extract_sampling_param_top_k(
+    body: &Value,
+) -> crate::orchestrator::adapters::provider::SamplingParam<Value> {
+    match body.get("top_k") {
+        None => crate::orchestrator::adapters::provider::SamplingParam::Omitted,
+        Some(Value::Null) => crate::orchestrator::adapters::provider::SamplingParam::ExplicitNull,
+        Some(v) if v.is_i64() || v.is_u64() => {
+            crate::orchestrator::adapters::provider::SamplingParam::Value(v.clone())
+        }
+        Some(_) => crate::orchestrator::adapters::provider::SamplingParam::InvalidType,
+    }
+}
+
+fn validate_anthropic_request(entry: &ModelRouteEntry, body: &Value) -> Result<(), String> {
+    let model = entry.upstream_model.as_str();
+    if !crate::ANTHROPIC_MODELS.contains(&model) {
+        return Err(format!(
+            "Anthropic: unsupported model '{model}'. Allowed models: {}",
+            crate::ANTHROPIC_MODELS.join(", ")
+        ));
+    }
+
+    let model_kind = if model == "claude-opus-5-5" || model.starts_with("claude-opus-5-5-") {
+        "opus"
+    } else if model == "claude-sonnet-5-5" || model.starts_with("claude-sonnet-5-5-") {
+        "sonnet"
+    } else if model == "claude-haiku-5-5" || model.starts_with("claude-haiku-5-5-") {
+        "haiku"
+    } else {
+        return Err(format!("Anthropic: unknown model '{model}'"));
+    };
+
+    let client_thinking_disabled = body
+        .get("thinking")
+        .and_then(|t| t.get("type"))
+        .and_then(Value::as_str)
+        .map(|t| t == "disabled")
+        .unwrap_or(false)
+        || body.get("thinking").and_then(Value::as_bool) == Some(false);
+
+    let route_thinking_mode = entry.thinking_mode_raw.as_deref();
+    let is_normal_mode = route_thinking_mode == Some("normal") || client_thinking_disabled;
+
+    if model_kind == "opus" && is_normal_mode {
+        return Err(format!(
+            "Anthropic: thinking cannot be disabled for model '{model}' (it is always on)"
+        ));
+    }
+
+    let client_effort = body
+        .get("output_config")
+        .and_then(|oc| oc.get("effort"))
+        .and_then(Value::as_str)
+        .or_else(|| body.get("reasoning_effort").and_then(Value::as_str));
+
+    let effective_effort = entry.reasoning_effort.as_deref().or(client_effort);
+
+    if let Some(effort) = effective_effort {
+        if !crate::ANTHROPIC_REASONING_EFFORTS.contains(&effort) {
+            return Err(format!(
+                "Anthropic: '{effort}' is not an accepted reasoning effort for model '{model}' ({})",
+                crate::ANTHROPIC_REASONING_EFFORTS.join(", ")
+            ));
+        }
+
+        if is_normal_mode && matches!(effort, "xhigh" | "max") {
+            if model_kind == "sonnet" {
+                return Err(format!(
+                    "Anthropic: Sonnet between_tools mode supports effort high or below ('{effort}' is not allowed)"
+                ));
+            } else if model_kind == "haiku" {
+                return Err(format!(
+                    "Anthropic: Haiku disabled thinking supports effort high or below ('{effort}' is not allowed)"
+                ));
+            }
+        }
+    }
+
+    let temp_param = extract_sampling_param_f64(body, "temperature");
+    let top_p_param = extract_sampling_param_f64(body, "top_p");
+    let top_k_param = extract_sampling_param_top_k(body);
+
+    crate::orchestrator::adapters::provider::validate_anthropic_sampling_parameters(
+        model,
+        temp_param,
+        top_p_param,
+        top_k_param,
+    )?;
+
+    Ok(())
+}
+
 fn detect_media_types(messages: &[Value]) -> (bool, bool) {
     let mut has_image = false;
     let mut has_video = false;
@@ -2248,6 +2443,8 @@ fn build_upstream_headers(incoming: &HeaderMap, route: &ProviderRoute) -> Header
         }
     } else if let Some(v) = incoming.get("anthropic-version") {
         headers.insert("anthropic-version", v.clone());
+    } else if route.provider_id == crate::ANTHROPIC_PROVIDER_ID {
+        headers.insert("anthropic-version", "2023-06-01".parse().unwrap());
     }
 
     if let Some(beta) = incoming.get("anthropic-beta") {
@@ -2353,6 +2550,10 @@ async fn proxy_count_tokens(
     // request is refused here, before any client is built.
     if entry.provider_id == crate::ZAI_PROVIDER_ID {
         return Err(glm_refusal(GLM_COUNT_TOKENS_REFUSAL.to_string()));
+    } else if entry.provider_id == crate::ANTHROPIC_PROVIDER_ID {
+        if let Err(reason) = validate_anthropic_request(entry, &body) {
+            return Err(anthropic_refusal(reason));
+        }
     }
 
     if !route.supports_count_tokens {
@@ -2397,6 +2598,8 @@ async fn proxy_count_tokens(
     // Apply thinking override for count_tokens
     if apply_thinking_override_for_minimax_m3(&entry, &mut body) {
         // M3専用処理済み — 汎用matchをスキップ
+    } else if entry.provider_id == crate::ANTHROPIC_PROVIDER_ID {
+        apply_anthropic_direct_transforms(&mut body, entry);
     } else {
         match entry.thinking {
             ThinkingOverride::Disabled => {
@@ -2493,6 +2696,10 @@ async fn proxy_messages(
         let thinking_optional = crate::ZAI_MODELS_THINKING_OPTIONAL.contains(&entry.upstream_model.as_str());
         if let Err(reason) = validate_glm_client_reasoning(&body, &entry.upstream_model, thinking_optional) {
             return Err(glm_refusal(reason));
+        }
+    } else if entry.provider_id == crate::ANTHROPIC_PROVIDER_ID {
+        if let Err(reason) = validate_anthropic_request(entry, &body) {
+            return Err(anthropic_refusal(reason));
         }
     }
 
@@ -7061,5 +7268,578 @@ mod tests {
         });
         apply_thinking_override(&mut body2, &enabled_entry);
         assert_eq!(body2["thinking"], json!({"type": "enabled"}));
+    }
+
+    // ── Direct Anthropic Official Gateway tests ─────────────────────────────
+
+    const TEST_ANTHROPIC_KEY_ENV: &str = "_TEST_ANTHROPIC_KEY";
+
+    fn anthropic_direct_cfg_for(model: &str, upstream: &str) -> crate::GatewayConfigResponse {
+        let mut cfg = make_direct_provider_config("anthropic", "Anthropic", TEST_ANTHROPIC_KEY_ENV, model);
+        let p = cfg.providers.get_mut("anthropic").expect("anthropic provider");
+        p.upstream_url = upstream.to_string();
+        p.supports_count_tokens = true;
+        p.supports_thinking = true;
+        cfg
+    }
+
+    fn set_route_effort_for(cfg: &mut crate::GatewayConfigResponse, provider_id: &str, route: &str, effort: &str) {
+        cfg.providers
+            .get_mut(provider_id)
+            .expect("provider")
+            .models
+            .as_mut()
+            .expect("models")
+            .get_mut(route)
+            .expect("route")
+            .reasoning_effort = Some(effort.to_string());
+    }
+
+    fn set_route_thinking_for(cfg: &mut crate::GatewayConfigResponse, provider_id: &str, route: &str, mode: &str) {
+        cfg.providers
+            .get_mut(provider_id)
+            .expect("provider")
+            .models
+            .as_mut()
+            .expect("models")
+            .get_mut(route)
+            .expect("route")
+            .thinking_mode = Some(mode.to_string());
+    }
+
+    #[tokio::test]
+    async fn anthropic_direct_dispatches_messages_for_every_allowed_model() {
+        std::env::set_var(TEST_ANTHROPIC_KEY_ENV, "sk-ant-test-key");
+        for model in crate::ANTHROPIC_MODELS {
+            let (fixture, requests) = serve_zai_fixture(
+                &anthropic_message_fixture("hello from Claude direct"),
+                "application/json",
+                200,
+            )
+            .await;
+            let cfg = anthropic_direct_cfg_for(model, &fixture);
+            let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+                .expect("resolve_proxy_config must accept Anthropic direct provider");
+            let sends = install_send_observer(&mut proxy_cfg);
+            let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+            let resp = post_messages(&base, request_body()).await;
+            assert_eq!(resp.status(), StatusCode::OK, "{model}");
+            let payload: Value = resp.json().await.expect("JSON body");
+            assert_eq!(payload["type"], "message", "{model}");
+            assert_eq!(payload["content"][0]["text"], "hello from Claude direct", "{model}");
+
+            let recorded = requests.lock().expect("fixture requests");
+            assert_eq!(recorded.len(), 1, "{model}: exactly one upstream request");
+            let (path, headers, body) = &recorded[0];
+            assert_eq!(path, "/v1/messages", "{model}");
+            assert_eq!(
+                headers.get("authorization").and_then(|v| v.to_str().ok()),
+                Some("Bearer sk-ant-test-key"),
+                "{model}: must use Authorization: Bearer"
+            );
+            assert_eq!(
+                headers.get("anthropic-version").and_then(|v| v.to_str().ok()),
+                Some("2023-06-01"),
+                "{model}: must default anthropic-version to 2023-06-01"
+            );
+            assert!(
+                headers.get("x-api-key").is_none(),
+                "{model}: must not send x-api-key"
+            );
+            assert_eq!(body["model"], json!(model), "{model}");
+            assert_eq!(body["thinking"], json!({ "type": "adaptive" }), "{model}");
+            assert!(body.get("reasoning_effort").is_none(), "{model}");
+            assert!(body.get("reasoning").is_none(), "{model}");
+            drop(recorded);
+            assert_eq!(send_count(&sends), 1, "{model}");
+        }
+    }
+
+    #[tokio::test]
+    async fn anthropic_direct_forwards_incoming_anthropic_version_header() {
+        std::env::set_var(TEST_ANTHROPIC_KEY_ENV, "sk-ant-test-key");
+        let (fixture, requests) = serve_zai_fixture(
+            &anthropic_message_fixture("version forwarded"),
+            "application/json",
+            200,
+        )
+        .await;
+        let cfg = anthropic_direct_cfg_for("claude-opus-5-5", &fixture);
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let resp = reqwest::Client::new()
+            .post(format!("{base}/v1/messages"))
+            .header("content-type", "application/json")
+            .header("anthropic-version", "2024-01-01")
+            .body(request_body())
+            .send()
+            .await
+            .expect("answer");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let recorded = requests.lock().expect("fixture requests");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(
+            recorded[0].1.get("anthropic-version").and_then(|v| v.to_str().ok()),
+            Some("2024-01-01")
+        );
+        drop(recorded);
+        assert_eq!(send_count(&sends), 1);
+    }
+
+    #[tokio::test]
+    async fn anthropic_direct_streams_sse_events_through() {
+        std::env::set_var(TEST_ANTHROPIC_KEY_ENV, "sk-ant-test-key");
+        let sse_body = "event: message_start\r\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5-5\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\r\n\r\nevent: message_delta\r\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\r\n\r\nevent: message_stop\r\ndata: {\"type\":\"message_stop\"}\r\n\r\n";
+        let (fixture, requests) = serve_zai_fixture(sse_body, "text/event-stream", 200).await;
+        let cfg = anthropic_direct_cfg_for("claude-opus-5-5", &fixture);
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let mut stream_body = serde_json::from_str::<Value>(&request_body()).unwrap();
+        stream_body["stream"] = json!(true);
+
+        let resp = reqwest::Client::new()
+            .post(format!("{base}/v1/messages"))
+            .header("content-type", "application/json")
+            .body(stream_body.to_string())
+            .send()
+            .await
+            .expect("streaming answer");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let text = resp.text().await.expect("read stream");
+        assert!(text.contains("message_start"));
+        assert!(text.contains("message_delta"));
+        assert!(text.contains("message_stop"));
+
+        let recorded = requests.lock().expect("fixture requests");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].2["stream"], json!(true));
+        drop(recorded);
+        assert_eq!(send_count(&sends), 1);
+    }
+
+    #[tokio::test]
+    async fn anthropic_direct_refuses_undocumented_model_with_send_zero() {
+        std::env::set_var(TEST_ANTHROPIC_KEY_ENV, "sk-ant-test-key");
+        let (fixture, requests) = serve_zai_fixture("{}", "application/json", 200).await;
+        let cfg = anthropic_direct_cfg_for("claude-3-7-sonnet", &fixture);
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let resp = post_messages(&base, request_body()).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let payload: Value = resp.json().await.expect("JSON error");
+        let msg = payload["error"]["message"].as_str().unwrap_or_default();
+        assert!(msg.starts_with("Anthropic: unsupported model 'claude-3-7-sonnet'"), "{msg}");
+        assert!(requests.lock().expect("requests").is_empty());
+        assert_eq!(send_count(&sends), 0);
+    }
+
+    #[tokio::test]
+    async fn anthropic_direct_refuses_disabling_thinking_on_opus_with_send_zero() {
+        std::env::set_var(TEST_ANTHROPIC_KEY_ENV, "sk-ant-test-key");
+        let (fixture, requests) = serve_zai_fixture("{}", "application/json", 200).await;
+        let cfg = anthropic_direct_cfg_for("claude-opus-5-5", &fixture);
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let mut body = serde_json::from_str::<Value>(&request_body()).unwrap();
+        body["thinking"] = json!({ "type": "disabled" });
+
+        let resp = post_messages(&base, body.to_string()).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let payload: Value = resp.json().await.expect("JSON error");
+        let msg = payload["error"]["message"].as_str().unwrap_or_default();
+        assert!(msg.contains("thinking cannot be disabled for model 'claude-opus-5-5'"), "{msg}");
+        assert!(requests.lock().expect("requests").is_empty());
+        assert_eq!(send_count(&sends), 0);
+    }
+
+    #[tokio::test]
+    async fn anthropic_direct_refuses_excessive_effort_on_between_tools_sonnet_with_send_zero() {
+        std::env::set_var(TEST_ANTHROPIC_KEY_ENV, "sk-ant-test-key");
+        let (fixture, requests) = serve_zai_fixture("{}", "application/json", 200).await;
+        let mut cfg = anthropic_direct_cfg_for("claude-sonnet-5-5", &fixture);
+        set_route_thinking_for(&mut cfg, "anthropic", "claude-opus-5", "normal");
+        set_route_effort_for(&mut cfg, "anthropic", "claude-opus-5", "xhigh");
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let resp = post_messages(&base, request_body()).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let payload: Value = resp.json().await.expect("JSON error");
+        let msg = payload["error"]["message"].as_str().unwrap_or_default();
+        assert!(msg.contains("between_tools mode supports effort high or below"), "{msg}");
+        assert!(requests.lock().expect("requests").is_empty());
+        assert_eq!(send_count(&sends), 0);
+    }
+
+    #[tokio::test]
+    async fn anthropic_direct_refuses_excessive_effort_on_disabled_haiku_with_send_zero() {
+        std::env::set_var(TEST_ANTHROPIC_KEY_ENV, "sk-ant-test-key");
+        let (fixture, requests) = serve_zai_fixture("{}", "application/json", 200).await;
+        let mut cfg = anthropic_direct_cfg_for("claude-haiku-5-5", &fixture);
+        set_route_thinking_for(&mut cfg, "anthropic", "claude-opus-5", "normal");
+        set_route_effort_for(&mut cfg, "anthropic", "claude-opus-5", "max");
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let resp = post_messages(&base, request_body()).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let payload: Value = resp.json().await.expect("JSON error");
+        let msg = payload["error"]["message"].as_str().unwrap_or_default();
+        assert!(msg.contains("disabled thinking supports effort high or below"), "{msg}");
+        assert!(requests.lock().expect("requests").is_empty());
+        assert_eq!(send_count(&sends), 0);
+    }
+
+    #[tokio::test]
+    async fn anthropic_direct_accepts_sonnet_between_tools_with_high_effort() {
+        std::env::set_var(TEST_ANTHROPIC_KEY_ENV, "sk-ant-test-key");
+        let (fixture, requests) = serve_zai_fixture(
+            &anthropic_message_fixture("sonnet ok"),
+            "application/json",
+            200,
+        )
+        .await;
+        let mut cfg = anthropic_direct_cfg_for("claude-sonnet-5-5", &fixture);
+        set_route_thinking_for(&mut cfg, "anthropic", "claude-opus-5", "normal");
+        set_route_effort_for(&mut cfg, "anthropic", "claude-opus-5", "high");
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let resp = post_messages(&base, request_body()).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let recorded = requests.lock().expect("fixture requests");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].2["thinking"], json!({ "type": "between_tools" }));
+        assert_eq!(recorded[0].2["output_config"], json!({ "effort": "high" }));
+        assert!(recorded[0].2.get("reasoning_effort").is_none());
+        drop(recorded);
+        assert_eq!(send_count(&sends), 1);
+    }
+
+    #[tokio::test]
+    async fn anthropic_direct_accepts_haiku_disabled_with_medium_effort() {
+        std::env::set_var(TEST_ANTHROPIC_KEY_ENV, "sk-ant-test-key");
+        let (fixture, requests) = serve_zai_fixture(
+            &anthropic_message_fixture("haiku ok"),
+            "application/json",
+            200,
+        )
+        .await;
+        let mut cfg = anthropic_direct_cfg_for("claude-haiku-5-5", &fixture);
+        set_route_thinking_for(&mut cfg, "anthropic", "claude-opus-5", "normal");
+        set_route_effort_for(&mut cfg, "anthropic", "claude-opus-5", "medium");
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let resp = post_messages(&base, request_body()).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let recorded = requests.lock().expect("fixture requests");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].2["thinking"], json!({ "type": "disabled" }));
+        assert_eq!(recorded[0].2["output_config"], json!({ "effort": "medium" }));
+        assert!(recorded[0].2.get("reasoning_effort").is_none());
+        drop(recorded);
+        assert_eq!(send_count(&sends), 1);
+    }
+
+    #[tokio::test]
+    async fn anthropic_direct_count_tokens_succeeds_for_allowed_model() {
+        std::env::set_var(TEST_ANTHROPIC_KEY_ENV, "sk-ant-test-key");
+        let (fixture, requests) = serve_zai_fixture(
+            &json!({ "input_tokens": 15 }).to_string(),
+            "application/json",
+            200,
+        )
+        .await;
+        let cfg = anthropic_direct_cfg_for("claude-opus-5-5", &fixture);
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let resp = reqwest::Client::new()
+            .post(format!("{base}/v1/messages/count_tokens"))
+            .header("content-type", "application/json")
+            .body(request_body())
+            .send()
+            .await
+            .expect("answer");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let payload: Value = resp.json().await.expect("JSON");
+        assert_eq!(payload["input_tokens"], 15);
+        let recorded = requests.lock().expect("fixture requests");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, "/v1/messages/count_tokens");
+        drop(recorded);
+        assert_eq!(send_count(&sends), 1);
+    }
+
+    #[tokio::test]
+    async fn anthropic_direct_messages_accepts_omitted_and_valid_sampling_parameters_and_preserves_them() {
+        std::env::set_var(TEST_ANTHROPIC_KEY_ENV, "sk-ant-test-key");
+
+        for model in crate::ANTHROPIC_MODELS {
+            // 1. Omitted sampling fields -> Allowed, omitted in upstream request
+            let (fixture, requests) = serve_zai_fixture(
+                &anthropic_message_fixture("omitted ok"),
+                "application/json",
+                200,
+            )
+            .await;
+            let cfg = anthropic_direct_cfg_for(model, &fixture);
+            let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+                .expect("resolve_proxy_config");
+            let sends = install_send_observer(&mut proxy_cfg);
+            let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+            let resp = post_messages(&base, request_body()).await;
+            assert_eq!(resp.status(), StatusCode::OK, "model: {model}");
+            let recorded = requests.lock().expect("fixture requests");
+            assert_eq!(recorded.len(), 1);
+            assert!(recorded[0].2.get("temperature").is_none());
+            assert!(recorded[0].2.get("top_p").is_none());
+            assert!(recorded[0].2.get("top_k").is_none());
+            drop(recorded);
+            assert_eq!(send_count(&sends), 1);
+
+            // 2. Default temperature 1.0 alone -> Allowed, preserved in upstream request
+            let (fixture2, requests2) = serve_zai_fixture(
+                &anthropic_message_fixture("temp ok"),
+                "application/json",
+                200,
+            )
+            .await;
+            let cfg2 = anthropic_direct_cfg_for(model, &fixture2);
+            let mut proxy_cfg2 = resolve_proxy_config(&cfg2, &[], Arc::new(AtomicBool::new(true)))
+                .expect("resolve_proxy_config");
+            let sends2 = install_send_observer(&mut proxy_cfg2);
+            let base2 = serve_gateway(Arc::new(proxy_cfg2)).await;
+
+            let body_temp = json!({
+                "model": "claude-opus-5",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "hi"}],
+                "temperature": 1.0
+            })
+            .to_string();
+
+            let resp2 = post_messages(&base2, body_temp).await;
+            assert_eq!(resp2.status(), StatusCode::OK, "model: {model}");
+            let recorded2 = requests2.lock().expect("fixture requests");
+            assert_eq!(recorded2.len(), 1);
+            assert_eq!(recorded2[0].2["temperature"], 1.0);
+            assert!(recorded2[0].2.get("top_p").is_none());
+            assert!(recorded2[0].2.get("top_k").is_none());
+            drop(recorded2);
+            assert_eq!(send_count(&sends2), 1);
+
+            // 3. Default top_p 0.99 alone -> Allowed, preserved in upstream request
+            let (fixture3, requests3) = serve_zai_fixture(
+                &anthropic_message_fixture("top_p ok"),
+                "application/json",
+                200,
+            )
+            .await;
+            let cfg3 = anthropic_direct_cfg_for(model, &fixture3);
+            let mut proxy_cfg3 = resolve_proxy_config(&cfg3, &[], Arc::new(AtomicBool::new(true)))
+                .expect("resolve_proxy_config");
+            let sends3 = install_send_observer(&mut proxy_cfg3);
+            let base3 = serve_gateway(Arc::new(proxy_cfg3)).await;
+
+            let body_top_p = json!({
+                "model": "claude-opus-5",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "hi"}],
+                "top_p": 0.99
+            })
+            .to_string();
+
+            let resp3 = post_messages(&base3, body_top_p).await;
+            assert_eq!(resp3.status(), StatusCode::OK, "model: {model}");
+            let recorded3 = requests3.lock().expect("fixture requests");
+            assert_eq!(recorded3.len(), 1);
+            assert_eq!(recorded3[0].2["top_p"], 0.99);
+            assert!(recorded3[0].2.get("temperature").is_none());
+            assert!(recorded3[0].2.get("top_k").is_none());
+            drop(recorded3);
+            assert_eq!(send_count(&sends3), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn anthropic_direct_messages_refuses_invalid_sampling_with_send_zero() {
+        std::env::set_var(TEST_ANTHROPIC_KEY_ENV, "sk-ant-test-key");
+
+        let invalid_payloads = [
+            ("temperature", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "temperature": 0.7 })),
+            ("temperature", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "temperature": 0.0 })),
+            ("temperature near boundary high", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "temperature": 1.0001 })),
+            ("temperature near boundary low", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "temperature": 0.9999 })),
+            ("top_p", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "top_p": 1.0 })),
+            ("top_p", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "top_p": 0.95 })),
+            ("top_p near boundary high", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "top_p": 0.9901 })),
+            ("top_p near boundary low", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "top_p": 0.9899 })),
+            ("top_k", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "top_k": 40 })),
+            ("top_k", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "top_k": 0 })),
+            ("explicit null temperature", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "temperature": null })),
+            ("explicit null top_p", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "top_p": null })),
+            ("explicit null top_k", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "top_k": null })),
+            ("both temperature and top_p", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "temperature": 1.0, "top_p": 0.99 })),
+            ("invalid temperature type", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "temperature": "1.0" })),
+            ("invalid top_p type", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "top_p": true })),
+            ("invalid top_k string", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "top_k": "10" })),
+            ("invalid top_k float", json!({ "model": "claude-opus-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "top_k": 10.5 })),
+        ];
+
+        for (desc, bad_body) in invalid_payloads {
+            let (fixture, requests) = serve_zai_fixture("{}", "application/json", 200).await;
+            let cfg = anthropic_direct_cfg_for("claude-sonnet-5-5", &fixture);
+            let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+                .expect("resolve_proxy_config");
+            let sends = install_send_observer(&mut proxy_cfg);
+            let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+            let resp = post_messages(&base, bad_body.to_string()).await;
+            assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "failed for case: {desc}");
+            let payload: Value = resp.json().await.expect("JSON error");
+            assert_eq!(payload["error"]["type"], "invalid_request_error");
+            assert!(requests.lock().expect("requests").is_empty(), "upstream received request for case: {desc}");
+            assert_eq!(send_count(&sends), 0, "send_count > 0 for case: {desc}");
+        }
+    }
+
+    #[tokio::test]
+    async fn anthropic_direct_count_tokens_validates_sampling_parameters_with_zero_send_on_refusal() {
+        std::env::set_var(TEST_ANTHROPIC_KEY_ENV, "sk-ant-test-key");
+
+        // 1. Valid sampling parameters pass in count_tokens
+        let (fixture, requests) = serve_zai_fixture(
+            &json!({ "input_tokens": 20 }).to_string(),
+            "application/json",
+            200,
+        )
+        .await;
+        let cfg = anthropic_direct_cfg_for("claude-haiku-5-5", &fixture);
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let body_valid = json!({
+            "model": "claude-opus-5",
+            "messages": [{"role": "user", "content": "hi"}],
+            "temperature": 1.0
+        })
+        .to_string();
+
+        let resp = reqwest::Client::new()
+            .post(format!("{base}/v1/messages/count_tokens"))
+            .header("content-type", "application/json")
+            .body(body_valid)
+            .send()
+            .await
+            .expect("answer");
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(send_count(&sends), 1);
+        drop(requests);
+
+        // 2. Invalid sampling parameters are refused in count_tokens with 0 sends
+        let invalid_bodies = [
+            json!({ "model": "claude-opus-5", "messages": [{"role": "user", "content": "hi"}], "temperature": 0.7 }),
+            json!({ "model": "claude-opus-5", "messages": [{"role": "user", "content": "hi"}], "temperature": 1.0001 }),
+            json!({ "model": "claude-opus-5", "messages": [{"role": "user", "content": "hi"}], "top_p": 0.95 }),
+            json!({ "model": "claude-opus-5", "messages": [{"role": "user", "content": "hi"}], "top_p": 0.9901 }),
+            json!({ "model": "claude-opus-5", "messages": [{"role": "user", "content": "hi"}], "top_k": 10 }),
+            json!({ "model": "claude-opus-5", "messages": [{"role": "user", "content": "hi"}], "temperature": null }),
+            json!({ "model": "claude-opus-5", "messages": [{"role": "user", "content": "hi"}], "top_p": null }),
+            json!({ "model": "claude-opus-5", "messages": [{"role": "user", "content": "hi"}], "top_k": null }),
+            json!({ "model": "claude-opus-5", "messages": [{"role": "user", "content": "hi"}], "temperature": 1.0, "top_p": 0.99 }),
+        ];
+
+        for bad in invalid_bodies {
+            let (fixture_bad, requests_bad) = serve_zai_fixture("{}", "application/json", 200).await;
+            let cfg_bad = anthropic_direct_cfg_for("claude-haiku-5-5", &fixture_bad);
+            let mut proxy_cfg_bad = resolve_proxy_config(&cfg_bad, &[], Arc::new(AtomicBool::new(true)))
+                .expect("resolve_proxy_config");
+            let sends_bad = install_send_observer(&mut proxy_cfg_bad);
+            let base_bad = serve_gateway(Arc::new(proxy_cfg_bad)).await;
+
+            let resp_bad = reqwest::Client::new()
+                .post(format!("{base_bad}/v1/messages/count_tokens"))
+                .header("content-type", "application/json")
+                .body(bad.to_string())
+                .send()
+                .await
+                .expect("answer");
+
+            assert_eq!(resp_bad.status(), StatusCode::BAD_REQUEST);
+            assert!(requests_bad.lock().expect("requests").is_empty());
+            assert_eq!(send_count(&sends_bad), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn unrelated_provider_sampling_regression_in_proxy() {
+        std::env::set_var(TEST_DEEPSEEK_KEY_ENV, "test-key");
+        let (fixture, requests) = serve_zai_fixture(
+            r#"{"choices":[{"message":{"content":"deepseek ok"}}]}"#,
+            "application/json",
+            200,
+        )
+        .await;
+
+        let mut cfg = make_direct_provider_config(
+            "deepseek",
+            "deepseek-flash",
+            TEST_DEEPSEEK_KEY_ENV,
+            "deepseek-chat",
+        );
+        let p = cfg.providers.get_mut("deepseek").expect("deepseek provider");
+        p.upstream_url = fixture.to_string();
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        let body = json!({
+            "model": "claude-opus-5",
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": "hi"}],
+            "temperature": 0.7,
+            "top_p": 0.95
+        })
+        .to_string();
+
+        let resp = post_messages(&base, body).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(send_count(&sends), 1);
+        let recorded = requests.lock().expect("requests");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].2["temperature"], 0.7);
+        assert_eq!(recorded[0].2["top_p"], 0.95);
     }
 }

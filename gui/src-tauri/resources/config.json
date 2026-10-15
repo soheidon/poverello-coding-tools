@@ -659,6 +659,78 @@
         }
       }
     },
+    "anthropic": {
+      "display_name": "Anthropic",
+      "claude_code": { "auto_compact": { "mode": "auto" } },
+      "upstream_url": "https://api.anthropic.com",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "default_model": "claude-opus-5-5",
+      "force_anthropic_version": null,
+      "supports_count_tokens": true,
+      "supports_vision": true,
+      "supports_video": false,
+      "supports_thinking": true,
+      "model_map": {
+        "claude-opus-5": "claude-opus-5-5",
+        "claude-sonnet-5": "claude-sonnet-5-5",
+        "claude-haiku-4-5": "claude-haiku-5-5"
+      },
+      "visible_models": [
+        "claude-opus-5",
+        "claude-sonnet-5",
+        "claude-haiku-4-5"
+      ],
+      "models": {
+        "claude-opus-5": {
+          "upstream_model": "claude-opus-5-5",
+          "canonical": null,
+          "thinking": null,
+          "supports_vision": null,
+          "supports_video": null,
+          "visible": true,
+          "force_thinking": false,
+          "supports_non_thinking": null,
+          "supports_image_url": true,
+          "supports_image_base64": true,
+          "supports_video_url": false,
+          "supports_video_base64": false,
+          "thinking_mode": "thinking",
+          "reasoning_effort": "high"
+        },
+        "claude-sonnet-5": {
+          "upstream_model": "claude-sonnet-5-5",
+          "canonical": null,
+          "thinking": null,
+          "supports_vision": null,
+          "supports_video": null,
+          "visible": true,
+          "force_thinking": false,
+          "supports_non_thinking": null,
+          "supports_image_url": true,
+          "supports_image_base64": true,
+          "supports_video_url": false,
+          "supports_video_base64": false,
+          "thinking_mode": "thinking",
+          "reasoning_effort": "high"
+        },
+        "claude-haiku-4-5": {
+          "upstream_model": "claude-haiku-5-5",
+          "canonical": null,
+          "thinking": null,
+          "supports_vision": null,
+          "supports_video": null,
+          "visible": true,
+          "force_thinking": false,
+          "supports_non_thinking": null,
+          "supports_image_url": true,
+          "supports_image_base64": true,
+          "supports_video_url": false,
+          "supports_video_base64": false,
+          "thinking_mode": "thinking",
+          "reasoning_effort": "low"
+        }
+      }
+    },
     "openrouter": {
       "display_name": "OpenRouter",
       "upstream_url": "https://openrouter.ai/api",

@@ -7,7 +7,7 @@ import { getOrchestratorProfileDisplayName } from "./orchestratorProfileDisplayN
 describe("shared model catalog", () => {
   it("is the sole source for MCP and Orchestrator provider model choices", () => {
     expect(MODEL_CATALOG.providers.map(({ id }) => id)).toEqual([
-      "deepseek", "mimo", "zai", "minimax", "kimi", "kimi-code", "openrouter",
+      "deepseek", "mimo", "zai", "minimax", "kimi", "kimi-code", "anthropic", "openrouter",
     ]);
     for (const provider of MODEL_CATALOG.providers) {
         expect(getProviderModels(provider.id)).toEqual(provider.modelIds);
@@ -98,5 +98,33 @@ describe("shared model catalog", () => {
     expect(caps.force_thinking).toBe(true);
     expect(caps.supportsReasoningEffort).toBe(true);
     expect(caps.reasoningEffortOptions).toEqual(["low", "high", "max"]);
+  });
+
+  it("exposes the direct Anthropic models in the catalog providers list", () => {
+    expect(getProviderModels("anthropic")).toEqual([
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+      "claude-haiku-5-5",
+    ]);
+    expect(MODEL_CATALOG.providers.some(({ id }) => id === "anthropic")).toBe(true);
+
+    expect(MODEL_CATALOG.models["claude-opus-5-5"].providerId).toBe("anthropic");
+    expect(MODEL_CATALOG.models["claude-sonnet-5-5"].providerId).toBe("anthropic");
+    expect(MODEL_CATALOG.models["claude-haiku-5-5"].providerId).toBe("anthropic");
+
+    expect(getModelDisplayName("claude-opus-5-5", "anthropic")).toBe("Claude Opus 5.5");
+    expect(getModelDisplayName("claude-sonnet-5-5", "anthropic")).toBe("Claude Sonnet 5.5");
+    expect(getModelDisplayName("claude-haiku-5-5", "anthropic")).toBe("Claude Haiku 5.5");
+
+    expect(MODEL_CAPABILITIES["claude-opus-5-5"].thinkingModePolicy).toBe("thinking_only");
+    expect(MODEL_CAPABILITIES["claude-sonnet-5-5"].thinkingModePolicy).toBe("toggleable");
+    expect(MODEL_CAPABILITIES["claude-haiku-5-5"].thinkingModePolicy).toBe("toggleable");
+    expect(MODEL_CAPABILITIES["claude-opus-5-5"].reasoningEffortOptions).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
   });
 });

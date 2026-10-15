@@ -14,6 +14,7 @@ describe("Orchestrator provider-group mapping", () => {
     ["kimi-code", "provider", "kimi-code"],
     ["mimo", "provider", "mimo"],
     ["zai", "provider", "zai"],
+    ["anthropic", "provider", "anthropic"],
     ["openrouter", "provider", "openrouter"],
     ["ollama", "ollama", undefined],
     ["cli", "cli", undefined],

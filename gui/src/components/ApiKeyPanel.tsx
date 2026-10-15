@@ -22,6 +22,7 @@ const PROVIDER_ORDER = [
   "minimax",
   "kimi",
   "kimi-code",
+  "anthropic",
   "openrouter",
 ];
 
@@ -65,14 +66,15 @@ export function ModelSelector({
   // the list does not contain is still shown — and stays selectable — as a
   // "(Legacy / saved)" option instead of the custom entry.
   const isZai = providerId === "zai";
+  const isAnthropic = providerId === "anthropic";
   const glmModels = ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "glm-5.2"];
   const modelOptions: string[] = isZai ? glmModels : providerModels;
   const savedIsUnavailableOnContract = false;
   const isLegacySaved = !!currentUpstream && currentUpstream !== "—" &&
     !modelOptions.includes(currentUpstream) &&
-    (isKnownModel(currentUpstream) || isZai);
+    (isKnownModel(currentUpstream) || isZai || isAnthropic);
   const isTrulyCustom = !!currentUpstream && currentUpstream !== "—" &&
-    !isKnownModel(currentUpstream) && !isZai;
+    !isKnownModel(currentUpstream) && !isZai && !isAnthropic;
 
   const [selected, setSelected] = useState(
     isTrulyCustom
@@ -544,7 +546,7 @@ export function ModelSelector({
         )}
         {/* GLM ships a single verified model, so there is nothing to type in:
             an unknown saved value is offered as a saved option above. */}
-        {!isZai && (
+        {!isZai && !isAnthropic && (
           <option value={CUSTOM_MODEL_SENTINEL}>{t("apiKeyPanel.customModel")}</option>
         )}
       </select>
@@ -553,7 +555,7 @@ export function ModelSelector({
           {t("apiKeyPanel.glmModelUnavailableOnContract")}
         </span>
       )}
-      {isCustom && !isZai && (
+      {isCustom && !isZai && !isAnthropic && (
         <input
           style={{
             width: 220,

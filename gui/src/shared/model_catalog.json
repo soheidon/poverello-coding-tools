@@ -55,6 +55,15 @@
       ]
     },
     {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "modelIds": [
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5"
+      ]
+    },
+    {
       "id": "openrouter",
       "label": "OpenRouter",
       "modelIds": [
@@ -100,6 +109,78 @@
     }
   ],
   "models": {
+    "claude-opus-5-5": {
+      "providerId": "anthropic",
+      "displayName": "Claude Opus 5.5",
+      "vendor": "Anthropic",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": true,
+        "reasoningEffortOptions": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    },
+    "claude-sonnet-5-5": {
+      "providerId": "anthropic",
+      "displayName": "Claude Sonnet 5.5",
+      "vendor": "Anthropic",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "toggleable",
+        "supportsReasoningEffort": true,
+        "reasoningEffortOptions": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    },
+    "claude-haiku-5-5": {
+      "providerId": "anthropic",
+      "displayName": "Claude Haiku 5.5",
+      "vendor": "Anthropic",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "toggleable",
+        "supportsReasoningEffort": true,
+        "reasoningEffortOptions": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    },
     "deepseek-flash": {
       "providerId": "deepseek",
       "displayName": "DeepSeek V4.1 Flash",
@@ -1458,6 +1539,21 @@
     }
   },
   "contextWindows": {
+    "anthropic:claude-opus-5-5": {
+      "context_length": 1000000,
+      "source": "official",
+      "verified_at": "2026-10-12"
+    },
+    "anthropic:claude-sonnet-5-5": {
+      "context_length": 1000000,
+      "source": "official",
+      "verified_at": "2026-10-12"
+    },
+    "anthropic:claude-haiku-5-5": {
+      "context_length": 1000000,
+      "source": "official",
+      "verified_at": "2026-10-12"
+    },
     "openrouter:anthropic/claude-fable-5.1": {
       "context_length": 1000000,
       "source": "provider_api",

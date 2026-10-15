@@ -1117,6 +1117,96 @@ describe("Direct GLM (zai) provider controls", () => {
   });
 });
 
+const ANTHROPIC_ROUTE_MODELS = {
+  "claude-opus-5": { upstream_model: "claude-opus-5-5", thinking_mode: "thinking", reasoning_effort: "high", visible: true },
+  "claude-sonnet-5": { upstream_model: "claude-sonnet-5-5", thinking_mode: "thinking", reasoning_effort: "high", visible: true },
+  "claude-haiku-4-5": { upstream_model: "claude-haiku-5-5", thinking_mode: "thinking", reasoning_effort: "high", visible: true },
+};
+
+function anthropicConfig(models: Record<string, unknown>): GatewayConfig {
+  return {
+    config_version: "1.0",
+    active_provider: "anthropic",
+    active_openrouter_profile_id: null,
+    providers: {
+      anthropic: {
+        display_name: "Anthropic",
+        upstream_url: "https://api.anthropic.com",
+        api_key_env: "ANTHROPIC_API_KEY",
+        default_model: "claude-opus-5-5",
+        force_anthropic_version: null,
+        supports_count_tokens: true,
+        supports_vision: true,
+        supports_video: false,
+        supports_thinking: true,
+        visible_models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
+        models,
+      },
+    },
+    server: { host: "127.0.0.1", port: 4000, enable_cors: false },
+    non_vision_image_policy: "replace",
+    normalize_response_model_identity: true,
+  } as unknown as GatewayConfig;
+}
+
+async function renderExpandedAnthropic(models: Record<string, unknown>) {
+  render(
+    <ApiKeyPanel
+      config={anthropicConfig(models)}
+      refreshConfig={vi.fn().mockResolvedValue(undefined)}
+      gatewayRunning={false}
+      restartGateway={vi.fn().mockResolvedValue(undefined)}
+    />,
+  );
+  await userEvent.click(screen.getByRole("button", { name: /Anthropic/ }));
+}
+
+describe("Direct Anthropic provider controls", () => {
+  it("shows the Anthropic provider name, allowlisted models, and no custom entry", async () => {
+    await renderExpandedAnthropic(ANTHROPIC_ROUTE_MODELS);
+
+    expect(screen.getByRole("button", { name: /Anthropic/ })).toBeInTheDocument();
+
+    const modelSelects = screen
+      .getAllByRole("combobox")
+      .filter((select) => queryOptions(select)?.includes("Claude Opus 5.5"));
+    expect(modelSelects).toHaveLength(3);
+    for (const select of modelSelects) {
+      const options = select.querySelectorAll("option");
+      expect(Array.from(options).map((o) => o.value)).toEqual([
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5",
+      ]);
+      expect(Array.from(options).some((o) => o.value === "__custom__")).toBe(false);
+    }
+    expect(screen.queryByPlaceholderText(/model name/i)).not.toBeInTheDocument();
+  });
+
+  it("saves the API key using ANTHROPIC_API_KEY env_var", async () => {
+    await renderExpandedAnthropic(ANTHROPIC_ROUTE_MODELS);
+
+    const input = screen.getByPlaceholderText("sk-...");
+    expect(input).toBeInTheDocument();
+
+    await act(async () => {
+      await userEvent.type(input, "sk-ant-test-key-9999");
+    });
+
+    const saveBtn = screen.getByRole("button", { name: "apiKeyPanel.saveKey" });
+    await act(async () => {
+      await userEvent.click(saveBtn);
+    });
+
+    const saveCall = invokeMock.mock.calls.find((c: unknown[]) => c[0] === "set_env_api_key");
+    expect(saveCall).toBeDefined();
+    expect(saveCall?.[1]).toEqual({
+      key: "sk-ant-test-key-9999",
+      envVarName: "ANTHROPIC_API_KEY",
+    });
+  });
+});
+
 // Returns option texts from a select element, or null when absent.
 function queryOptions(select: HTMLElement | null): string[] | null {
   if (!select) return null;

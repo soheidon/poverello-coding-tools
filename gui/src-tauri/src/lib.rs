@@ -695,8 +695,8 @@ fn merge_bundled_providers_into(
                     user_providers[pid] = template_p.clone();
                     changed = true;
                 }
-            } else if pid != ZAI_PROVIDER_ID {
-                // Existing provider: merge new model entries from template (zai is preserved as fully user-owned)
+            } else if pid != ZAI_PROVIDER_ID && pid != ANTHROPIC_PROVIDER_ID {
+                // Existing provider: merge new model entries from template (zai and anthropic are preserved as fully user-owned)
                 if let (Some(user_models), Some(ref template_models)) =
                     (user_providers[pid].get_mut("models"), &p.models)
                 {
@@ -8266,6 +8266,21 @@ pub(crate) const ZAI_REASONING_EFFORTS: [&str; 3] = ["low", "high", "max"];
 /// the saved value is sent as `reasoning_effort` over Anthropic Messages.
 pub(crate) const ZAI_DEFAULT_REASONING_EFFORT: &str = "max";
 
+/// Internal provider ID for Anthropic Direct.
+pub(crate) const ANTHROPIC_PROVIDER_ID: &str = "anthropic";
+pub(crate) const ANTHROPIC_DISPLAY_NAME: &str = "Anthropic";
+pub(crate) const ANTHROPIC_DEFAULT_MODEL: &str = "claude-opus-5-5";
+pub(crate) const ANTHROPIC_MODELS: [&str; 3] = [
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+];
+pub(crate) const ANTHROPIC_REASONING_EFFORTS: [&str; 5] = [
+    "low", "medium", "high", "xhigh", "max",
+];
+#[allow(dead_code)]
+pub(crate) const ANTHROPIC_DEFAULT_REASONING_EFFORT: &str = "high";
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ProviderConfig {
     pub display_name: String,
@@ -12265,6 +12280,80 @@ mod tests {
         );
 
         // The merge stays idempotent with a user-owned GLM block present.
+        let first = std::fs::read(&path).unwrap();
+        merge_bundled_providers(&path).expect("merge must be idempotent");
+        assert_eq!(std::fs::read(&path).unwrap(), first);
+    }
+
+    #[test]
+    fn merge_bundled_providers_delivers_anthropic_additively() {
+        let dir = TempDir::new().unwrap();
+        let cfg = json!({
+            "config_version": "1.0",
+            "active_provider": "deepseek",
+            "providers": {
+                "deepseek": {
+                    "display_name": "DeepSeek",
+                    "upstream_url": "https://api.deepseek.com/anthropic",
+                    "api_key_env": "DEEPSEEK_API_KEY",
+                    "default_model": "deepseek-v4-pro",
+                    "model_map": { "claude-opus-5": "deepseek-v4-pro" }
+                }
+            }
+        });
+        write_config(dir.path(), &cfg);
+        let path = dir.path().join("config.json");
+
+        merge_bundled_providers(&path).expect("merge must succeed");
+
+        let after = read_config(dir.path());
+        assert_eq!(after["providers"]["anthropic"]["display_name"].as_str(), Some("Anthropic"));
+        assert_eq!(after["providers"]["anthropic"]["upstream_url"].as_str(), Some("https://api.anthropic.com"));
+        assert_eq!(after["providers"]["anthropic"]["api_key_env"].as_str(), Some("ANTHROPIC_API_KEY"));
+        assert_eq!(after["providers"]["anthropic"]["default_model"].as_str(), Some("claude-opus-5-5"));
+
+        let anthropic_models = &after["providers"]["anthropic"]["models"];
+        assert_eq!(anthropic_models["claude-opus-5"]["upstream_model"], json!("claude-opus-5-5"));
+        assert_eq!(anthropic_models["claude-sonnet-5"]["upstream_model"], json!("claude-sonnet-5-5"));
+        assert_eq!(anthropic_models["claude-haiku-4-5"]["upstream_model"], json!("claude-haiku-5-5"));
+
+        let first = std::fs::read_to_string(&path).unwrap();
+        merge_bundled_providers(&path).expect("merge must be idempotent");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), first);
+    }
+
+    #[test]
+    fn merge_bundled_providers_preserves_a_user_edited_anthropic_provider() {
+        let dir = TempDir::new().unwrap();
+        let template: serde_json::Value =
+            serde_json::from_str(config_template::BUNDLED_CONFIG_TEMPLATE)
+                .expect("embedded template must parse");
+        let mut anthropic = template["providers"]["anthropic"].clone();
+        anthropic["upstream_url"] = json!("https://custom-proxy.internal/v1");
+        anthropic["user_note"] = json!({ "keep": true });
+
+        let cfg = json!({
+            "config_version": "1.0",
+            "active_provider": "anthropic",
+            "providers": {
+                "anthropic": anthropic.clone()
+            }
+        });
+        write_config(dir.path(), &cfg);
+        let path = dir.path().join("config.json");
+
+        merge_bundled_providers(&path).expect("merge must succeed");
+
+        let after = read_config(dir.path());
+        assert_eq!(
+            after["providers"]["anthropic"]["upstream_url"],
+            json!("https://custom-proxy.internal/v1")
+        );
+        assert_eq!(
+            after["providers"]["anthropic"]["user_note"],
+            json!({ "keep": true })
+        );
+
         let first = std::fs::read(&path).unwrap();
         merge_bundled_providers(&path).expect("merge must be idempotent");
         assert_eq!(std::fs::read(&path).unwrap(), first);
