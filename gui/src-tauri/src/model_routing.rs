@@ -75,6 +75,11 @@ pub(crate) fn resolve_route_upstream_model(
     profile_id: Option<&str>,
     route: &str,
 ) -> Option<String> {
+    if provider_id == "gateway_profile" {
+        return resolve_route_for_gateway_profile(cfg, profile_id.unwrap_or(""), route)
+            .map(|(_, m)| m);
+    }
+
     let providers = cfg.get("providers").and_then(|p| p.as_object())?;
     let provider = providers.get(provider_id)?;
 
@@ -106,6 +111,61 @@ pub(crate) fn resolve_route_upstream_model(
         resolve_from_models(provider, route)
     } else {
         resolve_from_model_map(provider, route)
+    }
+}
+
+pub(crate) const ELIGIBLE_GATEWAY_PROVIDERS: [&str; 4] = [
+    "anthropic",
+    "zai",
+    "openrouter",
+    "deepseek",
+];
+
+pub(crate) fn is_eligible_provider_model(provider: &str, model: &str) -> bool {
+    match provider {
+        "anthropic" => crate::ANTHROPIC_MODELS.contains(&model),
+        "zai" => crate::ZAI_MODELS_PAY_AS_YOU_GO.contains(&model),
+        "deepseek" => {
+            matches!(
+                model,
+                "deepseek-v4-pro" | "deepseek-v4-flash" | "deepseek-chat" | "deepseek-reasoner"
+            )
+        }
+        _ => false,
+    }
+}
+
+/// Resolve the upstream model and provider for a route in a Gateway Profile.
+///
+/// Returns `Some((provider_id, upstream_model))` if the route is defined in the
+/// Gateway Profile, references an eligible provider and model, and resolves to
+/// a valid upstream model.
+pub(crate) fn resolve_route_for_gateway_profile(
+    cfg: &serde_json::Value,
+    gateway_profile_id: &str,
+    route: &str,
+) -> Option<(String, String)> {
+    let profiles = cfg.get("gateway_profiles").and_then(|p| p.as_array())?;
+    let profile = profiles
+        .iter()
+        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(gateway_profile_id))?;
+    let routes = profile.get("routes").and_then(|r| r.as_object())?;
+    let route_spec = routes.get(route)?;
+
+    let provider = route_spec.get("provider").and_then(|p| p.as_str())?;
+    if !ELIGIBLE_GATEWAY_PROVIDERS.contains(&provider) {
+        return None;
+    }
+    if provider == "openrouter" {
+        let profile_id = route_spec.get("profile_id").and_then(|p| p.as_str())?;
+        let upstream = resolve_route_upstream_model(cfg, "openrouter", Some(profile_id), route)?;
+        Some(("openrouter".to_string(), upstream))
+    } else {
+        let model = route_spec.get("model").and_then(|m| m.as_str())?;
+        if !is_eligible_provider_model(provider, model) {
+            return None;
+        }
+        Some((provider.to_string(), model.to_string()))
     }
 }
 
@@ -378,5 +438,81 @@ mod tests {
             resolve_route_upstream_model(&cfg, "deepseek", None, "claude-opus-5"),
             Some("deepseek-flash".to_string())
         );
+    }
+
+    #[test]
+    fn gateway_profile_route_resolution() {
+        let cfg = json!({
+            "active_gateway_profile_id": "gw-1",
+            "gateway_profiles": [
+                {
+                    "id": "gw-1",
+                    "display_name": "Multi-Provider Mix",
+                    "routes": {
+                        "claude-opus-5": {
+                            "provider": "anthropic",
+                            "model": "claude-opus-5-5"
+                        },
+                        "claude-sonnet-5": {
+                            "provider": "zai",
+                            "model": "glm-5.3"
+                        },
+                        "claude-haiku-4-5": {
+                            "provider": "openrouter",
+                            "profile_id": "or-prof-1"
+                        }
+                    }
+                }
+            ],
+            "providers": {
+                "openrouter": {
+                    "profiles": [
+                        {
+                            "id": "or-prof-1",
+                            "display_name": "OpenRouter: Laguna",
+                            "models": {
+                                "claude-haiku-4-5": {
+                                    "upstream_model": "poolside/laguna-xs-2.1"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        });
+
+        // 1. Direct model routes
+        assert_eq!(
+            resolve_route_for_gateway_profile(&cfg, "gw-1", "claude-opus-5"),
+            Some(("anthropic".to_string(), "claude-opus-5-5".to_string()))
+        );
+        assert_eq!(
+            resolve_route_for_gateway_profile(&cfg, "gw-1", "claude-sonnet-5"),
+            Some(("zai".to_string(), "glm-5.3".to_string()))
+        );
+
+        // 2. OpenRouter profile reference
+        assert_eq!(
+            resolve_route_for_gateway_profile(&cfg, "gw-1", "claude-haiku-4-5"),
+            Some(("openrouter".to_string(), "poolside/laguna-xs-2.1".to_string()))
+        );
+
+        // 3. Via resolve_route_upstream_model with provider_id="gateway_profile"
+        assert_eq!(
+            resolve_route_upstream_model(&cfg, "gateway_profile", Some("gw-1"), "claude-opus-5"),
+            Some("claude-opus-5-5".to_string())
+        );
+        assert_eq!(
+            resolve_route_upstream_model(&cfg, "gateway_profile", Some("gw-1"), "claude-sonnet-5"),
+            Some("glm-5.3".to_string())
+        );
+        assert_eq!(
+            resolve_route_upstream_model(&cfg, "gateway_profile", Some("gw-1"), "claude-haiku-4-5"),
+            Some("poolside/laguna-xs-2.1".to_string())
+        );
+
+        // 4. Missing route or unknown profile returns None
+        assert_eq!(resolve_route_for_gateway_profile(&cfg, "gw-1", "claude-unknown"), None);
+        assert_eq!(resolve_route_for_gateway_profile(&cfg, "gw-unknown", "claude-opus-5"), None);
     }
 }

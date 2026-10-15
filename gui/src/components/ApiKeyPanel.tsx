@@ -13,6 +13,7 @@ import type { ThinkingModePolicy, ThinkingOption, ReasoningEffortOption } from "
 import { normalizeReasoningEffort, isReasoningEffortOption } from "../reasoningEffort";
 import { getModelDisplayName } from "../config/modelDisplayNames";
 import OpenRouterProviderSection, { parseAutoModelSetNumber } from "./OpenRouterProviderSection";
+import GatewayProfileSection from "./GatewayProfileSection";
 import type { OpenRouterProfile } from "../types";
 
 const PROVIDER_ORDER = [
@@ -1638,6 +1639,14 @@ export default function ApiKeyPanel({
           })}
         </div>
       </div>
+
+      {/* ── Multi-Provider Gateway Profiles Section ── */}
+      <GatewayProfileSection
+        config={config}
+        gatewayRunning={gatewayRunning}
+        refreshConfig={refreshConfig}
+        restartGateway={restartGateway}
+      />
 
       {/* ── Ollama Local Section ── */}
       <OllamaRow

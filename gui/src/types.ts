@@ -96,6 +96,23 @@ export interface OpenRouterProfile {
   claude_code?: ClaudeCodeProviderSection;
 }
 
+export interface GatewayProfileRoute {
+  provider: string;
+  model?: string | null;
+  /** Matches the serialized Rust GatewayProfileRoute field. */
+  profile_id?: string | null;
+  thinking_mode?: string | null;
+  reasoning_effort?: string | null;
+}
+
+export interface GatewayProfile {
+  id: string;
+  display_name: string;
+  routes: Record<string, GatewayProfileRoute>;
+  hidden?: boolean;
+  claude_code?: ClaudeCodeProviderSection;
+}
+
 export interface CommandOutcome {
   restart_gateway: boolean;
   restart_reason: string;
@@ -317,6 +334,8 @@ export interface GatewayConfig {
   config_version?: string;
   active_provider: string | null;
   active_openrouter_profile_id?: string | null;
+  active_gateway_profile_id?: string | null;
+  gateway_profiles?: GatewayProfile[];
   providers: Record<string, ProviderConfig>;
   server: ServerConfig;
   non_vision_image_policy?: string;

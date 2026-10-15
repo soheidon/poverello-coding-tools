@@ -179,6 +179,94 @@ describe("dashboard tile card rules", () => {
   });
 });
 
+describe("gateway profiles dashboard rules", () => {
+  it("counts visible gateway profiles and excludes hidden ones", () => {
+    const config = {
+      providers: {
+        deepseek: provider(),
+      },
+      gateway_profiles: [
+        { hidden: false },
+        { hidden: true },
+        { hidden: false },
+      ],
+    };
+
+    expect(calculateDashboardCardCount(config as never)).toBe(3); // 1 direct provider + 2 visible gateway profiles
+  });
+
+  it("builds gateway profile tiles with resolved routes and active state", () => {
+    const config = {
+      active_provider: "gateway_profile",
+      active_gateway_profile_id: "gp-1",
+      providers: {
+        deepseek: { display_name: "DeepSeek", models: {} },
+        openrouter: {
+          profiles: [
+            {
+              id: "or-p1",
+              display_name: "OR Set 1",
+              models: {
+                "claude-sonnet-5": {
+                  upstream_model: "anthropic/claude-3.7-sonnet",
+                  thinking_mode: "thinking",
+                  reasoning_effort: "high",
+                },
+              },
+            },
+          ],
+        },
+      },
+      gateway_profiles: [
+        {
+          id: "gp-1",
+          display_name: "Multi 1",
+          hidden: false,
+          routes: {
+            "claude-opus-5": {
+              provider: "anthropic",
+              model: "claude-opus-5-5",
+              thinking_mode: "thinking",
+            },
+            "claude-sonnet-5": {
+              provider: "openrouter",
+              profile_id: "or-p1",
+            },
+            "claude-haiku-4-5": {
+              provider: "zai",
+              model: "glm-5.2",
+              thinking_mode: "normal",
+            },
+          },
+        },
+        {
+          id: "gp-hidden",
+          display_name: "Hidden Profile",
+          hidden: true,
+          routes: {},
+        },
+      ],
+    };
+
+    const tiles = buildTiles(config as never);
+    const gpTile = tiles.find((t) => t.providerId === "gateway_profile");
+    expect(gpTile).toBeDefined();
+    expect(gpTile?.profileId).toBe("gp-1");
+    expect(gpTile?.displayName).toBe("Multi 1");
+    expect(gpTile?.isActive).toBe(true);
+    expect(gpTile?.opusUpstream).toBe("claude-opus-5-5");
+    expect(gpTile?.opusThinkingMode).toBe("thinking");
+    expect(gpTile?.sonnetUpstream).toBe("anthropic/claude-3.7-sonnet");
+    expect(gpTile?.sonnetThinkingMode).toBe("thinking");
+    expect(gpTile?.sonnetReasoningEffort).toBe("high");
+    expect(gpTile?.haikuUpstream).toBe("glm-5.2");
+    expect(gpTile?.haikuThinkingMode).toBe("normal");
+
+    // Hidden profile is not rendered
+    expect(tiles.some((t) => t.profileId === "gp-hidden")).toBe(false);
+  });
+});
+
 // ProviderTiles uses the same shared profile helper as calculateDashboardCardCount.
 
 describe("shared dashboard profile rules", () => {

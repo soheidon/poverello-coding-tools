@@ -3,6 +3,7 @@ export type DashboardCardCountConfig = {
     hidden?: boolean;
     profiles?: Array<{ hidden?: boolean }>;
   }>;
+  gateway_profiles?: Array<{ hidden?: boolean }>;
   claude_code?: {
     third_party_provider?: {
       show_on_dashboard?: boolean;
@@ -29,6 +30,14 @@ export function calculateDashboardCardCount(
   config: DashboardCardCountConfig,
 ): number {
   let count = 0;
+
+  if (config.gateway_profiles) {
+    for (const gp of config.gateway_profiles) {
+      if (gp.hidden !== true) {
+        count += 1;
+      }
+    }
+  }
 
   for (const [providerId, provider] of Object.entries(config.providers)) {
     if (providerId !== "openrouter") {

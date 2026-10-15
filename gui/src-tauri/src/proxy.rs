@@ -115,7 +115,7 @@ pub struct ProviderRoute {
     pub supports_count_tokens: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ThinkingOverride {
     /// Inject thinking: { type: "disabled" } when user hasn't set it (skip MiniMax)
     Disabled,
@@ -152,6 +152,8 @@ pub struct ModelRouteEntry {
     pub forced_reasoning_effort: Option<String>,
     /// Raw thinking_mode from config (for OpenRouter reasoning translation)
     pub thinking_mode_raw: Option<String>,
+    /// Whether this entry originated from a Multi-Provider Gateway Profile
+    pub is_gateway_profile: bool,
 }
 
 #[derive(Clone)]
@@ -258,12 +260,156 @@ pub fn resolve_proxy_config(
         ids.first().map(|s| s.as_str())
     });
 
-    for provider_id in &provider_ids {
-        let is_active = Some(provider_id.as_str()) == effective_active;
-        if !is_active {
-            continue; // Only the active provider's models are routed
+    if effective_active == Some("gateway_profile") {
+        let profile_id = cfg
+            .active_gateway_profile_id
+            .as_deref()
+            .ok_or("No active Gateway profile ID configured")?;
+        let profile = cfg
+            .gateway_profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .ok_or_else(|| format!("Gateway profile '{}' not found", profile_id))?;
+
+        for required_route in &crate::model_routing::CLAUDE_ROUTES {
+            if !profile.routes.contains_key(*required_route) {
+                return Err(format!(
+                    "Gateway profile '{}' missing required canonical route '{}'",
+                    profile_id, required_route
+                ));
+            }
         }
-        let p = &cfg.providers[*provider_id];
+
+        let mut route_keys: Vec<&String> = profile.routes.keys().collect();
+        route_keys.sort();
+
+        for gateway_model in route_keys {
+            let spec = &profile.routes[gateway_model];
+            if !crate::model_routing::ELIGIBLE_GATEWAY_PROVIDERS.contains(&spec.provider.as_str()) {
+                return Err(format!(
+                    "Gateway profile '{}' route '{}' references unreviewed provider '{}'",
+                    profile_id, gateway_model, spec.provider
+                ));
+            }
+            let p = cfg.providers.get(&spec.provider).ok_or_else(|| {
+                format!("Provider '{}' not found in config", spec.provider)
+            })?;
+
+            if spec.provider == "openrouter" {
+                let pid = spec.profile_id.as_deref().ok_or_else(|| {
+                    format!(
+                        "Gateway profile '{}' route '{}' missing OpenRouter profile_id",
+                        profile_id, gateway_model
+                    )
+                })?;
+                let or_profile = p
+                    .openrouter_profiles
+                    .iter()
+                    .find(|prof| prof.id == pid)
+                    .ok_or_else(|| format!("OpenRouter profile '{}' not found", pid))?;
+                let entry = or_profile.models.get(gateway_model).ok_or_else(|| {
+                    format!(
+                        "OpenRouter profile '{}' has no entry for route '{}'",
+                        pid, gateway_model
+                    )
+                })?;
+
+                let cache_lookup = if openrouter_models.is_empty() {
+                    model_capabilities::OpenRouterCacheLookup::Unavailable
+                } else if let Some(m) = openrouter_models.iter().find(|m| m.id == entry.upstream_model) {
+                    model_capabilities::OpenRouterCacheLookup::Hit(m)
+                } else {
+                    model_capabilities::OpenRouterCacheLookup::Miss
+                };
+                let caps = model_capabilities::resolve_effective_model_capabilities(
+                    &entry.upstream_model,
+                    p.supports_vision,
+                    cache_lookup,
+                );
+
+                model_route.insert(
+                    gateway_model.clone(),
+                    ModelRouteEntry {
+                        gateway_model: gateway_model.clone(),
+                        provider_id: "openrouter".to_string(),
+                        upstream_model: entry.upstream_model.clone(),
+                        thinking: ThinkingOverride::Default,
+                        force_thinking: caps.force_thinking,
+                        reasoning_effort: entry.reasoning_effort.clone(),
+                        supports_image_url: caps.supports_image_url,
+                        supports_image_base64: caps.supports_image_base64,
+                        supports_video_url: caps.supports_video_url,
+                        supports_video_base64: caps.supports_video_base64,
+                        suppress_thinking_parameter: caps.suppress_thinking_parameter,
+                        forced_reasoning_effort: caps.forced_reasoning_effort.map(String::from),
+                        thinking_mode_raw: entry.thinking_mode.clone(),
+                        is_gateway_profile: true,
+                    },
+                );
+                if !all_models.contains(gateway_model) {
+                    all_models.push(gateway_model.clone());
+                }
+            } else {
+                let upstream_model = spec.model.as_deref().ok_or_else(|| {
+                    format!(
+                        "Gateway profile '{}' route '{}' missing explicit upstream model",
+                        profile_id, gateway_model
+                    )
+                })?;
+                if !crate::model_routing::is_eligible_provider_model(&spec.provider, upstream_model) {
+                    return Err(format!(
+                        "Gateway profile '{}' route '{}' has unreviewed provider/model: {}/{}",
+                        profile_id, gateway_model, spec.provider, upstream_model
+                    ));
+                }
+
+                let thinking = match spec.thinking_mode.as_deref() {
+                    Some("normal") => ThinkingOverride::Disabled,
+                    Some("thinking") => ThinkingOverride::Enabled,
+                    Some("thinking_only") => ThinkingOverride::Forced,
+                    Some(other) => return Err(format!("unsupported thinking_mode '{}'", other)),
+                    None => ThinkingOverride::Default,
+                };
+
+                if let Some(ref effort) = spec.reasoning_effort {
+                    if !matches!(effort.as_str(), "low" | "medium" | "high") {
+                        return Err(format!("unsupported reasoning_effort '{}'", effort));
+                    }
+                }
+
+                let force_thinking = thinking == ThinkingOverride::Forced;
+
+                model_route.insert(
+                    gateway_model.clone(),
+                    ModelRouteEntry {
+                        gateway_model: gateway_model.clone(),
+                        provider_id: spec.provider.clone(),
+                        upstream_model: upstream_model.to_string(),
+                        thinking,
+                        force_thinking,
+                        reasoning_effort: spec.reasoning_effort.clone(),
+                        supports_image_url: p.supports_vision,
+                        supports_image_base64: p.supports_vision,
+                        supports_video_url: p.supports_video,
+                        supports_video_base64: p.supports_video,
+                        suppress_thinking_parameter: false,
+                        forced_reasoning_effort: None,
+                        thinking_mode_raw: spec.thinking_mode.clone(),
+                        is_gateway_profile: true,
+                    },
+                );
+                if !all_models.contains(gateway_model) {
+                    all_models.push(gateway_model.clone());
+                }
+            }
+        }
+    } else {
+        for provider_id in &provider_ids {
+            let is_active = Some(provider_id.as_str()) == effective_active;
+            if !is_active {
+                continue; // Only the active provider's models are routed
+            }
+            let p = &cfg.providers[*provider_id];
 
         // ── OpenRouter: route from the active profile ──
         if *provider_id == "openrouter" && !p.openrouter_profiles.is_empty() {
@@ -362,6 +508,7 @@ pub fn resolve_proxy_config(
                         suppress_thinking_parameter: caps.suppress_thinking_parameter,
                         forced_reasoning_effort: caps.forced_reasoning_effort.map(String::from),
                         thinking_mode_raw: entry.thinking_mode.clone(),
+                        is_gateway_profile: false,
                     },
                 );
                 if entry.visible && !all_models.contains(gateway_model) {
@@ -527,6 +674,7 @@ pub fn resolve_proxy_config(
                         suppress_thinking_parameter,
                         forced_reasoning_effort,
                         thinking_mode_raw: entry.thinking_mode.clone(),
+                        is_gateway_profile: false,
                     },
                 );
                 if entry.visible && !all_models.contains(gateway_model) {
@@ -632,6 +780,7 @@ pub fn resolve_proxy_config(
                         suppress_thinking_parameter,
                         forced_reasoning_effort,
                         thinking_mode_raw: None,
+                        is_gateway_profile: false,
                     },
                 );
                 if visible_set.contains(gateway_model) && !all_models.contains(gateway_model) {
@@ -640,6 +789,7 @@ pub fn resolve_proxy_config(
             }
         }
     }
+}
 
     if model_route.is_empty() {
         return Err("No models configured. Add models or model_map entries to config.json.".into());
@@ -750,6 +900,7 @@ pub fn resolve_proxy_config(
                     suppress_thinking_parameter: false,
                     forced_reasoning_effort: None,
                     thinking_mode_raw: Some(tp.thinking_mode.clone()),
+                    is_gateway_profile: false,
                 },
             );
         }
@@ -768,6 +919,7 @@ pub fn resolve_proxy_config(
             suppress_thinking_parameter: false,
             forced_reasoning_effort: None,
             thinking_mode_raw: Some(tp.thinking_mode.clone()),
+            is_gateway_profile: false,
         };
 
         // Also map the default_model itself
@@ -2048,6 +2200,63 @@ fn validate_anthropic_request(entry: &ModelRouteEntry, body: &Value) -> Result<(
     Ok(())
 }
 
+fn validate_thinking_conflicts(entry: &ModelRouteEntry, body: &Value) -> Result<(), String> {
+    if !entry.is_gateway_profile {
+        return Ok(());
+    }
+
+    let client_thinking_enabled = body
+        .get("thinking")
+        .and_then(|t| t.get("type"))
+        .and_then(Value::as_str)
+        .map(|t| t == "enabled")
+        .unwrap_or(false)
+        || body.get("thinking").and_then(Value::as_bool) == Some(true);
+
+    let client_thinking_disabled = body
+        .get("thinking")
+        .and_then(|t| t.get("type"))
+        .and_then(Value::as_str)
+        .map(|t| t == "disabled")
+        .unwrap_or(false)
+        || body.get("thinking").and_then(Value::as_bool) == Some(false);
+
+    // Check thinking enabled/disabled conflict
+    if entry.thinking == ThinkingOverride::Disabled || entry.thinking_mode_raw.as_deref() == Some("normal") {
+        if client_thinking_enabled {
+            return Err("Conflict: client requested thinking enabled, but active route disables thinking".to_string());
+        }
+    } else if entry.thinking == ThinkingOverride::Enabled
+        || entry.thinking == ThinkingOverride::Forced
+        || matches!(entry.thinking_mode_raw.as_deref(), Some("thinking") | Some("thinking_only"))
+    {
+        if client_thinking_disabled {
+            return Err("Conflict: client requested thinking disabled, but active route requires thinking".to_string());
+        }
+    }
+
+    // Check reasoning effort conflict
+    if let Some(ref profile_effort) = entry.reasoning_effort {
+        let client_effort = body
+            .get("output_config")
+            .and_then(|oc| oc.get("effort"))
+            .and_then(Value::as_str)
+            .or_else(|| body.get("reasoning_effort").and_then(Value::as_str))
+            .or_else(|| body.get("thinking").and_then(|t| t.get("effort")).and_then(Value::as_str));
+
+        if let Some(ce) = client_effort {
+            if ce != profile_effort {
+                return Err(format!(
+                    "Conflict: client requested reasoning effort '{}', but active route specifies '{}'",
+                    ce, profile_effort
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn detect_media_types(messages: &[Value]) -> (bool, bool) {
     let mut has_image = false;
     let mut has_video = false;
@@ -2546,6 +2755,13 @@ async fn proxy_count_tokens(
     let model_in = body["model"].as_str().unwrap_or("").to_string();
     let (entry, route) = resolve_model(&model_in, &config, is_claude_code_3p)?;
 
+    if let Err(reason) = validate_thinking_conflicts(entry, &body) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": {"type": "invalid_request_error", "message": reason}})),
+        ));
+    }
+
     // The direct GLM provider never answers the token-count endpoint: the
     // request is refused here, before any client is built.
     if entry.provider_id == crate::ZAI_PROVIDER_ID {
@@ -2691,6 +2907,13 @@ async fn proxy_messages(
 
     let model_in = body["model"].as_str().unwrap_or("").to_string();
     let (entry, route) = resolve_model(&model_in, &config, is_claude_code_3p)?;
+
+    if let Err(reason) = validate_thinking_conflicts(entry, &body) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": {"type": "invalid_request_error", "message": reason}})),
+        ));
+    }
 
     if entry.provider_id == crate::ZAI_PROVIDER_ID {
         let thinking_optional = crate::ZAI_MODELS_THINKING_OPTIONAL.contains(&entry.upstream_model.as_str());
@@ -3814,6 +4037,7 @@ mod tests {
             suppress_thinking_parameter: false,
             forced_reasoning_effort: None,
             thinking_mode_raw: None,
+            is_gateway_profile: false,
         }
     }
 
@@ -5058,6 +5282,7 @@ mod tests {
             supports_video_base64: false,
             suppress_thinking_parameter: false,
             forced_reasoning_effort: None,
+            is_gateway_profile: false,
         }
     }
 
@@ -5410,6 +5635,8 @@ mod tests {
             config_version: "1.0".to_string(),
             active_provider: Some("openrouter".to_string()),
             active_openrouter_profile_id: None,
+            active_gateway_profile_id: None,
+            gateway_profiles: vec![],
             providers,
             server: crate::ServerConfig {
                 host: "127.0.0.1".to_string(),
@@ -5582,6 +5809,8 @@ mod tests {
             config_version: "1.0".to_string(),
             active_provider: Some(provider_id.to_string()),
             active_openrouter_profile_id: None,
+            active_gateway_profile_id: None,
+            gateway_profiles: vec![],
             providers,
             server: crate::ServerConfig {
                 host: "127.0.0.1".to_string(),
@@ -6779,6 +7008,8 @@ mod tests {
             config_version: "1.0".to_string(),
             active_provider: Some("openrouter".to_string()),
             active_openrouter_profile_id: Some(active_profile_id.to_string()),
+            active_gateway_profile_id: None,
+            gateway_profiles: vec![],
             providers,
             server: crate::ServerConfig {
                 host: "127.0.0.1".to_string(),
@@ -6876,6 +7107,8 @@ mod tests {
             config_version: "1.0".to_string(),
             active_provider: Some("kimi".to_string()),
             active_openrouter_profile_id: None,
+            active_gateway_profile_id: None,
+            gateway_profiles: vec![],
             providers,
             server: crate::ServerConfig {
                 host: "127.0.0.1".to_string(),
@@ -6994,6 +7227,8 @@ mod tests {
             config_version: "1.0".to_string(),
             active_provider: Some("deepseek".to_string()),
             active_openrouter_profile_id: None,
+            active_gateway_profile_id: None,
+            gateway_profiles: vec![],
             providers,
             server: crate::ServerConfig {
                 host: "127.0.0.1".to_string(),
@@ -7075,6 +7310,8 @@ mod tests {
             config_version: "1.0".to_string(),
             active_provider: Some("mimo".to_string()),
             active_openrouter_profile_id: None,
+            active_gateway_profile_id: None,
+            gateway_profiles: vec![],
             providers,
             server: crate::ServerConfig {
                 host: "127.0.0.1".to_string(),
@@ -7165,6 +7402,8 @@ mod tests {
             config_version: "1.0".to_string(),
             active_provider: Some("deepseek".to_string()),
             active_openrouter_profile_id: None,
+            active_gateway_profile_id: None,
+            gateway_profiles: vec![],
             providers,
             server: crate::ServerConfig {
                 host: "127.0.0.1".to_string(),
@@ -7245,6 +7484,7 @@ mod tests {
             suppress_thinking_parameter: false,
             forced_reasoning_effort: None,
             thinking_mode_raw: Some("normal".to_string()),
+            is_gateway_profile: false,
         };
 
         // Normal thinking mode -> {"type": "disabled"}
@@ -7841,5 +8081,396 @@ mod tests {
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0].2["temperature"], 0.7);
         assert_eq!(recorded[0].2["top_p"], 0.95);
+    }
+
+    // ── Multi-Provider Gateway Profile Tests in Proxy ─────────────────
+
+    fn make_test_multi_provider_gateway_config(
+        anthropic_url: &str,
+        zai_url: &str,
+        deepseek_url: &str,
+        openrouter_url: &str,
+    ) -> crate::GatewayConfigResponse {
+        std::env::set_var("_TEST_GW_ANTHROPIC_KEY", "sk-ant-test");
+        std::env::set_var("_TEST_GW_ZAI_KEY", "sk-zai-test");
+        std::env::set_var("_TEST_GW_DEEPSEEK_KEY", "sk-ds-test");
+        std::env::set_var("_TEST_GW_OR_KEY", "sk-or-test");
+
+        let mut providers = indexmap::IndexMap::new();
+
+        providers.insert("anthropic".to_string(), crate::ProviderConfig {
+            display_name: "Anthropic".to_string(),
+            upstream_url: anthropic_url.to_string(),
+            api_key_env: "_TEST_GW_ANTHROPIC_KEY".to_string(),
+            default_model: "claude-opus-5-5".to_string(),
+            force_anthropic_version: None,
+            supports_count_tokens: true,
+            supports_vision: true,
+            supports_video: false,
+            supports_thinking: true,
+            model_map: HashMap::new(),
+            visible_models: vec!["claude-opus-5-5".to_string()],
+            models: None,
+            openrouter_profiles: vec![],
+            claude_code: None,
+            zai: None,
+            hidden: false,
+        });
+
+        providers.insert("zai".to_string(), crate::ProviderConfig {
+            display_name: "GLM".to_string(),
+            upstream_url: zai_url.to_string(),
+            api_key_env: "_TEST_GW_ZAI_KEY".to_string(),
+            default_model: "glm-5.2".to_string(),
+            force_anthropic_version: None,
+            supports_count_tokens: false,
+            supports_vision: true,
+            supports_video: false,
+            supports_thinking: true,
+            model_map: HashMap::new(),
+            visible_models: vec!["glm-5.2".to_string()],
+            models: None,
+            openrouter_profiles: vec![],
+            claude_code: None,
+            zai: None,
+            hidden: false,
+        });
+
+        providers.insert("deepseek".to_string(), crate::ProviderConfig {
+            display_name: "DeepSeek".to_string(),
+            upstream_url: deepseek_url.to_string(),
+            api_key_env: "_TEST_GW_DEEPSEEK_KEY".to_string(),
+            default_model: "deepseek-v4-flash".to_string(),
+            force_anthropic_version: None,
+            supports_count_tokens: true,
+            supports_vision: false,
+            supports_video: false,
+            supports_thinking: true,
+            model_map: HashMap::new(),
+            visible_models: vec!["deepseek-v4-flash".to_string()],
+            models: None,
+            openrouter_profiles: vec![],
+            claude_code: None,
+            zai: None,
+            hidden: false,
+        });
+
+        let mut or_models = HashMap::new();
+        or_models.insert("claude-haiku-4-5".to_string(), crate::ModelEntry {
+            upstream_model: "deepseek/deepseek-chat".to_string(),
+            canonical: None,
+            thinking_mode: Some("normal".to_string()),
+            reasoning_effort: None,
+            thinking: None,
+            supports_vision: Some(false),
+            supports_video: Some(false),
+            visible: true,
+            force_thinking: Some(false),
+            supports_non_thinking: Some(true),
+            supports_image_url: Some(false),
+            supports_image_base64: Some(false),
+            supports_video_url: Some(false),
+            supports_video_base64: Some(false),
+        });
+
+        let or_profile = crate::OpenRouterProfile {
+            id: "or-prof-test".to_string(),
+            display_name: "OR Test Profile".to_string(),
+            model_map: HashMap::new(),
+            visible_models: vec!["claude-haiku-4-5".to_string()],
+            models: or_models,
+            hidden: false,
+            claude_code: None,
+        };
+
+        providers.insert("openrouter".to_string(), crate::ProviderConfig {
+            display_name: "OpenRouter".to_string(),
+            upstream_url: openrouter_url.to_string(),
+            api_key_env: "_TEST_GW_OR_KEY".to_string(),
+            default_model: "deepseek/deepseek-chat".to_string(),
+            force_anthropic_version: None,
+            supports_count_tokens: true,
+            supports_vision: false,
+            supports_video: false,
+            supports_thinking: true,
+            model_map: HashMap::new(),
+            visible_models: vec![],
+            models: None,
+            openrouter_profiles: vec![or_profile],
+            claude_code: None,
+            zai: None,
+            hidden: false,
+        });
+
+        let mut gw_routes = HashMap::new();
+        gw_routes.insert("claude-opus-5".to_string(), crate::GatewayProfileRoute {
+            provider: "anthropic".to_string(),
+            model: Some("claude-opus-5-5".to_string()),
+            profile_id: None,
+            thinking_mode: Some("thinking".to_string()),
+            reasoning_effort: Some("high".to_string()),
+        });
+        gw_routes.insert("claude-sonnet-5".to_string(), crate::GatewayProfileRoute {
+            provider: "zai".to_string(),
+            model: Some("glm-5.2".to_string()),
+            profile_id: None,
+            thinking_mode: Some("normal".to_string()),
+            reasoning_effort: None,
+        });
+        gw_routes.insert("claude-haiku-4-5".to_string(), crate::GatewayProfileRoute {
+            provider: "openrouter".to_string(),
+            model: None,
+            profile_id: Some("or-prof-test".to_string()),
+            thinking_mode: None,
+            reasoning_effort: None,
+        });
+
+        let gw_profile = crate::GatewayProfile {
+            id: "gw-test-1".to_string(),
+            display_name: "Gateway Test Mix".to_string(),
+            routes: gw_routes,
+            hidden: false,
+            claude_code: None,
+        };
+
+        crate::GatewayConfigResponse {
+            config_version: "1.0".to_string(),
+            active_provider: Some("gateway_profile".to_string()),
+            active_openrouter_profile_id: None,
+            active_gateway_profile_id: Some("gw-test-1".to_string()),
+            gateway_profiles: vec![gw_profile],
+            providers,
+            server: crate::ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 4000,
+                enable_cors: false,
+            },
+            non_vision_image_policy: "replace".to_string(),
+            normalize_response_model_identity: true,
+            claude_code: None,
+            mcp: None,
+            orchestrator: None,
+            orchestrator_provider_seed_version: None,
+        }
+    }
+
+    #[test]
+    fn gateway_profile_resolves_all_routes_and_referenced_providers() {
+        let cfg = make_test_multi_provider_gateway_config(
+            "https://api.anthropic.com",
+            "https://open.bigmodel.cn/api/anthropic",
+            "https://api.deepseek.com",
+            "https://openrouter.ai/api/v1",
+        );
+
+        let proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+
+        let opus = proxy_cfg.model_route.get("claude-opus-5").expect("opus");
+        assert_eq!(opus.provider_id, "anthropic");
+        assert_eq!(opus.upstream_model, "claude-opus-5-5");
+        assert_eq!(opus.thinking, ThinkingOverride::Enabled);
+        assert_eq!(opus.reasoning_effort.as_deref(), Some("high"));
+
+        let sonnet = proxy_cfg.model_route.get("claude-sonnet-5").expect("sonnet");
+        assert_eq!(sonnet.provider_id, "zai");
+        assert_eq!(sonnet.upstream_model, "glm-5.2");
+        assert_eq!(sonnet.thinking, ThinkingOverride::Disabled);
+
+        let haiku = proxy_cfg.model_route.get("claude-haiku-4-5").expect("haiku");
+        assert_eq!(haiku.provider_id, "openrouter");
+        assert_eq!(haiku.upstream_model, "deepseek/deepseek-chat");
+
+        // Pass 2: only anthropic, zai, and openrouter should be present in providers
+        assert!(proxy_cfg.providers.contains_key("anthropic"));
+        assert!(proxy_cfg.providers.contains_key("zai"));
+        assert!(proxy_cfg.providers.contains_key("openrouter"));
+        assert!(!proxy_cfg.providers.contains_key("deepseek"));
+    }
+
+    #[test]
+    fn gateway_profile_missing_canonical_route_rejects() {
+        let mut cfg = make_test_multi_provider_gateway_config(
+            "https://api.anthropic.com",
+            "https://open.bigmodel.cn/api/anthropic",
+            "https://api.deepseek.com",
+            "https://openrouter.ai/api/v1",
+        );
+        cfg.gateway_profiles[0].routes.remove("claude-haiku-4-5");
+
+        match resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true))) {
+            Err(err) => assert!(err.contains("missing required canonical route")),
+            Ok(_) => panic!("expected error"),
+        }
+    }
+
+    #[test]
+    fn gateway_profile_missing_active_id_rejects_without_selecting_first_profile() {
+        let mut cfg = make_test_multi_provider_gateway_config(
+            "https://api.anthropic.com",
+            "https://open.bigmodel.cn/api/anthropic",
+            "https://api.deepseek.com",
+            "https://openrouter.ai/api/v1",
+        );
+        cfg.active_gateway_profile_id = None;
+
+        match resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true))) {
+            Err(err) => assert!(err.contains("No active Gateway profile ID configured")),
+            Ok(_) => panic!("missing active Gateway profile ID must fail closed"),
+        }
+    }
+
+    #[test]
+    fn gateway_profile_unreviewed_provider_or_model_rejects() {
+        let mut cfg = make_test_multi_provider_gateway_config(
+            "https://api.anthropic.com",
+            "https://open.bigmodel.cn/api/anthropic",
+            "https://api.deepseek.com",
+            "https://openrouter.ai/api/v1",
+        );
+        cfg.gateway_profiles[0].routes.get_mut("claude-opus-5").unwrap().model =
+            Some("unknown-unreviewed-model".to_string());
+
+        match resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true))) {
+            Err(err) => assert!(err.contains("unreviewed provider/model")),
+            Ok(_) => panic!("expected error"),
+        }
+    }
+
+    #[test]
+    fn gateway_profile_missing_api_key_rejects() {
+        let mut cfg = make_test_multi_provider_gateway_config(
+            "https://api.anthropic.com",
+            "https://open.bigmodel.cn/api/anthropic",
+            "https://api.deepseek.com",
+            "https://openrouter.ai/api/v1",
+        );
+        cfg.providers.get_mut("anthropic").unwrap().api_key_env = "_TEST_GW_MISSING_KEY_NEVER_SET".to_string();
+
+        match resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true))) {
+            Err(err) => assert!(err.contains("_TEST_GW_MISSING_KEY_NEVER_SET not set")),
+            Ok(_) => panic!("expected error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn gateway_profile_thinking_conflict_rejects_with_zero_send() {
+        let (fixture, requests) = serve_zai_fixture(
+            r#"{"id":"1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}"#,
+            "application/json",
+            200,
+        )
+        .await;
+
+        let cfg = make_test_multi_provider_gateway_config(
+            &fixture,
+            &fixture,
+            &fixture,
+            &fixture,
+        );
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        // claude-sonnet-5 route specifies normal (disabled) thinking.
+        // Client requests thinking enabled -> MUST reject with 400 and 0 sends.
+        let conflict_body = json!({
+            "model": "claude-sonnet-5",
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": "hi"}],
+            "thinking": { "type": "enabled", "budget_tokens": 1024 }
+        })
+        .to_string();
+
+        let resp = post_messages(&base, conflict_body).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(send_count(&sends), 0);
+        assert!(requests.lock().expect("requests").is_empty());
+
+        // claude-opus-5 route specifies thinking (enabled) thinking.
+        // Client requests thinking disabled -> MUST reject with 400 and 0 sends.
+        let conflict_body_2 = json!({
+            "model": "claude-opus-5",
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": "hi"}],
+            "thinking": { "type": "disabled" }
+        })
+        .to_string();
+
+        let resp2 = post_messages(&base, conflict_body_2).await;
+        assert_eq!(resp2.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(send_count(&sends), 0);
+        assert!(requests.lock().expect("requests").is_empty());
+    }
+
+    #[tokio::test]
+    async fn gateway_profile_reasoning_effort_conflict_rejects_with_zero_send() {
+        let (fixture, requests) = serve_zai_fixture(
+            r#"{"id":"1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}"#,
+            "application/json",
+            200,
+        )
+        .await;
+
+        let cfg = make_test_multi_provider_gateway_config(
+            &fixture,
+            &fixture,
+            &fixture,
+            &fixture,
+        );
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        // claude-opus-5 route specifies reasoning_effort = "high".
+        // Client requests effort = "low" -> MUST reject with 400 and 0 sends.
+        let conflict_effort_body = json!({
+            "model": "claude-opus-5",
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": "hi"}],
+            "output_config": { "effort": "low" }
+        })
+        .to_string();
+
+        let resp = post_messages(&base, conflict_effort_body).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(send_count(&sends), 0);
+        assert!(requests.lock().expect("requests").is_empty());
+    }
+
+    #[tokio::test]
+    async fn gateway_profile_unmapped_claude_55_route_rejects_with_zero_send() {
+        let (fixture, requests) = serve_zai_fixture(
+            r#"{"id":"1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}"#,
+            "application/json",
+            200,
+        )
+        .await;
+
+        let cfg = make_test_multi_provider_gateway_config(
+            &fixture,
+            &fixture,
+            &fixture,
+            &fixture,
+        );
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        // Request claude-opus-5-5, which is NOT mapped in this gateway profile
+        let unmapped_body = json!({
+            "model": "claude-opus-5-5",
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": "hi"}]
+        })
+        .to_string();
+
+        let resp = post_messages(&base, unmapped_body).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(send_count(&sends), 0);
+        assert!(requests.lock().expect("requests").is_empty());
     }
 }

@@ -21,7 +21,7 @@ interface ProviderTilesProps {
   onSwitchMessage?: (msg: string | null) => void;
 }
 
-const PROVIDER_ORDER = ["deepseek", "mimo", "minimax", "kimi", "kimi-code", "openrouter"];
+const PROVIDER_ORDER = ["gateway_profile", "deepseek", "mimo", "minimax", "kimi", "kimi-code", "openrouter"];
 
 interface ModelCaps {
   supports_vision: boolean;
@@ -83,10 +83,9 @@ function modelSummary(
   return `${tierLabel} ${displayUpstream}${formatThinkingSuffix(thinkingMode, reasoningEffort)}`;
 }
 
-/** Composite identity — OpenRouter tiles share providerId="openrouter" so
- *  profileId disambiguates; non-OpenRouter tiles use bare providerId. */
+/** Composite identity — profileId disambiguates profiles for gateway_profile or openrouter; bare providerId otherwise. */
 function getTileId(tile: TileData): string {
-  return tile.profileId ? `openrouter:${tile.profileId}` : tile.providerId;
+  return tile.profileId ? `${tile.providerId}:${tile.profileId}` : tile.providerId;
 }
 
 export function buildTiles(config: GatewayConfig | null): TileData[] {
@@ -98,6 +97,54 @@ export function buildTiles(config: GatewayConfig | null): TileData[] {
   const isOllamaActive = activeRoute === "ollama";
 
   const tiles: TileData[] = [];
+
+  if (config.gateway_profiles) {
+    for (const gp of config.gateway_profiles) {
+      if (gp.hidden === true) continue;
+      const resolveRoute = (routeKey: string) => {
+        const route = gp.routes?.[routeKey];
+        if (!route) return { upstream: "—", thinkingMode: undefined, reasoningEffort: undefined };
+        if (route.provider === "openrouter") {
+          const orp = config.providers?.openrouter?.profiles?.find((p) => p.id === route.profile_id);
+          const orRoute = orp?.models?.[routeKey];
+          return {
+            upstream: orRoute?.upstream_model ?? route.model ?? "—",
+            thinkingMode: orRoute?.thinking_mode ?? route.thinking_mode ?? undefined,
+            reasoningEffort: orRoute?.reasoning_effort ?? route.reasoning_effort ?? undefined,
+          };
+        }
+        return {
+          upstream: route.model ?? "—",
+          thinkingMode: route.thinking_mode ?? undefined,
+          reasoningEffort: route.reasoning_effort ?? undefined,
+        };
+      };
+
+      const opus = resolveRoute("claude-opus-5");
+      const sonnet = resolveRoute("claude-sonnet-5");
+      const haiku = resolveRoute("claude-haiku-4-5");
+
+      tiles.push({
+        providerId: "gateway_profile",
+        profileId: gp.id,
+        displayName: gp.display_name,
+        opusUpstream: opus.upstream,
+        sonnetUpstream: sonnet.upstream,
+        haikuUpstream: haiku.upstream,
+        opusCaps: resolveTileCaps(opus.upstream),
+        sonnetCaps: resolveTileCaps(sonnet.upstream),
+        haikuCaps: resolveTileCaps(haiku.upstream),
+        opusThinkingMode: opus.thinkingMode,
+        sonnetThinkingMode: sonnet.thinkingMode,
+        haikuThinkingMode: haiku.thinkingMode,
+        opusReasoningEffort: opus.reasoningEffort,
+        sonnetReasoningEffort: sonnet.reasoningEffort,
+        haikuReasoningEffort: haiku.reasoningEffort,
+        isActive: !isOllamaActive && activeId === "gateway_profile" && config.active_gateway_profile_id === gp.id,
+      });
+    }
+  }
+
   for (const [pid, p] of Object.entries(config.providers)) {
     if (pid !== "openrouter" && p.hidden === true) continue;
     const visibleProfiles = pid === "openrouter"
@@ -375,6 +422,18 @@ export default function ProviderTiles({ health, onConfigChanged, refreshKey, onS
         } else {
           await invoke("set_claude_code_active_route", { route: "ollama" });
         }
+      } else if (tile.providerId === "gateway_profile" && tile.profileId) {
+        const outcome = await invoke<{ restart_gateway?: boolean; restartGateway?: boolean }>(
+          "select_gateway_profile",
+          { profileId: tile.profileId }
+        );
+        const needsRestart = outcome?.restartGateway ?? outcome?.restart_gateway ?? true;
+        if (gatewayRunning && needsRestart) {
+          await invoke("stop_proxy");
+          await invoke("start_proxy");
+          onSwitchMessage?.(t("statusPanel.restarted"));
+          setTimeout(() => onSwitchMessage?.(null), 3000);
+        }
       } else if (tile.profileId) {
         // OpenRouter profile — activate atomically
         const outcome = await invoke<{ restart_gateway: boolean; restart_reason: string }>(
@@ -437,6 +496,11 @@ export default function ProviderTiles({ health, onConfigChanged, refreshKey, onS
               {tile.providerId === "ollama" && (
                 <span style={{ fontSize: 10, color: "#2563eb", background: "#eff6ff", padding: "1px 5px", borderRadius: 4, fontWeight: 600, flexShrink: 0 }}>
                   {t("statusPanel.tileOllamaSubtitle")}
+                </span>
+              )}
+              {tile.providerId === "gateway_profile" && (
+                <span style={{ fontSize: 10, color: "#059669", background: "#ecfdf5", padding: "1px 5px", borderRadius: 4, fontWeight: 600, flexShrink: 0 }}>
+                  Profile
                 </span>
               )}
               {tile.providerId === "deepseek" && (() => {

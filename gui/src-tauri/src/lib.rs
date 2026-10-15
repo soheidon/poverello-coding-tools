@@ -4117,6 +4117,350 @@ fn apply_activate_openrouter_profile(
     })
 }
 
+// ── Multi-Provider Gateway Profile apply functions ─────────────────────────
+
+fn validate_gateway_profile(profile: &GatewayProfile, cfg: &serde_json::Value) -> Result<(), String> {
+    normalize_profile_name(&profile.display_name)?;
+
+    for route in &crate::model_routing::CLAUDE_ROUTES {
+        if !profile.routes.contains_key(*route) {
+            return Err(format!("Gateway profile is missing required canonical route '{}'", route));
+        }
+    }
+
+    for (route_name, spec) in &profile.routes {
+        if !crate::model_routing::ELIGIBLE_GATEWAY_PROVIDERS.contains(&spec.provider.as_str()) {
+            return Err(format!("Route '{}' references unreviewed provider '{}'", route_name, spec.provider));
+        }
+
+        if spec.provider == "openrouter" {
+            let pid = spec.profile_id.as_deref().ok_or_else(|| {
+                format!("OpenRouter route '{}' requires explicit profile_id", route_name)
+            })?;
+            let or_profiles = cfg.get("providers")
+                .and_then(|p| p.get("openrouter"))
+                .and_then(|p| p.get("profiles"))
+                .and_then(|p| p.as_array());
+            let found_or_profile = or_profiles.and_then(|profs| {
+                profs.iter().find(|p| p.get("id").and_then(|i| i.as_str()) == Some(pid))
+            });
+            let or_profile = found_or_profile.ok_or_else(|| {
+                format!("OpenRouter profile '{}' not found for route '{}'", pid, route_name)
+            })?;
+            // Gateway dispatch resolves the actual upstream from this profile's
+            // `models[route].upstream_model`; a legacy `model_map` entry alone
+            // is not sufficient and must not make a profile appear runnable.
+            if crate::model_routing::resolve_from_models(or_profile, route_name).is_none() {
+                return Err(format!("OpenRouter profile '{}' does not route '{}'", pid, route_name));
+            }
+        } else {
+            let model = spec.model.as_deref().ok_or_else(|| {
+                format!("Route '{}' requires explicit upstream model", route_name)
+            })?;
+            if !crate::model_routing::is_eligible_provider_model(&spec.provider, model) {
+                return Err(format!("Route '{}' has unreviewed provider/model: {}/{}", route_name, spec.provider, model));
+            }
+        }
+
+        if spec.provider == ZAI_PROVIDER_ID {
+            let model = spec.model.as_deref().expect("GLM model was checked above");
+            if let Some(effort) = spec.reasoning_effort.as_deref() {
+                if !ZAI_REASONING_EFFORTS.contains(&effort) {
+                    return Err(format!(
+                        "GLM route '{}' has unsupported reasoning_effort '{}' (low, high, max)",
+                        route_name, effort
+                    ));
+                }
+            }
+            match spec.thinking_mode.as_deref() {
+                None | Some("thinking") => {}
+                Some("normal") if ZAI_MODELS_THINKING_OPTIONAL.contains(&model) => {}
+                Some(mode) => {
+                    return Err(format!(
+                        "GLM route '{}' has unsupported thinking_mode '{}' for model '{}'",
+                        route_name, mode, model
+                    ));
+                }
+            }
+        } else {
+            if let Some(ref tm) = spec.thinking_mode {
+                if !matches!(tm.as_str(), "normal" | "thinking" | "thinking_only") {
+                    return Err(format!("Unsupported thinking_mode '{}' in route '{}'", tm, route_name));
+                }
+            }
+
+            if let Some(ref re) = spec.reasoning_effort {
+                if !matches!(re.as_str(), "low" | "medium" | "high") {
+                    return Err(format!("Unsupported reasoning_effort '{}' in route '{}'", re, route_name));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn apply_select_gateway_profile(
+    cfg: &mut serde_json::Value,
+    profile_id: &str,
+) -> Result<ApplyOutcome<()>, String> {
+    let profiles = cfg.get("gateway_profiles")
+        .and_then(|p| p.as_array())
+        .ok_or("No gateway profiles configured")?;
+    let target = profiles.iter().find(|p| p.get("id").and_then(|i| i.as_str()) == Some(profile_id))
+        .ok_or_else(|| format!("Gateway profile '{}' not found", profile_id))?;
+    let target_profile: GatewayProfile = serde_json::from_value(target.clone())
+        .map_err(|e| format!("Invalid gateway profile format: {}", e))?;
+    validate_gateway_profile(&target_profile, cfg)?;
+
+    let current_provider = cfg.get("active_provider").and_then(|v| v.as_str()).unwrap_or("");
+    let current_profile = cfg.get("active_gateway_profile_id").and_then(|v| v.as_str()).unwrap_or("");
+    let already_active = current_provider == "gateway_profile" && current_profile == profile_id;
+
+    let mut route_changed = false;
+    if let Some(cc) = cfg.get_mut("claude_code").and_then(|v| v.as_object_mut()) {
+        let prev_route = cc.get("active_route").and_then(|v| v.as_str());
+        let legacy_enabled = cc.get("third_party_provider")
+            .and_then(|tp| tp.get("enabled"))
+            .and_then(|e| e.as_bool())
+            .unwrap_or(false);
+        if prev_route == Some("ollama") || (prev_route.is_none() && legacy_enabled) {
+            route_changed = true;
+        }
+        cc.insert("active_route".to_string(), serde_json::Value::String("gateway".to_string()));
+        if let Some(tp) = cc.get_mut("third_party_provider").and_then(|v| v.as_object_mut()) {
+            if tp.contains_key("enabled") {
+                tp.insert("enabled".to_string(), serde_json::Value::Bool(false));
+            }
+        }
+    }
+
+    if already_active && !route_changed {
+        return Ok(ApplyOutcome {
+            value: (),
+            config_changed: false,
+            restart_gateway: false,
+            restart_reason: "already_active",
+        });
+    }
+
+    let root = cfg.as_object_mut().expect("root is object");
+    root.insert("active_provider".into(), serde_json::Value::String("gateway_profile".into()));
+    root.insert("active_gateway_profile_id".into(), serde_json::Value::String(profile_id.to_string()));
+
+    Ok(ApplyOutcome {
+        value: (),
+        config_changed: true,
+        restart_gateway: true,
+        restart_reason: "active_gateway_profile_changed",
+    })
+}
+
+fn apply_save_gateway_profile(
+    cfg: &mut serde_json::Value,
+    profile: &GatewayProfile,
+) -> Result<ApplyOutcome<()>, String> {
+    validate_gateway_profile(profile, cfg)?;
+
+    let is_active = cfg.get("active_provider").and_then(|v| v.as_str()) == Some("gateway_profile")
+        && cfg.get("active_gateway_profile_id").and_then(|v| v.as_str()) == Some(&profile.id);
+
+    let root = cfg.as_object_mut().expect("root is object");
+    if !root.contains_key("gateway_profiles") || !root["gateway_profiles"].is_array() {
+        root.insert("gateway_profiles".into(), serde_json::Value::Array(Vec::new()));
+    }
+    let profiles = root.get_mut("gateway_profiles").and_then(|p| p.as_array_mut()).unwrap();
+    if let Some(idx) = profiles.iter().position(|p| p.get("id").and_then(|i| i.as_str()) == Some(&profile.id)) {
+        merge_gateway_profile_preserving_unknown(&mut profiles[idx], profile)?;
+    } else {
+        let profile_val = serde_json::to_value(profile).map_err(|e| format!("JSON error: {}", e))?;
+        profiles.push(profile_val);
+    }
+
+    Ok(ApplyOutcome {
+        value: (),
+        config_changed: true,
+        restart_gateway: is_active,
+        restart_reason: if is_active {
+            "active_gateway_profile_modified"
+        } else {
+            "gateway_profile_saved"
+        },
+    })
+}
+
+/// Apply known Gateway Profile fields while retaining unknown profile/route
+/// fields from the persisted JSON. Omitted optional known fields are removed,
+/// while route entries absent from the incoming profile remain untouched.
+fn merge_gateway_profile_preserving_unknown(
+    existing: &mut serde_json::Value,
+    incoming: &GatewayProfile,
+) -> Result<(), String> {
+    let incoming_value = serde_json::to_value(incoming)
+        .map_err(|e| format!("JSON error: {}", e))?;
+    let incoming_object = incoming_value
+        .as_object()
+        .ok_or("Serialized Gateway Profile was not an object")?;
+    let existing_object = existing
+        .as_object_mut()
+        .ok_or("Existing Gateway Profile is not an object; refusing to replace it")?;
+
+    for key in ["id", "display_name", "hidden", "claude_code"] {
+        if let Some(value) = incoming_object.get(key) {
+            existing_object.insert(key.to_string(), value.clone());
+        } else {
+            existing_object.remove(key);
+        }
+    }
+
+    let incoming_routes = incoming_object
+        .get("routes")
+        .and_then(serde_json::Value::as_object)
+        .ok_or("Serialized Gateway Profile routes were not an object")?;
+    if !existing_object.contains_key("routes") {
+        existing_object.insert("routes".to_string(), serde_json::json!({}));
+    }
+    let existing_routes = existing_object
+        .get_mut("routes")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or("Existing Gateway Profile routes are not an object; refusing to replace them")?;
+
+    for (route_key, route_value) in incoming_routes {
+        let incoming_route = route_value
+            .as_object()
+            .ok_or_else(|| format!("Serialized route '{}' was not an object", route_key))?;
+        if !existing_routes.contains_key(route_key) {
+            existing_routes.insert(route_key.clone(), serde_json::json!({}));
+        }
+        let existing_route = existing_routes
+            .get_mut(route_key)
+            .and_then(serde_json::Value::as_object_mut)
+            .ok_or_else(|| format!("Existing route '{}' is not an object; refusing to replace it", route_key))?;
+
+        for key in ["provider", "model", "profile_id", "thinking_mode", "reasoning_effort"] {
+            if let Some(value) = incoming_route.get(key) {
+                existing_route.insert(key.to_string(), value.clone());
+            } else {
+                existing_route.remove(key);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn apply_delete_gateway_profile(
+    cfg: &mut serde_json::Value,
+    profile_id: &str,
+) -> Result<ApplyOutcome<()>, String> {
+    let is_active = cfg.get("active_provider").and_then(|v| v.as_str()) == Some("gateway_profile")
+        && cfg.get("active_gateway_profile_id").and_then(|v| v.as_str()) == Some(profile_id);
+
+    let root = cfg.as_object_mut().expect("root is object");
+    let profiles = root.get_mut("gateway_profiles")
+        .and_then(|p| p.as_array_mut())
+        .ok_or("No gateway profiles configured")?;
+    let idx = profiles.iter().position(|p| p.get("id").and_then(|i| i.as_str()) == Some(profile_id))
+        .ok_or_else(|| format!("Gateway profile '{}' not found", profile_id))?;
+    profiles.remove(idx);
+    let next_id = profiles.first().and_then(|p| p.get("id")).and_then(|i| i.as_str()).map(String::from);
+
+    if is_active {
+        if let Some(first_id) = next_id {
+            root.insert("active_gateway_profile_id".into(), serde_json::Value::String(first_id));
+        } else {
+            root.remove("active_gateway_profile_id");
+            root.insert("active_provider".into(), serde_json::Value::String("deepseek".into()));
+        }
+    }
+
+    Ok(ApplyOutcome {
+        value: (),
+        config_changed: true,
+        restart_gateway: is_active,
+        restart_reason: if is_active {
+            "active_gateway_profile_deleted"
+        } else {
+            "gateway_profile_deleted"
+        },
+    })
+}
+
+fn apply_duplicate_gateway_profile(
+    cfg: &mut serde_json::Value,
+    profile_id: &str,
+    new_name: Option<&str>,
+) -> Result<ApplyOutcome<GatewayProfile>, String> {
+    let source_val = {
+        let profiles = cfg.get("gateway_profiles")
+            .and_then(|p| p.as_array())
+            .ok_or("No gateway profiles configured")?;
+        profiles.iter().find(|p| p.get("id").and_then(|i| i.as_str()) == Some(profile_id))
+            .ok_or_else(|| format!("Gateway profile '{}' not found", profile_id))?
+            .clone()
+    };
+
+    let mut cloned: GatewayProfile = serde_json::from_value(source_val.clone())
+        .map_err(|e| format!("JSON error: {}", e))?;
+    cloned.id = uuid::Uuid::new_v4().to_string();
+    cloned.display_name = match new_name {
+        Some(name) if !name.trim().is_empty() => normalize_profile_name(name)?,
+        _ => format!("{} (Copy)", cloned.display_name),
+    };
+
+    let root = cfg.as_object_mut().expect("root is object");
+    if !root.contains_key("gateway_profiles") || !root["gateway_profiles"].is_array() {
+        root.insert("gateway_profiles".into(), serde_json::Value::Array(Vec::new()));
+    }
+    let profiles = root.get_mut("gateway_profiles").and_then(|p| p.as_array_mut()).unwrap();
+    let mut cloned_value = source_val;
+    let cloned_object = cloned_value
+        .as_object_mut()
+        .ok_or("Gateway Profile to duplicate is not an object")?;
+    cloned_object.insert("id".to_string(), serde_json::Value::String(cloned.id.clone()));
+    cloned_object.insert(
+        "display_name".to_string(),
+        serde_json::Value::String(cloned.display_name.clone()),
+    );
+    profiles.push(cloned_value);
+
+    Ok(ApplyOutcome {
+        value: cloned,
+        config_changed: true,
+        restart_gateway: false,
+        restart_reason: "gateway_profile_duplicated",
+    })
+}
+
+fn apply_set_gateway_profile_hidden(
+    cfg: &mut serde_json::Value,
+    profile_id: &str,
+    hidden: bool,
+) -> Result<ApplyOutcome<()>, String> {
+    let root = cfg.as_object_mut().expect("root is object");
+    let profiles = root.get_mut("gateway_profiles")
+        .and_then(|p| p.as_array_mut())
+        .ok_or("No gateway profiles configured")?;
+    let profile = profiles.iter_mut()
+        .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(profile_id))
+        .ok_or_else(|| format!("Gateway profile '{}' not found", profile_id))?;
+    let current_hidden = profile.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false);
+    let changed = current_hidden != hidden;
+    if changed {
+        if hidden {
+            profile.as_object_mut().unwrap().insert("hidden".to_string(), serde_json::Value::Bool(true));
+        } else {
+            profile.as_object_mut().unwrap().remove("hidden");
+        }
+    }
+    Ok(ApplyOutcome {
+        value: (),
+        config_changed: changed,
+        restart_gateway: false,
+        restart_reason: if changed { "gateway_profile_visibility_changed" } else { "already_desired_state" },
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Tauri command wrappers (thin — all logic in apply_* above)
 // ---------------------------------------------------------------------------
@@ -4191,6 +4535,58 @@ fn set_provider_hidden(
 ) -> Result<CommandResponse<()>, String> {
     execute_serialized_config_mutation(&config_state.write_lock, |cfg| {
         apply_set_provider_hidden(cfg, &provider_id, hidden)
+    })
+}
+
+#[tauri::command]
+fn select_gateway_profile(
+    config_state: tauri::State<'_, ConfigState>,
+    profile_id: String,
+) -> Result<CommandResponse<()>, String> {
+    execute_serialized_config_mutation(&config_state.write_lock, |cfg| {
+        apply_select_gateway_profile(cfg, &profile_id)
+    })
+}
+
+#[tauri::command]
+fn save_gateway_profile(
+    config_state: tauri::State<'_, ConfigState>,
+    profile: GatewayProfile,
+) -> Result<CommandResponse<()>, String> {
+    execute_serialized_config_mutation(&config_state.write_lock, |cfg| {
+        apply_save_gateway_profile(cfg, &profile)
+    })
+}
+
+#[tauri::command]
+fn delete_gateway_profile(
+    config_state: tauri::State<'_, ConfigState>,
+    profile_id: String,
+) -> Result<CommandResponse<()>, String> {
+    execute_serialized_config_mutation(&config_state.write_lock, |cfg| {
+        apply_delete_gateway_profile(cfg, &profile_id)
+    })
+}
+
+#[tauri::command]
+fn duplicate_gateway_profile(
+    config_state: tauri::State<'_, ConfigState>,
+    profile_id: String,
+    new_name: Option<String>,
+) -> Result<CommandResponse<GatewayProfile>, String> {
+    execute_serialized_config_mutation(&config_state.write_lock, |cfg| {
+        apply_duplicate_gateway_profile(cfg, &profile_id, new_name.as_deref())
+    })
+}
+
+#[tauri::command]
+fn set_gateway_profile_hidden(
+    config_state: tauri::State<'_, ConfigState>,
+    profile_id: String,
+    hidden: bool,
+) -> Result<CommandResponse<()>, String> {
+    execute_serialized_config_mutation(&config_state.write_lock, |cfg| {
+        apply_set_gateway_profile_hidden(cfg, &profile_id, hidden)
     })
 }
 
@@ -6652,7 +7048,7 @@ impl Default for ClaudeCodeAutoCompactConfig {
 }
 
 /// `claude_code.auto_compact` for a provider or OpenRouter profile
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ClaudeCodeTargetConfig {
     #[serde(default = "default_auto_compact_mode")]
     pub mode: String,
@@ -6744,7 +7140,7 @@ impl ClaudeCodeRootSection {
 }
 
 /// Provider/profile `claude_code` section: `{ "auto_compact": {...} }`
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ClaudeCodeProviderSection {
     #[serde(default)]
     pub auto_compact: ClaudeCodeTargetConfig,
@@ -6837,12 +7233,20 @@ fn resolve_context_routes(
         .iter()
         .chain(CLAUDE_55_ROUTES.iter())
         .filter_map(|route| {
-            let upstream_model = resolve_route_upstream_model(cfg, provider_id, profile_id, route);
+            let (target_provider, upstream_model) = if provider_id == "gateway_profile" {
+                match model_routing::resolve_route_for_gateway_profile(cfg, profile_id.unwrap_or(""), route) {
+                    Some((prov, model)) => (prov, Some(model)),
+                    None => (provider_id.to_string(), None),
+                }
+            } else {
+                let m = resolve_route_upstream_model(cfg, provider_id, profile_id, route);
+                (provider_id.to_string(), m)
+            };
             if upstream_model.is_none() && !CLAUDE_ROUTES.contains(route) {
                 return None;
             }
             let (context_window_tokens, context_window_source) = match &upstream_model {
-                Some(up) => match try_resolve_static_context_window(provider_id, up) {
+                Some(up) => match try_resolve_static_context_window(&target_provider, up) {
                     Some(w) => (Some(w.context_length), w.source),
                     None => (None, ContextWindowSource::Unknown),
                 },
@@ -6966,7 +7370,26 @@ fn resolve_effective_auto_compact(
     let provider_value = providers.and_then(|p| p.get(effective_provider));
 
     let (target_kind, target_id, target_name, target_ac, route_profile_id) =
-        if effective_provider == "openrouter" {
+        if effective_provider == "gateway_profile" {
+            let profiles = cfg.get("gateway_profiles").and_then(|p| p.as_array());
+            let active_id = cfg.get("active_gateway_profile_id").and_then(|v| v.as_str()).unwrap_or("");
+            let active_prof = profiles.and_then(|profs| {
+                profs.iter().find(|p| p.get("id").and_then(|v| v.as_str()) == Some(active_id))
+            });
+            if let Some(prof) = active_prof {
+                let id = prof.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let name = prof.get("display_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                (
+                    Some("gateway_profile"),
+                    Some(id.clone()),
+                    Some(name),
+                    auto_compact_value(prof),
+                    Some(id),
+                )
+            } else {
+                (Some("gateway_profile"), None, None, None, None)
+            }
+        } else if effective_provider == "openrouter" {
             let profiles = provider_value
                 .and_then(|p| p.get("profiles"))
                 .and_then(|p| p.as_array());
@@ -8362,6 +8785,31 @@ pub struct McpStatusResponse {
     pub api_key_env: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct GatewayProfileRoute {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct GatewayProfile {
+    pub id: String,
+    pub display_name: String,
+    pub routes: std::collections::HashMap<String, GatewayProfileRoute>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+    /// Per-profile Claude Code auto-compact override
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_code: Option<ClaudeCodeProviderSection>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct GatewayConfigResponse {
     #[serde(default = "default_config_version")]
@@ -8371,6 +8819,12 @@ pub struct GatewayConfigResponse {
     /// Currently active OpenRouter profile (only meaningful when active_provider == "openrouter")
     #[serde(default)]
     pub active_openrouter_profile_id: Option<String>,
+    /// Currently active Multi-Provider Gateway profile
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_gateway_profile_id: Option<String>,
+    /// Multi-Provider Gateway profiles
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gateway_profiles: Vec<GatewayProfile>,
     pub providers: indexmap::IndexMap<String, ProviderConfig>,
     pub server: ServerConfig,
     #[serde(default = "default_non_vision_image_policy")]
@@ -9368,6 +9822,11 @@ pub fn run() {
             activate_openrouter_profile,
             set_openrouter_profile_hidden,
             set_provider_hidden,
+            select_gateway_profile,
+            save_gateway_profile,
+            delete_gateway_profile,
+            duplicate_gateway_profile,
+            set_gateway_profile_hidden,
                 start_proxy,
             stop_proxy,
             proxy_status,
@@ -13721,6 +14180,270 @@ mod tests {
         // A non-object provider node (corrupted config) must return Err, not panic.
         let mut cfg = json!({ "providers": { "deepseek": 42 } });
         assert!(apply_set_provider_hidden(&mut cfg, "deepseek", true).is_err());
+    }
+
+    // ── Multi-Provider Gateway Profile Tests ────────────────────────
+
+    fn valid_test_gateway_profile() -> GatewayProfile {
+        let mut routes = std::collections::HashMap::new();
+        routes.insert("claude-opus-5".to_string(), GatewayProfileRoute {
+            provider: "anthropic".to_string(),
+            model: Some("claude-opus-5-5".to_string()),
+            profile_id: None,
+            thinking_mode: Some("thinking".to_string()),
+            reasoning_effort: Some("high".to_string()),
+        });
+        routes.insert("claude-sonnet-5".to_string(), GatewayProfileRoute {
+            provider: "zai".to_string(),
+            model: Some("glm-5.2".to_string()),
+            profile_id: None,
+            thinking_mode: Some("normal".to_string()),
+            reasoning_effort: None,
+        });
+        routes.insert("claude-haiku-4-5".to_string(), GatewayProfileRoute {
+            provider: "deepseek".to_string(),
+            model: Some("deepseek-v4-flash".to_string()),
+            profile_id: None,
+            thinking_mode: None,
+            reasoning_effort: None,
+        });
+        GatewayProfile {
+            id: "gw-prof-1".to_string(),
+            display_name: "Multi-Provider Mix".to_string(),
+            routes,
+            hidden: false,
+            claude_code: None,
+        }
+    }
+
+    fn base_gateway_test_config() -> serde_json::Value {
+        json!({
+            "active_provider": "deepseek",
+            "providers": {
+                "anthropic": {
+                    "display_name": "Anthropic",
+                    "upstream_url": "https://api.anthropic.com",
+                    "api_key_env": "ANTHROPIC_API_KEY",
+                    "models": {
+                        "claude-opus-5": { "upstream_model": "claude-opus-5-5" }
+                    }
+                },
+                "zai": {
+                    "display_name": "GLM",
+                    "upstream_url": "https://open.bigmodel.cn/api/anthropic",
+                    "api_key_env": "ZAI_API_KEY",
+                    "models": {
+                        "claude-sonnet-5": { "upstream_model": "glm-5.2" }
+                    }
+                },
+                "deepseek": {
+                    "display_name": "DeepSeek",
+                    "upstream_url": "https://api.deepseek.com",
+                    "api_key_env": "DEEPSEEK_API_KEY",
+                    "models": {
+                        "claude-haiku-4-5": { "upstream_model": "deepseek-v4-flash" }
+                    }
+                },
+                "openrouter": {
+                    "display_name": "OpenRouter",
+                    "upstream_url": "https://openrouter.ai/api/v1",
+                    "api_key_env": "OPENROUTER_API_KEY",
+                    "profiles": [
+                        {
+                            "id": "or-prof-1",
+                            "display_name": "OR Profile",
+                            "models": {
+                                "claude-opus-5": { "upstream_model": "openai/gpt-4o" },
+                                "claude-sonnet-5": { "upstream_model": "openai/gpt-4o" },
+                                "claude-haiku-4-5": { "upstream_model": "openai/gpt-4o-mini" }
+                            }
+                        }
+                    ]
+                }
+            },
+            "server": { "host": "127.0.0.1", "port": 4000 }
+        })
+    }
+
+    #[test]
+    fn gateway_profile_save_create_and_edit() {
+        let mut cfg = base_gateway_test_config();
+        let mut prof = valid_test_gateway_profile();
+
+        let outcome = apply_save_gateway_profile(&mut cfg, &prof).unwrap();
+        assert!(outcome.config_changed);
+        assert!(!outcome.restart_gateway);
+        assert_eq!(cfg["gateway_profiles"].as_array().unwrap().len(), 1);
+
+        // Edit profile display_name
+        prof.display_name = "Updated Mix".to_string();
+        let outcome2 = apply_save_gateway_profile(&mut cfg, &prof).unwrap();
+        assert!(outcome2.config_changed);
+        assert_eq!(cfg["gateway_profiles"][0]["display_name"], "Updated Mix");
+    }
+
+    #[test]
+    fn gateway_profile_save_rejects_missing_canonical_route() {
+        let mut cfg = base_gateway_test_config();
+        let mut prof = valid_test_gateway_profile();
+        prof.routes.remove("claude-haiku-4-5");
+
+        let err = apply_save_gateway_profile(&mut cfg, &prof).unwrap_err();
+        assert!(err.contains("missing required canonical route"));
+    }
+
+    #[test]
+    fn gateway_profile_save_rejects_unreviewed_provider_or_model() {
+        let mut cfg = base_gateway_test_config();
+
+        // Unreviewed provider
+        let mut prof_bad_prov = valid_test_gateway_profile();
+        prof_bad_prov.routes.get_mut("claude-opus-5").unwrap().provider = "openai".to_string();
+        assert!(apply_save_gateway_profile(&mut cfg, &prof_bad_prov).is_err());
+
+        // Unreviewed model for anthropic
+        let mut prof_bad_model = valid_test_gateway_profile();
+        prof_bad_model.routes.get_mut("claude-opus-5").unwrap().model = Some("unreviewed-model".to_string());
+        assert!(apply_save_gateway_profile(&mut cfg, &prof_bad_model).is_err());
+    }
+
+    #[test]
+    fn gateway_profile_save_rejects_unsupported_controls() {
+        let mut cfg = base_gateway_test_config();
+
+        let mut prof_bad_think = valid_test_gateway_profile();
+        prof_bad_think.routes.get_mut("claude-opus-5").unwrap().thinking_mode = Some("invalid_mode".to_string());
+        assert!(apply_save_gateway_profile(&mut cfg, &prof_bad_think).is_err());
+
+        let mut prof_bad_effort = valid_test_gateway_profile();
+        prof_bad_effort.routes.get_mut("claude-opus-5").unwrap().reasoning_effort = Some("extreme".to_string());
+        assert!(apply_save_gateway_profile(&mut cfg, &prof_bad_effort).is_err());
+
+        let mut glm_bad_effort = valid_test_gateway_profile();
+        glm_bad_effort.routes.get_mut("claude-sonnet-5").unwrap().reasoning_effort = Some("medium".to_string());
+        assert!(apply_save_gateway_profile(&mut cfg, &glm_bad_effort).is_err());
+
+        let mut glm_bad_thinking = valid_test_gateway_profile();
+        glm_bad_thinking.routes.get_mut("claude-sonnet-5").unwrap().model = Some("glm-5.3".to_string());
+        glm_bad_thinking.routes.get_mut("claude-sonnet-5").unwrap().thinking_mode = Some("normal".to_string());
+        assert!(apply_save_gateway_profile(&mut cfg, &glm_bad_thinking).is_err());
+
+        let mut glm_supported_max = valid_test_gateway_profile();
+        glm_supported_max.routes.get_mut("claude-sonnet-5").unwrap().reasoning_effort = Some("max".to_string());
+        assert!(apply_save_gateway_profile(&mut cfg, &glm_supported_max).is_ok());
+    }
+
+    #[test]
+    fn gateway_profile_save_rejects_openrouter_model_map_only_route() {
+        let mut cfg = base_gateway_test_config();
+        let mut prof = valid_test_gateway_profile();
+        let route = prof.routes.get_mut("claude-sonnet-5").unwrap();
+        route.provider = "openrouter".to_string();
+        route.model = None;
+        route.profile_id = Some("or-prof-1".to_string());
+
+        cfg["providers"]["openrouter"]["profiles"][0]["models"]
+            .as_object_mut()
+            .unwrap()
+            .remove("claude-sonnet-5");
+        cfg["providers"]["openrouter"]["profiles"][0]["model_map"]["claude-sonnet-5"] =
+            json!("openai/gpt-4o");
+
+        let err = apply_save_gateway_profile(&mut cfg, &prof).unwrap_err();
+        assert!(err.contains("does not route 'claude-sonnet-5'"), "{err}");
+    }
+
+    #[test]
+    fn gateway_profile_select_and_delete() {
+        let mut cfg = base_gateway_test_config();
+        let prof = valid_test_gateway_profile();
+        apply_save_gateway_profile(&mut cfg, &prof).unwrap();
+
+        // Select
+        let select_outcome = apply_select_gateway_profile(&mut cfg, &prof.id).unwrap();
+        assert!(select_outcome.config_changed);
+        assert!(select_outcome.restart_gateway);
+        assert_eq!(cfg["active_provider"], "gateway_profile");
+        assert_eq!(cfg["active_gateway_profile_id"], prof.id);
+
+        // Select again is noop
+        let noop = apply_select_gateway_profile(&mut cfg, &prof.id).unwrap();
+        assert!(!noop.config_changed);
+        assert!(!noop.restart_gateway);
+
+        // Delete active
+        let del_outcome = apply_delete_gateway_profile(&mut cfg, &prof.id).unwrap();
+        assert!(del_outcome.config_changed);
+        assert!(del_outcome.restart_gateway);
+        // Falls back to deepseek
+        assert_eq!(cfg["active_provider"], "deepseek");
+        assert!(cfg.get("active_gateway_profile_id").is_none());
+    }
+
+    #[test]
+    fn gateway_profile_duplicate_creates_fresh_id() {
+        let mut cfg = base_gateway_test_config();
+        let prof = valid_test_gateway_profile();
+        apply_save_gateway_profile(&mut cfg, &prof).unwrap();
+
+        let dup = apply_duplicate_gateway_profile(&mut cfg, &prof.id, None).unwrap();
+        assert!(dup.config_changed);
+        assert_ne!(dup.value.id, prof.id);
+        assert_eq!(dup.value.display_name, "Multi-Provider Mix (Copy)");
+        assert_eq!(cfg["gateway_profiles"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn gateway_profile_save_and_duplicate_preserve_unknown_profile_and_route_fields() {
+        let mut cfg = base_gateway_test_config();
+        let mut prof = valid_test_gateway_profile();
+        let mut raw = serde_json::to_value(&prof).unwrap();
+        raw["future_profile_field"] = json!({"keep": true});
+        raw["routes"]["claude-opus-5"]["future_route_field"] = json!("keep-route-data");
+        cfg["gateway_profiles"] = json!([raw]);
+
+        // Simulate the normal UI round-trip: the known typed fields survive but
+        // unknown persisted fields are not represented in the Rust struct.
+        prof.display_name = "Updated name".to_string();
+        apply_save_gateway_profile(&mut cfg, &prof).unwrap();
+        assert_eq!(cfg["gateway_profiles"][0]["display_name"], "Updated name");
+        assert_eq!(cfg["gateway_profiles"][0]["future_profile_field"], json!({"keep": true}));
+        assert_eq!(
+            cfg["gateway_profiles"][0]["routes"]["claude-opus-5"]["future_route_field"],
+            "keep-route-data"
+        );
+
+        let duplicate = apply_duplicate_gateway_profile(&mut cfg, &prof.id, None).unwrap();
+        assert_eq!(duplicate.value.display_name, "Updated name (Copy)");
+        assert_eq!(cfg["gateway_profiles"][1]["future_profile_field"], json!({"keep": true}));
+        assert_eq!(
+            cfg["gateway_profiles"][1]["routes"]["claude-opus-5"]["future_route_field"],
+            "keep-route-data"
+        );
+    }
+
+    #[test]
+    fn gateway_profile_auto_compact_resolution() {
+        let mut cfg = base_gateway_test_config();
+        let prof = valid_test_gateway_profile();
+        apply_save_gateway_profile(&mut cfg, &prof).unwrap();
+        apply_select_gateway_profile(&mut cfg, &prof.id).unwrap();
+
+        let eff = resolve_effective_auto_compact(&cfg).unwrap();
+        assert_eq!(eff.target_kind, Some("gateway_profile"));
+        assert_eq!(eff.target_id, Some("gw-prof-1".to_string()));
+        assert_eq!(eff.routes.len(), 3);
+        assert_eq!(eff.routes[0].upstream_model.as_deref(), Some("claude-opus-5-5"));
+        assert_eq!(eff.routes[1].upstream_model.as_deref(), Some("glm-5.2"));
+        assert_eq!(eff.routes[2].upstream_model.as_deref(), Some("deepseek-v4-flash"));
+
+        // A missing active ID must not silently select the first saved profile.
+        let mut invalid_active = cfg.clone();
+        invalid_active.as_object_mut().unwrap().remove("active_gateway_profile_id");
+        let unresolved = resolve_effective_auto_compact(&invalid_active).unwrap();
+        assert_eq!(unresolved.target_kind, Some("gateway_profile"));
+        assert_eq!(unresolved.target_id, None);
+        assert!(unresolved.routes.iter().all(|route| route.upstream_model.is_none()));
     }
 
     // ── Config write serialization regression tests ─────────────────
