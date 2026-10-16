@@ -2437,6 +2437,7 @@ impl OrchestratorEngine {
                         tokens_used: None,
                         model_used: "scripted".to_string(),
                         duration_ms: 0,
+                        usage: None,
                     });
                 }
             }
@@ -5716,6 +5717,7 @@ mod tests {
             tokens_used: None,
             model_used: "scripted".to_string(),
             duration_ms: 0,
+            usage: None,
         }
     }
 

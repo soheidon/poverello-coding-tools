@@ -218,6 +218,8 @@ pub enum ConvergenceOutcome {
         accepted_file_digest: String,
         #[serde(alias = "reviewsUsed")]
         reviews_used: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        usage: Option<crate::orchestrator::adapters::NormalizedUsage>,
     },
     WaitingForUser {
         reason: ConvergenceWaitingReason,
@@ -230,6 +232,8 @@ pub enum ConvergenceOutcome {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[serde(alias = "latestVerdictArtifactRef")]
         latest_verdict_artifact_ref: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        usage: Option<crate::orchestrator::adapters::NormalizedUsage>,
     },
     Failed {
         #[serde(alias = "stableErrorCode")]
@@ -237,6 +241,8 @@ pub enum ConvergenceOutcome {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[serde(alias = "safeDetails")]
         safe_details: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        usage: Option<crate::orchestrator::adapters::NormalizedUsage>,
     },
     Cancelled,
 }
@@ -320,6 +326,17 @@ pub struct PlanConvergenceAuditEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(alias = "error_code")]
     pub error_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<crate::orchestrator::adapters::NormalizedUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "dispatch_id")]
+    pub dispatch_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "dispatch_ordinal")]
+    pub dispatch_ordinal: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "dispatch_record")]
+    pub dispatch_record: Option<crate::orchestrator::recovery::AdapterDispatchRecord>,
 }
 
 /// Durable, candidate-bound intent recorded immediately before a converged

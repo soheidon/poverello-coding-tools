@@ -883,6 +883,7 @@ impl DirectMcpAdapter {
                     tokens_used: None,
                     model_used: format!("mcp:{server_id}/{tool_name}"),
                     duration_ms,
+                    usage: None,
                 };
                 let audit = make_audit(
                     duration_ms,

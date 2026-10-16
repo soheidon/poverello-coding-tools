@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::super::process_runner::HTTP_INFERENCE_SAFETY_TIMEOUT;
 use super::super::secrets::SecretRedactor;
-use super::{AdapterExecutionInput, AdapterExecutionOutput};
+use super::{AdapterExecutionInput, AdapterExecutionOutput, NormalizedUsage};
 
 static ALLOWED_PROVIDERS: &[&str] = &[
     "mimo",
@@ -270,19 +270,8 @@ impl ProviderAdapter {
                 }
             })?;
 
-            let tokens_used = parsed.get("usage").and_then(|u| {
-                if let Some(t) = u.get("total_tokens").and_then(|v| v.as_u64()) {
-                    Some(t)
-                } else {
-                    let inp = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let out = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                    if inp > 0 || out > 0 {
-                        Some(inp + out)
-                    } else {
-                        None
-                    }
-                }
-            });
+            let usage = parse_provider_usage(&parsed, provider_id);
+            let tokens_used = usage.as_ref().and_then(|u| u.compute_tokens_used());
 
             let duration_ms = start.elapsed().as_millis() as u64;
 
@@ -292,6 +281,7 @@ impl ProviderAdapter {
                 tokens_used,
                 model_used: model.to_string(),
                 duration_ms,
+                usage,
             })
         };
 
@@ -305,6 +295,161 @@ impl ProviderAdapter {
             res = request_fut => {
                 res
             }
+        }
+    }
+}
+
+fn extract_non_negative_u64(val: &Value) -> Option<u64> {
+    if let Some(n) = val.as_u64() {
+        Some(n)
+    } else if let Some(i) = val.as_i64() {
+        if i >= 0 {
+            Some(i as u64)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+pub(crate) fn parse_provider_usage(parsed: &Value, provider_id: &str) -> Option<NormalizedUsage> {
+    let usage_val = parsed.get("usage")?;
+    if !usage_val.is_object() {
+        return None;
+    }
+
+    match provider_id {
+        "anthropic" => {
+            let input_tokens = usage_val.get("input_tokens").and_then(extract_non_negative_u64);
+            let output_tokens = usage_val.get("output_tokens").and_then(extract_non_negative_u64);
+            let cache_read_tokens = usage_val
+                .get("cache_read_input_tokens")
+                .and_then(extract_non_negative_u64);
+            let cache_write_tokens = usage_val
+                .get("cache_creation_input_tokens")
+                .and_then(extract_non_negative_u64);
+
+            Some(NormalizedUsage {
+                input_tokens,
+                output_tokens,
+                raw_total_tokens: None,
+                cache_read_tokens,
+                cache_write_tokens,
+            })
+        }
+        "deepseek" => {
+            let input_tokens = usage_val.get("prompt_tokens").and_then(extract_non_negative_u64);
+            let output_tokens = usage_val.get("completion_tokens").and_then(extract_non_negative_u64);
+            let raw_total_tokens = usage_val.get("total_tokens").and_then(extract_non_negative_u64);
+
+            let hit = usage_val
+                .get("prompt_cache_hit_tokens")
+                .and_then(extract_non_negative_u64);
+            let detail_cached = usage_val
+                .get("prompt_tokens_details")
+                .and_then(|d| d.get("cached_tokens"))
+                .and_then(extract_non_negative_u64);
+
+            let cache_read_tokens = match (hit, detail_cached) {
+                (Some(h), Some(c)) => {
+                    if h == c {
+                        Some(h)
+                    } else {
+                        // 複数aliasの有効値が矛盾する場合はunknown
+                        None
+                    }
+                }
+                (Some(h), None) => Some(h),
+                (None, Some(c)) => Some(c),
+                (None, None) => None,
+            };
+
+            Some(NormalizedUsage {
+                input_tokens,
+                output_tokens,
+                raw_total_tokens,
+                cache_read_tokens,
+                cache_write_tokens: None,
+            })
+        }
+        "openrouter" => {
+            let input_tokens = usage_val.get("prompt_tokens").and_then(extract_non_negative_u64);
+            let output_tokens = usage_val.get("completion_tokens").and_then(extract_non_negative_u64);
+            let raw_total_tokens = usage_val.get("total_tokens").and_then(extract_non_negative_u64);
+            let prompt_tokens_details = usage_val.get("prompt_tokens_details");
+            let cache_read_tokens = prompt_tokens_details
+                .and_then(|d| d.get("cached_tokens"))
+                .and_then(extract_non_negative_u64);
+            let cache_write_tokens = prompt_tokens_details
+                .and_then(|d| d.get("cache_write_tokens"))
+                .and_then(extract_non_negative_u64);
+
+            Some(NormalizedUsage {
+                input_tokens,
+                output_tokens,
+                raw_total_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+            })
+        }
+        "mimo" => {
+            let input_tokens = usage_val.get("prompt_tokens").and_then(extract_non_negative_u64);
+            let output_tokens = usage_val.get("completion_tokens").and_then(extract_non_negative_u64);
+            let raw_total_tokens = usage_val.get("total_tokens").and_then(extract_non_negative_u64);
+            let cache_read_tokens = usage_val
+                .get("prompt_tokens_details")
+                .and_then(|d| d.get("cached_tokens"))
+                .and_then(extract_non_negative_u64);
+
+            Some(NormalizedUsage {
+                input_tokens,
+                output_tokens,
+                raw_total_tokens,
+                cache_read_tokens,
+                cache_write_tokens: None,
+            })
+        }
+        "kimi" => {
+            let input_tokens = usage_val.get("prompt_tokens").and_then(extract_non_negative_u64);
+            let output_tokens = usage_val.get("completion_tokens").and_then(extract_non_negative_u64);
+            let raw_total_tokens = usage_val.get("total_tokens").and_then(extract_non_negative_u64);
+
+            let top_cached = usage_val.get("cached_tokens").and_then(extract_non_negative_u64);
+            let prompt_tokens_details = usage_val.get("prompt_tokens_details");
+            let nested_cached = prompt_tokens_details
+                .and_then(|d| d.get("cached_tokens"))
+                .and_then(extract_non_negative_u64);
+
+            let cache_read_tokens = match (top_cached, nested_cached) {
+                (Some(t), Some(n)) => {
+                    if t == n {
+                        Some(t)
+                    } else {
+                        None
+                    }
+                }
+                (Some(t), None) => Some(t),
+                (None, Some(n)) => Some(n),
+                (None, None) => None,
+            };
+
+            let cache_write_tokens = prompt_tokens_details
+                .and_then(|d| d.get("cache_write_tokens"))
+                .and_then(extract_non_negative_u64);
+
+            Some(NormalizedUsage {
+                input_tokens,
+                output_tokens,
+                raw_total_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+            })
+        }
+        _ => {
+            // "zai", "kimi_code", "minimax" 等、
+            // 現行endpointと公式response schemaの対応が確認できないProviderは、Noneを維持
+            None
         }
     }
 }
@@ -853,7 +998,8 @@ mod tests {
 
         assert_eq!(output.content, "final extracted plan content");
         assert!(!output.content.contains("analyzing request deeply..."));
-        assert_eq!(output.tokens_used, Some(90));
+        assert_eq!(output.tokens_used, None);
+        assert_eq!(output.usage, None);
         assert_eq!(output.model_used, "glm-5.3-flash");
     }
 
@@ -890,7 +1036,8 @@ mod tests {
         server.join().unwrap();
 
         assert_eq!(output.content, "ordinary text response");
-        assert_eq!(output.tokens_used, Some(28));
+        assert_eq!(output.tokens_used, None);
+        assert_eq!(output.usage, None);
         assert_eq!(output.model_used, "glm-5.2");
     }
 
@@ -1612,5 +1759,575 @@ mod tests {
         let temp = body["temperature"].as_f64().unwrap();
         assert!((temp - 0.7).abs() < 1e-4);
         server.join().unwrap();
+    }
+
+    #[test]
+    fn test_compute_tokens_used_rules() {
+        // totalのみ
+        let u1 = NormalizedUsage {
+            raw_total_tokens: Some(100),
+            ..Default::default()
+        };
+        assert_eq!(u1.compute_tokens_used(), Some(100));
+
+        // componentsのみ
+        let u2 = NormalizedUsage {
+            input_tokens: Some(30),
+            output_tokens: Some(70),
+            ..Default::default()
+        };
+        assert_eq!(u2.compute_tokens_used(), Some(100));
+
+        // componentsの片方欠落 (inputのみ) -> None
+        let u3 = NormalizedUsage {
+            input_tokens: Some(30),
+            ..Default::default()
+        };
+        assert_eq!(u3.compute_tokens_used(), None);
+
+        // componentsの片方欠落 (outputのみ) -> None
+        let u4 = NormalizedUsage {
+            output_tokens: Some(70),
+            ..Default::default()
+        };
+        assert_eq!(u4.compute_tokens_used(), None);
+
+        // 明示的0 -> Some(0)
+        let u5 = NormalizedUsage {
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(u5.compute_tokens_used(), Some(0));
+
+        // raw_total_tokens takes priority over components
+        let u6 = NormalizedUsage {
+            input_tokens: Some(30),
+            output_tokens: Some(70),
+            raw_total_tokens: Some(120),
+            ..Default::default()
+        };
+        assert_eq!(u6.compute_tokens_used(), Some(120));
+
+        // checked addition overflow -> None
+        let u7 = NormalizedUsage {
+            input_tokens: Some(u64::MAX),
+            output_tokens: Some(1),
+            ..Default::default()
+        };
+        assert_eq!(u7.compute_tokens_used(), None);
+
+        // All None -> None
+        let u8 = NormalizedUsage::default();
+        assert_eq!(u8.compute_tokens_used(), None);
+    }
+
+    #[test]
+    fn test_parse_provider_usage_matrix() {
+        // usage object欠落
+        assert_eq!(parse_provider_usage(&json!({}), "anthropic"), None);
+        assert_eq!(parse_provider_usage(&json!({}), "deepseek"), None);
+
+        // usage is null
+        assert_eq!(parse_provider_usage(&json!({"usage": null}), "anthropic"), None);
+
+        // usage is invalid type (string/array)
+        assert_eq!(parse_provider_usage(&json!({"usage": "invalid"}), "deepseek"), None);
+        assert_eq!(parse_provider_usage(&json!({"usage": [1, 2]}), "deepseek"), None);
+
+        // fields with invalid types (string, negative)
+        let malformed = json!({
+            "usage": {
+                "input_tokens": "not_a_number",
+                "output_tokens": -10,
+                "total_tokens": null
+            }
+        });
+        let parsed_malformed = parse_provider_usage(&malformed, "anthropic").unwrap();
+        assert_eq!(parsed_malformed.input_tokens, None);
+        assert_eq!(parsed_malformed.output_tokens, None);
+        assert_eq!(parsed_malformed.raw_total_tokens, None);
+        assert_eq!(parsed_malformed.compute_tokens_used(), None);
+
+        // DeepSeek with negative tokens and invalid cache types
+        let ds_malformed = json!({
+            "usage": {
+                "prompt_tokens": -5,
+                "completion_tokens": "bad",
+                "total_tokens": -100,
+                "prompt_cache_hit_tokens": -1,
+                "prompt_tokens_details": {
+                    "cached_tokens": false
+                }
+            }
+        });
+        let ds_parsed_malformed = parse_provider_usage(&ds_malformed, "deepseek").unwrap();
+        assert_eq!(ds_parsed_malformed.input_tokens, None);
+        assert_eq!(ds_parsed_malformed.output_tokens, None);
+        assert_eq!(ds_parsed_malformed.raw_total_tokens, None);
+        assert_eq!(ds_parsed_malformed.cache_read_tokens, None);
+        assert_eq!(ds_parsed_malformed.cache_write_tokens, None);
+        assert_eq!(ds_parsed_malformed.compute_tokens_used(), None);
+
+        // explicit 0
+        let zeros = json!({
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0
+            }
+        });
+        let parsed_zeros = parse_provider_usage(&zeros, "anthropic").unwrap();
+        assert_eq!(parsed_zeros.input_tokens, Some(0));
+        assert_eq!(parsed_zeros.output_tokens, Some(0));
+        assert_eq!(parsed_zeros.compute_tokens_used(), Some(0));
+
+        // DeepSeek explicit 0 for cache
+        let ds_zeros = json!({
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "prompt_cache_hit_tokens": 0
+            }
+        });
+        let ds_parsed_zeros = parse_provider_usage(&ds_zeros, "deepseek").unwrap();
+        assert_eq!(ds_parsed_zeros.input_tokens, Some(0));
+        assert_eq!(ds_parsed_zeros.output_tokens, Some(0));
+        assert_eq!(ds_parsed_zeros.raw_total_tokens, Some(0));
+        assert_eq!(ds_parsed_zeros.cache_read_tokens, Some(0));
+        assert_eq!(ds_parsed_zeros.cache_write_tokens, None);
+        assert_eq!(ds_parsed_zeros.compute_tokens_used(), Some(0));
+    }
+
+    #[test]
+    fn test_provider_specific_usage_and_cache_mapping() {
+        // 1. Anthropic Direct: input, output, cache_creation (write), cache_read (read)
+        let ant_resp = json!({
+            "usage": {
+                "input_tokens": 1500,
+                "output_tokens": 200,
+                "cache_creation_input_tokens": 500,
+                "cache_read_input_tokens": 800
+            }
+        });
+        let ant_u = parse_provider_usage(&ant_resp, "anthropic").unwrap();
+        assert_eq!(ant_u.input_tokens, Some(1500));
+        assert_eq!(ant_u.output_tokens, Some(200));
+        assert_eq!(ant_u.raw_total_tokens, None);
+        assert_eq!(ant_u.cache_write_tokens, Some(500));
+        assert_eq!(ant_u.cache_read_tokens, Some(800));
+        assert_eq!(ant_u.compute_tokens_used(), Some(1700));
+
+        // 2. DeepSeek: prompt, completion, total
+        // Verify prompt_cache_miss_tokens is NOT mapped to cache_write_tokens (remains None)
+        let ds_resp = json!({
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+                "prompt_tokens_details": {
+                    "cached_tokens": 60
+                },
+                "prompt_cache_miss_tokens": 40
+            }
+        });
+        let ds_u = parse_provider_usage(&ds_resp, "deepseek").unwrap();
+        assert_eq!(ds_u.input_tokens, Some(100));
+        assert_eq!(ds_u.output_tokens, Some(50));
+        assert_eq!(ds_u.raw_total_tokens, Some(150));
+        assert_eq!(ds_u.cache_read_tokens, Some(60));
+        assert_eq!(ds_u.cache_write_tokens, None, "prompt_cache_miss_tokens must not be mapped to cache_write_tokens");
+        assert_eq!(ds_u.compute_tokens_used(), Some(150));
+
+        // 2b. DeepSeek alternate prompt_cache_hit_tokens when prompt_tokens_details is absent
+        let ds_alt = json!({
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+                "prompt_cache_hit_tokens": 70,
+                "prompt_cache_miss_tokens": 30
+            }
+        });
+        let ds_alt_u = parse_provider_usage(&ds_alt, "deepseek").unwrap();
+        assert_eq!(ds_alt_u.cache_read_tokens, Some(70));
+        assert_eq!(ds_alt_u.cache_write_tokens, None);
+
+        // 2c. DeepSeek aliases match -> valid cache_read_tokens
+        let ds_match = json!({
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+                "prompt_cache_hit_tokens": 60,
+                "prompt_tokens_details": {
+                    "cached_tokens": 60
+                }
+            }
+        });
+        let ds_match_u = parse_provider_usage(&ds_match, "deepseek").unwrap();
+        assert_eq!(ds_match_u.cache_read_tokens, Some(60));
+
+        // 2d. DeepSeek aliases conflict -> cache_read_tokens must be None
+        let ds_conflict = json!({
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+                "prompt_cache_hit_tokens": 70,
+                "prompt_tokens_details": {
+                    "cached_tokens": 60
+                }
+            }
+        });
+        let ds_conflict_u = parse_provider_usage(&ds_conflict, "deepseek").unwrap();
+        assert_eq!(ds_conflict_u.cache_read_tokens, None, "Conflicting cache aliases must yield None");
+
+        // 3. OpenRouter: prompt, completion, total, prompt_tokens_details (cached_tokens + cache_write_tokens)
+        // 3a. With valid cache_write_tokens
+        let or_resp = json!({
+            "usage": {
+                "prompt_tokens": 200,
+                "completion_tokens": 100,
+                "total_tokens": 300,
+                "prompt_tokens_details": {
+                    "cached_tokens": 50,
+                    "cache_write_tokens": 25
+                }
+            }
+        });
+        let or_u = parse_provider_usage(&or_resp, "openrouter").unwrap();
+        assert_eq!(or_u.input_tokens, Some(200));
+        assert_eq!(or_u.output_tokens, Some(100));
+        assert_eq!(or_u.raw_total_tokens, Some(300));
+        assert_eq!(or_u.cache_read_tokens, Some(50));
+        assert_eq!(or_u.cache_write_tokens, Some(25));
+        assert_eq!(or_u.compute_tokens_used(), Some(300));
+
+        // 3b. OpenRouter with explicit 0 for cache_write_tokens
+        let or_zero = json!({
+            "usage": {
+                "prompt_tokens": 200,
+                "completion_tokens": 100,
+                "total_tokens": 300,
+                "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 0
+                }
+            }
+        });
+        let or_zero_u = parse_provider_usage(&or_zero, "openrouter").unwrap();
+        assert_eq!(or_zero_u.cache_read_tokens, Some(0));
+        assert_eq!(or_zero_u.cache_write_tokens, Some(0));
+
+        // 3c. OpenRouter with missing cache_write_tokens
+        let or_missing = json!({
+            "usage": {
+                "prompt_tokens": 200,
+                "completion_tokens": 100,
+                "total_tokens": 300,
+                "prompt_tokens_details": {
+                    "cached_tokens": 50
+                }
+            }
+        });
+        let or_missing_u = parse_provider_usage(&or_missing, "openrouter").unwrap();
+        assert_eq!(or_missing_u.cache_read_tokens, Some(50));
+        assert_eq!(or_missing_u.cache_write_tokens, None);
+
+        // 3d. OpenRouter with malformed cache_write_tokens (negative, string, null)
+        let or_malformed = json!({
+            "usage": {
+                "prompt_tokens": 200,
+                "completion_tokens": 100,
+                "total_tokens": 300,
+                "prompt_tokens_details": {
+                    "cached_tokens": -5,
+                    "cache_write_tokens": "invalid_string"
+                }
+            }
+        });
+        let or_malformed_u = parse_provider_usage(&or_malformed, "openrouter").unwrap();
+        assert_eq!(or_malformed_u.cache_read_tokens, None);
+        assert_eq!(or_malformed_u.cache_write_tokens, None);
+
+        // 4. MiMo: prompt, completion, total, prompt_tokens_details.cached_tokens (cache_write is None)
+        // 4a. MiMo with valid values
+        let mimo_resp = json!({
+            "usage": {
+                "prompt_tokens": 110,
+                "completion_tokens": 55,
+                "total_tokens": 165,
+                "prompt_tokens_details": {
+                    "cached_tokens": 35
+                }
+            }
+        });
+        let mimo_u = parse_provider_usage(&mimo_resp, "mimo").unwrap();
+        assert_eq!(mimo_u.input_tokens, Some(110));
+        assert_eq!(mimo_u.output_tokens, Some(55));
+        assert_eq!(mimo_u.raw_total_tokens, Some(165));
+        assert_eq!(mimo_u.cache_read_tokens, Some(35));
+        assert_eq!(mimo_u.cache_write_tokens, None);
+        assert_eq!(mimo_u.compute_tokens_used(), Some(165));
+
+        // 4b. MiMo with zero values
+        let mimo_zero = json!({
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "prompt_tokens_details": {
+                    "cached_tokens": 0
+                }
+            }
+        });
+        let mimo_zero_u = parse_provider_usage(&mimo_zero, "mimo").unwrap();
+        assert_eq!(mimo_zero_u.input_tokens, Some(0));
+        assert_eq!(mimo_zero_u.output_tokens, Some(0));
+        assert_eq!(mimo_zero_u.raw_total_tokens, Some(0));
+        assert_eq!(mimo_zero_u.cache_read_tokens, Some(0));
+        assert_eq!(mimo_zero_u.cache_write_tokens, None);
+        assert_eq!(mimo_zero_u.compute_tokens_used(), Some(0));
+
+        // 4c. MiMo with missing prompt_tokens_details
+        let mimo_missing = json!({
+            "usage": {
+                "prompt_tokens": 110,
+                "completion_tokens": 55,
+                "total_tokens": 165
+            }
+        });
+        let mimo_missing_u = parse_provider_usage(&mimo_missing, "mimo").unwrap();
+        assert_eq!(mimo_missing_u.cache_read_tokens, None);
+        assert_eq!(mimo_missing_u.cache_write_tokens, None);
+
+        // 4d. MiMo with malformed values
+        let mimo_malformed = json!({
+            "usage": {
+                "prompt_tokens": -1,
+                "completion_tokens": "bad",
+                "total_tokens": -5,
+                "prompt_tokens_details": {
+                    "cached_tokens": -10
+                }
+            }
+        });
+        let mimo_malformed_u = parse_provider_usage(&mimo_malformed, "mimo").unwrap();
+        assert_eq!(mimo_malformed_u.input_tokens, None);
+        assert_eq!(mimo_malformed_u.output_tokens, None);
+        assert_eq!(mimo_malformed_u.raw_total_tokens, None);
+        assert_eq!(mimo_malformed_u.cache_read_tokens, None);
+        assert_eq!(mimo_malformed_u.cache_write_tokens, None);
+
+        // 5. Normal Kimi: prompt, completion, total, cached_tokens alias, nested cache_write_tokens
+        // 5a. Normal Kimi with valid values and nested cached_tokens
+        let kimi_resp = json!({
+            "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 60,
+                "total_tokens": 180,
+                "prompt_tokens_details": {
+                    "cached_tokens": 40,
+                    "cache_write_tokens": 20
+                }
+            }
+        });
+        let kimi_u = parse_provider_usage(&kimi_resp, "kimi").unwrap();
+        assert_eq!(kimi_u.input_tokens, Some(120));
+        assert_eq!(kimi_u.output_tokens, Some(60));
+        assert_eq!(kimi_u.raw_total_tokens, Some(180));
+        assert_eq!(kimi_u.cache_read_tokens, Some(40));
+        assert_eq!(kimi_u.cache_write_tokens, Some(20));
+        assert_eq!(kimi_u.compute_tokens_used(), Some(180));
+
+        // 5b. Normal Kimi with zero values
+        let kimi_zero = json!({
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 0
+                }
+            }
+        });
+        let kimi_zero_u = parse_provider_usage(&kimi_zero, "kimi").unwrap();
+        assert_eq!(kimi_zero_u.input_tokens, Some(0));
+        assert_eq!(kimi_zero_u.output_tokens, Some(0));
+        assert_eq!(kimi_zero_u.raw_total_tokens, Some(0));
+        assert_eq!(kimi_zero_u.cache_read_tokens, Some(0));
+        assert_eq!(kimi_zero_u.cache_write_tokens, Some(0));
+        assert_eq!(kimi_zero_u.compute_tokens_used(), Some(0));
+
+        // 5c. Normal Kimi with missing details
+        let kimi_missing = json!({
+            "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 60,
+                "total_tokens": 180
+            }
+        });
+        let kimi_missing_u = parse_provider_usage(&kimi_missing, "kimi").unwrap();
+        assert_eq!(kimi_missing_u.cache_read_tokens, None);
+        assert_eq!(kimi_missing_u.cache_write_tokens, None);
+
+        // 5d. Normal Kimi with malformed details
+        let kimi_malformed = json!({
+            "usage": {
+                "prompt_tokens": "abc",
+                "completion_tokens": -5,
+                "total_tokens": null,
+                "prompt_tokens_details": {
+                    "cached_tokens": -1,
+                    "cache_write_tokens": "wrong"
+                }
+            }
+        });
+        let kimi_malformed_u = parse_provider_usage(&kimi_malformed, "kimi").unwrap();
+        assert_eq!(kimi_malformed_u.input_tokens, None);
+        assert_eq!(kimi_malformed_u.output_tokens, None);
+        assert_eq!(kimi_malformed_u.raw_total_tokens, None);
+        assert_eq!(kimi_malformed_u.cache_read_tokens, None);
+        assert_eq!(kimi_malformed_u.cache_write_tokens, None);
+
+        // 5e. Normal Kimi cache-read alias matching
+        let kimi_alias_match = json!({
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+                "cached_tokens": 30,
+                "prompt_tokens_details": {
+                    "cached_tokens": 30
+                }
+            }
+        });
+        let kimi_alias_match_u = parse_provider_usage(&kimi_alias_match, "kimi").unwrap();
+        assert_eq!(kimi_alias_match_u.cache_read_tokens, Some(30));
+
+        // 5f. Normal Kimi cache-read alias conflict -> None
+        let kimi_alias_conflict = json!({
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+                "cached_tokens": 30,
+                "prompt_tokens_details": {
+                    "cached_tokens": 40
+                }
+            }
+        });
+        let kimi_alias_conflict_u = parse_provider_usage(&kimi_alias_conflict, "kimi").unwrap();
+        assert_eq!(kimi_alias_conflict_u.cache_read_tokens, None);
+
+        // 5g. Normal Kimi top-level cached_tokens only
+        let kimi_top_only = json!({
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+                "cached_tokens": 35
+            }
+        });
+        let kimi_top_only_u = parse_provider_usage(&kimi_top_only, "kimi").unwrap();
+        assert_eq!(kimi_top_only_u.cache_read_tokens, Some(35));
+
+        // 6. Kimi Code & MiniMax: unverified response schema / endpoint mapping must return None
+        for unverified_id in &["kimi_code", "minimax"] {
+            let sample = json!({
+                "usage": {
+                    "prompt_tokens": 50,
+                    "completion_tokens": 25,
+                    "total_tokens": 75,
+                    "cached_tokens": 10,
+                    "prompt_tokens_details": {
+                        "cached_tokens": 10,
+                        "cache_write_tokens": 5
+                    }
+                }
+            });
+            assert_eq!(
+                parse_provider_usage(&sample, unverified_id),
+                None,
+                "Provider '{}' must return None as endpoint schema correspondence is unverified",
+                unverified_id
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_allowed_providers_usage_behavior() {
+        let sample_usage = json!({
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150
+            }
+        });
+
+        // 1. Supported providers with verified documentation return Some(NormalizedUsage)
+        for supported_id in &["anthropic", "deepseek", "openrouter", "mimo", "kimi"] {
+            assert!(
+                parse_provider_usage(&sample_usage, supported_id).is_some(),
+                "Provider '{}' must return Some(NormalizedUsage)",
+                supported_id
+            );
+        }
+
+        // 2. Providers without verified official usage contract must return None
+        for unverified_id in &["zai", "kimi_code", "minimax"] {
+            let res = parse_provider_usage(&sample_usage, unverified_id);
+            assert_eq!(
+                res, None,
+                "Provider '{}' must return None usage due to unverified contract",
+                unverified_id
+            );
+        }
+
+        // 3. Arbitrary unknown provider ID must also return None
+        assert_eq!(parse_provider_usage(&sample_usage, "unknown_custom_provider"), None);
+    }
+
+    #[test]
+    fn test_adapter_execution_output_serde_compatibility() {
+        let output = AdapterExecutionOutput {
+            content: "hello world".into(),
+            raw_json: Some(r#"{"msg":"hello"}"#.into()),
+            tokens_used: Some(42),
+            model_used: "claude-sonnet-5-5".into(),
+            duration_ms: 1234,
+            usage: Some(NormalizedUsage {
+                input_tokens: Some(20),
+                output_tokens: Some(22),
+                raw_total_tokens: Some(42),
+                cache_read_tokens: Some(10),
+                cache_write_tokens: Some(5),
+            }),
+        };
+
+        // Serialize: should NOT contain "usage" key in JSON
+        let serialized = serde_json::to_string(&output).expect("serialize");
+        assert!(!serialized.contains("\"usage\""));
+        assert!(serialized.contains("\"tokens_used\":42"));
+        assert!(serialized.contains("\"model_used\":\"claude-sonnet-5-5\""));
+
+        // Deserialize from old format JSON (which has no "usage" key)
+        let old_json = r#"{
+            "content": "test legacy content",
+            "raw_json": null,
+            "tokens_used": 99,
+            "model_used": "legacy-model",
+            "duration_ms": 500
+        }"#;
+        let deserialized: AdapterExecutionOutput = serde_json::from_str(old_json).expect("deserialize old json");
+        assert_eq!(deserialized.content, "test legacy content");
+        assert_eq!(deserialized.tokens_used, Some(99));
+        assert_eq!(deserialized.model_used, "legacy-model");
+        assert_eq!(deserialized.duration_ms, 500);
+        assert_eq!(deserialized.usage, None);
     }
 }

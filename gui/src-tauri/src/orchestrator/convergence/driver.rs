@@ -19,6 +19,72 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DispatchPayloadDigestInput<'a> {
+    version: &'static str,
+    role: &'a AgentRole,
+    profile: &'a OrchestratorProfile,
+    system_prompt: &'a str,
+    user_prompt: &'a str,
+    project_path: &'a str,
+    mcp_servers: Option<&'a HashMap<String, crate::orchestrator::types::McpServerConfig>>,
+    plan_context: Option<&'a PlanContext>,
+    frozen_plan: Option<&'a FrozenPlanPayload>,
+}
+
+/// Hashes the complete semantic argument set passed to one convergence executor call.
+/// Raw input bytes are used only transiently and are never written to the journal.
+pub(super) fn dispatch_payload_digest(
+    role: &AgentRole,
+    profile: &OrchestratorProfile,
+    system_prompt: &str,
+    user_prompt: &str,
+    project_path: &Path,
+    mcp_servers: Option<&HashMap<String, crate::orchestrator::types::McpServerConfig>>,
+    plan_context: Option<&PlanContext>,
+    frozen_plan: Option<&FrozenPlanPayload>,
+) -> Result<String, String> {
+    let project_path = project_path
+        .to_str()
+        .ok_or_else(|| "Project path is not valid Unicode for dispatch identity".to_string())?;
+    let input = DispatchPayloadDigestInput {
+        version: "poverello-convergence-dispatch-v1",
+        role,
+        profile,
+        system_prompt,
+        user_prompt,
+        project_path,
+        mcp_servers,
+        plan_context,
+        frozen_plan,
+    };
+    let value = serde_json::to_value(input)
+        .map_err(|error| format!("Failed to serialize dispatch identity: {error}"))?;
+    let canonical = canonicalize_dispatch_value(value);
+    let bytes = serde_json::to_vec(&canonical)
+        .map_err(|error| format!("Failed to canonicalize dispatch identity: {error}"))?;
+    Ok(sha256_hex(&bytes))
+}
+
+fn canonicalize_dispatch_value(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Array(items) => serde_json::Value::Array(
+            items.into_iter().map(canonicalize_dispatch_value).collect(),
+        ),
+        serde_json::Value::Object(object) => {
+            let mut entries: Vec<_> = object.into_iter().collect();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            let mut canonical = serde_json::Map::new();
+            for (key, value) in entries {
+                canonical.insert(key, canonicalize_dispatch_value(value));
+            }
+            serde_json::Value::Object(canonical)
+        }
+        scalar => scalar,
+    }
+}
+
 fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -58,6 +124,72 @@ fn append_frozen_context_prompt(
     prompt
 }
 
+fn aggregate_dispatches_usage(
+    dispatches: &[Option<crate::orchestrator::adapters::NormalizedUsage>],
+) -> Option<crate::orchestrator::adapters::NormalizedUsage> {
+    if dispatches.is_empty() {
+        return None;
+    }
+    let input_tokens = aggregate_single_field(
+        dispatches
+            .iter()
+            .map(|d| d.as_ref().and_then(|u| u.input_tokens)),
+    );
+    let output_tokens = aggregate_single_field(
+        dispatches
+            .iter()
+            .map(|d| d.as_ref().and_then(|u| u.output_tokens)),
+    );
+    let raw_total_tokens = aggregate_single_field(
+        dispatches
+            .iter()
+            .map(|d| d.as_ref().and_then(|u| u.raw_total_tokens)),
+    );
+    let cache_read_tokens = aggregate_single_field(
+        dispatches
+            .iter()
+            .map(|d| d.as_ref().and_then(|u| u.cache_read_tokens)),
+    );
+    let cache_write_tokens = aggregate_single_field(
+        dispatches
+            .iter()
+            .map(|d| d.as_ref().and_then(|u| u.cache_write_tokens)),
+    );
+
+    if input_tokens.is_none()
+        && output_tokens.is_none()
+        && raw_total_tokens.is_none()
+        && cache_read_tokens.is_none()
+        && cache_write_tokens.is_none()
+    {
+        None
+    } else {
+        Some(crate::orchestrator::adapters::NormalizedUsage {
+            input_tokens,
+            output_tokens,
+            raw_total_tokens,
+            cache_read_tokens,
+            cache_write_tokens,
+        })
+    }
+}
+
+fn aggregate_single_field<I>(iter: I) -> Option<u64>
+where
+    I: Iterator<Item = Option<u64>>,
+{
+    let mut sum = 0u64;
+    for val_opt in iter {
+        match val_opt {
+            Some(val) => {
+                sum = sum.checked_add(val)?;
+            }
+            None => return None,
+        }
+    }
+    Some(sum)
+}
+
 /// Injected callback to durably persist a convergence audit record to the run journal.
 pub type AuditPersistenceFn =
     Arc<dyn Fn(PlanConvergenceAuditEntry) -> Result<(), String> + Send + Sync>;
@@ -91,6 +223,13 @@ pub enum ConvergenceProgressEvent {
 pub type ConvergenceProgressCallback =
     Arc<dyn Fn(ConvergenceProgressEvent) -> Result<(), String> + Send + Sync>;
 
+/// Output of an adapter execution within the convergence loop, retaining model usage.
+#[derive(Debug, Clone)]
+pub struct RoleExecutionOutput {
+    pub content: String,
+    pub usage: Option<crate::orchestrator::adapters::NormalizedUsage>,
+}
+
 /// Injected callback to execute an agent role adapter.
 pub trait ConvergenceAdapterExecutor: Send + Sync {
     async fn execute_role(
@@ -106,6 +245,39 @@ pub trait ConvergenceAdapterExecutor: Send + Sync {
         timeout: Duration,
         cancel_token: Option<&CancellationToken>,
     ) -> Result<String, String>;
+
+    async fn execute_role_with_output(
+        &self,
+        role: AgentRole,
+        profile: &OrchestratorProfile,
+        system_prompt: &str,
+        user_prompt: &str,
+        project_path: &Path,
+        mcp_servers: Option<&HashMap<String, crate::orchestrator::types::McpServerConfig>>,
+        plan_context: Option<&PlanContext>,
+        frozen_plan: Option<&FrozenPlanPayload>,
+        timeout: Duration,
+        cancel_token: Option<&CancellationToken>,
+    ) -> Result<RoleExecutionOutput, String> {
+        let content = self
+            .execute_role(
+                role,
+                profile,
+                system_prompt,
+                user_prompt,
+                project_path,
+                mcp_servers,
+                plan_context,
+                frozen_plan,
+                timeout,
+                cancel_token,
+            )
+            .await?;
+        Ok(RoleExecutionOutput {
+            content,
+            usage: None,
+        })
+    }
 }
 
 /// Standard engine-backed adapter executor used in production.
@@ -127,6 +299,35 @@ impl ConvergenceAdapterExecutor for EngineAdapterExecutor {
         timeout: Duration,
         cancel_token: Option<&CancellationToken>,
     ) -> Result<String, String> {
+        self.execute_role_with_output(
+            role,
+            profile,
+            system_prompt,
+            user_prompt,
+            project_path,
+            mcp_servers,
+            plan_context,
+            frozen_plan,
+            timeout,
+            cancel_token,
+        )
+        .await
+        .map(|o| o.content)
+    }
+
+    async fn execute_role_with_output(
+        &self,
+        role: AgentRole,
+        profile: &OrchestratorProfile,
+        system_prompt: &str,
+        user_prompt: &str,
+        project_path: &Path,
+        mcp_servers: Option<&HashMap<String, crate::orchestrator::types::McpServerConfig>>,
+        plan_context: Option<&PlanContext>,
+        frozen_plan: Option<&FrozenPlanPayload>,
+        timeout: Duration,
+        cancel_token: Option<&CancellationToken>,
+    ) -> Result<RoleExecutionOutput, String> {
         let event_cb: crate::orchestrator::engine::EventCallback = Arc::new(|_| Ok(()));
         let timeout_token = CancellationToken::new();
         let effective_cancel = match cancel_token {
@@ -156,7 +357,10 @@ impl ConvergenceAdapterExecutor for EngineAdapterExecutor {
         );
 
         match tokio::time::timeout(timeout, exec_future).await {
-            Ok(Ok(output)) => Ok(output.content),
+            Ok(Ok(output)) => Ok(RoleExecutionOutput {
+                content: output.content,
+                usage: output.usage,
+            }),
             Ok(Err(err)) => Err(err),
             Err(_) => {
                 effective_cancel.cancel();
@@ -201,6 +405,7 @@ impl ConvergenceDriver {
                 Err(error) => Some(ConvergenceOutcome::Failed {
                     stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
                     safe_details: Some(format!("Failed to emit convergence progress: {error}")),
+                    usage: None,
                 }),
             }
         };
@@ -210,35 +415,55 @@ impl ConvergenceDriver {
         let journal_path = self.runs_dir.join(format!("{}.json", self.run_id));
         match std::fs::symlink_metadata(&journal_path) {
             Ok(_) => {
-                let manager = crate::orchestrator::recovery::JournalManager::new(self.runs_dir.clone());
+                let manager =
+                    crate::orchestrator::recovery::JournalManager::new(self.runs_dir.clone());
                 let history = manager.read_journal(&self.run_id).and_then(|journal| {
-                    let count = crate::orchestrator::recovery::replay_convergence_review_count(&journal)?;
+                    let count =
+                        crate::orchestrator::recovery::replay_convergence_review_count(&journal)?;
                     super::artifacts::load_and_verify_run_artifacts(
-                        &self.runs_dir, &self.run_id, &journal.plan_convergence_audit,
-                    ).map_err(|error| error.to_string())?;
+                        &self.runs_dir,
+                        &self.run_id,
+                        &journal.plan_convergence_audit,
+                    )
+                    .map_err(|error| error.to_string())?;
                     Ok((count, journal))
                 });
                 match history {
-                    Err(error) => return ConvergenceOutcome::Failed {
-                        stable_error_code: "PC_INVALID_REVIEW_HISTORY".into(), safe_details: Some(error),
-                    },
-                    Ok((count, journal)) if !journal.plan_convergence_audit.is_empty()
-                        || journal.status != crate::orchestrator::recovery::RunRecoveryStatus::Active => {
+                    Err(error) => {
+                        return ConvergenceOutcome::Failed {
+                            stable_error_code: "PC_INVALID_REVIEW_HISTORY".into(),
+                            safe_details: Some(error),
+                            usage: None,
+                        }
+                    }
+                    Ok((count, journal))
+                        if !journal.plan_convergence_audit.is_empty()
+                            || journal.status
+                                != crate::orchestrator::recovery::RunRecoveryStatus::Active =>
+                    {
                         return ConvergenceOutcome::WaitingForUser {
                             reason: if count >= self.max_plan_review_iterations {
                                 ConvergenceWaitingReason::ReviewLimitReached
-                            } else { ConvergenceWaitingReason::PolicyGateBlocked },
+                            } else {
+                                ConvergenceWaitingReason::PolicyGateBlocked
+                            },
                             diagnostic_code: Some("PC_RESTART_REQUIRES_NEW_RUN".into()),
-                            candidate_artifact_ref: None, latest_verdict_artifact_ref: None,
+                            candidate_artifact_ref: None,
+                            latest_verdict_artifact_ref: None,
+                            usage: None,
                         };
                     }
                     Ok(_) => {}
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return ConvergenceOutcome::Failed {
-                stable_error_code: "PC_PERSISTENCE_FAILED".into(), safe_details: Some(error.to_string()),
-            },
+            Err(error) => {
+                return ConvergenceOutcome::Failed {
+                    stable_error_code: "PC_PERSISTENCE_FAILED".into(),
+                    safe_details: Some(error.to_string()),
+                    usage: None,
+                }
+            }
         }
 
         // Preflight validations
@@ -246,6 +471,7 @@ impl ConvergenceDriver {
             return ConvergenceOutcome::Failed {
                 stable_error_code: "PC_NOT_OPTED_IN".to_string(),
                 safe_details: Some("Plan convergence loop is not opted in".to_string()),
+                usage: None,
             };
         }
 
@@ -259,37 +485,48 @@ impl ConvergenceDriver {
                     "Planner ('{}') and PlanReviewer ('{}') must have distinct assigned profiles",
                     self.planner_profile.id, self.reviewer_profile.id
                 )),
+                usage: None,
             };
         }
 
         if self.max_plan_review_iterations == 0 {
             return ConvergenceOutcome::Failed {
                 stable_error_code: "PC_INVALID_LIMITS".to_string(),
-                safe_details: Some("max_plan_review_iterations must be greater than zero".to_string()),
+                safe_details: Some(
+                    "max_plan_review_iterations must be greater than zero".to_string(),
+                ),
+                usage: None,
             };
         }
 
         let frozen_context = &self.frozen_plan_snapshot.plan_context;
-        if frozen_context.resolver_status != crate::orchestrator::plan_workspace::PlanResolverStatus::Resolved {
+        if frozen_context.resolver_status
+            != crate::orchestrator::plan_workspace::PlanResolverStatus::Resolved
+        {
             return ConvergenceOutcome::WaitingForUser {
                 reason: ConvergenceWaitingReason::PlanContextStale,
                 diagnostic_code: Some("PC_UNRESOLVED_CONTEXT".to_string()),
                 candidate_artifact_ref: None,
                 latest_verdict_artifact_ref: None,
+                usage: None,
             };
         }
 
         let frozen_payload = match self.frozen_plan_snapshot.to_frozen_plan_payload() {
             Some(payload) => payload,
-            None => return ConvergenceOutcome::Failed {
-                stable_error_code: "PC_INVALID_FROZEN_PLAN".into(),
-                safe_details: Some("The run has no frozen effective plan payload".into()),
-            },
+            None => {
+                return ConvergenceOutcome::Failed {
+                    stable_error_code: "PC_INVALID_FROZEN_PLAN".into(),
+                    safe_details: Some("The run has no frozen effective plan payload".into()),
+                    usage: None,
+                }
+            }
         };
         if let Err(error) = frozen_payload.validate_against_plan_context(frozen_context) {
             return ConvergenceOutcome::Failed {
                 stable_error_code: "PC_INVALID_FROZEN_PLAN".into(),
                 safe_details: Some(error),
+                usage: None,
             };
         }
         let plan_context_digest = frozen_context
@@ -304,10 +541,13 @@ impl ConvergenceDriver {
             &self.frozen_plan_snapshot,
         ) {
             Ok(binding) => binding,
-            Err(error) => return ConvergenceOutcome::Failed {
-                stable_error_code: "PC_PERSISTENCE_FAILED".into(),
-                safe_details: Some(error.to_string()),
-            },
+            Err(error) => {
+                return ConvergenceOutcome::Failed {
+                    stable_error_code: "PC_PERSISTENCE_FAILED".into(),
+                    safe_details: Some(error.to_string()),
+                    usage: None,
+                }
+            }
         };
         if let Err(error) = audit_callback(PlanConvergenceAuditEntry {
             timestamp_unix: now_unix(),
@@ -322,10 +562,17 @@ impl ConvergenceDriver {
             decision: None,
             waiting_reason: None,
             error_code: None,
+            usage: None,
+            dispatch_id: None,
+            dispatch_ordinal: None,
+            dispatch_record: None,
         }) {
             return ConvergenceOutcome::Failed {
                 stable_error_code: "PC_PERSISTENCE_FAILED".into(),
-                safe_details: Some(format!("Failed to persist frozen snapshot binding: {error}")),
+                safe_details: Some(format!(
+                    "Failed to persist frozen snapshot binding: {error}"
+                )),
+                usage: None,
             };
         }
 
@@ -333,20 +580,26 @@ impl ConvergenceDriver {
             ExecutionAdapterType::Mcp => None,
             _ => match render_frozen_context_prompt(frozen_context, &frozen_payload) {
                 Ok(rendered) => Some(rendered),
-                Err(error) => return ConvergenceOutcome::Failed {
-                    stable_error_code: "PC_INVALID_FROZEN_PLAN".into(),
-                    safe_details: Some(error),
-                },
+                Err(error) => {
+                    return ConvergenceOutcome::Failed {
+                        stable_error_code: "PC_INVALID_FROZEN_PLAN".into(),
+                        safe_details: Some(error),
+                        usage: None,
+                    }
+                }
             },
         };
         let reviewer_frozen_context = match self.reviewer_profile.adapter {
             ExecutionAdapterType::Mcp => None,
             _ => match render_frozen_context_prompt(frozen_context, &frozen_payload) {
                 Ok(rendered) => Some(rendered),
-                Err(error) => return ConvergenceOutcome::Failed {
-                    stable_error_code: "PC_INVALID_FROZEN_PLAN".into(),
-                    safe_details: Some(error),
-                },
+                Err(error) => {
+                    return ConvergenceOutcome::Failed {
+                        stable_error_code: "PC_INVALID_FROZEN_PLAN".into(),
+                        safe_details: Some(error),
+                        usage: None,
+                    }
+                }
             },
         };
 
@@ -356,6 +609,41 @@ impl ConvergenceDriver {
         let mut previous_candidate: Option<PlanCandidate> = None;
         let mut latest_candidate_ref: Option<String> = None;
         let mut latest_verdict_ref: Option<String> = None;
+        let mut cumulative_usage: Option<crate::orchestrator::adapters::NormalizedUsage> = None;
+        let mut executed_dispatches_usage: Vec<
+            Option<crate::orchestrator::adapters::NormalizedUsage>,
+        > = Vec::new();
+        let mut next_dispatch_ordinal = 1u64;
+        let journal_path = self.runs_dir.join(format!("{}.json", self.run_id));
+        if journal_path.exists() {
+            if let Ok(data) = std::fs::read(&journal_path) {
+                if let Ok(j) =
+                    serde_json::from_slice::<crate::orchestrator::recovery::RunJournal>(&data)
+                {
+                    let max_dispatch = j
+                        .adapter_dispatches
+                        .iter()
+                        .map(|d| d.ordinal)
+                        .max()
+                        .unwrap_or(0);
+                    let candidate_next = max_dispatch.checked_add(1).unwrap_or(u64::MAX);
+                    let base = j.next_dispatch_ordinal.max(candidate_next);
+                    if base >= 1 {
+                        next_dispatch_ordinal = base;
+                    }
+                    for d in &j.adapter_dispatches {
+                        if d.status.as_deref() == Some("completed")
+                            || d.status.as_deref() == Some("failed")
+                        {
+                            executed_dispatches_usage.push(d.usage.clone());
+                        } else {
+                            executed_dispatches_usage.push(None);
+                        }
+                    }
+                    cumulative_usage = aggregate_dispatches_usage(&executed_dispatches_usage);
+                }
+            }
+        }
 
         loop {
             // Check cancellation
@@ -374,6 +662,7 @@ impl ConvergenceDriver {
                         "Convergence loop exceeded total timeout of {} seconds",
                         self.convergence_config.total_timeout_secs
                     )),
+                    usage: cumulative_usage.clone(),
                 };
             }
             let remaining_time = total_timeout.saturating_sub(elapsed);
@@ -386,9 +675,7 @@ impl ConvergenceDriver {
                     .current_leaf_plan_id
                     .as_deref()
                     .unwrap_or("none");
-                let next_rev = frozen_context
-                    .next_primary_revision
-                    .unwrap_or(1);
+                let next_rev = frozen_context.next_primary_revision.unwrap_or(1);
                 format!(
                     "Task prompt:\n{}\n\nPlan Context Digest: {}\nCurrent Leaf Plan ID: {}\nNext Primary Revision: {}\n\nRespond with exactly one canonical camelCase JSON object of schemaVersion: 1 containing an operation (either append_section to the current leaf plan or new_primary_plan).",
                     self.task_prompt, plan_context_digest, leaf_id, next_rev
@@ -398,10 +685,9 @@ impl ConvergenceDriver {
                     previous_blocking_findings.as_ref().unwrap_or(&vec![]),
                 )
                 .unwrap_or_default();
-                let prev_cand_json = serde_json::to_string_pretty(
-                    previous_candidate.as_ref().unwrap(),
-                )
-                .unwrap_or_default();
+                let prev_cand_json =
+                    serde_json::to_string_pretty(previous_candidate.as_ref().unwrap())
+                        .unwrap_or_default();
                 format!(
                     "Task prompt:\n{}\n\nPrevious plan candidate (sequence {}) was reviewed and changes were requested.\n\nBlocking findings to address:\n{}\n\nPrevious candidate:\n{}\n\nRespond with exactly one updated canonical camelCase JSON object of schemaVersion: 1 addressing all blocking findings.",
                     self.task_prompt, sequence - 1, findings_json, prev_cand_json
@@ -419,10 +705,82 @@ impl ConvergenceDriver {
                 return outcome;
             }
 
+            let planner_ordinal = next_dispatch_ordinal;
+            next_dispatch_ordinal = match next_dispatch_ordinal.checked_add(1) {
+                Some(next) => next,
+                None => {
+                    return ConvergenceOutcome::Failed {
+                        stable_error_code: "PC_DISPATCH_ORDINAL_OVERFLOW".to_string(),
+                        safe_details: Some("next dispatch ordinal exceeded u64::MAX".to_string()),
+                        usage: cumulative_usage.clone(),
+                    };
+                }
+            };
+            let planner_dispatch_id = format!("{}:{}", self.run_id, planner_ordinal);
+            let planner_payload_digest = match dispatch_payload_digest(
+                &AgentRole::Planner,
+                &self.planner_profile,
+                system_prompt,
+                &user_prompt,
+                &self.project_path,
+                Some(&self.mcp_servers),
+                Some(frozen_context),
+                Some(&frozen_payload),
+            ) {
+                Ok(digest) => digest,
+                Err(err) => {
+                    return ConvergenceOutcome::Failed {
+                        stable_error_code: "PC_DISPATCH_IDENTITY_FAILED".to_string(),
+                        safe_details: Some(err),
+                        usage: cumulative_usage.clone(),
+                    };
+                }
+            };
+
+            let planner_reserved_record = crate::orchestrator::recovery::AdapterDispatchRecord {
+                dispatch_id: planner_dispatch_id.clone(),
+                ordinal: planner_ordinal,
+                role: "planner".to_string(),
+                profile_id: self.planner_profile.id.clone(),
+                model: self.planner_profile.model.clone(),
+                payload_digest: Some(planner_payload_digest.clone()),
+                usage: None,
+                status: Some("reserved".to_string()),
+                created_at_unix: now_unix(),
+                completed_at_unix: None,
+            };
+
+            if let Err(err) = audit_callback(PlanConvergenceAuditEntry {
+                timestamp_unix: now_unix(),
+                event_type: "dispatch_reserved".to_string(),
+                sequence,
+                candidate_id: None,
+                artifact_ref: None,
+                artifact_digest: None,
+                role: Some("planner".to_string()),
+                profile_id: Some(self.planner_profile.id.clone()),
+                model: self.planner_profile.model.clone(),
+                decision: None,
+                waiting_reason: None,
+                error_code: None,
+                usage: None,
+                dispatch_id: Some(planner_dispatch_id.clone()),
+                dispatch_ordinal: Some(planner_ordinal),
+                dispatch_record: Some(planner_reserved_record),
+            }) {
+                return ConvergenceOutcome::Failed {
+                    stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
+                    safe_details: Some(format!(
+                        "Failed to persist planner dispatch reservation: {err}"
+                    )),
+                    usage: cumulative_usage.clone(),
+                };
+            }
+
             // Dispatch Planner adapter
             let planner_adapter_timeout = remaining_time.min(Duration::from_secs(180));
-            let raw_planner_output = match executor
-                .execute_role(
+            let planner_exec_output = match executor
+                .execute_role_with_output(
                     AgentRole::Planner,
                     &self.planner_profile,
                     system_prompt,
@@ -438,6 +796,48 @@ impl ConvergenceDriver {
             {
                 Ok(out) => out,
                 Err(err) => {
+                    let planner_failed_record =
+                        crate::orchestrator::recovery::AdapterDispatchRecord {
+                            dispatch_id: planner_dispatch_id.clone(),
+                            ordinal: planner_ordinal,
+                            role: "planner".to_string(),
+                            profile_id: self.planner_profile.id.clone(),
+                            model: self.planner_profile.model.clone(),
+                            payload_digest: Some(planner_payload_digest.clone()),
+                            usage: None,
+                            status: Some("failed".to_string()),
+                            created_at_unix: now_unix(),
+                            completed_at_unix: Some(now_unix()),
+                        };
+                    let persist_res = audit_callback(PlanConvergenceAuditEntry {
+                        timestamp_unix: now_unix(),
+                        event_type: "dispatch_failed".to_string(),
+                        sequence,
+                        candidate_id: None,
+                        artifact_ref: None,
+                        artifact_digest: None,
+                        role: Some("planner".to_string()),
+                        profile_id: Some(self.planner_profile.id.clone()),
+                        model: self.planner_profile.model.clone(),
+                        decision: None,
+                        waiting_reason: None,
+                        error_code: Some("PC_ADAPTER_EXECUTION_FAILED".to_string()),
+                        usage: None,
+                        dispatch_id: Some(planner_dispatch_id.clone()),
+                        dispatch_ordinal: Some(planner_ordinal),
+                        dispatch_record: Some(planner_failed_record),
+                    });
+                    executed_dispatches_usage.push(None);
+                    cumulative_usage = aggregate_dispatches_usage(&executed_dispatches_usage);
+                    if let Err(persist_err) = persist_res {
+                        return ConvergenceOutcome::Failed {
+                            stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
+                            safe_details: Some(format!(
+                                "Failed to persist planner failed dispatch: {persist_err}; original adapter error: {err}"
+                            )),
+                            usage: cumulative_usage.clone(),
+                        };
+                    }
                     if let Some(ct) = cancel_token {
                         if ct.is_cancelled() {
                             return ConvergenceOutcome::Cancelled;
@@ -446,9 +846,57 @@ impl ConvergenceDriver {
                     return ConvergenceOutcome::Failed {
                         stable_error_code: "PC_ADAPTER_EXECUTION_FAILED".to_string(),
                         safe_details: Some(format!("Planner adapter error: {err}")),
+                        usage: cumulative_usage.clone(),
                     };
                 }
             };
+
+            let planner_completed_record = crate::orchestrator::recovery::AdapterDispatchRecord {
+                dispatch_id: planner_dispatch_id.clone(),
+                ordinal: planner_ordinal,
+                role: "planner".to_string(),
+                profile_id: self.planner_profile.id.clone(),
+                model: self.planner_profile.model.clone(),
+                payload_digest: Some(planner_payload_digest.clone()),
+                usage: planner_exec_output.usage.clone(),
+                status: Some("completed".to_string()),
+                created_at_unix: now_unix(),
+                completed_at_unix: Some(now_unix()),
+            };
+
+            executed_dispatches_usage.push(planner_exec_output.usage.clone());
+            cumulative_usage = aggregate_dispatches_usage(&executed_dispatches_usage);
+
+            // Persist a usage-bearing completed dispatch immediately after successful response,
+            // before parsing, progress callbacks, artifact writes, or cancellation checks.
+            if let Err(err) = audit_callback(PlanConvergenceAuditEntry {
+                timestamp_unix: now_unix(),
+                event_type: "dispatch_completed".to_string(),
+                sequence,
+                candidate_id: None,
+                artifact_ref: None,
+                artifact_digest: None,
+                role: Some("planner".to_string()),
+                profile_id: Some(self.planner_profile.id.clone()),
+                model: self.planner_profile.model.clone(),
+                decision: None,
+                waiting_reason: None,
+                error_code: None,
+                usage: planner_exec_output.usage.clone(),
+                dispatch_id: Some(planner_dispatch_id.clone()),
+                dispatch_ordinal: Some(planner_ordinal),
+                dispatch_record: Some(planner_completed_record),
+            }) {
+                return ConvergenceOutcome::Failed {
+                    stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
+                    safe_details: Some(format!(
+                        "Failed to persist planner completed dispatch: {err}"
+                    )),
+                    usage: cumulative_usage.clone(),
+                };
+            }
+
+            let raw_planner_output = planner_exec_output.content;
 
             // Parse proposal strictly
             let proposal = match parse_planner_proposal(&raw_planner_output) {
@@ -467,10 +915,15 @@ impl ConvergenceDriver {
                         decision: None,
                         waiting_reason: Some(ConvergenceWaitingReason::InvalidModelResponse),
                         error_code: Some(err.code.clone()),
+                        usage: planner_exec_output.usage.clone(),
+                        dispatch_id: Some(planner_dispatch_id.clone()),
+                        dispatch_ordinal: Some(planner_ordinal),
+                        dispatch_record: None,
                     }) {
                         return ConvergenceOutcome::Failed {
                             stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
                             safe_details: Some(error),
+                            usage: cumulative_usage.clone(),
                         };
                     }
                     return ConvergenceOutcome::WaitingForUser {
@@ -478,6 +931,7 @@ impl ConvergenceDriver {
                         diagnostic_code: Some(err.code),
                         candidate_artifact_ref: latest_candidate_ref,
                         latest_verdict_artifact_ref: latest_verdict_ref,
+                        usage: cumulative_usage.clone(),
                     };
                 }
             };
@@ -490,10 +944,15 @@ impl ConvergenceDriver {
             let (target_plan_id, base_plan_digest) = match &proposal.operation {
                 PlannerOperationProposal::AppendSection { target_plan_id, .. } => {
                     let norm_target = target_plan_id.strip_suffix(".md").unwrap_or(target_plan_id);
-                    let base_digest = if let Some(ref primary) = frozen_context.current_primary_plan {
+                    let base_digest = if let Some(ref primary) = frozen_context.current_primary_plan
+                    {
                         if primary.id == norm_target {
                             Some(primary.digest.clone())
-                        } else if let Some(supp) = frozen_context.active_supplemental_plans.iter().find(|s| s.id == norm_target) {
+                        } else if let Some(supp) = frozen_context
+                            .active_supplemental_plans
+                            .iter()
+                            .find(|s| s.id == norm_target)
+                        {
                             Some(supp.digest.clone())
                         } else {
                             None
@@ -518,20 +977,26 @@ impl ConvergenceDriver {
                 operation_payload_digest: operation_payload_digest.clone(),
                 producer_role: "planner".to_string(),
                 producer_profile_id: self.planner_profile.id.clone(),
-                producer_model: self.planner_profile.model.clone().unwrap_or_else(|| self.planner_profile.id.clone()),
+                producer_model: self
+                    .planner_profile
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| self.planner_profile.id.clone()),
                 created_at_unix: now_unix(),
             };
 
             // Save candidate artifact
-            let (c_ref, c_digest) = match save_candidate_artifact(&self.runs_dir, &self.run_id, &candidate) {
-                Ok(res) => res,
-                Err(err) => {
-                    return ConvergenceOutcome::Failed {
-                        stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
-                        safe_details: Some(format!("Failed to save candidate artifact: {err}")),
-                    };
-                }
-            };
+            let (c_ref, c_digest) =
+                match save_candidate_artifact(&self.runs_dir, &self.run_id, &candidate) {
+                    Ok(res) => res,
+                    Err(err) => {
+                        return ConvergenceOutcome::Failed {
+                            stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
+                            safe_details: Some(format!("Failed to save candidate artifact: {err}")),
+                            usage: cumulative_usage.clone(),
+                        };
+                    }
+                };
             latest_candidate_ref = Some(c_ref.clone());
 
             // Persist candidate audit record in journal
@@ -548,10 +1013,17 @@ impl ConvergenceDriver {
                 decision: None,
                 waiting_reason: None,
                 error_code: None,
+                usage: planner_exec_output.usage.clone(),
+                dispatch_id: Some(planner_dispatch_id.clone()),
+                dispatch_ordinal: Some(planner_ordinal),
+                dispatch_record: None,
             }) {
                 return ConvergenceOutcome::Failed {
                     stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
-                    safe_details: Some(format!("Failed to persist journal candidate record: {err}")),
+                    safe_details: Some(format!(
+                        "Failed to persist journal candidate record: {err}"
+                    )),
+                    usage: cumulative_usage.clone(),
                 };
             }
 
@@ -570,10 +1042,17 @@ impl ConvergenceDriver {
                     decision: None,
                     waiting_reason: Some(ConvergenceWaitingReason::ReviewLimitReached),
                     error_code: Some("PC_REVIEW_LIMIT_REACHED".to_string()),
+                    usage: None,
+                    dispatch_id: None,
+                    dispatch_ordinal: None,
+                    dispatch_record: None,
                 }) {
                     return ConvergenceOutcome::Failed {
                         stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
-                        safe_details: Some(format!("Failed to persist review limit waiting record: {err}")),
+                        safe_details: Some(format!(
+                            "Failed to persist review limit waiting record: {err}"
+                        )),
+                        usage: cumulative_usage.clone(),
                     };
                 }
                 return ConvergenceOutcome::WaitingForUser {
@@ -581,42 +1060,19 @@ impl ConvergenceDriver {
                     diagnostic_code: Some("PC_REVIEW_LIMIT_REACHED".to_string()),
                     candidate_artifact_ref: latest_candidate_ref,
                     latest_verdict_artifact_ref: latest_verdict_ref,
+                    usage: cumulative_usage.clone(),
                 };
             }
-            if let Some(outcome) =
-                emit_progress(ConvergenceProgressEvent::ReviewerReserve { sequence })
-            {
-                return outcome;
-            }
-            review_count += 1;
-
-            if let Err(err) = audit_callback(PlanConvergenceAuditEntry {
-                timestamp_unix: now_unix(),
-                event_type: "review_attempt_reserved".to_string(),
-                sequence,
-                candidate_id: Some(candidate_id.clone()),
-                artifact_ref: latest_candidate_ref.clone(),
-                artifact_digest: None,
-                role: Some("plan_reviewer".to_string()),
-                profile_id: Some(self.reviewer_profile.id.clone()),
-                model: self.reviewer_profile.model.clone(),
-                decision: None,
-                waiting_reason: None,
-                error_code: None,
-            }) {
-                return ConvergenceOutcome::Failed {
-                    stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
-                    safe_details: Some(format!("Failed to persist review attempt reservation: {err}")),
-                };
-            }
-
             // 2. Build PlanReviewer Prompt
             let reviewer_system_prompt = "You are the Plan Reviewer in an autonomous software engineering system. Your job is to audit proposed plan candidates against task requirements, codebase context, and architectural constraints. You must respond with EXACTLY ONE strict JSON object adhering to the canonical camelCase ReviewerResponseProposal wire schema (schemaVersion: 1) with no markdown code blocks, no leading/trailing prose, and no extra keys.";
 
             let op_json = String::from_utf8(canonical_operation_bytes(&candidate.operation))
                 .map_err(|error| ConvergenceOutcome::Failed {
                     stable_error_code: "PC_INVALID_PROPOSAL".into(),
-                    safe_details: Some(format!("Canonical operation serialization failed: {error}")),
+                    safe_details: Some(format!(
+                        "Canonical operation serialization failed: {error}"
+                    )),
+                    usage: cumulative_usage.clone(),
                 });
             let op_json = match op_json {
                 Ok(serialized) => serialized,
@@ -636,6 +1092,85 @@ impl ConvergenceDriver {
                 self.reviewer_profile.adapter.clone(),
                 reviewer_frozen_context.as_deref(),
             );
+            let reviewer_payload_digest = match dispatch_payload_digest(
+                &AgentRole::PlanReviewer,
+                &self.reviewer_profile,
+                reviewer_system_prompt,
+                &reviewer_user_prompt,
+                &self.project_path,
+                Some(&self.mcp_servers),
+                Some(frozen_context),
+                Some(&frozen_payload),
+            ) {
+                Ok(digest) => digest,
+                Err(err) => {
+                    return ConvergenceOutcome::Failed {
+                        stable_error_code: "PC_DISPATCH_IDENTITY_FAILED".to_string(),
+                        safe_details: Some(err),
+                        usage: cumulative_usage.clone(),
+                    };
+                }
+            };
+
+            if let Some(outcome) =
+                emit_progress(ConvergenceProgressEvent::ReviewerReserve { sequence })
+            {
+                return outcome;
+            }
+            review_count += 1;
+
+            let reviewer_ordinal = next_dispatch_ordinal;
+            next_dispatch_ordinal = match next_dispatch_ordinal.checked_add(1) {
+                Some(next) => next,
+                None => {
+                    return ConvergenceOutcome::Failed {
+                        stable_error_code: "PC_DISPATCH_ORDINAL_OVERFLOW".to_string(),
+                        safe_details: Some("next dispatch ordinal exceeded u64::MAX".to_string()),
+                        usage: cumulative_usage.clone(),
+                    };
+                }
+            };
+            let reviewer_dispatch_id = format!("{}:{}", self.run_id, reviewer_ordinal);
+
+            let reviewer_reserved_record = crate::orchestrator::recovery::AdapterDispatchRecord {
+                dispatch_id: reviewer_dispatch_id.clone(),
+                ordinal: reviewer_ordinal,
+                role: "plan_reviewer".to_string(),
+                profile_id: self.reviewer_profile.id.clone(),
+                model: self.reviewer_profile.model.clone(),
+                payload_digest: Some(reviewer_payload_digest.clone()),
+                usage: None,
+                status: Some("reserved".to_string()),
+                created_at_unix: now_unix(),
+                completed_at_unix: None,
+            };
+
+            if let Err(err) = audit_callback(PlanConvergenceAuditEntry {
+                timestamp_unix: now_unix(),
+                event_type: "review_attempt_reserved".to_string(),
+                sequence,
+                candidate_id: Some(candidate_id.clone()),
+                artifact_ref: latest_candidate_ref.clone(),
+                artifact_digest: None,
+                role: Some("plan_reviewer".to_string()),
+                profile_id: Some(self.reviewer_profile.id.clone()),
+                model: self.reviewer_profile.model.clone(),
+                decision: None,
+                waiting_reason: None,
+                error_code: None,
+                usage: None,
+                dispatch_id: Some(reviewer_dispatch_id.clone()),
+                dispatch_ordinal: Some(reviewer_ordinal),
+                dispatch_record: Some(reviewer_reserved_record),
+            }) {
+                return ConvergenceOutcome::Failed {
+                    stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
+                    safe_details: Some(format!(
+                        "Failed to persist review attempt reservation: {err}"
+                    )),
+                    usage: cumulative_usage.clone(),
+                };
+            }
 
             if let Some(outcome) =
                 emit_progress(ConvergenceProgressEvent::ReviewerDispatch { sequence })
@@ -646,10 +1181,12 @@ impl ConvergenceDriver {
             // Dispatch PlanReviewer adapter
             let reviewer_start = Instant::now();
             let elapsed_now = loop_start.elapsed();
-            let remaining_for_reviewer = total_timeout.saturating_sub(elapsed_now).min(Duration::from_secs(180));
+            let remaining_for_reviewer = total_timeout
+                .saturating_sub(elapsed_now)
+                .min(Duration::from_secs(180));
 
-            let raw_reviewer_output = match executor
-                .execute_role(
+            let reviewer_exec_output = match executor
+                .execute_role_with_output(
                     AgentRole::PlanReviewer,
                     &self.reviewer_profile,
                     reviewer_system_prompt,
@@ -665,6 +1202,48 @@ impl ConvergenceDriver {
             {
                 Ok(out) => out,
                 Err(err) => {
+                    let reviewer_failed_record =
+                        crate::orchestrator::recovery::AdapterDispatchRecord {
+                            dispatch_id: reviewer_dispatch_id.clone(),
+                            ordinal: reviewer_ordinal,
+                            role: "plan_reviewer".to_string(),
+                            profile_id: self.reviewer_profile.id.clone(),
+                            model: self.reviewer_profile.model.clone(),
+                            payload_digest: Some(reviewer_payload_digest.clone()),
+                            usage: None,
+                            status: Some("failed".to_string()),
+                            created_at_unix: now_unix(),
+                            completed_at_unix: Some(now_unix()),
+                        };
+                    let persist_res = audit_callback(PlanConvergenceAuditEntry {
+                        timestamp_unix: now_unix(),
+                        event_type: "dispatch_failed".to_string(),
+                        sequence,
+                        candidate_id: Some(candidate_id.clone()),
+                        artifact_ref: None,
+                        artifact_digest: None,
+                        role: Some("plan_reviewer".to_string()),
+                        profile_id: Some(self.reviewer_profile.id.clone()),
+                        model: self.reviewer_profile.model.clone(),
+                        decision: None,
+                        waiting_reason: None,
+                        error_code: Some("PC_ADAPTER_EXECUTION_FAILED".to_string()),
+                        usage: None,
+                        dispatch_id: Some(reviewer_dispatch_id.clone()),
+                        dispatch_ordinal: Some(reviewer_ordinal),
+                        dispatch_record: Some(reviewer_failed_record),
+                    });
+                    executed_dispatches_usage.push(None);
+                    cumulative_usage = aggregate_dispatches_usage(&executed_dispatches_usage);
+                    if let Err(persist_err) = persist_res {
+                        return ConvergenceOutcome::Failed {
+                            stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
+                            safe_details: Some(format!(
+                                "Failed to persist reviewer failed dispatch: {persist_err}; original adapter error: {err}"
+                            )),
+                            usage: cumulative_usage.clone(),
+                        };
+                    }
                     if let Some(ct) = cancel_token {
                         if ct.is_cancelled() {
                             return ConvergenceOutcome::Cancelled;
@@ -673,10 +1252,58 @@ impl ConvergenceDriver {
                     return ConvergenceOutcome::Failed {
                         stable_error_code: "PC_ADAPTER_EXECUTION_FAILED".to_string(),
                         safe_details: Some(format!("PlanReviewer adapter error: {err}")),
+                        usage: cumulative_usage.clone(),
                     };
                 }
             };
             let review_duration_ms = reviewer_start.elapsed().as_millis() as u64;
+
+            let reviewer_completed_record = crate::orchestrator::recovery::AdapterDispatchRecord {
+                dispatch_id: reviewer_dispatch_id.clone(),
+                ordinal: reviewer_ordinal,
+                role: "plan_reviewer".to_string(),
+                profile_id: self.reviewer_profile.id.clone(),
+                model: self.reviewer_profile.model.clone(),
+                payload_digest: Some(reviewer_payload_digest.clone()),
+                usage: reviewer_exec_output.usage.clone(),
+                status: Some("completed".to_string()),
+                created_at_unix: now_unix(),
+                completed_at_unix: Some(now_unix()),
+            };
+
+            executed_dispatches_usage.push(reviewer_exec_output.usage.clone());
+            cumulative_usage = aggregate_dispatches_usage(&executed_dispatches_usage);
+
+            // Persist a usage-bearing completed dispatch immediately after successful response,
+            // before parsing, progress callbacks, artifact writes, or cancellation checks.
+            if let Err(err) = audit_callback(PlanConvergenceAuditEntry {
+                timestamp_unix: now_unix(),
+                event_type: "dispatch_completed".to_string(),
+                sequence,
+                candidate_id: Some(candidate_id.clone()),
+                artifact_ref: None,
+                artifact_digest: None,
+                role: Some("plan_reviewer".to_string()),
+                profile_id: Some(self.reviewer_profile.id.clone()),
+                model: self.reviewer_profile.model.clone(),
+                decision: None,
+                waiting_reason: None,
+                error_code: None,
+                usage: reviewer_exec_output.usage.clone(),
+                dispatch_id: Some(reviewer_dispatch_id.clone()),
+                dispatch_ordinal: Some(reviewer_ordinal),
+                dispatch_record: Some(reviewer_completed_record),
+            }) {
+                return ConvergenceOutcome::Failed {
+                    stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
+                    safe_details: Some(format!(
+                        "Failed to persist reviewer completed dispatch: {err}"
+                    )),
+                    usage: cumulative_usage.clone(),
+                };
+            }
+
+            let raw_reviewer_output = reviewer_exec_output.content;
 
             // Parse reviewer verdict strictly
             let reviewer_proposal = match parse_reviewer_proposal(&raw_reviewer_output) {
@@ -695,10 +1322,17 @@ impl ConvergenceDriver {
                         decision: None,
                         waiting_reason: Some(ConvergenceWaitingReason::InvalidModelResponse),
                         error_code: Some(err.code.clone()),
+                        usage: reviewer_exec_output.usage.clone(),
+                        dispatch_id: Some(reviewer_dispatch_id.clone()),
+                        dispatch_ordinal: Some(reviewer_ordinal),
+                        dispatch_record: None,
                     }) {
                         return ConvergenceOutcome::Failed {
                             stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
-                            safe_details: Some(format!("Failed to persist invalid verdict audit: {audit_err}")),
+                            safe_details: Some(format!(
+                                "Failed to persist invalid verdict audit: {audit_err}"
+                            )),
+                            usage: cumulative_usage.clone(),
                         };
                     }
                     return ConvergenceOutcome::WaitingForUser {
@@ -706,6 +1340,7 @@ impl ConvergenceDriver {
                         diagnostic_code: Some(err.code),
                         candidate_artifact_ref: latest_candidate_ref,
                         latest_verdict_artifact_ref: latest_verdict_ref,
+                        usage: cumulative_usage.clone(),
                     };
                 }
             };
@@ -728,20 +1363,26 @@ impl ConvergenceDriver {
                 findings: reviewer_proposal.findings,
                 reviewer_role: "plan_reviewer".to_string(),
                 reviewer_profile_id: self.reviewer_profile.id.clone(),
-                reviewer_model: self.reviewer_profile.model.clone().unwrap_or_else(|| self.reviewer_profile.id.clone()),
+                reviewer_model: self
+                    .reviewer_profile
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| self.reviewer_profile.id.clone()),
                 duration_ms: review_duration_ms,
             };
 
             // Save verdict artifact
-            let (v_ref, v_digest) = match save_verdict_artifact(&self.runs_dir, &self.run_id, &verdict) {
-                Ok(res) => res,
-                Err(err) => {
-                    return ConvergenceOutcome::Failed {
-                        stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
-                        safe_details: Some(format!("Failed to save verdict artifact: {err}")),
-                    };
-                }
-            };
+            let (v_ref, v_digest) =
+                match save_verdict_artifact(&self.runs_dir, &self.run_id, &verdict) {
+                    Ok(res) => res,
+                    Err(err) => {
+                        return ConvergenceOutcome::Failed {
+                            stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
+                            safe_details: Some(format!("Failed to save verdict artifact: {err}")),
+                            usage: cumulative_usage.clone(),
+                        };
+                    }
+                };
             latest_verdict_ref = Some(v_ref.clone());
 
             // Persist verdict audit record in journal
@@ -758,10 +1399,15 @@ impl ConvergenceDriver {
                 decision: Some(verdict.decision),
                 waiting_reason: None,
                 error_code: None,
+                usage: reviewer_exec_output.usage.clone(),
+                dispatch_id: Some(reviewer_dispatch_id.clone()),
+                dispatch_ordinal: Some(reviewer_ordinal),
+                dispatch_record: None,
             }) {
                 return ConvergenceOutcome::Failed {
                     stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
                     safe_details: Some(format!("Failed to persist journal verdict record: {err}")),
+                    usage: cumulative_usage.clone(),
                 };
             }
 
@@ -793,10 +1439,17 @@ impl ConvergenceDriver {
                         decision: Some(verdict.decision),
                         waiting_reason: Some(ConvergenceWaitingReason::PolicyGateBlocked),
                         error_code: Some(err.code.clone()),
+                        usage: None,
+                        dispatch_id: None,
+                        dispatch_ordinal: None,
+                        dispatch_record: None,
                     }) {
                         return ConvergenceOutcome::Failed {
                             stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
-                            safe_details: Some(format!("Failed to persist policy gate error: {audit_err}")),
+                            safe_details: Some(format!(
+                                "Failed to persist policy gate error: {audit_err}"
+                            )),
+                            usage: cumulative_usage.clone(),
                         };
                     }
                     return ConvergenceOutcome::WaitingForUser {
@@ -804,6 +1457,7 @@ impl ConvergenceDriver {
                         diagnostic_code: Some(err.code),
                         candidate_artifact_ref: latest_candidate_ref,
                         latest_verdict_artifact_ref: latest_verdict_ref,
+                        usage: cumulative_usage.clone(),
                     };
                 }
             };
@@ -829,21 +1483,33 @@ impl ConvergenceDriver {
                         decision: Some(ReviewDecision::Approve),
                         waiting_reason: None,
                         error_code: None,
+                        usage: None,
+                        dispatch_id: None,
+                        dispatch_ordinal: None,
+                        dispatch_record: None,
                     }) {
                         return ConvergenceOutcome::Failed {
                             stable_error_code: "PC_PERSISTENCE_FAILED".into(),
-                            safe_details: Some(format!("Failed to persist policy approval before append: {error}")),
+                            safe_details: Some(format!(
+                                "Failed to persist policy approval before append: {error}"
+                            )),
+                            usage: cumulative_usage.clone(),
                         };
                     }
 
                     // Extract section details
-                    let (section_type, section_title, section_content) = match &candidate.operation {
+                    let (section_type, section_title, section_content) = match &candidate.operation
+                    {
                         PlannerOperationProposal::AppendSection {
                             section_type,
                             section_title,
                             section_content,
                             ..
-                        } => (section_type.clone(), section_title.clone(), section_content.clone()),
+                        } => (
+                            section_type.clone(),
+                            section_title.clone(),
+                            section_content.clone(),
+                        ),
                         _ => unreachable!(),
                     };
 
@@ -856,8 +1522,13 @@ impl ConvergenceDriver {
                         // Bind idempotency to this persisted candidate transaction
                         // rather than content alone, so equal payloads from distinct
                         // candidates remain independent authorized operations.
-                        idempotency_token: format!("planconv-{}-{}", candidate.run_id, candidate.candidate_id),
-                        idempotency_operation_digest: Some(candidate.operation_payload_digest.clone()),
+                        idempotency_token: format!(
+                            "planconv-{}-{}",
+                            candidate.run_id, candidate.candidate_id
+                        ),
+                        idempotency_operation_digest: Some(
+                            candidate.operation_payload_digest.clone(),
+                        ),
                     };
 
                     // Atomic guarded append under shared PLAN_WRITE_LOCK verifying full PlanContext freshness
@@ -885,12 +1556,21 @@ impl ConvergenceDriver {
                                     profile_id: None,
                                     model: None,
                                     decision: None,
-                                    waiting_reason: Some(ConvergenceWaitingReason::PlanContextStale),
+                                    waiting_reason: Some(
+                                        ConvergenceWaitingReason::PlanContextStale,
+                                    ),
                                     error_code: Some("PC_CONTEXT_DRIFT".to_string()),
+                                    usage: None,
+                                    dispatch_id: None,
+                                    dispatch_ordinal: None,
+                                    dispatch_record: None,
                                 }) {
                                     return ConvergenceOutcome::Failed {
                                         stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
-                                        safe_details: Some(format!("Failed to persist context drift record: {audit_err}")),
+                                        safe_details: Some(format!(
+                                            "Failed to persist context drift record: {audit_err}"
+                                        )),
+                                        usage: cumulative_usage.clone(),
                                     };
                                 }
                                 return ConvergenceOutcome::WaitingForUser {
@@ -898,11 +1578,13 @@ impl ConvergenceDriver {
                                     diagnostic_code: Some("PC_CONTEXT_DRIFT".to_string()),
                                     candidate_artifact_ref: latest_candidate_ref,
                                     latest_verdict_artifact_ref: latest_verdict_ref,
+                                    usage: cumulative_usage.clone(),
                                 };
                             }
                             return ConvergenceOutcome::Failed {
                                 stable_error_code: "PC_WRITE_FAILED".to_string(),
                                 safe_details: Some(format!("Plan append failed: {err}")),
+                                usage: cumulative_usage.clone(),
                             };
                         }
                     };
@@ -921,10 +1603,17 @@ impl ConvergenceDriver {
                         decision: Some(ReviewDecision::Approve),
                         waiting_reason: None,
                         error_code: None,
+                        usage: None,
+                        dispatch_id: None,
+                        dispatch_ordinal: None,
+                        dispatch_record: None,
                     }) {
                         return ConvergenceOutcome::Failed {
                             stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
-                            safe_details: Some(format!("Failed to persist accepted outcome to journal: {err}")),
+                            safe_details: Some(format!(
+                                "Failed to persist accepted outcome to journal: {err}"
+                            )),
+                            usage: cumulative_usage.clone(),
                         };
                     }
 
@@ -933,6 +1622,7 @@ impl ConvergenceDriver {
                         target_plan_id,
                         accepted_file_digest: append_resp.updated_file_digest,
                         reviews_used: review_count,
+                        usage: cumulative_usage.clone(),
                     };
                 }
                 PolicyGateAction::HumanGateNewPrimaryPlan => {
@@ -949,10 +1639,17 @@ impl ConvergenceDriver {
                         decision: Some(ReviewDecision::Approve),
                         waiting_reason: Some(ConvergenceWaitingReason::NewPrimaryPlanConfirmation),
                         error_code: Some("PC_HUMAN_CONFIRMATION_REQUIRED".to_string()),
+                        usage: None,
+                        dispatch_id: None,
+                        dispatch_ordinal: None,
+                        dispatch_record: None,
                     }) {
                         return ConvergenceOutcome::Failed {
                             stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
-                            safe_details: Some(format!("Failed to persist human gate record: {err}")),
+                            safe_details: Some(format!(
+                                "Failed to persist human gate record: {err}"
+                            )),
+                            usage: cumulative_usage.clone(),
                         };
                     }
                     return ConvergenceOutcome::WaitingForUser {
@@ -960,6 +1657,7 @@ impl ConvergenceDriver {
                         diagnostic_code: Some("PC_HUMAN_CONFIRMATION_REQUIRED".to_string()),
                         candidate_artifact_ref: latest_candidate_ref,
                         latest_verdict_artifact_ref: latest_verdict_ref,
+                        usage: cumulative_usage.clone(),
                     };
                 }
                 PolicyGateAction::RejectToRevise { blocking_findings } => {
@@ -970,11 +1668,21 @@ impl ConvergenceDriver {
                 }
                 PolicyGateAction::WaitingRequired { reason, details } => {
                     let diag_code = match reason {
-                        ConvergenceWaitingReason::ReviewLimitReached => "PC_REVIEW_LIMIT_REACHED".to_string(),
-                        ConvergenceWaitingReason::ReviewerEscalated => "PC_REVIEWER_ESCALATED".to_string(),
-                        ConvergenceWaitingReason::PlanContextStale => "PC_CONTEXT_DRIFT".to_string(),
-                        ConvergenceWaitingReason::NewPrimaryPlanConfirmation => "PC_HUMAN_CONFIRMATION_REQUIRED".to_string(),
-                        ConvergenceWaitingReason::InvalidModelResponse => "PC_INVALID_PROPOSAL".to_string(),
+                        ConvergenceWaitingReason::ReviewLimitReached => {
+                            "PC_REVIEW_LIMIT_REACHED".to_string()
+                        }
+                        ConvergenceWaitingReason::ReviewerEscalated => {
+                            "PC_REVIEWER_ESCALATED".to_string()
+                        }
+                        ConvergenceWaitingReason::PlanContextStale => {
+                            "PC_CONTEXT_DRIFT".to_string()
+                        }
+                        ConvergenceWaitingReason::NewPrimaryPlanConfirmation => {
+                            "PC_HUMAN_CONFIRMATION_REQUIRED".to_string()
+                        }
+                        ConvergenceWaitingReason::InvalidModelResponse => {
+                            "PC_INVALID_PROPOSAL".to_string()
+                        }
                         ConvergenceWaitingReason::PolicyGateBlocked => details.clone(),
                     };
                     if let Err(err) = audit_callback(PlanConvergenceAuditEntry {
@@ -990,10 +1698,15 @@ impl ConvergenceDriver {
                         decision: Some(verdict.decision),
                         waiting_reason: Some(reason),
                         error_code: Some(diag_code.clone()),
+                        usage: None,
+                        dispatch_id: None,
+                        dispatch_ordinal: None,
+                        dispatch_record: None,
                     }) {
                         return ConvergenceOutcome::Failed {
                             stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
                             safe_details: Some(format!("Failed to persist waiting record: {err}")),
+                            usage: cumulative_usage.clone(),
                         };
                     }
                     return ConvergenceOutcome::WaitingForUser {
@@ -1001,6 +1714,7 @@ impl ConvergenceDriver {
                         diagnostic_code: Some(diag_code),
                         candidate_artifact_ref: latest_candidate_ref,
                         latest_verdict_artifact_ref: latest_verdict_ref,
+                        usage: cumulative_usage.clone(),
                     };
                 }
             }

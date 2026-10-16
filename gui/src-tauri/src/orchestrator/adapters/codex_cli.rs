@@ -82,6 +82,7 @@ impl CodexCliAdapter {
             tokens_used: None,
             model_used: executable.to_string(),
             duration_ms: result.duration_ms,
+            usage: None,
         })
     }
 
@@ -148,6 +149,7 @@ impl CodexCliAdapter {
             tokens_used: None,
             model_used: executable.to_string(),
             duration_ms: result.duration_ms,
+            usage: None,
         })
     }
 }
