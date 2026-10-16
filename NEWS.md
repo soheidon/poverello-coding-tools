@@ -1,6 +1,6 @@
 # Poverello Coding Tools — Release Notes
 
-## v0.25.3 — 2026-10-14
+## v0.24.3 — 2026-10-14
 
 ### Antigravity Nerf Commands (`/pov-nerf-balanced` & `/pov-nerf-lightweight`)
 
