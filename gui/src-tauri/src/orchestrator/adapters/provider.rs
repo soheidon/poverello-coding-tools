@@ -19,6 +19,15 @@ static ALLOWED_PROVIDERS: &[&str] = &[
     "anthropic",
 ];
 
+pub fn normalize_direct_deepseek_model(model: &str) -> &str {
+    match model {
+        "deepseek-v4.1-flash" => "deepseek-flash",
+        "deepseek-flash" => "deepseek-flash",
+        "deepseek-v4-pro" => "deepseek-v4-pro",
+        other => other,
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ProviderAdapter {
     client: reqwest::Client,
@@ -39,6 +48,22 @@ impl ProviderAdapter {
             #[cfg(test)]
             api_key_override: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn resolve_test_api_key(
+        &self,
+        api_key_env: &str,
+        provider_id: &str,
+    ) -> Result<String, String> {
+        self.api_key_override
+            .clone()
+            .ok_or_else(|| {
+                format!(
+                    "API key environment variable '{}' is not set for provider '{}'",
+                    api_key_env, provider_id
+                )
+            })
     }
 
     pub async fn execute(
@@ -78,6 +103,9 @@ impl ProviderAdapter {
             profile.model.as_deref().unwrap_or(crate::ZAI_DEFAULT_MODEL)
         } else if provider_id == "anthropic" {
             profile.model.as_deref().unwrap_or(crate::ANTHROPIC_DEFAULT_MODEL)
+        } else if provider_id == "deepseek" {
+            let m = profile.model.as_deref().unwrap_or("deepseek-flash");
+            normalize_direct_deepseek_model(m)
         } else {
             profile.model.as_deref().unwrap_or("deepseek-v4.1-flash")
         };
@@ -99,11 +127,11 @@ impl ProviderAdapter {
             .unwrap_or(endpoint);
 
         #[cfg(test)]
-        let configured_api_key = self.api_key_override.clone();
+        let api_key = self
+            .resolve_test_api_key(&api_key_env, provider_id)
+            .map_err(AdapterExecutionFailure::without_usage)?;
         #[cfg(not(test))]
-        let configured_api_key: Option<String> = None;
-        let api_key = configured_api_key
-            .or_else(|| crate::resolve_api_key_env_var(&api_key_env))
+        let api_key = crate::resolve_api_key_env_var(&api_key_env)
             .ok_or_else(|| {
                 format!(
                     "API key environment variable '{}' is not set for provider '{}'",
@@ -2411,5 +2439,186 @@ mod tests {
         assert_eq!(deserialized.model_used, "legacy-model");
         assert_eq!(deserialized.duration_ms, 500);
         assert_eq!(deserialized.usage, None);
+    }
+
+    #[test]
+    fn test_normalize_direct_deepseek_model_helper_cases() {
+        assert_eq!(normalize_direct_deepseek_model("deepseek-v4.1-flash"), "deepseek-flash");
+        assert_eq!(normalize_direct_deepseek_model("deepseek-flash"), "deepseek-flash");
+        assert_eq!(normalize_direct_deepseek_model("deepseek-v4-pro"), "deepseek-v4-pro");
+        assert_eq!(normalize_direct_deepseek_model("unknown-custom"), "unknown-custom");
+        assert_eq!(normalize_direct_deepseek_model("deepseek/deepseek-chat"), "deepseek/deepseek-chat");
+    }
+
+    #[tokio::test]
+    async fn direct_deepseek_executing_legacy_profile_normalizes_to_canonical_flash_in_request() {
+        let (endpoint, rx, server) = receive_request();
+        let adapter = ProviderAdapter {
+            endpoint_override: Some(endpoint),
+            api_key_override: Some("test-key".into()),
+            ..ProviderAdapter::new()
+        };
+        let mut inp = input(Some("deepseek"));
+        inp.profile.model = Some("deepseek-v4.1-flash".into());
+
+        let output = adapter.execute(&inp, None).await.expect("execute deepseek");
+        assert!(!output.content.is_empty());
+        let body = rx.recv().unwrap().expect("deepseek received request");
+        assert_eq!(body["model"], "deepseek-flash");
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn direct_deepseek_executing_canonical_flash_sends_canonical_flash_unchanged() {
+        let (endpoint, rx, server) = receive_request();
+        let adapter = ProviderAdapter {
+            endpoint_override: Some(endpoint),
+            api_key_override: Some("test-key".into()),
+            ..ProviderAdapter::new()
+        };
+        let mut inp = input(Some("deepseek"));
+        inp.profile.model = Some("deepseek-flash".into());
+
+        let output = adapter.execute(&inp, None).await.expect("execute deepseek");
+        assert!(!output.content.is_empty());
+        let body = rx.recv().unwrap().expect("deepseek received request");
+        assert_eq!(body["model"], "deepseek-flash");
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn direct_deepseek_executing_pro_sends_pro_unchanged() {
+        let (endpoint, rx, server) = receive_request();
+        let adapter = ProviderAdapter {
+            endpoint_override: Some(endpoint),
+            api_key_override: Some("test-key".into()),
+            ..ProviderAdapter::new()
+        };
+        let mut inp = input(Some("deepseek"));
+        inp.profile.model = Some("deepseek-v4-pro".into());
+
+        let output = adapter.execute(&inp, None).await.expect("execute deepseek");
+        assert!(!output.content.is_empty());
+        let body = rx.recv().unwrap().expect("deepseek received request");
+        assert_eq!(body["model"], "deepseek-v4-pro");
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn direct_deepseek_executing_unknown_model_sends_unknown_unchanged() {
+        let (endpoint, rx, server) = receive_request();
+        let adapter = ProviderAdapter {
+            endpoint_override: Some(endpoint),
+            api_key_override: Some("test-key".into()),
+            ..ProviderAdapter::new()
+        };
+        let mut inp = input(Some("deepseek"));
+        inp.profile.model = Some("custom-unknown-model".into());
+
+        let output = adapter.execute(&inp, None).await.expect("execute deepseek");
+        assert!(!output.content.is_empty());
+        let body = rx.recv().unwrap().expect("deepseek received request");
+        assert_eq!(body["model"], "custom-unknown-model");
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn openrouter_deepseek_models_are_not_normalized_at_request_time() {
+        let (endpoint, rx, server) = receive_request();
+        let adapter = ProviderAdapter {
+            endpoint_override: Some(endpoint),
+            api_key_override: Some("test-key".into()),
+            ..ProviderAdapter::new()
+        };
+        let mut inp = input(Some("openrouter"));
+        inp.profile.model = Some("deepseek/deepseek-chat".into());
+
+        let output = adapter.execute(&inp, None).await.expect("execute openrouter");
+        assert!(!output.content.is_empty());
+        let body = rx.recv().unwrap().expect("openrouter received request");
+        assert_eq!(body["model"], "deepseek/deepseek-chat");
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn direct_deepseek_omitted_model_defaults_to_canonical_flash_in_request() {
+        let (endpoint, rx, server) = receive_request();
+        let adapter = ProviderAdapter {
+            endpoint_override: Some(endpoint),
+            api_key_override: Some("test-key".into()),
+            ..ProviderAdapter::new()
+        };
+        let mut inp = input(Some("deepseek"));
+        inp.profile.model = None;
+
+        let output = adapter.execute(&inp, None).await.expect("execute deepseek");
+        assert!(!output.content.is_empty());
+        let body = rx.recv().unwrap().expect("deepseek received request");
+        assert_eq!(body["model"], "deepseek-flash");
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn openrouter_omitted_model_preserves_generic_fallback_in_request() {
+        let (endpoint, rx, server) = receive_request();
+        let adapter = ProviderAdapter {
+            endpoint_override: Some(endpoint),
+            api_key_override: Some("test-key".into()),
+            ..ProviderAdapter::new()
+        };
+        let mut inp = input(Some("openrouter"));
+        inp.profile.model = None;
+
+        let output = adapter.execute(&inp, None).await.expect("execute openrouter");
+        assert!(!output.content.is_empty());
+        let body = rx.recv().unwrap().expect("openrouter received request");
+        assert_eq!(body["model"], "deepseek-v4.1-flash");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn test_resolve_test_api_key_requires_override_and_never_consults_environment() {
+        let adapter_no_key = ProviderAdapter::new();
+        let err_ant = adapter_no_key
+            .resolve_test_api_key("ANTHROPIC_API_KEY", "anthropic")
+            .unwrap_err();
+        assert_eq!(
+            err_ant,
+            "API key environment variable 'ANTHROPIC_API_KEY' is not set for provider 'anthropic'"
+        );
+
+        let err_ds = adapter_no_key
+            .resolve_test_api_key("DEEPSEEK_API_KEY", "deepseek")
+            .unwrap_err();
+        assert_eq!(
+            err_ds,
+            "API key environment variable 'DEEPSEEK_API_KEY' is not set for provider 'deepseek'"
+        );
+
+        let adapter_with_key = ProviderAdapter {
+            api_key_override: Some("explicit-dummy-key".into()),
+            ..ProviderAdapter::new()
+        };
+        let key = adapter_with_key
+            .resolve_test_api_key("ANTHROPIC_API_KEY", "anthropic")
+            .unwrap();
+        assert_eq!(key, "explicit-dummy-key");
+    }
+
+    #[tokio::test]
+    async fn test_provider_adapter_with_injected_dummy_key_sends_to_local_mock() {
+        let (endpoint, rx, server) = receive_request();
+        let adapter = ProviderAdapter {
+            endpoint_override: Some(endpoint),
+            api_key_override: Some("test-key".into()),
+            ..ProviderAdapter::new()
+        };
+        let mut inp = input(Some("deepseek"));
+        inp.profile.model = Some("deepseek-flash".into());
+        let output = adapter.execute(&inp, None).await.expect("execute deepseek");
+        assert!(!output.content.is_empty());
+        let body = rx.recv().unwrap().expect("local mock received request");
+        assert_eq!(body["model"], "deepseek-flash");
+        server.join().unwrap();
     }
 }

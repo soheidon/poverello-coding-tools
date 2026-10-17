@@ -95,8 +95,9 @@ pub fn resolve_model_capabilities(upstream_model: &str) -> ModelCapabilities {
 // Re-export shared classification helpers for backward compatibility
 use model_capabilities::{
     is_gemini_model, is_inclusionai_model, is_ling_free_model, is_ling_non_thinking_model,
-    is_openai_gpt56_model, is_openrouter_deepseek_model, is_poolside_reasoning_model,
+    is_openai_model, is_openrouter_deepseek_model, is_poolside_reasoning_model,
     is_stepfun_model, is_tencent_hy3, is_tencent_hy4, is_tencent_model,
+    lookup_catalog_reasoning,
 };
 
 // ---------------------------------------------------------------------------
@@ -3141,44 +3142,20 @@ async fn proxy_messages(
         }
     }
 
-    // ── OpenAI GPT-5.6 reasoning translation ──────────────────────────────
-    // Anthropic "thinking" JSON → OpenRouter "reasoning" JSON.
-    //
-    // normal → effort: "none" (OpenRouter standard for disabled reasoning)
-    // thinking + effort value → effort: that value
-    // unset → effort: "medium" (OpenAI default)
-    let uses_openai_gpt56_reasoning =
-        entry.provider_id == "openrouter" && is_openai_gpt56_model(&entry.upstream_model);
+    // ── OpenAI via OpenRouter ───────────────────────────────────────
+    // OpenRouter OpenAI models use reasoning: { "effort": ... } via Anthropic Messages API.
+    // Handles all 15 catalog-declared OpenAI models via shared catalog metadata.
+    let uses_openai_reasoning =
+        entry.provider_id == "openrouter" && is_openai_model(&entry.upstream_model);
 
-    if uses_openai_gpt56_reasoning {
+    if uses_openai_reasoning {
         if let Some(obj) = body.as_object_mut() {
             apply_openai_reasoning(
                 obj,
+                &entry.upstream_model,
                 entry.thinking_mode_raw.as_deref(),
                 entry.reasoning_effort.as_deref(),
             );
-        }
-    }
-
-    let uses_openai_astra_reasoning =
-        entry.provider_id == "openrouter" && model_capabilities::is_openai_astra_model(&entry.upstream_model);
-
-    if uses_openai_astra_reasoning {
-        if let Some(obj) = body.as_object_mut() {
-            apply_openai_astra_reasoning(
-                obj,
-                entry.reasoning_effort.as_deref(),
-            );
-        }
-    }
-
-    let uses_openai_astra_pro =
-        entry.provider_id == "openrouter" && model_capabilities::is_openai_astra_pro_model(&entry.upstream_model);
-
-    if uses_openai_astra_pro {
-        if let Some(obj) = body.as_object_mut() {
-            obj.remove("thinking");
-            obj.remove("reasoning_effort");
         }
     }
 
@@ -3765,44 +3742,70 @@ fn apply_gemini_reasoning(
 
     obj.insert("reasoning".to_string(), serde_json::json!({ "effort": effort }));
 }
-/// Pure function: translate Anthropic thinking params → OpenAI reasoning JSON.
+/// Pure function: translate Anthropic thinking params → OpenAI reasoning JSON for all 15 OpenAI models.
 /// Removes the Anthropic `thinking` and `reasoning_effort` keys, inserts `reasoning`.
+/// Validates effort against the model's catalog-declared supported efforts, resolving to the
+/// model's effective default (medium) if missing, invalid, or unsupported.
+/// Emits effort "none" only if supported by the model (e.g. for legacy "normal" or explicit "none").
 fn apply_openai_reasoning(
     obj: &mut serde_json::Map<String, serde_json::Value>,
+    upstream_model: &str,
     thinking_mode: Option<&str>,
     reasoning_effort: Option<&str>,
 ) {
     obj.remove("thinking");
     obj.remove("reasoning_effort");
 
+    let catalog_reasoning = lookup_catalog_reasoning(upstream_model);
+    let supported = catalog_reasoning
+        .map(|r| r.supported_efforts.as_slice())
+        .unwrap_or(&[]);
+    let default_effort = catalog_reasoning
+        .map(|r| r.default_effort.as_str())
+        .unwrap_or("medium");
+    let supports_none = supported.iter().any(|e| e == "none");
+
     let effort = match thinking_mode {
-        Some("normal") => "none",
-        Some("thinking") => match reasoning_effort {
-            Some(effort @ ("low" | "medium" | "high" | "xhigh" | "max")) => effort,
-            _ => "medium",
+        Some("normal") | Some("off") => {
+            if supports_none {
+                "none"
+            } else {
+                default_effort
+            }
+        }
+        _ => match reasoning_effort {
+            Some("none") => {
+                if supports_none {
+                    "none"
+                } else {
+                    default_effort
+                }
+            }
+            Some(e) if supported.iter().any(|s| s == e) => e,
+            _ => default_effort,
         },
-        _ => "medium",
     };
 
     obj.insert("reasoning".to_string(), serde_json::json!({ "effort": effort }));
 }
 
-/// Pure function: translate Anthropic thinking params → OpenAI reasoning JSON for Astra / Astra Latest.
-/// Removes the Anthropic `thinking` and `reasoning_effort` keys, inserts `reasoning` with one of the
-/// 5 supported effort levels: low, medium, high, xhigh, max (defaults to "high"). Never sends "none".
+/// Compatibility helper for Astra models.
+#[cfg(test)]
 fn apply_openai_astra_reasoning(
     obj: &mut serde_json::Map<String, serde_json::Value>,
     reasoning_effort: Option<&str>,
 ) {
-    obj.remove("thinking");
-    obj.remove("reasoning_effort");
+    apply_openai_reasoning(obj, "openai/gpt-6-astra", None, reasoning_effort);
+}
 
-    let effort = match reasoning_effort {
-        Some(effort @ ("low" | "medium" | "high" | "xhigh" | "max")) => effort,
-        _ => "high",
-    };
-
-    obj.insert("reasoning".to_string(), serde_json::json!({ "effort": effort }));
+/// Compatibility helper for GPT-6.1 Sol models.
+#[cfg(test)]
+fn apply_openai_gpt61_sol_reasoning(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    thinking_mode: Option<&str>,
+    reasoning_effort: Option<&str>,
+) {
+    apply_openai_reasoning(obj, "openai/gpt-6.1-sol", thinking_mode, reasoning_effort);
 }
 
 /// Normalize a saved/legacy DeepSeek effort for OpenRouter DeepSeek models per model capabilities.
@@ -4273,13 +4276,13 @@ mod tests {
         assert_eq!(map_max["reasoning"]["effort"], "max");
         assert_eq!(map_max.get("thinking"), None);
 
-        // 3. GPT-6 Astra Pro (dedicated Pro endpoint, no reasoning.effort, no thinking envelope)
+        // 3. GPT-6 Astra Pro (dedicated Pro endpoint, supports reasoning effort per §13)
         let mut map_pro = serde_json::Map::new();
         map_pro.insert("thinking".to_string(), json!({"type": "enabled"}));
         map_pro.insert("reasoning_effort".to_string(), json!("high"));
-        map_pro.remove("thinking");
-        map_pro.remove("reasoning_effort");
-        assert_eq!(map_pro.get("reasoning"), None, "Astra Pro must NOT inject reasoning.effort");
+        apply_openai_reasoning(&mut map_pro, "openai/gpt-6-astra-pro", Some("thinking"), Some("high"));
+        assert_eq!(map_pro["reasoning"]["effort"], "high");
+        assert_eq!(map_pro.get("reasoning_mode"), None);
         assert_eq!(map_pro.get("thinking"), None);
         assert_eq!(map_pro.get("reasoning_effort"), None);
 
@@ -4289,10 +4292,10 @@ mod tests {
         assert_eq!(map_latest["reasoning"]["effort"], "xhigh");
         assert_eq!(map_latest.get("thinking"), None);
 
-        // 5. Default/None effort defaults to high
+        // 5. Default/None effort defaults to medium per §13 catalog matrix
         let mut map_none = serde_json::Map::new();
         apply_openai_astra_reasoning(&mut map_none, None);
-        assert_eq!(map_none["reasoning"]["effort"], "high");
+        assert_eq!(map_none["reasoning"]["effort"], "medium");
     }
 
     // ── validate_canonical_target tests ───────────────────────────────────────
@@ -6898,7 +6901,7 @@ mod tests {
     // ── OpenAI GPT-5.6 reasoning tests (pure function) ──────────────────
 
     fn apply_openai(obj: &mut serde_json::Value, thinking_mode: Option<&str>, effort: Option<&str>) {
-        apply_openai_reasoning(obj.as_object_mut().unwrap(), thinking_mode, effort);
+        apply_openai_reasoning(obj.as_object_mut().unwrap(), "openai/gpt-5.6-sol", thinking_mode, effort);
     }
 
     #[test]
@@ -6976,6 +6979,130 @@ mod tests {
         let mut body = json!({"thinking": {"type": "enabled"}, "reasoning": {"effort": "low"}});
         apply_openai(&mut body, Some("thinking"), Some("high"));
         assert_eq!(body.get("reasoning"), Some(&json!({"effort": "high"})));
+    }
+
+    // ── OpenAI GPT-6.1 Sol reasoning translation tests ─────────────────
+
+    fn apply_openai_gpt61(obj: &mut serde_json::Value, thinking_mode: Option<&str>, effort: Option<&str>) {
+        apply_openai_gpt61_sol_reasoning(obj.as_object_mut().unwrap(), thinking_mode, effort);
+    }
+
+    #[test]
+    fn openai_gpt61_sol_supported_effort_values() {
+        for effort in &["low", "medium", "high", "xhigh", "max"] {
+            let mut body = json!({"thinking": {"type": "enabled"}});
+            apply_openai_gpt61(&mut body, Some("thinking"), Some(effort));
+            assert_eq!(body.get("thinking"), None);
+            assert_eq!(body.get("reasoning"), Some(&json!({"effort": effort})));
+        }
+    }
+
+    #[test]
+    fn openai_gpt61_sol_missing_invalid_or_legacy_normal_normalizes_to_medium() {
+        // Missing effort
+        let mut body = json!({"thinking": {"type": "enabled"}});
+        apply_openai_gpt61(&mut body, Some("thinking"), None);
+        assert_eq!(body.get("reasoning"), Some(&json!({"effort": "medium"})));
+
+        // Invalid effort string
+        let mut body = json!({"thinking": {"type": "enabled"}});
+        apply_openai_gpt61(&mut body, Some("thinking"), Some("invalid_value"));
+        assert_eq!(body.get("reasoning"), Some(&json!({"effort": "medium"})));
+
+        // Unsupported "none" or "minimal" -> normalize to medium, never emit none or minimal
+        let mut body = json!({"thinking": {"type": "enabled"}});
+        apply_openai_gpt61(&mut body, Some("thinking"), Some("none"));
+        assert_eq!(body.get("reasoning"), Some(&json!({"effort": "medium"})));
+
+        let mut body = json!({"thinking": {"type": "enabled"}});
+        apply_openai_gpt61(&mut body, Some("thinking"), Some("minimal"));
+        assert_eq!(body.get("reasoning"), Some(&json!({"effort": "medium"})));
+
+        // Legacy "normal" mode -> normalize to medium
+        let mut body = json!({"thinking": {"type": "disabled"}});
+        apply_openai_gpt61(&mut body, Some("normal"), None);
+        assert_eq!(body.get("reasoning"), Some(&json!({"effort": "medium"})));
+
+        let mut body = json!({"thinking": {"type": "disabled"}});
+        apply_openai_gpt61(&mut body, Some("normal"), Some("low"));
+        assert_eq!(body.get("reasoning"), Some(&json!({"effort": "medium"})));
+
+        // Unset thinking mode and unset effort -> medium
+        let mut body = json!({});
+        apply_openai_gpt61(&mut body, None, None);
+        assert_eq!(body.get("reasoning"), Some(&json!({"effort": "medium"})));
+    }
+
+    #[test]
+    fn openai_gpt61_sol_removes_thinking_and_reasoning_effort_keys() {
+        let mut body = json!({
+            "thinking": {"type": "enabled", "budget_tokens": 4000},
+            "reasoning_effort": "high"
+        });
+        apply_openai_gpt61(&mut body, Some("thinking"), Some("high"));
+        assert_eq!(body.get("thinking"), None);
+        assert_eq!(body.get("reasoning_effort"), None);
+        assert_eq!(body.get("reasoning"), Some(&json!({"effort": "high"})));
+    }
+
+    #[test]
+    fn openrouter_openai_table_driven_serialization_all_15_ids() {
+        let all_15_ids: &[(&str, bool)] = &[
+            ("openai/gpt-6.1-sol", false),
+            ("openai/gpt-6.1-sol-pro", false),
+            ("openai/gpt-6-sol", true),
+            ("openai/gpt-6-sol-pro", true),
+            ("openai/gpt-6-luna", true),
+            ("openai/gpt-6-luna-pro", true),
+            ("openai/gpt-6-astra", false),
+            ("openai/gpt-6-astra-pro", false),
+            ("openai/gpt-astra-latest", false),
+            ("openai/gpt-5.6-sol", true),
+            ("openai/gpt-5.6-sol-pro", true),
+            ("openai/gpt-5.6-terra", true),
+            ("openai/gpt-5.6-terra-pro", true),
+            ("openai/gpt-5.6-luna", true),
+            ("openai/gpt-5.6-luna-pro", true),
+        ];
+
+        assert_eq!(all_15_ids.len(), 15);
+
+        for &(model_id, supports_none) in all_15_ids {
+            // 1. Supported non-none effort reaches reasoning field
+            for effort in &["low", "medium", "high", "xhigh", "max"] {
+                let mut body = json!({"thinking": {"type": "enabled"}});
+                apply_openai_reasoning(body.as_object_mut().unwrap(), model_id, Some("thinking"), Some(effort));
+                assert_eq!(body.get("thinking"), None);
+                assert_eq!(body.get("reasoning_effort"), None);
+                assert_eq!(body.get("reasoning_mode"), None);
+                assert_eq!(body.get("reasoning"), Some(&json!({"effort": effort})));
+            }
+
+            // 2. "none" effort: emitted only when supported; otherwise resolves to medium
+            let mut body_none = json!({"thinking": {"type": "enabled"}});
+            apply_openai_reasoning(body_none.as_object_mut().unwrap(), model_id, Some("thinking"), Some("none"));
+            if supports_none {
+                assert_eq!(body_none.get("reasoning"), Some(&json!({"effort": "none"})));
+            } else {
+                assert_eq!(body_none.get("reasoning"), Some(&json!({"effort": "medium"})));
+            }
+
+            // 3. Legacy normal / off mode: maps to "none" if supported, else "medium"
+            let mut body_normal = json!({"thinking": {"type": "disabled"}});
+            apply_openai_reasoning(body_normal.as_object_mut().unwrap(), model_id, Some("normal"), None);
+            if supports_none {
+                assert_eq!(body_normal.get("reasoning"), Some(&json!({"effort": "none"})));
+            } else {
+                assert_eq!(body_normal.get("reasoning"), Some(&json!({"effort": "medium"})));
+            }
+
+            // 4. Missing, invalid, or malformed effort resolves safely to medium
+            for bad_effort in &[None, Some("invalid_value"), Some("minimal"), Some("extra_large")] {
+                let mut body_bad = json!({"thinking": {"type": "enabled"}});
+                apply_openai_reasoning(body_bad.as_object_mut().unwrap(), model_id, Some("thinking"), *bad_effort);
+                assert_eq!(body_bad.get("reasoning"), Some(&json!({"effort": "medium"})));
+            }
+        }
     }
 
     // ── OpenRouter multi-profile route tests ──────────────────────────────

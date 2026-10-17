@@ -475,6 +475,8 @@ export const translations: TranslationMap = {
   "modelPricing.notes.gpt56Promotion": "OpenRouter上目前對該模型實行限時促銷價格。尚未公布結束日期。",
   "modelPricing.notes.gpt56LongContext": "提示詞達到272K tokens或以上時，將套用長文本價格。",
   "modelPricing.discountedPriceAria": "目前價格 {current}，調整後標準價格 {regular}",
+  "modelPricing.chinaHolidays.updateDue": "尚未收錄 {year} 年中國節假日資料。",
+  "modelPricing.chinaHolidays.expired": "尚未收錄 {year} 年中國節假日資料。DeepSeek 節假日價格判定不完整。",
   "peakValley.peak": "PEAK",
   "peakValley.valley": "VALLEY",
   "peakValley.pricingDisplayTimezone": "顯示時區",

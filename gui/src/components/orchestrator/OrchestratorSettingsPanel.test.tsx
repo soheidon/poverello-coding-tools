@@ -1,10 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import OrchestratorSettingsPanel from "./OrchestratorSettingsPanel";
+import OrchestratorSettingsPanel, { normalizeDirectDeepSeekModel } from "./OrchestratorSettingsPanel";
 import { DEFAULT_ITERATION_LIMITS, DEFAULT_VALIDATION_GATES } from "../../config/orchestratorPresets";
 import { translations as jaTranslations } from "../../i18n/lang/ja";
-import type { OrchestratorConfig } from "../../types/orchestrator";
+import type { OrchestratorConfig, OrchestratorProfile } from "../../types/orchestrator";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -569,7 +569,7 @@ describe("OrchestratorSettingsPanel", () => {
     expect(Object.keys((profileSave?.[1] as { config: object }).config)).toEqual(["profiles"]);
     const createdProfiles = (profileSave?.[1] as { config: { profiles: OrchestratorConfig["profiles"] } }).config.profiles ?? [];
     expect(createdProfiles).toHaveLength(1);
-    expect(createdProfiles[0]).toMatchObject({ providerId: "deepseek", model: "deepseek-v4.1-flash", reasoningEffort: "high" });
+    expect(createdProfiles[0]).toMatchObject({ providerId: "deepseek", model: "deepseek-flash", reasoningEffort: "high" });
     expect((container.querySelector('details[data-provider="deepseek"]') as HTMLDetailsElement).open).toBe(true);
   });
 
@@ -623,7 +623,7 @@ describe("OrchestratorSettingsPanel", () => {
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("update_orchestrator_config", {
       config: {
         profiles: [
-          { ...persistedConfig.profiles![0], contextWindowTokens: 64000, displayName: "deepseek-v4.1-flash + thinking" },
+          { ...persistedConfig.profiles![0], model: "deepseek-flash", contextWindowTokens: 64000, displayName: "deepseek-flash + thinking" },
           unknownProfile,
         ],
       },
@@ -717,7 +717,7 @@ describe("OrchestratorSettingsPanel", () => {
     fireEvent.change(within(group).getByLabelText("orchestrator.settings.contextWindow"), { target: { value: "64000" } });
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("update_orchestrator_config", {
       config: {
-        profiles: [{ ...persistedConfig.profiles![0], contextWindowTokens: 64000, displayName: "deepseek-v4.1-flash + thinking" }],
+        profiles: [{ ...persistedConfig.profiles![0], model: "deepseek-flash", contextWindowTokens: 64000, displayName: "deepseek-flash + thinking" }],
       },
     }));
     expect(within(card).getByRole("checkbox", { name: "orchestrator.settings.visible" })).toBeChecked();
@@ -741,7 +741,7 @@ describe("OrchestratorSettingsPanel", () => {
     fireEvent.change(contextInput, { target: { value: "128000" } });
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("update_orchestrator_config", {
       config: {
-        profiles: [{ ...persistedConfig.profiles![0], contextWindowTokens: 128000, displayName: "deepseek-v4.1-flash + thinking" }],
+        profiles: [{ ...persistedConfig.profiles![0], model: "deepseek-flash", contextWindowTokens: 128000, displayName: "deepseek-flash + thinking" }],
       },
     }));
   });
@@ -1797,5 +1797,227 @@ describe("OrchestratorSettingsPanel", () => {
         }),
       }),
     ));
+  });
+
+  describe("Chapter 4: Direct DeepSeek Flash ID normalization and duplicate-choice removal (v0.24.4-r2b)", () => {
+    it("helper normalizeDirectDeepSeekModel handles canonical, legacy, pro, unknown, and provider-qualified models", () => {
+      expect(normalizeDirectDeepSeekModel("deepseek-v4.1-flash")).toBe("deepseek-flash");
+      expect(normalizeDirectDeepSeekModel("deepseek-flash")).toBe("deepseek-flash");
+      expect(normalizeDirectDeepSeekModel("deepseek-v4-pro")).toBe("deepseek-v4-pro");
+      expect(normalizeDirectDeepSeekModel("custom-other")).toBe("custom-other");
+      expect(normalizeDirectDeepSeekModel("deepseek/deepseek-chat")).toBe("deepseek/deepseek-chat");
+    });
+
+    it("displays exactly one Flash option and one Pro option in Direct DeepSeek selector for legacy profile without duplicate or blank", async () => {
+      const { container } = render(<OrchestratorSettingsPanel t={(key) => String(key)} />);
+      await expandProvider("deepseek", "DeepSeek");
+      const card = container.querySelector('[data-profile-id="custom-reviewer"]') as HTMLElement;
+      const modelSelect = within(card).getByRole("combobox", { name: "orchestrator.settings.model" }) as HTMLSelectElement;
+
+      // Assert options: exactly 2 options (one Flash, one Pro), no duplicate Flash
+      const options = Array.from(modelSelect.options);
+      expect(options).toHaveLength(2);
+      expect(options.map((o) => o.value)).toEqual(["deepseek-flash", "deepseek-v4-pro"]);
+      expect(options[0].textContent).toContain("DeepSeek V4.1 Flash");
+      expect(options[1].textContent).toContain("DeepSeek V4 Pro");
+
+      // Assert displayed/selected value is Flash
+      expect(modelSelect.value).toBe("deepseek-flash");
+    });
+
+    it("loading/displaying a legacy profile alone does not invoke persistence or alter stored value", async () => {
+      render(<OrchestratorSettingsPanel t={(key) => String(key)} />);
+      await expandProvider("deepseek", "DeepSeek");
+      // Only get_orchestrator_config should have been called, no update_orchestrator_config
+      expect(invokeMock).toHaveBeenCalledWith("get_orchestrator_config");
+      expect(invokeMock).not.toHaveBeenCalledWith("update_orchestrator_config", expect.anything());
+    });
+
+    it("saving a legacy profile through normal save path (e.g. non-model field changed) normalizes model to deepseek-flash", async () => {
+      const { container } = render(<OrchestratorSettingsPanel t={(key) => String(key)} />);
+      await expandProvider("deepseek", "DeepSeek");
+      const card = container.querySelector('[data-profile-id="custom-reviewer"]') as HTMLElement;
+
+      // Change thinking mode (non-model field)
+      fireEvent.change(within(card).getByRole("combobox", { name: "orchestrator.settings.thinkingMode" }), {
+        target: { value: "normal" },
+      });
+
+      await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("update_orchestrator_config", {
+        config: {
+          profiles: [{
+            ...persistedConfig.profiles![0],
+            model: "deepseek-flash",
+            thinkingMode: "normal",
+            reasoningEffort: undefined,
+            displayName: "deepseek-flash",
+          }],
+        },
+      }));
+    });
+
+    it("deepseek-v4-pro is preserved in the saved profile when selected and saved", async () => {
+      const { container } = render(<OrchestratorSettingsPanel t={(key) => String(key)} />);
+      await expandProvider("deepseek", "DeepSeek");
+      const card = container.querySelector('[data-profile-id="custom-reviewer"]') as HTMLElement;
+      const modelSelect = within(card).getByRole("combobox", { name: "orchestrator.settings.model" });
+
+      fireEvent.change(modelSelect, { target: { value: "deepseek-v4-pro" } });
+      await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("update_orchestrator_config", {
+        config: {
+          profiles: [{
+            ...persistedConfig.profiles![0],
+            model: "deepseek-v4-pro",
+            reasoningEffort: "high",
+            displayName: "deepseek-v4-pro + thinking: High",
+          }],
+        },
+      }));
+    });
+
+    it("newly created Direct DeepSeek profile uses canonical deepseek-flash ID and resolves context from MODEL_CATALOG", async () => {
+      invokeMock.mockImplementation(async (command) => {
+        if (command === "get_orchestrator_config") return { ...persistedConfig, profiles: [] };
+        return null;
+      });
+      render(<OrchestratorSettingsPanel t={(key) => String(key)} />);
+      await screen.findByText("orchestrator.settings.profiles");
+      fireEvent.click(screen.getByRole("button", { name: "+ orchestrator.settings.addProfile · DeepSeek" }));
+
+      await waitFor(() => expect(invokeMock).toHaveBeenCalledWith(
+        "update_orchestrator_config",
+        expect.objectContaining({
+          config: expect.objectContaining({
+            profiles: expect.arrayContaining([
+              expect.objectContaining({
+                providerId: "deepseek",
+                model: "deepseek-flash",
+                contextWindowTokens: 1048576,
+              }),
+            ]),
+          }),
+        }),
+      ));
+    });
+
+    it("unknown Direct DeepSeek model ID is not normalized and is rendered in options", async () => {
+      const unknownDsProfile = {
+        id: "custom-ds-unknown",
+        displayName: "custom-deepseek-model",
+        adapter: "provider" as const,
+        providerId: "deepseek",
+        model: "custom-deepseek-model",
+        thinkingMode: "thinking" as const,
+        capabilities: ["reasoning", "review", "workspace_read"] as ("reasoning" | "review" | "workspace_read")[],
+      };
+      invokeMock.mockImplementation(async (command) => {
+        if (command === "get_orchestrator_config") return { ...persistedConfig, profiles: [unknownDsProfile] };
+        return null;
+      });
+      const { container } = render(<OrchestratorSettingsPanel t={(key) => String(key)} />);
+      await expandProvider("deepseek", "DeepSeek");
+      const card = container.querySelector('[data-profile-id="custom-ds-unknown"]') as HTMLElement;
+      const modelSelect = within(card).getByRole("combobox", { name: "orchestrator.settings.model" }) as HTMLSelectElement;
+
+      const options = Array.from(modelSelect.options);
+      expect(options.map((o) => o.value)).toEqual(["deepseek-flash", "deepseek-v4-pro", "custom-deepseek-model"]);
+      expect(modelSelect.value).toBe("custom-deepseek-model");
+    });
+
+    it("OpenRouter's DeepSeek IDs, candidate list, and request behavior remain unchanged", async () => {
+      const openRouterProfile = {
+        id: "openrouter-ds",
+        displayName: "OpenRouter DeepSeek",
+        adapter: "provider" as const,
+        providerId: "openrouter",
+        model: "deepseek/deepseek-chat",
+        capabilities: ["reasoning", "review", "workspace_read"] as ("reasoning" | "review" | "workspace_read")[],
+      };
+      invokeMock.mockImplementation(async (command) => {
+        if (command === "get_orchestrator_config") return { ...persistedConfig, profiles: [openRouterProfile] };
+        return null;
+      });
+      const { container } = render(<OrchestratorSettingsPanel t={(key) => String(key)} />);
+      await expandProvider("openrouter", "OpenRouter");
+      const card = container.querySelector('[data-profile-id="openrouter-ds"]') as HTMLElement;
+      const modelSelect = within(card).getByRole("combobox", { name: "orchestrator.settings.model" }) as HTMLSelectElement;
+
+      expect(modelSelect.value).toBe("deepseek/deepseek-chat");
+      const options = Array.from(modelSelect.options).map((o) => o.value);
+      expect(options).toContain("deepseek/deepseek-chat");
+      expect(options).not.toContain("deepseek-flash");
+    });
+  });
+
+  describe("Chapter 5: Direct DeepSeek Flash context-capability alignment (v0.24.4-r2b §17)", () => {
+    it("existing saved profile with explicit 128,000 context retains 128,000 on load and when non-context field is edited", async () => {
+      const explicitProfile: OrchestratorProfile = {
+        id: "persisted-explicit-128k",
+        displayName: "Custom DeepSeek 128K",
+        adapter: "provider",
+        providerId: "deepseek",
+        model: "deepseek-flash",
+        thinkingMode: "thinking",
+        reasoningEffort: "high",
+        capabilities: ["reasoning", "review", "workspace_read"],
+        contextWindowTokens: 128000,
+      };
+      invokeMock.mockImplementation(async (command) => {
+        if (command === "get_orchestrator_config") return { ...persistedConfig, profiles: [explicitProfile] };
+        return null;
+      });
+
+      const { container } = render(<OrchestratorSettingsPanel t={(key) => String(key)} />);
+      await expandProvider("deepseek", "DeepSeek");
+      const card = container.querySelector('[data-profile-id="persisted-explicit-128k"]') as HTMLElement;
+      expect(card).toBeInTheDocument();
+
+      const advancedDetails = card.querySelector(".orchestrator-profile-advanced-details") as HTMLDetailsElement;
+      const contextInput = within(advancedDetails).getByLabelText("orchestrator.settings.contextWindow") as HTMLInputElement;
+      expect(contextInput.value).toBe("128000");
+
+      // Edit a non-context field (thinking mode)
+      const thinkingSelect = within(card).getByRole("combobox", { name: "orchestrator.settings.thinkingMode" });
+      fireEvent.change(thinkingSelect, { target: { value: "normal" } });
+
+      await waitFor(() => expect(invokeMock).toHaveBeenCalledWith(
+        "update_orchestrator_config",
+        expect.objectContaining({
+          config: expect.objectContaining({
+            profiles: expect.arrayContaining([
+              expect.objectContaining({
+                id: "persisted-explicit-128k",
+                contextWindowTokens: 128000,
+                thinkingMode: "normal",
+              }),
+            ]),
+          }),
+        }),
+      ));
+    });
+
+    it("new profile creation for non-DeepSeek provider (e.g. OpenRouter) preserves default context", async () => {
+      invokeMock.mockImplementation(async (command) => {
+        if (command === "get_orchestrator_config") return { ...persistedConfig, profiles: [] };
+        return null;
+      });
+      render(<OrchestratorSettingsPanel t={(key) => String(key)} />);
+      await screen.findByText("orchestrator.settings.profiles");
+      fireEvent.click(screen.getByRole("button", { name: "+ orchestrator.settings.addProfile · OpenRouter" }));
+
+      await waitFor(() => expect(invokeMock).toHaveBeenCalledWith(
+        "update_orchestrator_config",
+        expect.objectContaining({
+          config: expect.objectContaining({
+            profiles: expect.arrayContaining([
+              expect.objectContaining({
+                providerId: "openrouter",
+                contextWindowTokens: 1050000,
+              }),
+            ]),
+          }),
+        }),
+      ));
+    });
   });
 });

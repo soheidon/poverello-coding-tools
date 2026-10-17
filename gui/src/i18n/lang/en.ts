@@ -474,6 +474,8 @@ export const translations = {
   "modelPricing.notes.gpt56Promotion": "Limited-time promotional pricing is currently active on OpenRouter for this model. No end date has been announced.",
   "modelPricing.notes.gpt56LongContext": "Prompts of 272K tokens or more use long-context pricing.",
   "modelPricing.discountedPriceAria": "Current price {current}, revised standard price {regular}",
+  "modelPricing.chinaHolidays.updateDue": "Chinese holiday data for {year} is not yet bundled.",
+  "modelPricing.chinaHolidays.expired": "Chinese holiday data for {year} is not bundled. DeepSeek holiday pricing determination is incomplete.",
   "peakValley.peak": "PEAK",
   "peakValley.valley": "VALLEY",
   "peakValley.pricingDisplayTimezone": "Display timezone",

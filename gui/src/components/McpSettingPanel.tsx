@@ -4,8 +4,7 @@ import { useTranslation } from "../i18n";
 import type { TranslationKey } from "../i18n/lang/en";
 import type { GatewayConfig, McpConfig, McpTargetConfig, AntigravityMcpInfo, AntigravityCommandsInfo, AntigravityCommandInstallOutcome, PovNerfCommandsInfo, PovNerfSkillId, PovNerfOperationResult } from "../types";
 import { getMcpTargetKey } from "../types";
-import { MODEL_CAPABILITIES, MODEL_CATALOG, getProviderModels, isKnownModel } from "../modelCapabilities";
-import { getVisibleOpenRouterProfiles } from "../dashboardTiles";
+import { MODEL_CAPABILITIES, MODEL_CATALOG, getProviderModels, isKnownModel, isOpenAiReasoningModel } from "../modelCapabilities";
 import { getModelDisplayName } from "../config/modelDisplayNames";
 import {
   getOpenRouterModelsForProfile,
@@ -45,8 +44,14 @@ const COL_STYLE: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+export function isGpt61SolModel(model: string): boolean {
+  return isOpenAiReasoningModel(model);
+}
+
 function formatEffortLabel(opt: string, t: ReturnType<typeof useTranslation>["t"]): string {
   switch (opt) {
+    case "none":
+      return t("apiKeyPanel.normalMode");
     case "low":
       return t("apiKeyPanel.reasoningEffortLow");
     case "medium":
@@ -99,11 +104,33 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
     try {
       const info = await invoke<AntigravityMcpInfo>("get_antigravity_mcp_status");
       setAgInfo(info);
-      setSelectedExePath(info.registered_command ?? info.legacy_command ?? "");
-      setAgError(null);
+      if (info.registered_command) {
+        setSelectedExePath(info.registered_command);
+        setAgError(null);
+        return true;
+      } else {
+        try {
+          const currentExe = await invoke<string>("get_current_executable_path");
+          if (typeof currentExe === "string" && currentExe.trim().length > 0) {
+            setSelectedExePath(currentExe.trim());
+            setAgError(null);
+            return true;
+          } else {
+            setSelectedExePath("");
+            setAgError("Failed to resolve current running executable");
+            return false;
+          }
+        } catch (exeErr: unknown) {
+          console.error("Failed to resolve current running executable:", exeErr);
+          setSelectedExePath("");
+          setAgError(String(exeErr));
+          return false;
+        }
+      }
     } catch (e: unknown) {
       console.error("Failed to load Antigravity MCP status:", e);
       setAgError(String(e));
+      return false;
     }
   }, []);
 
@@ -299,18 +326,19 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
     setAgError(null);
     setAgSavedMessage(false);
     try {
-      const updated = await invoke<AntigravityMcpInfo>("remove_antigravity_mcp");
-      setAgInfo(updated);
-      setSelectedExePath(updated.registered_command ?? "");
-      setAgSavedMessage(true);
-      setTimeout(() => setAgSavedMessage(false), 2500);
+      await invoke<AntigravityMcpInfo>("remove_antigravity_mcp");
+      const ok = await refreshAgStatus();
+      if (ok) {
+        setAgSavedMessage(true);
+        setTimeout(() => setAgSavedMessage(false), 2500);
+      }
     } catch (e: unknown) {
       console.error("Failed to remove Antigravity MCP configuration:", e);
       setAgError(String(e));
     } finally {
       setAgLoading(false);
     }
-  }, []);
+  }, [refreshAgStatus]);
 
   const handleOpenSkillsFolder = useCallback(async () => {
     try {
@@ -392,11 +420,11 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
       : null;
   const activeTargetKey = getMcpTargetKey(activeProviderId, activeProfileId);
 
-  // OpenRouter visible profiles
+  // MCP profile availability is independent of dashboard visibility.
   const orProfiles = useMemo(() => {
     const orProvider = config?.providers?.["openrouter"];
     if (!orProvider?.profiles) return [];
-    return getVisibleOpenRouterProfiles(orProvider.profiles) ?? orProvider.profiles;
+    return orProvider.profiles;
   }, [config]);
 
   // Set initial selected OpenRouter profile if empty
@@ -440,20 +468,32 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
         const defaultOpus = prof?.models?.["claude-opus-5"];
         model = model || defaultOpus?.upstream_model || "deepseek/deepseek-r1";
         thinking_mode = thinking_mode || defaultOpus?.thinking_mode || "thinking";
-        reasoning_effort = reasoning_effort || defaultOpus?.reasoning_effort;
+        if (reasoning_effort === undefined || reasoning_effort === "") {
+          reasoning_effort = model === defaultOpus?.upstream_model ? defaultOpus?.reasoning_effort : undefined;
+        }
       } else {
         const p = config?.providers?.[providerId];
         const defaultOpus = p?.models?.["claude-opus-5"];
         model = model || defaultOpus?.upstream_model || p?.default_model || (providerId === "zai" ? "glm-5.3" : "deepseek-v4-pro");
         thinking_mode = thinking_mode || defaultOpus?.thinking_mode || "thinking";
-        reasoning_effort = reasoning_effort || defaultOpus?.reasoning_effort;
+        if (reasoning_effort === undefined || reasoning_effort === "") {
+          reasoning_effort = model === defaultOpus?.upstream_model ? defaultOpus?.reasoning_effort : undefined;
+        }
       }
 
       const caps = MODEL_CAPABILITIES[model];
       const policy = caps?.thinkingModePolicy ?? "toggleable";
       const supportsEffort = caps?.supportsReasoningEffort || !!caps?.forcedReasoningEffort;
 
-      if (providerId === "zai") {
+      if (isGpt61SolModel(model)) {
+        thinking_mode = "thinking";
+        const allowed = caps?.reasoningEffortOptions as readonly string[] | undefined;
+        if (reasoning_effort === "normal" || reasoning_effort === "off") {
+          reasoning_effort = allowed?.includes("none") ? "none" : "medium";
+        } else if (!reasoning_effort || !allowed?.includes(reasoning_effort)) {
+          reasoning_effort = allowed?.includes("medium") ? "medium" : (allowed?.[0] ?? "");
+        }
+      } else if (providerId === "zai") {
         if (policy === "thinking_only") {
           thinking_mode = "thinking";
         } else if (policy === "toggleable") {
@@ -714,7 +754,18 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                           const newSupportsEffort = newCaps?.supportsReasoningEffort || !!newCaps?.forcedReasoningEffort;
 
                           const update: McpTargetConfig = { model: newModel };
-                          if (providerId === "zai") {
+                          if (isGpt61SolModel(newModel)) {
+                            update.thinking_mode = "thinking";
+                            const allowed = newCaps?.reasoningEffortOptions as readonly string[] | undefined;
+                            const currentEffort = setting.reasoning_effort;
+                            if (currentEffort === "normal" || currentEffort === "off") {
+                              update.reasoning_effort = allowed?.includes("none") ? "none" : "medium";
+                            } else if (currentEffort && allowed?.includes(currentEffort)) {
+                              update.reasoning_effort = currentEffort;
+                            } else {
+                              update.reasoning_effort = allowed?.includes("medium") ? "medium" : (allowed?.[0] ?? "");
+                            }
+                          } else if (providerId === "zai") {
                             update.thinking_mode = newPolicy === "toggleable" && setting.thinking_mode === "normal" ? "normal" : "thinking";
                             update.reasoning_effort = newSupportsEffort ? (setting.reasoning_effort || "max") : "";
                           } else if (newPolicy === "thinking_only") {
@@ -750,7 +801,7 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                     </div>
 
                     {/* Thinking Mode */}
-                    {policy === "thinking_only" ? (
+                    {policy === "thinking_only" && !caps?.reasoningEffortOptions?.includes("none") ? (
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ fontSize: 11, fontWeight: 600, color: "#1f2937", whiteSpace: "nowrap" }}>
                           {t("mcp.thinkingLabel")}:
@@ -759,7 +810,7 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                           {t("apiKeyPanel.thinkingOnly")}
                         </span>
                       </div>
-                    ) : policy !== "none" ? (
+                    ) : policy !== "none" && !isGpt61SolModel(setting.model) ? (
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ fontSize: 11, fontWeight: 600, color: "#1f2937", whiteSpace: "nowrap" }}>
                           {t("mcp.thinkingLabel")}:
@@ -789,7 +840,8 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                     ) : null}
 
                     {/* Reasoning Effort */}
-                    {((setting.thinking_mode === "thinking" && supportsReasoningEffort && policy !== "thinking_only") ||
+                    {(isGpt61SolModel(setting.model) ||
+                      (setting.thinking_mode === "thinking" && supportsReasoningEffort && policy !== "thinking_only") ||
                       (providerId === "zai" && supportsReasoningEffort && (policy !== "toggleable" || setting.thinking_mode === "thinking"))) && (
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ fontSize: 11, fontWeight: 600, color: "#1f2937", whiteSpace: "nowrap" }}>
@@ -807,13 +859,22 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                             outline: "none",
                             minWidth: 80,
                           }}
-                          value={setting.reasoning_effort}
+                          value={
+                            setting.reasoning_effort ||
+                            (isGpt61SolModel(setting.model) && caps?.reasoningEffortOptions?.includes("medium") ? "medium" : "")
+                          }
                           onChange={(e) => {
                             void handleSaveTarget(targetKey, { reasoning_effort: e.target.value });
                           }}
                           disabled={saving}
                         >
-                          {forcedOptions ? (
+                          {isGpt61SolModel(setting.model) ? (
+                            (caps?.reasoningEffortOptions ?? []).map((opt) => (
+                              <option key={opt} value={opt}>
+                                {formatEffortLabel(opt, t)}
+                              </option>
+                            ))
+                          ) : forcedOptions ? (
                             forcedOptions.map((opt) => (
                               <option key={opt} value={opt}>
                                 {formatEffortLabel(opt, t)}

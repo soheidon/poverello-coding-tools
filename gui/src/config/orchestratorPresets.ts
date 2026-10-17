@@ -11,6 +11,7 @@ import type {
   AgentRole,
   OrchestratorQuickSlot,
 } from "../types/orchestrator";
+import { MODEL_CATALOG } from "../modelCapabilities";
 
 export const DEFAULT_ORCHESTRATOR_QUICK_SLOTS: OrchestratorQuickSlot[] = [
   { id: "slot-1", profileId: "mimo-v26-pro", label: "MiMo Pro", visible: true, order: 0 },
@@ -45,11 +46,11 @@ export const DEFAULT_ORCHESTRATOR_PROFILES: OrchestratorProfile[] = [
     displayName: "DeepSeek V4.1 Flash (Direct API)",
     adapter: "provider",
     providerId: "deepseek",
-    model: "deepseek-v4.1-flash",
+    model: "deepseek-flash",
     thinkingMode: "thinking",
     reasoningEffort: "high",
     capabilities: ["reasoning", "review", "workspace_read"],
-    contextWindowTokens: 128000,
+    contextWindowTokens: MODEL_CATALOG.contextWindows["deepseek:deepseek-flash"]?.context_length,
   },
   {
     id: "minimax-m3",

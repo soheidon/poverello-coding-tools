@@ -756,7 +756,7 @@ describe("OrchestratorPanel", () => {
 
     // Preserves baseline assignments for all five rendered roles exactly
     expect(within(plannerCard).getByRole("combobox")).toHaveTextContent("mimo-v2.6-pro + thinking");
-    expect(within(planReviewerCard).getByRole("combobox")).toHaveTextContent("deepseek-v4.1-flash + thinking: High");
+    expect(within(planReviewerCard).getByRole("combobox")).toHaveTextContent("deepseek-flash + thinking: High");
     expect(within(implementerCard).getByRole("combobox")).toHaveTextContent("codex-cli");
     expect(within(fixerCard).getByRole("combobox")).toHaveTextContent("codex-cli");
     expect(within(codeReviewerCard).getByRole("combobox")).toHaveTextContent("codex-cli");
@@ -808,7 +808,7 @@ describe("OrchestratorPanel", () => {
     fireEvent.click(selectTrigger);
 
     const listbox = within(plannerCard).getByRole("listbox");
-    const option = within(listbox).getByRole("option", { name: /deepseek-v4\.1-flash/ });
+    const option = within(listbox).getByRole("option", { name: /deepseek-flash/ });
     fireEvent.click(option);
 
     const expectedAssignments = {
@@ -879,7 +879,7 @@ describe("OrchestratorPanel", () => {
 
     fireEvent.click(within(reloadedPlannerCard).getByRole("combobox"));
     const plannerListbox = within(reloadedPlannerCard).getByRole("listbox");
-    fireEvent.click(within(plannerListbox).getByRole("option", { name: /deepseek-v4\.1-flash/ }));
+    fireEvent.click(within(plannerListbox).getByRole("option", { name: /deepseek-flash/ }));
     await waitFor(() => expect(savedAssignments).toHaveProperty("planner", { role: "planner", profileId: "deepseek-v41-flash" }));
     expect(savedAssignments.plan_reviewer).toEqual({ role: "plan_reviewer", profileId: "deepseek-v41-flash" });
   });
@@ -962,7 +962,7 @@ describe("OrchestratorPanel", () => {
     const reviewerCard = screen.getByRole("region", { name: "orchestrator.roles.codeReviewer" });
     const reviewerSelect = within(reviewerCard).getByRole("combobox");
     fireEvent.click(reviewerSelect);
-    fireEvent.click(within(reviewerCard).getByRole("option", { name: /deepseek-v4\.1-flash/ }));
+    fireEvent.click(within(reviewerCard).getByRole("option", { name: /deepseek-flash/ }));
 
     await waitFor(() => {
       expect(screen.queryByRole("alert")).toBeNull();
@@ -1056,7 +1056,7 @@ describe("OrchestratorPanel", () => {
     fireEvent.click(profileSelect);
     const listbox = within(plannerCard).getByRole("listbox");
     expect(within(listbox).getAllByRole("option")).toHaveLength(1);
-    expect(within(listbox).getByRole("option")).toHaveTextContent("deepseek-v4.1-flash + thinking: High");
+    expect(within(listbox).getByRole("option")).toHaveTextContent("deepseek-flash + thinking: High");
     expect(within(plannerCard).queryByRole("button", { name: "MiMo Pro" })).not.toBeInTheDocument();
     expect(within(plannerCard).queryByRole("button", { name: "DeepSeek Flash" })).not.toBeInTheDocument();
     expect(within(listbox).queryByRole("option", { name: /mimo-v2\.6-pro/ })).not.toBeInTheDocument();
@@ -1087,11 +1087,11 @@ describe("OrchestratorPanel", () => {
     await screen.findByDisplayValue("C:\\mock\\project");
     const plannerCard = screen.getByRole("region", { name: "orchestrator.roles.planner" });
     const profileSelect = within(plannerCard).getByRole("combobox");
-    expect(profileSelect).toHaveTextContent("deepseek-v4.1-flash + thinking: Max");
+    expect(profileSelect).toHaveTextContent("deepseek-flash + thinking: Max");
     expect(within(plannerCard).queryByText("User customized profile label")).not.toBeInTheDocument();
     expect(within(plannerCard).queryByText("orchestrator.roles.planner:")).not.toBeInTheDocument();
     fireEvent.click(profileSelect);
-    expect(within(plannerCard).getByRole("option", { name: /deepseek-v4\.1-flash \+ thinking: Max/ })).toBeInTheDocument();
+    expect(within(plannerCard).getByRole("option", { name: /deepseek-flash \+ thinking: Max/ })).toBeInTheDocument();
   });
 
   it("uses Gateway model and Thinking summaries for Kimi and MiMo cards and dropdown options", async () => {

@@ -190,4 +190,31 @@ describe("resolvePresetRoleAssignments", () => {
       expect(profiles.some((profile) => profile.id === assignment.profileId)).toBe(true);
     }
   });
+
+  describe("Chapter 5 (§17): Direct DeepSeek Flash context-capability alignment", () => {
+    it("built-in Direct DeepSeek preset uses canonical deepseek-flash model and resolves context from MODEL_CATALOG", async () => {
+      const { MODEL_CATALOG } = await import("../modelCapabilities");
+      const dsProfile = DEFAULT_ORCHESTRATOR_PROFILES.find((p) => p.id === "deepseek-v41-flash");
+
+      expect(dsProfile).toBeDefined();
+      expect(dsProfile?.providerId).toBe("deepseek");
+      expect(dsProfile?.model).toBe("deepseek-flash");
+      expect(dsProfile?.displayName).toBe("DeepSeek V4.1 Flash (Direct API)");
+      expect(dsProfile?.contextWindowTokens).toBe(
+        MODEL_CATALOG.contextWindows["deepseek:deepseek-flash"]?.context_length
+      );
+      expect(dsProfile?.contextWindowTokens).toBe(1048576);
+    });
+
+    it("preserves non-DeepSeek profile defaults unchanged in DEFAULT_ORCHESTRATOR_PROFILES", () => {
+      const mimoProfile = DEFAULT_ORCHESTRATOR_PROFILES.find((p) => p.id === "mimo-v26-pro");
+      expect(mimoProfile?.contextWindowTokens).toBe(1000000);
+
+      const kimiProfile = DEFAULT_ORCHESTRATOR_PROFILES.find((p) => p.id === "kimi-k3");
+      expect(kimiProfile?.contextWindowTokens).toBe(1048576);
+
+      const minimaxProfile = DEFAULT_ORCHESTRATOR_PROFILES.find((p) => p.id === "minimax-m3");
+      expect(minimaxProfile?.contextWindowTokens).toBe(1000000);
+    });
+  });
 });

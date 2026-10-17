@@ -685,4 +685,47 @@ mod tests {
         assert!(res.prompt.contains("sha256:effective_digest_value"));
         assert!(res.prompt.contains("Supplemental instructions."));
     }
+
+    #[test]
+    fn test_context_builder_preserves_explicit_profile_value_and_resolves_catalog_for_unset() {
+        let builder = ContextBuilder::new();
+
+        // 1. Explicit positive context value (e.g. 128_000) is honored
+        let explicit_profile = OrchestratorProfile {
+            id: "persisted-explicit-128k".to_string(),
+            display_name: "Explicit 128K Profile".to_string(),
+            adapter: crate::orchestrator::types::ExecutionAdapterType::Provider,
+            capabilities: vec![],
+            provider_id: Some("deepseek".to_string()),
+            provider_profile_id: None,
+            model: Some("deepseek-flash".to_string()),
+            thinking_mode: None,
+            reasoning_effort: None,
+            ollama_model: None,
+            ollama_endpoint: None,
+            executable: None,
+            args: None,
+            external_mcp_server: None,
+            mcp_tool: None,
+            context_window_tokens: Some(128_000),
+        };
+        let resolved = builder
+            .resolve_profile_context_window(&explicit_profile)
+            .expect("explicit context window must resolve");
+        assert_eq!(resolved, 128_000, "Explicit positive context value must take precedence");
+
+        // 2. Unset context value resolves via static catalog lookup (deepseek:deepseek-flash -> 1,048,576)
+        let unset_profile = OrchestratorProfile {
+            context_window_tokens: None,
+            ..explicit_profile
+        };
+        let catalog_resolved = builder
+            .resolve_profile_context_window(&unset_profile)
+            .expect("unset context window must resolve via static catalog");
+        let expected_catalog = try_resolve_static_context_window("deepseek", "deepseek-flash")
+            .expect("deepseek:deepseek-flash must exist in static catalog")
+            .context_length as usize;
+        assert_eq!(catalog_resolved, expected_catalog);
+        assert_eq!(catalog_resolved, 1_048_576);
+    }
 }

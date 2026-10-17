@@ -5,6 +5,7 @@ import React, { useRef, useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useOpenRouterSaveQueue, useRouteSaveGeneration, __resetOpenRouterModelsCacheForTests } from "./OpenRouterModelSelector";
 import OpenRouterModelSelector from "./OpenRouterModelSelector";
+import { MODEL_CAPABILITIES, OPENAI_REASONING_MODEL_IDS } from "../modelCapabilities";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -1267,7 +1268,7 @@ describe("OpenRouterModelSelector — regression tests", () => {
       await waitForReady();
 
       let thinkingSelect = screen.getByRole("combobox", {
-        name: "Thinking",
+        name: "Reasoning effort",
       }) as HTMLSelectElement;
       expect(thinkingSelect.value).toBe("high");
 
@@ -1297,7 +1298,7 @@ describe("OpenRouterModelSelector — regression tests", () => {
       await waitForReady();
 
       thinkingSelect = screen.getByRole("combobox", {
-        name: "Thinking",
+        name: "Reasoning effort",
       }) as HTMLSelectElement;
       expect(thinkingSelect.value).toBe("max");
 
@@ -1314,7 +1315,7 @@ describe("OpenRouterModelSelector — regression tests", () => {
       ]);
     });
 
-    it("openai_astra_pro_renders_no_thinking_effort_selector", async () => {
+    it("openai_astra_pro_renders_5_level_reasoning_effort_selector", async () => {
       invokeMock.mockImplementation(async (cmd: string) => {
         if (cmd === "openrouter_get_models") return stableModelsResult();
         return null;
@@ -1330,9 +1331,14 @@ describe("OpenRouterModelSelector — regression tests", () => {
       );
       await waitForReady();
 
-      // Astra Pro is fixed Pro semantics, so thinking effort dropdown is absent
-      expect(screen.queryByRole("combobox", { name: "Thinking" })).not.toBeInTheDocument();
-      expect(screen.getByText("Thinking only")).toBeInTheDocument();
+      // Astra Pro exposes 5-level reasoning effort selector with default medium
+      const thinkingSelect = screen.getByRole("combobox", {
+        name: "Reasoning effort",
+      }) as HTMLSelectElement;
+      expect(thinkingSelect).toBeInTheDocument();
+      expect(thinkingSelect.value).toBe("medium");
+      const options = Array.from(thinkingSelect.options).map((opt) => opt.value);
+      expect(options).toEqual(["low", "medium", "high", "xhigh", "max"]);
     });
 
     it("openai_vendor_dropdown_lists_all_astra_and_gpt56_models_without_batch_variants", async () => {
@@ -1423,7 +1429,7 @@ describe("OpenRouterModelSelector — regression tests", () => {
       });
 
       // Astra has 5 reasoning levels
-      let thinkingSelect = screen.getByRole("combobox", { name: "Thinking" }) as HTMLSelectElement;
+      let thinkingSelect = screen.getByRole("combobox", { name: "Reasoning effort" }) as HTMLSelectElement;
       let options = Array.from(thinkingSelect.options).map((opt) => opt.value);
       expect(options).toEqual(["low", "medium", "high", "xhigh", "max"]);
 
@@ -1443,10 +1449,203 @@ describe("OpenRouterModelSelector — regression tests", () => {
       const modelSelectPro = screen.getByTestId("openrouter-model-select") as HTMLSelectElement;
       expect(modelSelectPro.value).toBe("openai/gpt-5.6-sol-pro");
 
-      thinkingSelect = screen.getByRole("combobox", { name: "Thinking" }) as HTMLSelectElement;
+      thinkingSelect = screen.getByRole("combobox", { name: "Reasoning effort" }) as HTMLSelectElement;
       expect(thinkingSelect.value).toBe("high");
       options = Array.from(thinkingSelect.options).map((opt) => opt.value);
       expect(options).toEqual(["off", "low", "medium", "high", "xhigh", "max"]);
+    });
+
+    it("renders each of the 15 catalog IDs with exactly its catalog-declared effort options (§19.4)", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return stableModelsResult();
+        return null;
+      });
+
+      for (const modelId of OPENAI_REASONING_MODEL_IDS) {
+        const { unmount } = render(
+          <OpenRouterModelSelector
+            {...DEFAULT_PROPS}
+            currentUpstream={modelId}
+            currentThinkingMode="thinking"
+            currentReasoningEffort="medium"
+          />,
+        );
+        await waitForReady();
+
+        const thinkingSelect = screen.getByRole("combobox", { name: "Reasoning effort" }) as HTMLSelectElement;
+        expect(thinkingSelect).toBeInTheDocument();
+        const renderedOptionValues = Array.from(thinkingSelect.options).map((opt) => opt.value);
+
+        const caps = MODEL_CAPABILITIES[modelId];
+        const expectedOptions: string[] = [];
+        if (caps?.reasoningEffortOptions?.includes("none")) {
+          expectedOptions.push("off");
+        }
+        for (const eff of caps?.reasoningEffortOptions ?? []) {
+          if (eff !== "none") expectedOptions.push(eff);
+        }
+
+        expect(renderedOptionValues).toEqual(expectedOptions);
+        unmount();
+      }
+    });
+
+    it("preserves a still-valid selected effort when switching between regular and -pro variants (§19.4)", async () => {
+      const saves: Array<{ upstreamModel?: string; reasoningEffort?: string | null; thinkingMode?: string | null }> = [];
+      invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+        if (cmd === "openrouter_get_models") return stableModelsResult();
+        if (cmd === "set_model_upstream") {
+          const payload = (args ?? {}) as {
+            upstream_model?: string;
+            upstreamModel?: string;
+            thinking_mode?: string | null;
+            thinkingMode?: string | null;
+            reasoning_effort?: string | null;
+            reasoningEffort?: string | null;
+          };
+          saves.push({
+            upstreamModel: payload.upstream_model ?? payload.upstreamModel,
+            thinkingMode: payload.thinking_mode ?? payload.thinkingMode,
+            reasoningEffort: payload.reasoning_effort ?? payload.reasoningEffort,
+          });
+          return saveOkResponse(false);
+        }
+        return null;
+      });
+
+      // 1. Switch between GPT-6.1 Sol and Sol Pro preserving 'high'
+      const { unmount } = render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="openai/gpt-6.1-sol"
+          currentThinkingMode="thinking"
+          currentReasoningEffort="high"
+        />,
+      );
+      await waitForReady();
+
+      const modelSelect = screen.getByTestId("openrouter-model-select");
+      await userEvent.selectOptions(modelSelect, "openai/gpt-6.1-sol-pro");
+
+      await waitFor(() => {
+        expect(saves.length).toBeGreaterThan(0);
+      });
+      expect(saves[saves.length - 1]).toEqual({
+        upstreamModel: "openai/gpt-6.1-sol-pro",
+        thinkingMode: "thinking",
+        reasoningEffort: "high",
+      });
+
+      // 2. Switch between Astra and Astra Pro preserving 'xhigh'
+      await userEvent.selectOptions(modelSelect, "openai/gpt-6-astra");
+      await waitFor(() => {
+        expect(saves.length).toBeGreaterThan(1);
+      });
+      // Set to xhigh
+      const effortSelect = screen.getByRole("combobox", { name: "Reasoning effort" });
+      await userEvent.selectOptions(effortSelect, "xhigh");
+      await waitFor(() => {
+        expect(saves.length).toBeGreaterThan(2);
+      });
+      expect(saves[saves.length - 1].reasoningEffort).toBe("xhigh");
+
+      await userEvent.selectOptions(modelSelect, "openai/gpt-6-astra-pro");
+      await waitFor(() => {
+        expect(saves.length).toBeGreaterThan(3);
+      });
+      expect(saves[saves.length - 1]).toEqual({
+        upstreamModel: "openai/gpt-6-astra-pro",
+        thinkingMode: "thinking",
+        reasoningEffort: "xhigh",
+      });
+
+      unmount();
+    });
+
+    it("resolves off/none only for models whose catalog metadata supports none, and otherwise selects valid default (§19.4)", async () => {
+      const saves: Array<{ upstreamModel?: string; reasoningEffort?: string | null; thinkingMode?: string | null }> = [];
+      invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+        if (cmd === "openrouter_get_models") return stableModelsResult();
+        if (cmd === "set_model_upstream") {
+          const payload = (args ?? {}) as {
+            upstream_model?: string;
+            upstreamModel?: string;
+            thinking_mode?: string | null;
+            thinkingMode?: string | null;
+            reasoning_effort?: string | null;
+            reasoningEffort?: string | null;
+          };
+          saves.push({
+            upstreamModel: payload.upstream_model ?? payload.upstreamModel,
+            thinkingMode: payload.thinking_mode ?? payload.thinkingMode,
+            reasoningEffort: payload.reasoning_effort ?? payload.reasoningEffort,
+          });
+          return saveOkResponse(false);
+        }
+        return null;
+      });
+
+      // Start with GPT-6 Sol in normal/off mode (supports none)
+      const { unmount } = render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="openai/gpt-6-sol"
+          currentThinkingMode="normal"
+          currentReasoningEffort={undefined}
+        />,
+      );
+      await waitForReady();
+
+      const modelSelect = screen.getByTestId("openrouter-model-select");
+
+      // Switch to GPT-6 Sol Pro (supports none) -> preserves off
+      await userEvent.selectOptions(modelSelect, "openai/gpt-6-sol-pro");
+      await waitFor(() => {
+        expect(saves.length).toBeGreaterThan(0);
+      });
+      expect(saves[saves.length - 1]).toEqual({
+        upstreamModel: "openai/gpt-6-sol-pro",
+        thinkingMode: "normal",
+        reasoningEffort: null,
+      });
+
+      // Switch to GPT-6.1 Sol (does NOT support none) -> falls back to medium
+      await userEvent.selectOptions(modelSelect, "openai/gpt-6.1-sol");
+      await waitFor(() => {
+        expect(saves.length).toBeGreaterThan(1);
+      });
+      expect(saves[saves.length - 1]).toEqual({
+        upstreamModel: "openai/gpt-6.1-sol",
+        thinkingMode: "thinking",
+        reasoningEffort: "medium",
+      });
+
+      unmount();
+    });
+
+    it("leaves representative non-OpenAI vendor selection behavior unchanged (§19.4)", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return stableModelsResult();
+        return null;
+      });
+
+      // DeepSeek model
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="deepseek/deepseek-v4-flash-0731"
+          currentThinkingMode="thinking"
+          currentReasoningEffort="high"
+        />,
+      );
+      await waitForReady();
+
+      // Uses Thinking accessible name (not Reasoning effort)
+      const thinkingSelect = screen.getByRole("combobox", { name: "Thinking" }) as HTMLSelectElement;
+      expect(thinkingSelect).toBeInTheDocument();
+      expect(screen.queryByRole("combobox", { name: "Reasoning effort" })).not.toBeInTheDocument();
+      const options = Array.from(thinkingSelect.options).map((opt) => opt.value);
+      expect(options).toEqual(["off", "high", "max"]);
     });
 
   });

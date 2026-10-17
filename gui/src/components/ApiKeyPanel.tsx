@@ -8,6 +8,7 @@ import {
   CUSTOM_MODEL_DEFAULTS,
   MODEL_CAPABILITIES,
   isKnownModel,
+  isOpenAiReasoningModel,
 } from "../modelCapabilities";
 import type { ThinkingModePolicy, ThinkingOption, ReasoningEffortOption } from "../modelCapabilities";
 import { normalizeReasoningEffort, isReasoningEffortOption } from "../reasoningEffort";
@@ -35,6 +36,30 @@ const COL_STYLE: React.CSSProperties = {
 };
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
+
+export function isGpt61SolModel(model: string): boolean {
+  return isOpenAiReasoningModel(model);
+}
+
+/**
+ * Resolves the effective reasoning effort for OpenAI reasoning models (§13 & §27).
+ * - Preserves any valid effort listed in the model's catalog options (including "none" where supported).
+ * - Maps legacy "normal" or "off" to "none" if supported, else "medium".
+ * - For missing/other invalid values, falls back to "medium" (or options[0] as safety).
+ */
+export function resolveOpenAiEffort(
+  rawEffort: string | undefined,
+  mode: string | undefined,
+  options: readonly ReasoningEffortOption[],
+): ReasoningEffortOption {
+  if (rawEffort === "normal" || rawEffort === "off" || (mode === "normal" && !rawEffort)) {
+    return options.includes("none") ? "none" : (options.includes("medium") ? "medium" : (options[0] ?? "medium"));
+  }
+  if (rawEffort && options.includes(rawEffort as ReasoningEffortOption)) {
+    return rawEffort as ReasoningEffortOption;
+  }
+  return options.includes("medium") ? "medium" : (options[0] ?? "medium");
+}
 
 export interface ModelSelectorProps {
   providerId: string;
@@ -91,9 +116,7 @@ export function ModelSelector({
       : "normal",
   );
   const [reasoningEffort, setReasoningEffort] = useState(
-    currentReasoningEffort === "high" || currentReasoningEffort === "medium" || currentReasoningEffort === "low" || currentReasoningEffort === "max"
-      ? currentReasoningEffort
-      : "",
+    currentReasoningEffort || "",
   );
   // For "forced" policy (OpenRouter Laguna): derive selected option from current thinking_mode + effort
   const [forcedOption, setForcedOption] = useState<ThinkingOption>(() => {
@@ -145,11 +168,7 @@ export function ModelSelector({
   }, [currentThinkingMode]);
 
   useEffect(() => {
-    if (currentReasoningEffort === "high" || currentReasoningEffort === "medium" || currentReasoningEffort === "low" || currentReasoningEffort === "max") {
-      setReasoningEffort(currentReasoningEffort);
-    } else {
-      setReasoningEffort("");
-    }
+    setReasoningEffort(currentReasoningEffort || "");
   }, [currentReasoningEffort]);
 
   // Cleanup on unmount: prevent post-unmount setState, side-effects,
@@ -318,17 +337,22 @@ export function ModelSelector({
     const nextSupportsEffort = nextCaps.supportsReasoningEffort || !!nextCaps.forcedReasoningEffort;
     const nextForcedEffort = nextCaps.forcedReasoningEffort;
     const nextForcedOptions = nextCaps.forcedThinkingOptions;
-    // Models with reasoningEffortOptions (e.g. DeepSeek V4 Flash): normalize the
+    const nextIsGpt61 = isGpt61SolModel(newModel);
+    // Models with reasoningEffortOptions (e.g. DeepSeek V4 Flash, OpenAI reasoning models): normalize the
     // current effort against the model's allowed set and the current thinking mode.
-    const nextEffort = nextCaps.reasoningEffortOptions
-      ? normalizeReasoningEffort(thinkingMode, reasoningEffort, nextCaps.reasoningEffortOptions)
-      : nextForcedEffort
-        ?? (nextCaps.supportsReasoningEffort
-          ? (nextForcedOptions && !nextForcedOptions.includes(reasoningEffort as ThinkingOption)
-            ? (nextForcedOptions[0] ?? "max")
-            : reasoningEffort)
-          : "");
-    if (nextCaps.reasoningEffortOptions) {
+    const nextEffort = nextIsGpt61
+      ? resolveOpenAiEffort(reasoningEffort, thinkingMode, nextCaps.reasoningEffortOptions ?? [])
+      : nextCaps.reasoningEffortOptions
+        ? normalizeReasoningEffort(thinkingMode, reasoningEffort, nextCaps.reasoningEffortOptions)
+        : nextForcedEffort
+          ?? (nextCaps.supportsReasoningEffort
+            ? (nextForcedOptions && !nextForcedOptions.includes(reasoningEffort as ThinkingOption)
+              ? (nextForcedOptions[0] ?? "max")
+              : reasoningEffort)
+            : "");
+    if (nextIsGpt61) {
+      setReasoningEffort(nextEffort);
+    } else if (nextCaps.reasoningEffortOptions) {
       setReasoningEffort(nextEffort);
     } else if (!nextSupportsEffort) {
       setReasoningEffort("");
@@ -341,11 +365,13 @@ export function ModelSelector({
 
     let modeToSave: string | undefined;
     let nextEffortVal = nextEffort;
-    if (thinkingModePolicy === "thinking_only") {
+    if (nextIsGpt61 || isZai) {
+      modeToSave = "thinking";
+    } else if (thinkingModePolicy === "thinking_only") {
       // GLM's catalog policy is the capability expression "thinking_only"; the
       // persisted canonical value is "thinking" and the catalog value must
       // never be written into the config.
-      modeToSave = isZai ? "thinking" : "thinking_only";
+      modeToSave = "thinking_only";
     } else if (thinkingModePolicy === "toggleable") {
       modeToSave = thinkingMode;
     } else if (thinkingModePolicy === "forced") {
@@ -407,11 +433,13 @@ export function ModelSelector({
     setReasoningEffort(newEffort);
 
     let modeToSave: string | undefined;
-    if (thinkingModePolicy === "thinking_only") {
+    if (isGpt61Sol || isZai) {
+      modeToSave = "thinking";
+    } else if (thinkingModePolicy === "thinking_only") {
       // GLM's catalog policy is the capability expression "thinking_only"; the
       // persisted canonical value is "thinking" and the catalog value must
       // never be written into the config.
-      modeToSave = isZai ? "thinking" : "thinking_only";
+      modeToSave = "thinking_only";
     } else if (thinkingModePolicy === "toggleable") {
       modeToSave = thinkingMode;
     }
@@ -424,11 +452,13 @@ export function ModelSelector({
     if (!trimmed || trimmed === currentUpstream) return;
 
     let modeToSave: string | undefined;
-    if (thinkingModePolicy === "thinking_only") {
+    if (isGpt61Sol || isZai) {
+      modeToSave = "thinking";
+    } else if (thinkingModePolicy === "thinking_only") {
       // GLM's catalog policy is the capability expression "thinking_only"; the
       // persisted canonical value is "thinking" and the catalog value must
       // never be written into the config.
-      modeToSave = isZai ? "thinking" : "thinking_only";
+      modeToSave = "thinking_only";
     } else if (thinkingModePolicy === "toggleable") {
       modeToSave = thinkingMode;
     }
@@ -445,12 +475,23 @@ export function ModelSelector({
 
   const getReasoningEffortLabel = (option: ReasoningEffortOption): string => {
     switch (option) {
-      case "low":  return t("apiKeyPanel.reasoningEffortLow");
-      case "high": return t("apiKeyPanel.reasoningEffortHigh");
-      case "max":  return t("apiKeyPanel.reasoningEffortMaxFixed");
-      default:     return option;
+      case "none":   return t("apiKeyPanel.normalMode");
+      case "low":    return t("apiKeyPanel.reasoningEffortLow");
+      case "medium": return t("apiKeyPanel.reasoningEffortMedium");
+      case "high":   return t("apiKeyPanel.reasoningEffortHigh");
+      case "xhigh":  return t("openRouterModels.reasoningExtraHigh") || "Extra High";
+      case "max":    return t("apiKeyPanel.reasoningEffortMaxFixed");
+      default:       return option;
     }
   };
+
+  // OpenAI reasoning models: low/medium/high/xhigh/max (and none for supported models).
+  // Missing/invalid defaults to "medium".
+  const isGpt61Sol = isGpt61SolModel(selected);
+  const gpt61EffortOptions: ReasoningEffortOption[] =
+    selectedCaps.reasoningEffortOptions ?? ["low", "medium", "high", "xhigh", "max"];
+  const effectiveGpt61Effort: ReasoningEffortOption =
+    resolveOpenAiEffort(reasoningEffort, thinkingMode, gpt61EffortOptions);
 
   // Exclusive reasoning-effort selectors for DeepSeek. The model-specific
   // selector (standard V4 Pro/Flash) is driven by reasoningEffortOptions; there
@@ -673,6 +714,38 @@ export function ModelSelector({
             {glmEffortOptions.map((option) => (
               <option key={option} value={option}>
                 {getReasoningEffortLabel(option)}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+
+      {/* Reasoning effort — OpenAI GPT-6.1 Sol: low/medium/high/xhigh/max selector */}
+      {isGpt61Sol && (
+        <>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#1f2937" }}>
+            {t("apiKeyPanel.reasoningEffort")}:
+          </span>
+          <select
+            aria-label={t("apiKeyPanel.reasoningEffort")}
+            style={{
+              padding: "4px 8px",
+              fontSize: 11,
+              fontFamily: "var(--font-mono)",
+              background: "#fff",
+              color: "#1f2937",
+              border: "1px solid #d0d7de",
+              borderRadius: 4,
+              outline: "none",
+              minWidth: 90,
+              cursor: "pointer",
+            }}
+            value={effectiveGpt61Effort}
+            onChange={(e) => handleReasoningEffortChange(e.target.value)}
+          >
+            {gpt61EffortOptions.map((opt) => (
+              <option key={opt} value={opt}>
+                {getReasoningEffortLabel(opt)}
               </option>
             ))}
           </select>

@@ -475,6 +475,8 @@ export const translations: TranslationMap = {
   "modelPricing.notes.gpt56Promotion": "OpenRouter에서 이 모델에 대한 기간 한정 프로모션 요금이 현재 적용 중입니다. 종료일은 발표되지 않았습니다.",
   "modelPricing.notes.gpt56LongContext": "프롬프트가 272K 토큰 이상이면 장문 컨텍스트 요금이 적용됩니다.",
   "modelPricing.discountedPriceAria": "현재 가격 {current}, 조정된 표준 가격 {regular}",
+  "modelPricing.chinaHolidays.updateDue": "{year}년 중국 공휴일 데이터가 아직 수록되지 않았습니다.",
+  "modelPricing.chinaHolidays.expired": "{year}년 중국 공휴일 데이터가 수록되지 않았습니다. DeepSeek 공휴일 요금 판정이 불완전합니다.",
   "peakValley.peak": "PEAK",
   "peakValley.valley": "VALLEY",
   "peakValley.pricingDisplayTimezone": "표시 시간대",

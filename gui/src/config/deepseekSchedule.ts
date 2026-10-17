@@ -4,7 +4,22 @@
 // Valley: everything else
 
 import { getTimezoneOffsetMinutes as _getTimezoneOffsetMinutes } from "../utils/timezone";
+import {
+  BUNDLED_CHINA_HOLIDAYS,
+  ChinaHolidayYearData,
+  getChinaHolidayOverride,
+  getChinaCalendarStatus,
+  ChinaCalendarStatus,
+  ChinaCalendarStatusResult,
+} from "./chinaHolidays";
+
 export { _getTimezoneOffsetMinutes as getTimezoneOffsetMinutes };
+export {
+  BUNDLED_CHINA_HOLIDAYS,
+  getChinaHolidayOverride,
+  getChinaCalendarStatus,
+};
+export type { ChinaHolidayYearData, ChinaCalendarStatus, ChinaCalendarStatusResult };
 
 export type DeepSeekPricingPeriodType = "PEAK" | "VALLEY";
 
@@ -56,17 +71,48 @@ export function isWeekendBeijing(utcDate: Date): boolean {
  * Determine current DeepSeek pricing period from a UTC Date.
  * Boundary: start inclusive, end exclusive.
  */
-export function getDeepSeekPricingStatus(utcDate: Date): DeepSeekPricingStatus {
+export function getDeepSeekPricingStatus(
+  utcDate: Date,
+  calendars: Record<number, ChinaHolidayYearData> = BUNDLED_CHINA_HOLIDAYS,
+): DeepSeekPricingStatus {
   const schedule = DEEPSEEK_PRICING_SCHEDULE;
 
   const isEffective =
     schedule.effectiveFromUtc == null ||
     utcDate >= new Date(schedule.effectiveFromUtc);
 
+  // Determine Shanghai-local date
+  const beijingDate = getBeijingDate(utcDate);
+  const y = beijingDate.getUTCFullYear();
+  const m = String(beijingDate.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(beijingDate.getUTCDate()).padStart(2, "0");
+  const dateStr = `${y}-${m}-${d}`;
+
+  const holidayOverride = getChinaHolidayOverride(dateStr, calendars);
+
+  // Explicit off-day: entire local day is VALLEY
+  if (holidayOverride === true) {
+    return {
+      period: {
+        type: "VALLEY",
+        startMinuteUTC: 0,
+        endMinuteUTC: 1440,
+        crossesMidnightUTC: false,
+      },
+      isEffective,
+    };
+  }
+
+  // Determine weekend status:
+  // If explicit make-up workday (false): treat as working day even when Saturday/Sunday.
+  // If undefined: fallback to standard weekend check.
+  const isWeekend =
+    holidayOverride === false ? false : isWeekendBeijing(utcDate);
+
   const isWeekendOverride =
     schedule.weekendAllDayValleyEffectiveFromUtc != null &&
     utcDate >= new Date(schedule.weekendAllDayValleyEffectiveFromUtc) &&
-    isWeekendBeijing(utcDate);
+    isWeekend;
 
   if (isWeekendOverride) {
     return {

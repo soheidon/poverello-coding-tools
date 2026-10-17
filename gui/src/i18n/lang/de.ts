@@ -475,6 +475,8 @@ export const translations: TranslationMap = {
   "modelPricing.notes.gpt56Promotion": "Auf OpenRouter gilt für dieses Modell derzeit ein zeitlich begrenzter Aktionspreis. Ein Enddatum wurde nicht angekündigt.",
   "modelPricing.notes.gpt56LongContext": "Prompts ab 272K Tokens werden nach dem Langkontext-Tarif berechnet.",
   "modelPricing.discountedPriceAria": "Aktueller Preis {current}, überarbeiteter Standardpreis {regular}",
+  "modelPricing.chinaHolidays.updateDue": "Chinesische Feiertagsdaten für {year} sind noch nicht enthalten.",
+  "modelPricing.chinaHolidays.expired": "Chinesische Feiertagsdaten für {year} sind nicht enthalten. Die DeepSeek-Feiertagspreisbestimmung ist unvollständig.",
   "peakValley.peak": "PEAK",
   "peakValley.valley": "VALLEY",
   "peakValley.pricingDisplayTimezone": "Zeitzone",

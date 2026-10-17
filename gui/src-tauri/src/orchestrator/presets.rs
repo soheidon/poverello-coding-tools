@@ -1,5 +1,6 @@
 use super::plan_workspace::PlanWorkspaceConfig;
 use super::types::*;
+use crate::model_capabilities::try_resolve_static_context_window;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -60,7 +61,7 @@ pub fn default_orchestrator_profiles() -> Vec<OrchestratorProfile> {
             ],
             provider_id: Some("deepseek".to_string()),
             provider_profile_id: None,
-            model: Some("deepseek-v4.1-flash".to_string()),
+            model: Some("deepseek-flash".to_string()),
             thinking_mode: Some("thinking".to_string()),
             reasoning_effort: Some("high".to_string()),
             ollama_model: None,
@@ -69,7 +70,8 @@ pub fn default_orchestrator_profiles() -> Vec<OrchestratorProfile> {
             args: None,
             external_mcp_server: None,
             mcp_tool: None,
-            context_window_tokens: Some(128_000),
+            context_window_tokens: try_resolve_static_context_window("deepseek", "deepseek-flash")
+                .map(|cw| cw.context_length),
         },
         OrchestratorProfile {
             id: "minimax-m3".to_string(),
@@ -1277,5 +1279,39 @@ edition = "2021"
         assert!(rel_paths.contains(&Some("packages/core".to_string())));
         assert!(!rel_paths.contains(&Some("packages/core/sub/deep".to_string())));
         assert!(!rel_paths.contains(&Some("node_modules/foo".to_string())));
+    }
+
+    #[test]
+    fn test_default_orchestrator_profiles_direct_deepseek_uses_canonical_flash_id_and_catalog_context() {
+        let profiles = default_orchestrator_profiles();
+        let ds = profiles
+            .iter()
+            .find(|p| p.provider_id.as_deref() == Some("deepseek"))
+            .expect("default profiles must contain a direct deepseek profile");
+        assert_eq!(
+            ds.id, "deepseek-v41-flash",
+            "must preserve stable profile ID"
+        );
+        assert_eq!(
+            ds.model.as_deref(),
+            Some("deepseek-flash"),
+            "standard direct deepseek preset must use canonical deepseek-flash ID"
+        );
+        assert_eq!(
+            ds.context_window_tokens,
+            try_resolve_static_context_window("deepseek", "deepseek-flash").map(|cw| cw.context_length),
+            "context window must match static catalog lookup"
+        );
+        assert_eq!(
+            ds.context_window_tokens,
+            Some(1_048_576),
+            "catalog context length for deepseek:deepseek-flash must be 1,048,576"
+        );
+
+        // Verify non-DeepSeek profiles retain their context defaults
+        let mimo = profiles.iter().find(|p| p.id == "mimo-v26-pro").unwrap();
+        assert_eq!(mimo.context_window_tokens, Some(1_000_000));
+        let kimi = profiles.iter().find(|p| p.id == "kimi-k3").unwrap();
+        assert_eq!(kimi.context_window_tokens, Some(1_048_576));
     }
 }

@@ -1086,11 +1086,21 @@
         "supportsImageBase64": true,
         "supportsVideoUrl": false,
         "supportsVideoBase64": false,
-        "forceThinking": false,
-        "thinkingDefault": "reasoning_effort",
-        "thinkingPolicy": "forced",
+        "forceThinking": true,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
+        "reasoning": {
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
           "low",
           "medium",
           "high",
@@ -1110,11 +1120,21 @@
         "supportsImageBase64": true,
         "supportsVideoUrl": false,
         "supportsVideoBase64": false,
-        "forceThinking": false,
-        "thinkingDefault": "reasoning_effort",
-        "thinkingPolicy": "forced",
+        "forceThinking": true,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
+        "reasoning": {
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
           "low",
           "medium",
           "high",
@@ -1138,7 +1158,19 @@
         "thinkingDefault": "reasoning_effort",
         "thinkingPolicy": "forced",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
+        "reasoning": {
+          "supportedEfforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "none",
           "low",
           "medium",
           "high",
@@ -1162,7 +1194,19 @@
         "thinkingDefault": "reasoning_effort",
         "thinkingPolicy": "forced",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
+        "reasoning": {
+          "supportedEfforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "none",
           "low",
           "medium",
           "high",
@@ -1186,8 +1230,19 @@
         "thinkingDefault": "reasoning_effort",
         "thinkingPolicy": "forced",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
-          "off",
+        "reasoning": {
+          "supportedEfforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "none",
           "low",
           "medium",
           "high",
@@ -1211,8 +1266,19 @@
         "thinkingDefault": "reasoning_effort",
         "thinkingPolicy": "forced",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
-          "off",
+        "reasoning": {
+          "supportedEfforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "none",
           "low",
           "medium",
           "high",
@@ -1236,7 +1302,17 @@
         "thinkingDefault": "reasoning_effort",
         "thinkingPolicy": "forced",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
+        "reasoning": {
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
           "low",
           "medium",
           "high",
@@ -1259,7 +1335,24 @@
         "forceThinking": true,
         "thinkingDefault": "default",
         "thinkingPolicy": "thinking_only",
-        "supportsReasoningEffort": false
+        "supportsReasoningEffort": true,
+        "reasoning": {
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
       }
     },
     "openai/gpt-astra-latest": {
@@ -1277,7 +1370,17 @@
         "thinkingDefault": "reasoning_effort",
         "thinkingPolicy": "forced",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
+        "reasoning": {
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
           "low",
           "medium",
           "high",
@@ -1301,8 +1404,19 @@
         "thinkingDefault": "reasoning_effort",
         "thinkingPolicy": "forced",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
-          "off",
+        "reasoning": {
+          "supportedEfforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "none",
           "low",
           "medium",
           "high",
@@ -1326,8 +1440,19 @@
         "thinkingDefault": "reasoning_effort",
         "thinkingPolicy": "forced",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
-          "off",
+        "reasoning": {
+          "supportedEfforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "none",
           "low",
           "medium",
           "high",
@@ -1351,8 +1476,19 @@
         "thinkingDefault": "reasoning_effort",
         "thinkingPolicy": "forced",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
-          "off",
+        "reasoning": {
+          "supportedEfforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "none",
           "low",
           "medium",
           "high",
@@ -1376,8 +1512,19 @@
         "thinkingDefault": "reasoning_effort",
         "thinkingPolicy": "forced",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
-          "off",
+        "reasoning": {
+          "supportedEfforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "none",
           "low",
           "medium",
           "high",
@@ -1401,8 +1548,19 @@
         "thinkingDefault": "reasoning_effort",
         "thinkingPolicy": "forced",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
-          "off",
+        "reasoning": {
+          "supportedEfforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "none",
           "low",
           "medium",
           "high",
@@ -1426,8 +1584,19 @@
         "thinkingDefault": "reasoning_effort",
         "thinkingPolicy": "forced",
         "supportsReasoningEffort": true,
-        "forcedThinkingOptions": [
-          "off",
+        "reasoning": {
+          "supportedEfforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "none",
           "low",
           "medium",
           "high",

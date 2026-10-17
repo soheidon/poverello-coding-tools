@@ -85,6 +85,15 @@ pub fn resolve_static_model_capabilities(upstream_model: &str) -> ModelCapabilit
 // Shared static model catalog — consumed by Rust runtime code and the frontend.
 // ---------------------------------------------------------------------------
 
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogReasoningCapabilities {
+    #[serde(default)]
+    pub supported_efforts: Vec<String>,
+    #[serde(default)]
+    pub default_effort: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CatalogModelCapabilities {
@@ -102,6 +111,15 @@ struct CatalogModelCapabilities {
     suppress_thinking_parameter: bool,
     #[serde(default)]
     forced_reasoning_effort: Option<String>,
+    #[serde(default)]
+    reasoning: Option<CatalogReasoningCapabilities>,
+}
+
+pub fn lookup_catalog_reasoning(upstream_model: &str) -> Option<&'static CatalogReasoningCapabilities> {
+    model_catalog()
+        .models
+        .get(upstream_model)
+        .and_then(|m| m.capabilities.reasoning.as_ref())
 }
 
 #[derive(Deserialize)]
@@ -341,9 +359,29 @@ pub fn is_openai_astra_pro_model(model: &str) -> bool {
     model == "openai/gpt-6-astra-pro"
 }
 
+/// Check if an OpenRouter upstream model is the OpenAI GPT-6.1 Sol family.
+pub fn is_openai_gpt61_sol(model: &str) -> bool {
+    matches!(model, "openai/gpt-6.1-sol" | "openai/gpt-6.1-sol-pro")
+}
+
+/// Check if an OpenRouter upstream model is the OpenAI GPT-6 Sol/Luna family.
+pub fn is_openai_gpt6_sol_luna(model: &str) -> bool {
+    matches!(
+        model,
+        "openai/gpt-6-sol"
+            | "openai/gpt-6-sol-pro"
+            | "openai/gpt-6-luna"
+            | "openai/gpt-6-luna-pro"
+    )
+}
+
 /// Check if an OpenRouter upstream model is any recognized OpenAI model.
 pub fn is_openai_model(model: &str) -> bool {
-    is_openai_gpt56_model(model) || is_openai_astra_model(model) || is_openai_astra_pro_model(model)
+    is_openai_gpt56_model(model)
+        || is_openai_astra_model(model)
+        || is_openai_astra_pro_model(model)
+        || is_openai_gpt61_sol(model)
+        || is_openai_gpt6_sol_luna(model)
 }
 
 /// Check if an OpenRouter upstream model is DeepSeek V4.1 Flash.
@@ -763,6 +801,80 @@ mod tests {
         assert_eq!(astra_pro.context_length, 1050000);
         let astra_latest = try_resolve_static_context_window("openrouter", "openai/gpt-astra-latest").unwrap();
         assert_eq!(astra_latest.context_length, 1050000);
+    }
+
+    // ── OpenAI GPT-6.1 Sol tests ─────────────────────────────────────
+
+    #[test]
+    fn is_openai_gpt61_sol_predicates() {
+        assert!(is_openai_gpt61_sol("openai/gpt-6.1-sol"));
+        assert!(is_openai_gpt61_sol("openai/gpt-6.1-sol-pro"));
+        assert!(!is_openai_gpt61_sol("openai/gpt-6-sol"));
+        assert!(!is_openai_gpt61_sol("openai/gpt-6-sol-pro"));
+        assert!(!is_openai_gpt61_sol("openai/gpt-5.6-sol"));
+        assert!(!is_openai_gpt61_sol("openai/gpt-6-astra"));
+        assert!(!is_openai_gpt61_sol("openai/gpt-6-astra-pro"));
+        assert!(!is_openai_gpt61_sol("google/gemini-3.8-flash"));
+        assert!(!is_openai_gpt61_sol(""));
+
+        assert!(is_openai_model("openai/gpt-6.1-sol"));
+        assert!(is_openai_model("openai/gpt-6.1-sol-pro"));
+    }
+
+    #[test]
+    fn static_caps_openai_gpt61_sol_models() {
+        for id in &["openai/gpt-6.1-sol", "openai/gpt-6.1-sol-pro"] {
+            let caps = resolve_static_model_capabilities(id);
+            assert!(caps.force_thinking, "force_thinking should be true for {}", id);
+            assert!(caps.supports_image_url, "supports_image_url should be true for {}", id);
+            assert!(caps.supports_image_base64, "supports_image_base64 should be true for {}", id);
+            assert!(!caps.supports_video_url, "supports_video_url should be false for {}", id);
+            assert!(!caps.supports_video_base64, "supports_video_base64 should be false for {}", id);
+        }
+    }
+
+    #[test]
+    fn openai_all_15_ids_recognized_and_catalog_matrix_tested() {
+        let expected_matrix: &[(&str, &[&str], &str)] = &[
+            ("openai/gpt-6.1-sol", &["low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-6.1-sol-pro", &["low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-6-sol", &["none", "low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-6-sol-pro", &["none", "low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-6-luna", &["none", "low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-6-luna-pro", &["none", "low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-6-astra", &["low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-6-astra-pro", &["low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-astra-latest", &["low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-5.6-sol", &["none", "low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-5.6-sol-pro", &["none", "low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-5.6-terra", &["none", "low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-5.6-terra-pro", &["none", "low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-5.6-luna", &["none", "low", "medium", "high", "xhigh", "max"], "medium"),
+            ("openai/gpt-5.6-luna-pro", &["none", "low", "medium", "high", "xhigh", "max"], "medium"),
+        ];
+
+        assert_eq!(expected_matrix.len(), 15);
+
+        for (id, expected_efforts, expected_default) in expected_matrix {
+            assert!(is_openai_model(id), "{} must be recognized by is_openai_model", id);
+            let caps = lookup_catalog_reasoning(id).unwrap_or_else(|| panic!("catalog reasoning missing for {}", id));
+            assert_eq!(caps.default_effort, *expected_default, "default effort mismatch for {}", id);
+            let actual_efforts: Vec<&str> = caps.supported_efforts.iter().map(|s| s.as_str()).collect();
+            assert_eq!(&actual_efforts[..], *expected_efforts, "supported efforts mismatch for {}", id);
+        }
+
+        // Negative cases
+        for non_openai in &[
+            "google/gemini-3.8-flash",
+            "tencent/hy3",
+            "poolside/laguna-s-2.1",
+            "deepseek/deepseek-v4.1-flash",
+            "anthropic/claude-opus-5",
+            "",
+            "openai/gpt-4o",
+        ] {
+            assert!(!is_openai_model(non_openai), "{} should NOT be recognized as OpenAI reasoning model", non_openai);
+        }
     }
 
     #[test]

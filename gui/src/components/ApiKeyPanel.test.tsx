@@ -3,6 +3,7 @@ import { render, screen, waitFor, within, act, cleanup } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import ApiKeyPanel, { ModelSelector, type ModelSelectorProps } from "./ApiKeyPanel";
+import { MODEL_CAPABILITIES } from "../modelCapabilities";
 import type { GatewayConfig } from "../types";
 
 // ── Setup ─────────────────────────────────────────────────────────
@@ -1204,6 +1205,553 @@ describe("Direct Anthropic provider controls", () => {
       key: "sk-ant-test-key-9999",
       envVarName: "ANTHROPIC_API_KEY",
     });
+  });
+});
+
+// ── Independent fixture for OpenAI reasoning models (§13 & §26) ────
+// Declared explicitly without deriving from MODEL_CAPABILITIES to ensure
+// independent verification of UI rendered options, defaults, and persistence.
+interface ExpectedReasoningModelFixture {
+  readonly id: string;
+  readonly expectedOptions: readonly string[];
+  readonly defaultEffort: string;
+  readonly supportsNone: boolean;
+}
+
+const INDEPENDENT_OPENAI_REASONING_FIXTURE: readonly ExpectedReasoningModelFixture[] = [
+  // Group 1: 5 choices, no "none"
+  {
+    id: "openai/gpt-6.1-sol",
+    expectedOptions: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: false,
+  },
+  {
+    id: "openai/gpt-6.1-sol-pro",
+    expectedOptions: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: false,
+  },
+  {
+    id: "openai/gpt-6-astra",
+    expectedOptions: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: false,
+  },
+  {
+    id: "openai/gpt-6-astra-pro",
+    expectedOptions: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: false,
+  },
+  {
+    id: "openai/gpt-astra-latest",
+    expectedOptions: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: false,
+  },
+  // Group 2: 6 choices, includes "none"
+  {
+    id: "openai/gpt-6-sol",
+    expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: true,
+  },
+  {
+    id: "openai/gpt-6-sol-pro",
+    expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: true,
+  },
+  {
+    id: "openai/gpt-6-luna",
+    expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: true,
+  },
+  {
+    id: "openai/gpt-6-luna-pro",
+    expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: true,
+  },
+  {
+    id: "openai/gpt-5.6-sol",
+    expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: true,
+  },
+  {
+    id: "openai/gpt-5.6-sol-pro",
+    expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: true,
+  },
+  {
+    id: "openai/gpt-5.6-terra",
+    expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: true,
+  },
+  {
+    id: "openai/gpt-5.6-terra-pro",
+    expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: true,
+  },
+  {
+    id: "openai/gpt-5.6-luna",
+    expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: true,
+  },
+  {
+    id: "openai/gpt-5.6-luna-pro",
+    expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: true,
+  },
+] as const;
+
+describe("OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13)", () => {
+  it("shared catalog declares reasoning metadata for all 15 OpenAI models (§13)", () => {
+    const all15Ids = [
+      "openai/gpt-6.1-sol",
+      "openai/gpt-6.1-sol-pro",
+      "openai/gpt-6-sol",
+      "openai/gpt-6-sol-pro",
+      "openai/gpt-6-luna",
+      "openai/gpt-6-luna-pro",
+      "openai/gpt-6-astra",
+      "openai/gpt-6-astra-pro",
+      "openai/gpt-astra-latest",
+      "openai/gpt-5.6-sol",
+      "openai/gpt-5.6-sol-pro",
+      "openai/gpt-5.6-terra",
+      "openai/gpt-5.6-terra-pro",
+      "openai/gpt-5.6-luna",
+      "openai/gpt-5.6-luna-pro",
+    ];
+    expect(all15Ids).toHaveLength(15);
+
+    for (const id of all15Ids) {
+      const caps = MODEL_CAPABILITIES[id];
+      expect(caps).toBeDefined();
+      expect(caps.supportsReasoningEffort).toBe(true);
+      expect(caps.reasoning).toBeDefined();
+      expect(caps.reasoning?.defaultEffort).toBe("medium");
+      expect(caps.reasoningEffortOptions).toEqual(caps.reasoning?.supportedEfforts);
+
+      if (id.includes("gpt-6.1") || id.includes("astra")) {
+        expect(caps.reasoningEffortOptions).toEqual(["low", "medium", "high", "xhigh", "max"]);
+        expect(caps.reasoningEffortOptions).not.toContain("none");
+      } else {
+        expect(caps.reasoningEffortOptions).toEqual(["none", "low", "medium", "high", "xhigh", "max"]);
+        expect(caps.reasoningEffortOptions).toContain("none");
+      }
+    }
+  });
+
+  it("renders 5 reasoning effort choices and thinking only (no normal toggle) for GPT-6.1 Sol, defaulting to medium", async () => {
+    const props = baseProps({
+      providerId: "openrouter",
+      modelKey: "claude-opus-5",
+      gatewayModelLabel: "Opus 5 →",
+      currentUpstream: "openai/gpt-6.1-sol",
+      thinkingModePolicy: "thinking_only",
+      currentThinkingMode: "thinking",
+      currentReasoningEffort: "",
+    });
+    render(<ModelSelector {...props} />);
+
+    // Thinking only indicator is shown
+    expect(screen.getByText("Thinking only")).toBeInTheDocument();
+
+    // No Normal/Thinking toggle combobox exists
+    const comboboxes = screen.getAllByRole("combobox");
+    // Only the model selector and the reasoning effort selector should exist
+    expect(comboboxes).toHaveLength(2);
+
+    const effortSelect = screen.getByLabelText(/reasoning effort/i) as HTMLSelectElement;
+    expect(effortSelect).toBeInTheDocument();
+    expect(effortSelect.value).toBe("medium");
+
+    const optionValues = Array.from(effortSelect.querySelectorAll("option")).map((o) => o.value);
+    expect(optionValues).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(optionValues).not.toContain("normal");
+    expect(optionValues).not.toContain("off");
+    expect(optionValues).not.toContain("none");
+    expect(optionValues).not.toContain("minimal");
+  });
+
+  it("handles legacy normal or invalid effort by falling back to medium on display without overwriting", () => {
+    const props = baseProps({
+      providerId: "openrouter",
+      modelKey: "claude-opus-5",
+      gatewayModelLabel: "Opus 5 →",
+      currentUpstream: "openai/gpt-6.1-sol",
+      thinkingModePolicy: "thinking_only",
+      currentThinkingMode: "normal",
+      currentReasoningEffort: "none",
+    });
+    render(<ModelSelector {...props} />);
+
+    const effortSelect = screen.getByLabelText(/reasoning effort/i) as HTMLSelectElement;
+    expect(effortSelect.value).toBe("medium");
+    expect(invokeMock).not.toHaveBeenCalledWith("set_model_upstream", expect.anything());
+  });
+
+  it("reloads and saves reasoning effort for GPT-6.1 Sol regular and Sol Pro", async () => {
+    const props = baseProps({
+      providerId: "openrouter",
+      modelKey: "claude-opus-5",
+      gatewayModelLabel: "Opus 5 →",
+      currentUpstream: "openai/gpt-6.1-sol",
+      thinkingModePolicy: "thinking_only",
+      currentThinkingMode: "thinking",
+      currentReasoningEffort: "high",
+    });
+    const { unmount } = render(<ModelSelector {...props} />);
+
+    let effortSelect = screen.getByLabelText(/reasoning effort/i) as HTMLSelectElement;
+    expect(effortSelect.value).toBe("high");
+
+    await act(async () => {
+      await userEvent.selectOptions(effortSelect, "xhigh");
+    });
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith(
+        "set_model_upstream",
+        expect.objectContaining({
+          upstreamModel: "openai/gpt-6.1-sol",
+          thinkingMode: "thinking",
+          reasoningEffort: "xhigh",
+        }),
+      );
+    });
+
+    unmount();
+
+    // Now test GPT-6.1 Sol Pro preserves model ID and saves correctly
+    const proProps = baseProps({
+      providerId: "openrouter",
+      modelKey: "claude-opus-5",
+      gatewayModelLabel: "Opus 5 →",
+      currentUpstream: "openai/gpt-6.1-sol-pro",
+      thinkingModePolicy: "thinking_only",
+      currentThinkingMode: "thinking",
+      currentReasoningEffort: "max",
+    });
+    render(<ModelSelector {...proProps} />);
+
+    effortSelect = screen.getByLabelText(/reasoning effort/i) as HTMLSelectElement;
+    expect(effortSelect.value).toBe("max");
+
+    await act(async () => {
+      await userEvent.selectOptions(effortSelect, "low");
+    });
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith(
+        "set_model_upstream",
+        expect.objectContaining({
+          upstreamModel: "openai/gpt-6.1-sol-pro",
+          thinkingMode: "thinking",
+          reasoningEffort: "low",
+        }),
+      );
+    });
+  });
+
+  describe("Table-driven actual UI rendering and persistence across all 15 models (§26)", () => {
+    it.each(INDEPENDENT_OPENAI_REASONING_FIXTURE)(
+      "renders actual effort selector with independent options, medium default, and persists valid effort for $id (§26)",
+      async (fixture) => {
+        const props = baseProps({
+          providerId: "openrouter",
+          modelKey: "claude-opus-5",
+          gatewayModelLabel: "Opus 5 →",
+          currentUpstream: fixture.id,
+          thinkingModePolicy: "thinking_only",
+          currentThinkingMode: "thinking",
+          currentReasoningEffort: "",
+        });
+        const { unmount } = render(<ModelSelector {...props} />);
+
+        // 1. The selected model is that exact ID and its effort selector is actually present.
+        const modelSelect = screen.getAllByRole("combobox")[0] as HTMLSelectElement;
+        expect(modelSelect.value).toBe(fixture.id);
+
+        const effortSelect = screen.getByLabelText(/reasoning effort/i) as HTMLSelectElement;
+        expect(effortSelect).toBeInTheDocument();
+
+        // 2. The rendered option values exactly equal the independent expected matrix in §13.2,
+        // including none only for models whose matrix includes it; no normal, off, or minimal option leaks.
+        const optionValues = Array.from(effortSelect.querySelectorAll("option")).map((o) => o.value);
+        expect(optionValues).toEqual(fixture.expectedOptions);
+        expect(optionValues).not.toContain("normal");
+        expect(optionValues).not.toContain("off");
+        expect(optionValues).not.toContain("minimal");
+        if (fixture.supportsNone) {
+          expect(optionValues).toContain("none");
+        } else {
+          expect(optionValues).not.toContain("none");
+        }
+
+        // 3. With no usable persisted effort, the effective selected default is medium.
+        expect(effortSelect.value).toBe(fixture.defaultEffort);
+
+        // 4. Changing to a valid effort persists the chosen value while retaining the exact model ID.
+        const targetEffort = "high";
+        await act(async () => {
+          await userEvent.selectOptions(effortSelect, targetEffort);
+        });
+
+        await waitFor(() => {
+          expect(invokeMock).toHaveBeenCalledWith(
+            "set_model_upstream",
+            expect.objectContaining({
+              upstreamModel: fixture.id,
+              thinkingMode: "thinking",
+              reasoningEffort: targetEffort,
+            }),
+          );
+        });
+
+        unmount();
+      },
+    );
+
+    it.each(INDEPENDENT_OPENAI_REASONING_FIXTURE)(
+      "handles legacy normal/off boundary on render without persisting for $id (§26 & §27)",
+      (fixture) => {
+        for (const legacyEffort of ["normal", "off"]) {
+          const props = baseProps({
+            providerId: "openrouter",
+            modelKey: "claude-opus-5",
+            gatewayModelLabel: "Opus 5 →",
+            currentUpstream: fixture.id,
+            thinkingModePolicy: "thinking_only",
+            currentThinkingMode: "normal",
+            currentReasoningEffort: legacyEffort,
+          });
+          const { unmount } = render(<ModelSelector {...props} />);
+
+          const effortSelect = screen.getByLabelText(/reasoning effort/i) as HTMLSelectElement;
+          const expectedBoundaryEffort = fixture.supportsNone ? "none" : "medium";
+          expect(effortSelect.value).toBe(expectedBoundaryEffort);
+          expect(invokeMock).not.toHaveBeenCalledWith("set_model_upstream", expect.anything());
+
+          unmount();
+        }
+      },
+    );
+  });
+
+  describe("None-supporting OpenAI models persisted load and explicit selection (§27)", () => {
+    const NONE_SUPPORTING_FIXTURES = INDEPENDENT_OPENAI_REASONING_FIXTURE.filter((f) => f.supportsNone);
+
+    it.each(NONE_SUPPORTING_FIXTURES)(
+      "preserves persisted 'none' on load without writing and persists 'none' when selected for $id (§27)",
+      async (fixture) => {
+        // 1. Persisted 'none' is selected on load/re-render without an automatic write
+        const props = baseProps({
+          providerId: "openrouter",
+          modelKey: "claude-opus-5",
+          gatewayModelLabel: "Opus 5 →",
+          currentUpstream: fixture.id,
+          thinkingModePolicy: "thinking_only",
+          currentThinkingMode: "thinking",
+          currentReasoningEffort: "none",
+        });
+        const { unmount } = render(<ModelSelector {...props} />);
+
+        const effortSelect = screen.getByLabelText(/reasoning effort/i) as HTMLSelectElement;
+        expect(effortSelect.value).toBe("none");
+        expect(invokeMock).not.toHaveBeenCalledWith("set_model_upstream", expect.anything());
+
+        unmount();
+
+        // 2. Selecting 'none' from a different effort persists the exact model ID plus 'none'
+        const initialProps = baseProps({
+          providerId: "openrouter",
+          modelKey: "claude-opus-5",
+          gatewayModelLabel: "Opus 5 →",
+          currentUpstream: fixture.id,
+          thinkingModePolicy: "thinking_only",
+          currentThinkingMode: "thinking",
+          currentReasoningEffort: "high",
+        });
+        render(<ModelSelector {...initialProps} />);
+
+        const selectToChange = screen.getByLabelText(/reasoning effort/i) as HTMLSelectElement;
+        expect(selectToChange.value).toBe("high");
+
+        await act(async () => {
+          await userEvent.selectOptions(selectToChange, "none");
+        });
+
+        await waitFor(() => {
+          expect(invokeMock).toHaveBeenCalledWith(
+            "set_model_upstream",
+            expect.objectContaining({
+              upstreamModel: fixture.id,
+              thinkingMode: "thinking",
+              reasoningEffort: "none",
+            }),
+          );
+        });
+      },
+    );
+  });
+
+  describe("Table-driven model-switch coverage for regular/-pro pairs and fallback (§27)", () => {
+    interface RegularProPair {
+      readonly regularId: string;
+      readonly proId: string;
+    }
+
+    const REGULAR_PRO_NONE_PAIRS: readonly RegularProPair[] = [
+      { regularId: "openai/gpt-6-sol", proId: "openai/gpt-6-sol-pro" },
+      { regularId: "openai/gpt-6-luna", proId: "openai/gpt-6-luna-pro" },
+      { regularId: "openai/gpt-5.6-sol", proId: "openai/gpt-5.6-sol-pro" },
+      { regularId: "openai/gpt-5.6-terra", proId: "openai/gpt-5.6-terra-pro" },
+      { regularId: "openai/gpt-5.6-luna", proId: "openai/gpt-5.6-luna-pro" },
+    ];
+
+    it.each(REGULAR_PRO_NONE_PAIRS)(
+      "preserves 'none' when switching regular -> pro and pro -> regular for $regularId <-> $proId (§27)",
+      async ({ regularId, proId }) => {
+        // regular -> pro
+        {
+          const props = baseProps({
+            providerId: "openrouter",
+            modelKey: "claude-opus-5",
+            gatewayModelLabel: "Opus 5 →",
+            currentUpstream: regularId,
+            thinkingModePolicy: "thinking_only",
+            currentThinkingMode: "thinking",
+            currentReasoningEffort: "none",
+          });
+          const { unmount } = render(<ModelSelector {...props} />);
+
+          const modelSelect = screen.getAllByRole("combobox")[0] as HTMLSelectElement;
+          expect(modelSelect.value).toBe(regularId);
+
+          await act(async () => {
+            await userEvent.selectOptions(modelSelect, proId);
+          });
+
+          await waitFor(() => {
+            expect(invokeMock).toHaveBeenCalledWith(
+              "set_model_upstream",
+              expect.objectContaining({
+                upstreamModel: proId,
+                thinkingMode: "thinking",
+                reasoningEffort: "none",
+              }),
+            );
+          });
+
+          const effortSelect = screen.getByLabelText(/reasoning effort/i) as HTMLSelectElement;
+          expect(effortSelect.value).toBe("none");
+
+          unmount();
+        }
+
+        // pro -> regular
+        {
+          invokeMock.mockReset();
+          resetInvoke();
+          const props = baseProps({
+            providerId: "openrouter",
+            modelKey: "claude-opus-5",
+            gatewayModelLabel: "Opus 5 →",
+            currentUpstream: proId,
+            thinkingModePolicy: "thinking_only",
+            currentThinkingMode: "thinking",
+            currentReasoningEffort: "none",
+          });
+          const { unmount } = render(<ModelSelector {...props} />);
+
+          const modelSelect = screen.getAllByRole("combobox")[0] as HTMLSelectElement;
+          expect(modelSelect.value).toBe(proId);
+
+          await act(async () => {
+            await userEvent.selectOptions(modelSelect, regularId);
+          });
+
+          await waitFor(() => {
+            expect(invokeMock).toHaveBeenCalledWith(
+              "set_model_upstream",
+              expect.objectContaining({
+                upstreamModel: regularId,
+                thinkingMode: "thinking",
+                reasoningEffort: "none",
+              }),
+            );
+          });
+
+          const effortSelect = screen.getByLabelText(/reasoning effort/i) as HTMLSelectElement;
+          expect(effortSelect.value).toBe("none");
+
+          unmount();
+        }
+      },
+    );
+
+    const NON_NONE_DESTINATIONS = [
+      "openai/gpt-6.1-sol",
+      "openai/gpt-6.1-sol-pro",
+      "openai/gpt-6-astra",
+      "openai/gpt-6-astra-pro",
+      "openai/gpt-astra-latest",
+    ];
+
+    it.each(REGULAR_PRO_NONE_PAIRS)(
+      "falls back to medium and never serializes none when switching from $regularId to non-none destinations (§27)",
+      async ({ regularId }) => {
+        for (const destId of NON_NONE_DESTINATIONS) {
+          invokeMock.mockReset();
+          resetInvoke();
+          const props = baseProps({
+            providerId: "openrouter",
+            modelKey: "claude-opus-5",
+            gatewayModelLabel: "Opus 5 →",
+            currentUpstream: regularId,
+            thinkingModePolicy: "thinking_only",
+            currentThinkingMode: "thinking",
+            currentReasoningEffort: "none",
+          });
+          const { unmount } = render(<ModelSelector {...props} />);
+
+          const modelSelect = screen.getAllByRole("combobox")[0] as HTMLSelectElement;
+          expect(modelSelect.value).toBe(regularId);
+
+          await act(async () => {
+            await userEvent.selectOptions(modelSelect, destId);
+          });
+
+          await waitFor(() => {
+            expect(invokeMock).toHaveBeenCalledWith(
+              "set_model_upstream",
+              expect.objectContaining({
+                upstreamModel: destId,
+                thinkingMode: "thinking",
+                reasoningEffort: "medium",
+              }),
+            );
+          });
+
+          const effortSelect = screen.getByLabelText(/reasoning effort/i) as HTMLSelectElement;
+          expect(effortSelect.value).toBe("medium");
+          expect(effortSelect.value).not.toBe("none");
+
+          unmount();
+        }
+      },
+    );
   });
 });
 

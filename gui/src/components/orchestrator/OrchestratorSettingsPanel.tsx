@@ -63,6 +63,26 @@ function initialExpandedGroups(): Set<string> {
   }
 }
 
+export function normalizeDirectDeepSeekModel(model: string): string {
+  if (model === "deepseek-v4.1-flash" || model === "deepseek-flash") {
+    return "deepseek-flash";
+  }
+  if (model === "deepseek-v4-pro") {
+    return "deepseek-v4-pro";
+  }
+  return model;
+}
+
+export function normalizeProfileForSave(profile: OrchestratorProfile): OrchestratorProfile {
+  if (profile.providerId === "deepseek" && profile.model) {
+    const normalizedModel = normalizeDirectDeepSeekModel(profile.model);
+    if (normalizedModel !== profile.model) {
+      return { ...profile, model: normalizedModel };
+    }
+  }
+  return profile;
+}
+
 function uniqueProfileId(): string {
   return `custom-${crypto.randomUUID()}`;
 }
@@ -107,21 +127,25 @@ function defaultProfileForGroup(
   const group = ORCHESTRATOR_PROVIDER_GROUPS.find((item) => item.key === groupKey);
   const providerId = group?.providerId ?? "deepseek";
   const models = getProviderModels(providerId);
-  const preferredModel = providerId === "deepseek" ? "deepseek-v4.1-flash"
+  const preferredModel = providerId === "deepseek" ? "deepseek-flash"
     : providerId === "mimo" ? "mimo-v2.6-pro"
       : providerId === "minimax" ? "MiniMax-M3"
         : providerId === "openrouter" ? "openai/gpt-5.6-sol"
           : models[0] ?? "";
   const model = models.includes(preferredModel) || providerId === "deepseek" ? preferredModel : models[0] ?? preferredModel;
-  const contextWindowTokens = providerId === "zai"
+  const contextWindowTokens = providerId === "deepseek"
     ? MODEL_CATALOG.contextWindows[`${providerId}:${model}`]?.context_length
       ?? MODEL_CATALOG.contextWindows[model]?.context_length
-      ?? 128_000
-    : providerId === "kimi" ? 1_048_576
-      : providerId === "kimi-code" ? 200_000
-        : providerId === "mimo" || providerId === "minimax" ? 1_000_000
-          : providerId === "openrouter" ? 1_050_000
-            : 128_000;
+      ?? undefined
+    : providerId === "zai"
+      ? MODEL_CATALOG.contextWindows[`${providerId}:${model}`]?.context_length
+        ?? MODEL_CATALOG.contextWindows[model]?.context_length
+        ?? 128_000
+      : providerId === "kimi" ? 1_048_576
+        : providerId === "kimi-code" ? 200_000
+          : providerId === "mimo" || providerId === "minimax" ? 1_000_000
+            : providerId === "openrouter" ? 1_050_000
+              : 128_000;
   const profile: OrchestratorProfile = {
     ...base,
     adapter: "provider",
@@ -143,11 +167,12 @@ function profileModelPolicy(profile: OrchestratorProfile): {
   forcedEffort?: string;
 } {
   if (profile.adapter !== "provider" || !profile.model) return { policy: "unknown", options: [] };
+  const effectiveModel = profile.providerId === "deepseek"
+    ? normalizeDirectDeepSeekModel(profile.model)
+    : profile.model;
   const capabilities: ModelCapabilities | undefined = profile.providerId === "openrouter"
     ? BUILTIN_OPENROUTER_MODELS[profile.model]?.capabilities ?? MODEL_CAPABILITIES[profile.model]
-    : profile.providerId === "deepseek" && profile.model === "deepseek-v4.1-flash"
-      ? MODEL_CAPABILITIES["deepseek-flash"]
-      : MODEL_CAPABILITIES[profile.model];
+    : MODEL_CAPABILITIES[effectiveModel] ?? MODEL_CAPABILITIES[profile.model];
   if (!capabilities) return { policy: "toggleable", options: [] };
   const rawOptions = capabilities.reasoningEffortOptions ?? capabilities.forcedThinkingOptions ?? [];
   return {
@@ -312,7 +337,8 @@ export default function OrchestratorSettingsPanel({ t, onChanged }: Props) {
     void savePatch({ profiles: current.profiles.map((profile) => {
       if (profile.id !== profileId) return profile;
       const updated = { ...profile, ...patch };
-      const canonical = canonicalizeProfileExecutionFields(updated);
+      const normalized = normalizeProfileForSave(updated);
+      const canonical = canonicalizeProfileExecutionFields(normalized);
       return { ...canonical, displayName: getOrchestratorProfileDisplayName(canonical) };
     }) });
   };
@@ -558,8 +584,12 @@ export default function OrchestratorSettingsPanel({ t, onChanged }: Props) {
                     const visible = slots.some((slot) => slot.visible);
                     const assignedRoles = assignedRolesForProfile(profile.id, config.assignments);
                     const isProvider = profile.adapter === "provider";
+                    const isDirectDeepSeek = isProvider && profile.providerId === "deepseek";
+                    const effectiveModel = isDirectDeepSeek && profile.model
+                      ? normalizeDirectDeepSeekModel(profile.model)
+                      : profile.model;
                     const models = isProvider ? [...getProviderModels(profile.providerId ?? "")] : [];
-                    if (profile.model && !models.includes(profile.model)) models.push(profile.model);
+                    if (effectiveModel && !models.includes(effectiveModel)) models.push(effectiveModel);
                     const modelPolicy = profileModelPolicy(profile);
                     const modelOptions = modelPolicy.options;
                     const currentModelList = ollamaModels[profile.id] ?? [];
@@ -595,7 +625,7 @@ export default function OrchestratorSettingsPanel({ t, onChanged }: Props) {
                               <label className="orchestrator-control-item">
                                 <span className="orchestrator-control-label">{t("orchestrator.settings.model")}</span>
                                 {models.length > 0 ? (
-                                  <select className="orchestrator-select" value={profile.model ?? ""} onChange={(event) => updateModel(profile, event.target.value)}>
+                                  <select className="orchestrator-select" value={effectiveModel ?? ""} onChange={(event) => updateModel(profile, event.target.value)}>
                                     {!profile.model && <option value="">—</option>}
                                     {models.map((model) => (
                                       <option key={model} value={model}>

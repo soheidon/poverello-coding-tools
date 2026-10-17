@@ -4,6 +4,7 @@ import { useTranslation } from "../i18n";
 import { MODEL_PRICING, PROVIDER_PRICE_ORDER } from "../config/modelPricing";
 import { PROVIDER_MODELS } from "../modelCapabilities";
 import { getModelDisplayName } from "../config/modelDisplayNames";
+import { getChinaCalendarStatus, ChinaHolidayYearData } from "../config/chinaHolidays";
 import {
   getLocalTimezone,
   formatDeepSeekPeakHoursLabel,
@@ -91,11 +92,61 @@ const EVEN_ROW_BG = "#fafafa";
 
 const DEEPSEEK_PEAK_NOTE_KEY = "modelPricing.notes.deepseekPeakValley";
 
-export default function ModelPricingAccordion() {
+export interface ModelPricingAccordionProps {
+  initialNow?: Date;
+  calendars?: Record<number, ChinaHolidayYearData>;
+}
+
+export default function ModelPricingAccordion({
+  initialNow,
+  calendars,
+}: ModelPricingAccordionProps = {}) {
   const { t, lang } = useTranslation();
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
   const [tzId, setTzId] = useState<string>(getLocalTimezone);
-  const [now] = useState(() => new Date());
+  const [now, setNow] = useState<Date>(() => initialNow ?? new Date());
+
+  useEffect(() => {
+    if (initialNow) {
+      setNow(initialNow);
+    }
+  }, [initialNow]);
+
+  useEffect(() => {
+    const currentDate = new Date();
+    const nextMidnight = new Date(
+      currentDate.getFullYear(),
+      currentDate.getMonth(),
+      currentDate.getDate() + 1,
+      0,
+      0,
+      0,
+      0,
+    );
+    const msUntilMidnight = Math.max(1000, nextMidnight.getTime() - currentDate.getTime());
+
+    const timer = setTimeout(() => {
+      setNow(new Date());
+    }, msUntilMidnight);
+
+    const onForeground = () => {
+      setNow(new Date());
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        setNow(new Date());
+      }
+    };
+
+    window.addEventListener("focus", onForeground);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", onForeground);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [now]);
 
   useEffect(() => {
     invoke<string | null>("get_pricing_display_timezone")
@@ -157,6 +208,14 @@ export default function ModelPricingAccordion() {
     }
   }
 
+  const calendarStatus = getChinaCalendarStatus(now, calendars);
+  const calendarWarning =
+    calendarStatus.status === "update_due" && calendarStatus.targetYear != null
+      ? t("modelPricing.chinaHolidays.updateDue", { year: calendarStatus.targetYear })
+      : calendarStatus.status === "expired" && calendarStatus.targetYear != null
+        ? t("modelPricing.chinaHolidays.expired", { year: calendarStatus.targetYear })
+        : null;
+
   return (
     <div className="settings-tile">
       <div
@@ -173,6 +232,25 @@ export default function ModelPricingAccordion() {
         <span style={{ fontSize: 11, color: "#9ca3af" }}>{t("modelPricing.pricingDate")}</span>
         <span style={{ flex: 1 }} />
       </div>
+
+      {calendarWarning && rows.some((r) => r.provider === "deepseek") && (
+        <div
+          role="status"
+          data-testid="deepseek-calendar-warning"
+          style={{
+            margin: "6px 0 10px 0",
+            padding: "8px 12px",
+            fontSize: 12,
+            color: "#92400e",
+            backgroundColor: "#fef3c7",
+            borderRadius: 4,
+            border: "1px solid #fde68a",
+            lineHeight: 1.4,
+          }}
+        >
+          {calendarWarning}
+        </div>
+      )}
 
       <div style={{ marginTop: 8 }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>

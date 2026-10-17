@@ -6176,6 +6176,37 @@ fn get_antigravity_mcp_status() -> Result<AntigravityMcpInfo, String> {
     Ok(inspect_antigravity_mcp_status_at(&config_path))
 }
 
+pub fn validate_current_executable(path: &Path) -> Result<String, String> {
+    if !path.is_file() {
+        return Err(format!(
+            "Current executable path does not exist as a file: {}",
+            path.display()
+        ));
+    }
+    let is_exe = path
+        .extension()
+        .map(|ext| ext.eq_ignore_ascii_case("exe"))
+        .unwrap_or(false);
+    if !is_exe {
+        return Err(format!(
+            "Current executable path is not an .exe file: {}",
+            path.display()
+        ));
+    }
+    Ok(path.to_string_lossy().to_string())
+}
+
+pub fn resolve_current_executable_path() -> Result<String, String> {
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("Failed to determine current executable path: {e}"))?;
+    validate_current_executable(&exe)
+}
+
+#[tauri::command]
+fn get_current_executable_path() -> Result<String, String> {
+    resolve_current_executable_path()
+}
+
 #[tauri::command]
 fn open_antigravity_mcp_config_folder() -> Result<(), String> {
     let dir = antigravity_mcp_config_dir()?;
@@ -9853,6 +9884,7 @@ pub fn run() {
             update_mcp_config,
             get_mcp_status,
             get_antigravity_mcp_status,
+            get_current_executable_path,
             open_antigravity_mcp_config_folder,
             select_executable_dialog,
             configure_antigravity_mcp,
@@ -16722,6 +16754,42 @@ mod tests {
         let info = inspect_antigravity_mcp_status_at(&config_path);
         assert_eq!(info.status, AntigravityMcpStatus::Configured);
         assert_eq!(info.legacy_status, Some(AntigravityMcpStatus::Configured));
+    }
+
+    #[test]
+    fn test_antigravity_mcp_current_executable_resolution() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // 1. Non-existent path returns descriptive error
+        let non_existent = dir.path().join("does_not_exist.exe");
+        let err = validate_current_executable(&non_existent).unwrap_err();
+        assert!(err.contains("does not exist as a file"));
+
+        // 2. Existing file without .exe extension returns descriptive error
+        let text_file = dir.path().join("app.txt");
+        std::fs::write(&text_file, "plain text").unwrap();
+        let err = validate_current_executable(&text_file).unwrap_err();
+        assert!(err.contains("not an .exe file"));
+
+        // 3. Existing file with .exe extension succeeds
+        let valid_exe = dir.path().join("poverello.exe");
+        std::fs::write(&valid_exe, "binary").unwrap();
+        let path = validate_current_executable(&valid_exe).unwrap();
+        assert_eq!(path, valid_exe.to_string_lossy().to_string());
+
+        // 4. Case-insensitive .EXE succeeds
+        let upper_exe = dir.path().join("ANTHRO-BRIDGE.EXE");
+        std::fs::write(&upper_exe, "binary").unwrap();
+        let path = validate_current_executable(&upper_exe).unwrap();
+        assert_eq!(path, upper_exe.to_string_lossy().to_string());
+
+        // 5. Live process current executable resolves successfully in test runner (on Windows, the test runner is an exe)
+        #[cfg(target_os = "windows")]
+        {
+            let current = resolve_current_executable_path().unwrap();
+            assert!(current.to_lowercase().ends_with(".exe"));
+            assert!(std::path::Path::new(&current).is_file());
+        }
     }
 
     #[test]

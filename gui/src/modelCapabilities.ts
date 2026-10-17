@@ -20,6 +20,7 @@ export interface ModelCapabilities {
   forcedThinkingOptions?: ThinkingOption[]; // OpenRouter: explicit options for "forced" models
   /** Allowed reasoning-effort values while Thinking mode is enabled. */
   reasoningEffortOptions?: ReasoningEffortOption[];
+  reasoning?: ModelReasoningCapabilities;
 }
 
 import modelCatalog from "./shared/model_catalog.json";
@@ -28,8 +29,13 @@ export type ThinkingOption = "max" | "on" | "off" | "minimal" | "low" | "medium"
 
 // Values that may be sent as `reasoning_effort` upstream. Deliberately excludes
 // "on"/"off" (thinking toggles, not effort levels) so they cannot leak into the
-// reasoning_effort request field.
-export type ReasoningEffortOption = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+// reasoning_effort request field. "none" is supported by certain OpenAI models.
+export type ReasoningEffortOption = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface ModelReasoningCapabilities {
+  supportedEfforts: ReasoningEffortOption[];
+  defaultEffort: ReasoningEffortOption;
+}
 
 export interface CatalogModel {
   providerId: string;
@@ -50,6 +56,7 @@ export interface CatalogModel {
     forcedReasoningEffort?: "max";
     forcedThinkingOptions?: ThinkingOption[];
     reasoningEffortOptions?: ReasoningEffortOption[];
+    reasoning?: ModelReasoningCapabilities;
   };
 }
 
@@ -81,7 +88,8 @@ function toUiCapabilities(capabilities: CatalogModel["capabilities"]): ModelCapa
     suppressThinkingParameter: capabilities.suppressThinkingParameter,
     forcedReasoningEffort: capabilities.forcedReasoningEffort,
     forcedThinkingOptions: capabilities.forcedThinkingOptions,
-    reasoningEffortOptions: capabilities.reasoningEffortOptions,
+    reasoningEffortOptions: capabilities.reasoning?.supportedEfforts ?? capabilities.reasoningEffortOptions,
+    reasoning: capabilities.reasoning,
   };
 }
 
@@ -93,6 +101,28 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapabilities> = Object.from
 export const PROVIDER_MODELS: Record<string, string[]> = Object.fromEntries(
   MODEL_CATALOG.providers.map(({ id, modelIds }) => [id, modelIds]),
 );
+
+export const OPENAI_REASONING_MODEL_IDS = new Set([
+  "openai/gpt-6.1-sol",
+  "openai/gpt-6.1-sol-pro",
+  "openai/gpt-6-sol",
+  "openai/gpt-6-sol-pro",
+  "openai/gpt-6-luna",
+  "openai/gpt-6-luna-pro",
+  "openai/gpt-6-astra",
+  "openai/gpt-6-astra-pro",
+  "openai/gpt-astra-latest",
+  "openai/gpt-5.6-sol",
+  "openai/gpt-5.6-sol-pro",
+  "openai/gpt-5.6-terra",
+  "openai/gpt-5.6-terra-pro",
+  "openai/gpt-5.6-luna",
+  "openai/gpt-5.6-luna-pro",
+]);
+
+export function isOpenAiReasoningModel(model: string): boolean {
+  return OPENAI_REASONING_MODEL_IDS.has(model);
+}
 
 export const CUSTOM_MODEL_SENTINEL = "__custom__";
 

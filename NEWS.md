@@ -1,5 +1,27 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.24.5 — 2026-10-18
+
+### Antigravity MCP executable recovery
+
+- Improved recovery of the Poverello MCP executable target when the previously configured executable is missing, so the registration settings can be corrected without silently changing unrelated MCP configuration.
+
+### OpenRouter model reasoning controls and MCP profiles
+
+- Made reasoning-effort choices follow the shared model catalog across the OpenRouter profile editors, including supported `none` values and safe handling of legacy or unsupported saved values.
+- Made configured OpenRouter profiles available to MCP independently of whether they are shown on the dashboard.
+
+### Direct DeepSeek Orchestrator model and context alignment
+
+- Normalized the legacy Direct DeepSeek Flash model ID to the canonical `deepseek-flash` ID while preserving `deepseek-v4-pro` and keeping OpenRouter model IDs separate.
+- Aligned built-in Direct DeepSeek profile context defaults with the shared model catalog while preserving explicit saved profile context.
+
+### DeepSeek pricing calendar
+
+- Added bundled 2026 China holiday and make-up-workday overrides to the DeepSeek peak/valley pricing estimate, plus a localized notice when the next year's official calendar is not yet included.
+- Calendar coverage is bounded to officially published bundled data; dates without an override continue to use the existing weekday, weekend, and time-of-day fallback. Estimates are not provider invoices.
+- Windows x64 installer: `Poverello-Coding-Tools_0.24.5_x64-setup.exe` (SHA-256: `BA0EF30582E77DA390369A37DCECCD78EADF9B9B8B41FAA73F5E6653887869FD`).
+
 ## v0.24.4 — 2026-10-17
 
 ### Official Anthropic Direct Provider (`anthropic`)

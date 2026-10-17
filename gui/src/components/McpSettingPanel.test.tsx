@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
-import McpSettingPanel from "./McpSettingPanel";
+import McpSettingPanel, { isGpt61SolModel } from "./McpSettingPanel";
 import type { GatewayConfig, AntigravityMcpInfo, AntigravityCommandsInfo } from "../types";
+import { MODEL_CAPABILITIES } from "../modelCapabilities";
 import { translations as en } from "../i18n/lang/en";
 import { translations as ja } from "../i18n/lang/ja";
 import { translations as de } from "../i18n/lang/de";
@@ -733,6 +734,9 @@ describe("McpSettingPanel - Antigravity Integration", () => {
           },
         } as AntigravityCommandsInfo;
       }
+      if (cmd === "get_current_executable_path") {
+        return "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe";
+      }
       return null;
     });
 
@@ -1045,6 +1049,111 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
     expect(modelSelect).toHaveValue("deepseek-v4-flash");
   });
 
+  // ── Independent fixture for OpenAI reasoning models (§13 & §26) ────
+  // Declared explicitly without deriving from MODEL_CAPABILITIES to ensure
+  // independent verification of UI rendered options, defaults, and persistence.
+  interface ExpectedReasoningModelFixture {
+    readonly id: string;
+    readonly expectedOptions: readonly string[];
+    readonly defaultEffort: string;
+    readonly supportsNone: boolean;
+  }
+
+  const INDEPENDENT_OPENAI_REASONING_FIXTURE: readonly ExpectedReasoningModelFixture[] = [
+    // Group 1: 5 choices, no "none"
+    {
+      id: "openai/gpt-6.1-sol",
+      expectedOptions: ["low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: false,
+    },
+    {
+      id: "openai/gpt-6.1-sol-pro",
+      expectedOptions: ["low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: false,
+    },
+    {
+      id: "openai/gpt-6-astra",
+      expectedOptions: ["low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: false,
+    },
+    {
+      id: "openai/gpt-6-astra-pro",
+      expectedOptions: ["low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: false,
+    },
+    {
+      id: "openai/gpt-astra-latest",
+      expectedOptions: ["low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: false,
+    },
+    // Group 2: 6 choices, includes "none"
+    {
+      id: "openai/gpt-6-sol",
+      expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: true,
+    },
+    {
+      id: "openai/gpt-6-sol-pro",
+      expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: true,
+    },
+    {
+      id: "openai/gpt-6-luna",
+      expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: true,
+    },
+    {
+      id: "openai/gpt-6-luna-pro",
+      expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: true,
+    },
+    {
+      id: "openai/gpt-5.6-sol",
+      expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: true,
+    },
+    {
+      id: "openai/gpt-5.6-sol-pro",
+      expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: true,
+    },
+    {
+      id: "openai/gpt-5.6-terra",
+      expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: true,
+    },
+    {
+      id: "openai/gpt-5.6-terra-pro",
+      expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: true,
+    },
+    {
+      id: "openai/gpt-5.6-luna",
+      expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: true,
+    },
+    {
+      id: "openai/gpt-5.6-luna-pro",
+      expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: true,
+    },
+  ] as const;
+
   describe("OpenRouter OpenAI Model Dropdown & Reasoning", () => {
     const openRouterConfig: GatewayConfig = {
       active_provider: "openrouter",
@@ -1153,7 +1262,84 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
       expect(modelSelect).toHaveValue("openai/gpt-5.6-sol");
     });
 
-    it("renders 5 reasoning effort choices for GPT-6 Astra and thinking only for Astra Pro", async () => {
+    it("keeps dashboard-hidden OpenRouter profiles selectable in MCP settings", async () => {
+      const configWithHiddenProfile: GatewayConfig = {
+        ...openRouterConfig,
+        providers: {
+          ...openRouterConfig.providers,
+          openrouter: {
+            ...openRouterConfig.providers.openrouter,
+            profiles: [
+              ...(openRouterConfig.providers.openrouter.profiles ?? []),
+              {
+                id: "hy3",
+                display_name: "OpenRouter: Hy3",
+                hidden: true,
+                model_map: {},
+                visible_models: [],
+                models: {
+                  "claude-opus-5": {
+                    upstream_model: "tencent/hy3",
+                    thinking_mode: "thinking",
+                    reasoning_effort: "high",
+                  },
+                  "claude-sonnet-5": {
+                    upstream_model: "tencent/hy3",
+                    thinking_mode: "thinking",
+                    reasoning_effort: "low",
+                  },
+                  "claude-haiku-4-5": {
+                    upstream_model: "tencent/hy3",
+                    thinking_mode: "normal",
+                  },
+                },
+              },
+            ],
+          },
+        },
+      };
+
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "get_mcp_config") {
+          return {
+            provider: "openrouter",
+            profile_id: "chatgpt",
+            model: "openai/gpt-5.6-sol",
+            thinking_mode: "thinking",
+            reasoning_effort: "high",
+          };
+        }
+        if (cmd === "get_antigravity_mcp_status") {
+          return { status: "configured", registered_command: "cmd", registered_args: [] };
+        }
+        if (cmd === "get_antigravity_commands_status") {
+          return {
+            skills_dir: "C:\\skills",
+            plan_command: { name: "anthro-plan", status: "installed" },
+            revise_command: { name: "anthro-revise", status: "installed" },
+            review_command: { name: "anthro-review", status: "installed" },
+          };
+        }
+        return {};
+      });
+
+      render(<McpSettingPanel config={configWithHiddenProfile} refreshConfig={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText("OpenRouter")).toBeInTheDocument());
+      await act(async () => { screen.getByText("OpenRouter").click(); });
+
+      const selects = screen.getAllByRole("combobox");
+      const profileSelect = selects[0];
+      const modelSelect = selects[1];
+      expect(Array.from(profileSelect.querySelectorAll("option")).map((option) => option.value))
+        .toContain("hy3");
+
+      await userEvent.selectOptions(profileSelect, "hy3");
+      expect(modelSelect).toHaveValue("tencent/hy3");
+      expect(Array.from(modelSelect.querySelectorAll("option")).map((option) => option.value))
+        .toContain("tencent/hy4-preview");
+    });
+
+    it("renders 5 reasoning effort choices for GPT-6 Astra and Astra Pro (§13)", async () => {
       invokeMock.mockImplementation(async (cmd: string) => {
         if (cmd === "get_mcp_config") {
           return {
@@ -1188,15 +1374,16 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
         screen.getByText("OpenRouter").click();
       });
 
-      // Astra: effort select is available with 5 options
+      // Astra: effort select is available with 5 options (no normal mode toggle)
       const selects = screen.getAllByRole("combobox");
-      const effortSelect = selects[3];
+      const effortSelect = selects[2];
+      expect(effortSelect).toHaveValue("high");
       const effortOptions = Array.from(effortSelect.querySelectorAll("option")).map((o) => o.value);
       expect(effortOptions).toEqual(["low", "medium", "high", "xhigh", "max"]);
 
       unmount();
 
-      // Astra Pro: thinking_only
+      // Astra Pro: thinking_only + effort select with 5 options per §13
       invokeMock.mockImplementation(async (cmd: string) => {
         if (cmd === "get_mcp_config") {
           return {
@@ -1232,9 +1419,360 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
       });
 
       expect(screen.getByText("Thinking only")).toBeInTheDocument();
-      // Only profile select and model select are rendered (no thinking mode toggle, no effort select)
       const astraProSelects = screen.getAllByRole("combobox");
-      expect(astraProSelects).toHaveLength(2);
+      const astraProEffortSelect = astraProSelects[2];
+      expect(astraProEffortSelect).toHaveValue("medium");
+      const astraProEffortOptions = Array.from(astraProEffortSelect.querySelectorAll("option")).map((o) => o.value);
+      expect(astraProEffortOptions).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    });
+
+    it("verifies all 15 OpenAI models have identical options and defaults matching catalog in MCP settings (§13)", () => {
+      const all15Ids = [
+        "openai/gpt-6.1-sol",
+        "openai/gpt-6.1-sol-pro",
+        "openai/gpt-6-sol",
+        "openai/gpt-6-sol-pro",
+        "openai/gpt-6-luna",
+        "openai/gpt-6-luna-pro",
+        "openai/gpt-6-astra",
+        "openai/gpt-6-astra-pro",
+        "openai/gpt-astra-latest",
+        "openai/gpt-5.6-sol",
+        "openai/gpt-5.6-sol-pro",
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-terra-pro",
+        "openai/gpt-5.6-luna",
+        "openai/gpt-5.6-luna-pro",
+      ];
+      expect(all15Ids).toHaveLength(15);
+
+      for (const id of all15Ids) {
+        expect(isGpt61SolModel(id)).toBe(true);
+        const caps = MODEL_CAPABILITIES[id];
+        expect(caps).toBeDefined();
+        expect(caps?.reasoning).toBeDefined();
+        expect(caps?.reasoning?.defaultEffort).toBe("medium");
+        expect(caps?.reasoningEffortOptions).toEqual(caps?.reasoning?.supportedEfforts);
+
+        // Group 1: 5 choices, no none
+        if (
+          id.includes("gpt-6.1") ||
+          id.includes("astra")
+        ) {
+          expect(caps?.reasoningEffortOptions).toEqual(["low", "medium", "high", "xhigh", "max"]);
+          expect(caps?.reasoningEffortOptions).not.toContain("none");
+        } else {
+          // Group 2: 6 choices, includes none
+          expect(caps?.reasoningEffortOptions).toEqual(["none", "low", "medium", "high", "xhigh", "max"]);
+          expect(caps?.reasoningEffortOptions).toContain("none");
+        }
+      }
+    });
+
+    it("renders 5 reasoning effort choices and thinking only (no normal toggle) for GPT-6.1 Sol and Sol Pro, defaulting to medium", async () => {
+      let updatedConfig: any = null;
+      invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+        if (cmd === "get_mcp_config") {
+          return {
+            provider: "openrouter",
+            profile_id: "chatgpt",
+            model: "openai/gpt-6.1-sol",
+            thinking_mode: "normal",
+            reasoning_effort: "",
+          };
+        }
+        if (cmd === "update_mcp_config") {
+          updatedConfig = args?.mcp;
+          return { success: true };
+        }
+        if (cmd === "get_antigravity_mcp_status") {
+          return { status: "configured", registered_command: "cmd", registered_args: [] };
+        }
+        if (cmd === "get_antigravity_commands_status") {
+          return {
+            skills_dir: "C:\\skills",
+            plan_command: { name: "anthro-plan", status: "installed" },
+            revise_command: { name: "anthro-revise", status: "installed" },
+            review_command: { name: "anthro-review", status: "installed" },
+          };
+        }
+        return {};
+      });
+
+      const { unmount } = render(<McpSettingPanel config={openRouterConfig} refreshConfig={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("OpenRouter")).toBeInTheDocument();
+      });
+
+      await act(async () => {
+        screen.getByText("OpenRouter").click();
+      });
+
+      // Shows Thinking only (always on) label instead of normal/thinking combobox
+      expect(screen.getByText("Thinking only")).toBeInTheDocument();
+
+      // Comboboxes: profile select, model select, reasoning effort select (no thinking mode toggle)
+      const selects = screen.getAllByRole("combobox");
+      expect(selects).toHaveLength(3);
+
+      const effortSelect = selects[2];
+      expect(effortSelect).toHaveValue("medium");
+
+      const expectedOptions = MODEL_CAPABILITIES["openai/gpt-6.1-sol"]?.reasoningEffortOptions ?? [];
+      expect(expectedOptions).toContain("medium");
+
+      const effortOptions = Array.from(effortSelect.querySelectorAll("option")).map((o) => o.value);
+      expect(effortOptions).toEqual(expectedOptions);
+      expect(effortOptions).not.toContain("normal");
+      expect(effortOptions).not.toContain("off");
+      expect(effortOptions).not.toContain("none");
+      expect(effortOptions).not.toContain("minimal");
+
+      // Changing effort saves the updated value
+      await act(async () => {
+        await userEvent.selectOptions(effortSelect, "xhigh");
+      });
+
+      expect(updatedConfig).toMatchObject({
+        provider: "openrouter",
+        model: "openai/gpt-6.1-sol",
+        reasoning_effort: "xhigh",
+      });
+
+      unmount();
+
+      // Test Pro model variant
+      invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+        if (cmd === "get_mcp_config") {
+          return {
+            provider: "openrouter",
+            profile_id: "chatgpt",
+            model: "openai/gpt-6.1-sol-pro",
+            thinking_mode: "thinking",
+            reasoning_effort: "high",
+          };
+        }
+        if (cmd === "update_mcp_config") {
+          updatedConfig = args?.mcp;
+          return { success: true };
+        }
+        if (cmd === "get_antigravity_mcp_status") {
+          return { status: "configured", registered_command: "cmd", registered_args: [] };
+        }
+        if (cmd === "get_antigravity_commands_status") {
+          return {
+            skills_dir: "C:\\skills",
+            plan_command: { name: "anthro-plan", status: "installed" },
+            revise_command: { name: "anthro-revise", status: "installed" },
+            review_command: { name: "anthro-review", status: "installed" },
+          };
+        }
+        return {};
+      });
+
+      render(<McpSettingPanel config={openRouterConfig} refreshConfig={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("OpenRouter")).toBeInTheDocument();
+      });
+
+      await act(async () => {
+        screen.getByText("OpenRouter").click();
+      });
+
+      const proSelects = screen.getAllByRole("combobox");
+      expect(proSelects).toHaveLength(3);
+      const proEffortSelect = proSelects[2];
+      expect(proEffortSelect).toHaveValue("high");
+
+      const proExpectedOptions = MODEL_CAPABILITIES["openai/gpt-6.1-sol-pro"]?.reasoningEffortOptions ?? [];
+      expect(proExpectedOptions).toContain("medium");
+      const proEffortOptions = Array.from(proEffortSelect.querySelectorAll("option")).map((o) => o.value);
+      expect(proEffortOptions).toEqual(proExpectedOptions);
+      expect(proEffortOptions).not.toContain("normal");
+      expect(proEffortOptions).not.toContain("off");
+      expect(proEffortOptions).not.toContain("none");
+      expect(proEffortOptions).not.toContain("minimal");
+
+      await act(async () => {
+        await userEvent.selectOptions(proEffortSelect, "max");
+      });
+
+      expect(updatedConfig).toMatchObject({
+        provider: "openrouter",
+        model: "openai/gpt-6.1-sol-pro",
+        reasoning_effort: "max",
+      });
+    });
+
+    describe("Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26)", () => {
+      it.each(INDEPENDENT_OPENAI_REASONING_FIXTURE)(
+        "renders actual effort selector with independent options, medium default, and persists valid effort for $id in MCP settings (§26)",
+        async (fixture) => {
+          let updatedConfig: any = null;
+          invokeMock.mockReset();
+          invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+            if (cmd === "get_mcp_config") {
+              return {
+                provider: "openrouter",
+                profile_id: "chatgpt",
+                model: fixture.id,
+                thinking_mode: "thinking",
+                reasoning_effort: "",
+              };
+            }
+            if (cmd === "update_mcp_config") {
+              updatedConfig = args?.mcp;
+              return { success: true };
+            }
+            if (cmd === "get_antigravity_mcp_status") {
+              return { status: "configured", registered_command: "cmd", registered_args: [] };
+            }
+            if (cmd === "get_antigravity_commands_status") {
+              return {
+                skills_dir: "C:\\skills",
+                plan_command: { name: "anthro-plan", status: "installed" },
+                revise_command: { name: "anthro-revise", status: "installed" },
+                review_command: { name: "anthro-review", status: "installed" },
+              };
+            }
+            return {};
+          });
+
+          const testConfig: GatewayConfig = {
+            ...openRouterConfig,
+            providers: {
+              ...openRouterConfig.providers,
+              openrouter: {
+                ...openRouterConfig.providers.openrouter,
+                profiles: (openRouterConfig.providers.openrouter.profiles ?? []).map((p) => ({
+                  ...p,
+                  models: {},
+                })),
+              },
+            },
+          };
+
+          const { unmount } = render(<McpSettingPanel config={testConfig} refreshConfig={vi.fn()} />);
+
+          await waitFor(() => {
+            expect(screen.getByText("OpenRouter")).toBeInTheDocument();
+          });
+
+          await act(async () => {
+            screen.getByText("OpenRouter").click();
+          });
+
+          // 1. The selected model is that exact ID and its effort selector is actually present.
+          const selects = screen.getAllByRole("combobox");
+          expect(selects).toHaveLength(3);
+          const modelSelect = selects[1] as HTMLSelectElement;
+          expect(modelSelect.value).toBe(fixture.id);
+
+          const effortSelect = selects[2] as HTMLSelectElement;
+          expect(effortSelect).toBeInTheDocument();
+
+          // 2. The rendered option values exactly equal the independent expected matrix in §13.2,
+          // including none only for models whose matrix includes it; no normal, off, or minimal option leaks.
+          const optionValues = Array.from(effortSelect.querySelectorAll("option")).map((o) => o.value);
+          expect(optionValues).toEqual(fixture.expectedOptions);
+          expect(optionValues).not.toContain("normal");
+          expect(optionValues).not.toContain("off");
+          expect(optionValues).not.toContain("minimal");
+          if (fixture.supportsNone) {
+            expect(optionValues).toContain("none");
+          } else {
+            expect(optionValues).not.toContain("none");
+          }
+
+          // 3. With no usable persisted effort, the effective selected default is medium.
+          expect(effortSelect).toHaveValue(fixture.defaultEffort);
+
+          // 4. Changing to a valid effort persists the chosen value while retaining the exact model ID.
+          const targetEffort = "high";
+          await act(async () => {
+            await userEvent.selectOptions(effortSelect, targetEffort);
+          });
+
+          expect(updatedConfig).toMatchObject({
+            provider: "openrouter",
+            model: fixture.id,
+            reasoning_effort: targetEffort,
+          });
+
+          unmount();
+        },
+      );
+
+      it.each(INDEPENDENT_OPENAI_REASONING_FIXTURE)(
+        "resolves legacy normal/off boundary to none (when supported) or medium (otherwise) without persisting on render for $id (§26)",
+        async (fixture) => {
+          for (const legacyEffort of ["normal", "off"]) {
+            invokeMock.mockReset();
+            invokeMock.mockImplementation(async (cmd: string) => {
+              if (cmd === "get_mcp_config") {
+                return {
+                  provider: "openrouter",
+                  profile_id: "chatgpt",
+                  model: fixture.id,
+                  thinking_mode: "normal",
+                  reasoning_effort: legacyEffort,
+                };
+              }
+              if (cmd === "get_antigravity_mcp_status") {
+                return { status: "configured", registered_command: "cmd", registered_args: [] };
+              }
+              if (cmd === "get_antigravity_commands_status") {
+                return {
+                  skills_dir: "C:\\skills",
+                  plan_command: { name: "anthro-plan", status: "installed" },
+                  revise_command: { name: "anthro-revise", status: "installed" },
+                  review_command: { name: "anthro-review", status: "installed" },
+                };
+              }
+              return {};
+            });
+
+            const testConfig: GatewayConfig = {
+              ...openRouterConfig,
+              providers: {
+                ...openRouterConfig.providers,
+                openrouter: {
+                  ...openRouterConfig.providers.openrouter,
+                  profiles: (openRouterConfig.providers.openrouter.profiles ?? []).map((p) => ({
+                    ...p,
+                    models: {},
+                  })),
+                },
+              },
+            };
+
+            const { unmount } = render(<McpSettingPanel config={testConfig} refreshConfig={vi.fn()} />);
+
+            await waitFor(() => {
+              expect(screen.getByText("OpenRouter")).toBeInTheDocument();
+            });
+
+            await act(async () => {
+              screen.getByText("OpenRouter").click();
+            });
+
+            const selects = screen.getAllByRole("combobox");
+            expect(selects).toHaveLength(3);
+            const effortSelect = selects[2] as HTMLSelectElement;
+
+            // Legacy normal/off resolves to none for none-supporting models, and to medium for models that do not support none
+            const expectedBoundaryEffort = fixture.supportsNone ? "none" : "medium";
+            expect(effortSelect).toHaveValue(expectedBoundaryEffort);
+
+            // Rendering alone must not persist a correction
+            expect(invokeMock).not.toHaveBeenCalledWith("update_mcp_config", expect.anything());
+
+            unmount();
+          }
+        },
+      );
     });
   });
 
@@ -2393,6 +2931,468 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
         { value: "glm-5.3-flashx", label: "GLM-5.3 FlashX" },
         { value: "glm-5.2", label: "GLM-5.2" },
       ]);
+    });
+  });
+
+  describe("Antigravity MCP executable target recovery (v0.24.4-r2b)", () => {
+    const currentPoverelloExe = "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe";
+    const staleLegacyExe = "C:\\Users\\User\\AppData\\Local\\Anthro Bridge\\anthro-bridge.exe";
+    const canonicalExe = "C:\\Program Files\\Poverello\\poverello.exe";
+    const customUserExe = "C:\\Custom\\Poverello\\poverello.exe";
+
+    it("with registered_command absent, stale legacy_command present, and valid current executable returned, uses current executable not legacy path", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "get_mcp_config") return {};
+        if (cmd === "get_antigravity_commands_status") {
+          return { skills_dir: "", plan_command: {}, revise_command: {}, review_command: {} };
+        }
+        if (cmd === "get_antigravity_mcp_status") {
+          return {
+            status: "not_configured",
+            config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+            config_dir: "C:\\Users\\User\\.gemini\\config",
+            registered_command: null,
+            registered_args: null,
+            legacy_status: "configured",
+            legacy_command: staleLegacyExe,
+            error: null,
+          } as AntigravityMcpInfo;
+        }
+        if (cmd === "get_current_executable_path") {
+          return currentPoverelloExe;
+        }
+        return {};
+      });
+
+      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/antigravity\.header/i)).toBeInTheDocument();
+      });
+
+      // Target executable input should contain currentPoverelloExe, not staleLegacyExe
+      const targetInput = screen.getByDisplayValue(currentPoverelloExe);
+      expect(targetInput).toBeInTheDocument();
+      expect(screen.queryByDisplayValue(staleLegacyExe)).not.toBeInTheDocument();
+
+      // Legacy preservation notice remains visible
+      expect(screen.getByText(/antigravity\.mcpLegacyPreserved/i)).toBeInTheDocument();
+
+      // Update button is enabled because target is populated and differs from registered_command (which is null)
+      const updateBtn = screen.getByRole("button", { name: /antigravity\.btnUpdate/i });
+      expect(updateBtn).not.toBeDisabled();
+    });
+
+    it("with canonical registered_command present, keeps canonical path without overriding from current executable", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "get_mcp_config") return {};
+        if (cmd === "get_antigravity_commands_status") {
+          return { skills_dir: "", plan_command: {}, revise_command: {}, review_command: {} };
+        }
+        if (cmd === "get_antigravity_mcp_status") {
+          return {
+            status: "configured",
+            config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+            config_dir: "C:\\Users\\User\\.gemini\\config",
+            registered_command: canonicalExe,
+            registered_args: ["--mcp-server"],
+            legacy_status: "configured",
+            legacy_command: staleLegacyExe,
+            error: null,
+          } as AntigravityMcpInfo;
+        }
+        if (cmd === "get_current_executable_path") {
+          return currentPoverelloExe;
+        }
+        return {};
+      });
+
+      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/antigravity\.statusConfigured/i).length).toBeGreaterThan(0);
+      });
+
+      // Canonical command remains selected; current executable does not override it
+      expect(screen.getByDisplayValue(canonicalExe)).toBeInTheDocument();
+      expect(screen.queryByDisplayValue(currentPoverelloExe)).not.toBeInTheDocument();
+      expect(screen.queryByDisplayValue(staleLegacyExe)).not.toBeInTheDocument();
+
+      // Update button is disabled because selected matches registered
+      const updateBtn = screen.getByRole("button", { name: /antigravity\.btnUpdate/i });
+      expect(updateBtn).toBeDisabled();
+    });
+
+    it("if current-executable discovery fails and only legacy path exists, target remains empty, update is disabled, and error is visible", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "get_mcp_config") return {};
+        if (cmd === "get_antigravity_commands_status") {
+          return { skills_dir: "", plan_command: {}, revise_command: {}, review_command: {} };
+        }
+        if (cmd === "get_antigravity_mcp_status") {
+          return {
+            status: "not_configured",
+            config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+            config_dir: "C:\\Users\\User\\.gemini\\config",
+            registered_command: null,
+            registered_args: null,
+            legacy_status: "configured",
+            legacy_command: staleLegacyExe,
+            error: null,
+          } as AntigravityMcpInfo;
+        }
+        if (cmd === "get_current_executable_path") {
+          throw new Error("Failed to determine current executable path: access denied");
+        }
+        return {};
+      });
+
+      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Failed to determine current executable path/i)).toBeInTheDocument();
+      });
+
+      // Stale legacy path is NEVER used
+      expect(screen.queryByDisplayValue(staleLegacyExe)).not.toBeInTheDocument();
+
+      // Update button is disabled
+      const updateBtn = screen.getByRole("button", { name: /antigravity\.btnUpdate/i });
+      expect(updateBtn).toBeDisabled();
+    });
+
+    it("selecting an executable via 変更 and updating passes exactly the selected path to configure_antigravity_mcp", async () => {
+      let configureArgs: any = null;
+      invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+        if (cmd === "get_mcp_config") return {};
+        if (cmd === "get_antigravity_commands_status") {
+          return { skills_dir: "", plan_command: {}, revise_command: {}, review_command: {} };
+        }
+        if (cmd === "get_antigravity_mcp_status") {
+          return {
+            status: "not_configured",
+            config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+            config_dir: "C:\\Users\\User\\.gemini\\config",
+            registered_command: null,
+            registered_args: null,
+            error: null,
+          } as AntigravityMcpInfo;
+        }
+        if (cmd === "get_current_executable_path") {
+          return currentPoverelloExe;
+        }
+        if (cmd === "select_executable_dialog") {
+          return customUserExe;
+        }
+        if (cmd === "configure_antigravity_mcp") {
+          configureArgs = args;
+          return {
+            status: "configured",
+            config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+            config_dir: "C:\\Users\\User\\.gemini\\config",
+            registered_command: customUserExe,
+            registered_args: ["--mcp-server"],
+            error: null,
+          } as AntigravityMcpInfo;
+        }
+        return {};
+      });
+
+      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue(currentPoverelloExe)).toBeInTheDocument();
+      });
+
+      // Click Change button
+      const changeBtn = screen.getByRole("button", { name: /antigravity\.btnChangeExe/i });
+      await act(async () => {
+        changeBtn.click();
+      });
+
+      // Now customUserExe is displayed
+      expect(screen.getByDisplayValue(customUserExe)).toBeInTheDocument();
+
+      // Click Update button
+      const updateBtn = screen.getByRole("button", { name: /antigravity\.btnUpdate/i });
+      await act(async () => {
+        updateBtn.click();
+      });
+
+      expect(configureArgs).toEqual({ exePath: customUserExe });
+    });
+
+    it("successful update refreshes status as canonical configured, clears operation error, and causes outdated warning to disappear", async () => {
+      let agStatusState = "not_configured";
+      let configuredCmd: string | null = null;
+
+      invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+        if (cmd === "get_mcp_config") return {};
+        if (cmd === "get_antigravity_commands_status") {
+          return { skills_dir: "", plan_command: {}, revise_command: {}, review_command: {} };
+        }
+        if (cmd === "get_antigravity_mcp_status") {
+          return {
+            status: agStatusState as any,
+            config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+            config_dir: "C:\\Users\\User\\.gemini\\config",
+            registered_command: configuredCmd,
+            registered_args: configuredCmd ? ["--mcp-server"] : null,
+            legacy_status: "configured",
+            legacy_command: staleLegacyExe,
+            error: null,
+          } as AntigravityMcpInfo;
+        }
+        if (cmd === "get_current_executable_path") {
+          return currentPoverelloExe;
+        }
+        if (cmd === "configure_antigravity_mcp") {
+          agStatusState = "configured";
+          configuredCmd = args.exePath;
+          return {
+            status: "configured",
+            config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+            config_dir: "C:\\Users\\User\\.gemini\\config",
+            registered_command: args.exePath,
+            registered_args: ["--mcp-server"],
+            legacy_status: "configured",
+            legacy_command: staleLegacyExe,
+            error: null,
+          } as AntigravityMcpInfo;
+        }
+        return {};
+      });
+
+      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue(currentPoverelloExe)).toBeInTheDocument();
+      });
+
+      // Initially, outdated warning is visible because selectedExePath !== registered_command (null)
+      expect(screen.getAllByText(/antigravity\.statusOutdated/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/antigravity\.commandsMcpWarning/i)).toBeInTheDocument();
+
+      // Click Update button
+      const updateBtn = screen.getByRole("button", { name: /antigravity\.btnUpdate/i });
+      await act(async () => {
+        updateBtn.click();
+      });
+
+      // After successful update:
+      // 1. Status shows configured
+      await waitFor(() => {
+        expect(screen.getAllByText(/antigravity\.statusConfigured/i).length).toBeGreaterThan(0);
+      });
+      // 2. Outdated warning and commands MCP warning are gone
+      expect(screen.queryByText(/antigravity\.statusOutdated/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/antigravity\.commandsMcpWarning/i)).not.toBeInTheDocument();
+      // 3. No error alert
+      expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
+      // 4. Saved message appears
+      expect(screen.getByText(/antigravity\.savedMessage/i)).toBeInTheDocument();
+    });
+
+    it("after successful removal, refreshed status reselects current executable as target, leaves legacy path unselected, enables Update button, and shows not configured status (§15)", async () => {
+      let isRemoved = false;
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "get_mcp_config") return {};
+        if (cmd === "get_antigravity_commands_status") {
+          return { skills_dir: "", plan_command: {}, revise_command: {}, review_command: {} };
+        }
+        if (cmd === "get_antigravity_mcp_status") {
+          if (!isRemoved) {
+            return {
+              status: "configured",
+              config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+              config_dir: "C:\\Users\\User\\.gemini\\config",
+              registered_command: canonicalExe,
+              registered_args: ["--mcp-server"],
+              legacy_status: "configured",
+              legacy_command: staleLegacyExe,
+              error: null,
+            } as AntigravityMcpInfo;
+          } else {
+            return {
+              status: "not_configured",
+              config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+              config_dir: "C:\\Users\\User\\.gemini\\config",
+              registered_command: null,
+              registered_args: null,
+              legacy_status: "configured",
+              legacy_command: staleLegacyExe,
+              error: null,
+            } as AntigravityMcpInfo;
+          }
+        }
+        if (cmd === "get_current_executable_path") {
+          return currentPoverelloExe;
+        }
+        if (cmd === "remove_antigravity_mcp") {
+          isRemoved = true;
+          return {
+            status: "not_configured",
+            config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+            config_dir: "C:\\Users\\User\\.gemini\\config",
+            registered_command: null,
+            registered_args: null,
+            legacy_status: "configured",
+            legacy_command: staleLegacyExe,
+            error: null,
+          } as AntigravityMcpInfo;
+        }
+        return {};
+      });
+
+      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue(canonicalExe)).toBeInTheDocument();
+      });
+
+      const removeBtn = screen.getByRole("button", { name: /antigravity\.btnRemove/i });
+      expect(removeBtn).toBeInTheDocument();
+
+      await act(async () => {
+        removeBtn.click();
+      });
+
+      // 1. Selected target becomes the returned current executable
+      await waitFor(() => {
+        expect(screen.getByDisplayValue(currentPoverelloExe)).toBeInTheDocument();
+      });
+      // 2. Legacy path is NOT selected
+      expect(screen.queryByDisplayValue(staleLegacyExe)).not.toBeInTheDocument();
+      // 3. Update button becomes enabled
+      const updateBtn = screen.getByRole("button", { name: /antigravity\.btnUpdate/i });
+      expect(updateBtn).not.toBeDisabled();
+      // 4. Status reflects canonical registration is absent
+      expect(screen.getAllByText(/antigravity\.statusNotConfigured|antigravity\.statusOutdated/i).length).toBeGreaterThan(0);
+    });
+
+    it("after successful removal, if current-executable lookup fails, target remains empty, update is disabled, actionable error is shown, and legacy path is not selected (§15)", async () => {
+      let isRemoved = false;
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "get_mcp_config") return {};
+        if (cmd === "get_antigravity_commands_status") {
+          return { skills_dir: "", plan_command: {}, revise_command: {}, review_command: {} };
+        }
+        if (cmd === "get_antigravity_mcp_status") {
+          if (!isRemoved) {
+            return {
+              status: "configured",
+              config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+              config_dir: "C:\\Users\\User\\.gemini\\config",
+              registered_command: canonicalExe,
+              registered_args: ["--mcp-server"],
+              legacy_status: "configured",
+              legacy_command: staleLegacyExe,
+              error: null,
+            } as AntigravityMcpInfo;
+          } else {
+            return {
+              status: "not_configured",
+              config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+              config_dir: "C:\\Users\\User\\.gemini\\config",
+              registered_command: null,
+              registered_args: null,
+              legacy_status: "configured",
+              legacy_command: staleLegacyExe,
+              error: null,
+            } as AntigravityMcpInfo;
+          }
+        }
+        if (cmd === "get_current_executable_path") {
+          if (isRemoved) {
+            throw new Error("Failed to determine current executable path: access denied");
+          }
+          return currentPoverelloExe;
+        }
+        if (cmd === "remove_antigravity_mcp") {
+          isRemoved = true;
+          return {
+            status: "not_configured",
+            config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+            config_dir: "C:\\Users\\User\\.gemini\\config",
+            registered_command: null,
+            registered_args: null,
+            legacy_status: "configured",
+            legacy_command: staleLegacyExe,
+            error: null,
+          } as AntigravityMcpInfo;
+        }
+        return {};
+      });
+
+      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue(canonicalExe)).toBeInTheDocument();
+      });
+
+      const removeBtn = screen.getByRole("button", { name: /antigravity\.btnRemove/i });
+      await act(async () => {
+        removeBtn.click();
+      });
+
+      // Target is empty and actionable error is shown
+      await waitFor(() => {
+        expect(screen.getByText(/Failed to determine current executable path: access denied/i)).toBeInTheDocument();
+      });
+      expect(screen.queryByDisplayValue(canonicalExe)).not.toBeInTheDocument();
+      expect(screen.queryByDisplayValue(currentPoverelloExe)).not.toBeInTheDocument();
+      expect(screen.queryByDisplayValue(staleLegacyExe)).not.toBeInTheDocument();
+
+      // Update button is disabled
+      const updateBtn = screen.getByRole("button", { name: /antigravity\.btnUpdate/i });
+      expect(updateBtn).toBeDisabled();
+    });
+
+    it("if remove operation fails, canonical selection and status are preserved and operation error is visible (§15)", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "get_mcp_config") return {};
+        if (cmd === "get_antigravity_commands_status") {
+          return { skills_dir: "", plan_command: {}, revise_command: {}, review_command: {} };
+        }
+        if (cmd === "get_antigravity_mcp_status") {
+          return {
+            status: "configured",
+            config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+            config_dir: "C:\\Users\\User\\.gemini\\config",
+            registered_command: canonicalExe,
+            registered_args: ["--mcp-server"],
+            legacy_status: "configured",
+            legacy_command: staleLegacyExe,
+            error: null,
+          } as AntigravityMcpInfo;
+        }
+        if (cmd === "get_current_executable_path") {
+          return currentPoverelloExe;
+        }
+        if (cmd === "remove_antigravity_mcp") {
+          throw new Error("Disk error: permission denied while removing server entry");
+        }
+        return {};
+      });
+
+      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue(canonicalExe)).toBeInTheDocument();
+      });
+
+      const removeBtn = screen.getByRole("button", { name: /antigravity\.btnRemove/i });
+      await act(async () => {
+        removeBtn.click();
+      });
+
+      // Canonical selection and status are preserved
+      await waitFor(() => {
+        expect(screen.getByText(/Disk error: permission denied while removing server entry/i)).toBeInTheDocument();
+      });
+      expect(screen.getByDisplayValue(canonicalExe)).toBeInTheDocument();
+      expect(screen.getAllByText(/antigravity\.statusConfigured/i).length).toBeGreaterThan(0);
+      expect(screen.queryByDisplayValue(staleLegacyExe)).not.toBeInTheDocument();
     });
   });
 });

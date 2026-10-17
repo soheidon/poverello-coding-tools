@@ -37,8 +37,8 @@ describe("QuickProfileRoleCard stale assignments", () => {
     const { card } = renderCard(deepseek.id);
     const trigger = within(card).getByRole("combobox");
 
-    expect(trigger).toHaveTextContent("deepseek-v4.1-flash + thinking: High");
-    expect(trigger).toHaveAccessibleName(/Planner: deepseek-v4\.1-flash \+ thinking: High, Not shown in workspace list/);
+    expect(trigger).toHaveTextContent("deepseek-flash + thinking: High");
+    expect(trigger).toHaveAccessibleName(/Planner: deepseek-flash \+ thinking: High, Not shown in workspace list/);
     expect(trigger).toHaveTextContent("Not shown in workspace list");
     expect(trigger).not.toHaveTextContent("Choose a compatible profile");
   });

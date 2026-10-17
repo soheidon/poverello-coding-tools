@@ -1,8 +1,18 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within, act } from "@testing-library/react";
+import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import ModelPricingAccordion, { PriceCell, formatPrice } from "./ModelPricingAccordion";
 import { MODEL_PRICING } from "../config/modelPricing";
 import { PROVIDER_MODELS } from "../modelCapabilities";
+import { CHINA_HOLIDAYS_2026 } from "../config/chinaHolidays";
+import * as i18n from "../i18n";
+import { translations as en } from "../i18n/lang/en";
+import { translations as ja } from "../i18n/lang/ja";
+import { translations as zhCN } from "../i18n/lang/zh-CN";
+import { translations as zhTW } from "../i18n/lang/zh-TW";
+import { translations as ko } from "../i18n/lang/ko";
+import { translations as de } from "../i18n/lang/de";
+import { translations as fr } from "../i18n/lang/fr";
+import { translations as es } from "../i18n/lang/es";
 
 describe("ModelPricingAccordion", () => {
   function openPricing() {
@@ -220,5 +230,145 @@ describe("ModelPricingAccordion", () => {
       expect(row).not.toBeNull();
       expect(row).not.toHaveTextContent(/Coding Plan|PAYG/i);
     }
+  });
+
+  describe("Chapter 5: Chinese holiday calendar maintenance status UI (§18)", () => {
+    beforeEach(() => {
+      vi.spyOn(i18n, "useTranslation").mockImplementation(() => ({
+        t: (key: string, params?: Record<string, string | number>) => {
+          if (key === "modelPricing.chinaHolidays.updateDue") {
+            return `${params?.year}年の中国休日データが未収録です`;
+          }
+          if (key === "modelPricing.chinaHolidays.expired") {
+            return `${params?.year}年の中国休日データが未収録です。DeepSeekの休日料金判定は不完全です`;
+          }
+          if (key === "modelPricing.header") return "モデル料金";
+          if (key === "modelPricing.usdLabel") return "（USD / 1M tokens）";
+          if (key === "modelPricing.pricingDate") return "2026年10月13日時点の価格";
+          if (key === "modelPricing.colProvider") return "プロバイダ";
+          if (key === "modelPricing.colModel") return "モデル";
+          if (key === "modelPricing.colInput") return "入力/1M";
+          if (key === "modelPricing.colOutput") return "出力/1M";
+          if (key === "modelPricing.colCachedInput") return "キャッシュ/1M";
+          if (key === "modelPricing.colNotes") return "備考";
+          if (key === "modelPricing.disclaimer") return "料金は参考です";
+          return key;
+        },
+        lang: "ja",
+      }));
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    });
+
+    it("provides translations for both updateDue and expired keys in all eight supported locales", () => {
+      const locales = [
+        { code: "en", map: en },
+        { code: "ja", map: ja },
+        { code: "zh-CN", map: zhCN },
+        { code: "zh-TW", map: zhTW },
+        { code: "ko", map: ko },
+        { code: "de", map: de },
+        { code: "fr", map: fr },
+        { code: "es", map: es },
+      ];
+
+      for (const { code, map } of locales) {
+        const updateDue = (map as Record<string, string>)["modelPricing.chinaHolidays.updateDue"];
+        const expired = (map as Record<string, string>)["modelPricing.chinaHolidays.expired"];
+        expect(updateDue, `Missing updateDue in ${code}`).toBeDefined();
+        expect(updateDue).toContain("{year}");
+        expect(expired, `Missing expired in ${code}`).toBeDefined();
+        expect(expired).toContain("{year}");
+      }
+    });
+
+    it("does not display calendar maintenance warning when status is current (2026-11-30)", () => {
+      render(
+        <ModelPricingAccordion
+          initialNow={new Date(2026, 10, 30, 12, 0, 0)}
+          calendars={{ 2026: CHINA_HOLIDAYS_2026 }}
+        />,
+      );
+      expect(screen.queryByTestId("deepseek-calendar-warning")).not.toBeInTheDocument();
+    });
+
+    it("displays update_due warning only in the pricing section when December 1 arrives", () => {
+      render(
+        <ModelPricingAccordion
+          initialNow={new Date(2026, 11, 1, 10, 0, 0)}
+          calendars={{ 2026: CHINA_HOLIDAYS_2026 }}
+        />,
+      );
+      const warning = screen.getByTestId("deepseek-calendar-warning");
+      expect(warning).toBeInTheDocument();
+      expect(warning.textContent).toContain("2027");
+    });
+
+    it("displays expired warning when current calendar year data is missing", () => {
+      render(
+        <ModelPricingAccordion
+          initialNow={new Date(2027, 0, 1, 10, 0, 0)}
+          calendars={{ 2026: CHINA_HOLIDAYS_2026 }}
+        />,
+      );
+      const warning = screen.getByTestId("deepseek-calendar-warning");
+      expect(warning).toBeInTheDocument();
+      expect(warning.textContent).toContain("2027");
+    });
+
+    it("refreshes status at next local midnight when view is left open", () => {
+      vi.useFakeTimers();
+      // Set system time to 10 seconds before midnight on 2026-11-30
+      const beforeMidnight = new Date(2026, 10, 30, 23, 59, 50);
+      vi.setSystemTime(beforeMidnight);
+
+      render(
+        <ModelPricingAccordion
+          calendars={{ 2026: CHINA_HOLIDAYS_2026 }}
+        />,
+      );
+      // On 2026-11-30, status is current -> no warning
+      expect(screen.queryByTestId("deepseek-calendar-warning")).not.toBeInTheDocument();
+
+      // Advance system time past midnight into Dec 1
+      act(() => {
+        vi.setSystemTime(new Date(2026, 11, 1, 0, 0, 5));
+        vi.advanceTimersByTime(15000); // 15 seconds passes midnight
+      });
+
+      // Now Dec 1 -> update_due warning is displayed
+      const warning = screen.getByTestId("deepseek-calendar-warning");
+      expect(warning).toBeInTheDocument();
+      expect(warning.textContent).toContain("2027");
+    });
+
+    it("refreshes status immediately on returning to foreground (focus / visibilitychange) after date change", () => {
+      vi.useFakeTimers();
+      const daytimeNov30 = new Date(2026, 10, 30, 15, 0, 0);
+      vi.setSystemTime(daytimeNov30);
+
+      render(
+        <ModelPricingAccordion
+          calendars={{ 2026: CHINA_HOLIDAYS_2026 }}
+        />,
+      );
+      expect(screen.queryByTestId("deepseek-calendar-warning")).not.toBeInTheDocument();
+
+      // Advance system time to Dec 1 without advancing timer
+      vi.setSystemTime(new Date(2026, 11, 1, 9, 0, 0));
+
+      // Return to foreground via window focus
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+      });
+
+      // Should immediately display the warning
+      const warning = screen.getByTestId("deepseek-calendar-warning");
+      expect(warning).toBeInTheDocument();
+      expect(warning.textContent).toContain("2027");
+    });
   });
 });

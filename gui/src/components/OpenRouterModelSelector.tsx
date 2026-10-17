@@ -5,6 +5,11 @@ import type { TranslationKey } from "../i18n";
 import type { OpenRouterModel, OpenRouterModelsResult } from "../types/openrouter";
 import type { CommandResponse } from "../types";
 import { BUILTIN_OPENROUTER_MODELS as BUILTIN_REGISTRY } from "../config/builtinOpenRouter";
+import {
+  isOpenAiReasoningModel,
+  MODEL_CAPABILITIES,
+  type ReasoningEffortOption,
+} from "../modelCapabilities";
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -407,28 +412,23 @@ function normalizeThinkingSelection(
     }
     return "high";
   }
-  if (OPENAI_ASTRA_MODEL_IDS.has(modelId)) {
-    if (reasoningEffort === "low") return "low";
-    if (reasoningEffort === "medium") return "medium";
-    if (reasoningEffort === "high") return "high";
-    if (reasoningEffort === "xhigh") return "xhigh";
-    if (reasoningEffort === "max") return "max";
-    return "high";
-  }
-  if (OPENAI_ASTRA_PRO_IDS.has(modelId) || ANTHROPIC_THINKING_ONLY_IDS.has(modelId)) {
-    return "on";
-  }
-  if (OPENAI_GPT56_MODEL_IDS.has(modelId)) {
-    if (thinkingMode === "normal") return "off";
-    if (thinkingMode === "thinking") {
-      if (reasoningEffort === "low") return "low";
-      if (reasoningEffort === "medium") return "medium";
-      if (reasoningEffort === "high") return "high";
-      if (reasoningEffort === "xhigh") return "xhigh";
-      if (reasoningEffort === "max") return "max";
-      return "medium";
+  if (isOpenAiReasoningModel(modelId)) {
+    const caps = MODEL_CAPABILITIES[modelId];
+    const supported = caps?.reasoningEffortOptions ?? [];
+    const supportsNone = supported.includes("none");
+    if (thinkingMode === "normal" || thinkingMode === "off") {
+      return supportsNone ? "off" : "medium";
+    }
+    if (reasoningEffort === "none") {
+      return supportsNone ? "off" : "medium";
+    }
+    if (reasoningEffort && supported.includes(reasoningEffort as ReasoningEffortOption)) {
+      return reasoningEffort as ThinkingSelection;
     }
     return "medium";
+  }
+  if (ANTHROPIC_THINKING_ONLY_IDS.has(modelId)) {
+    return "on";
   }
   if (DEEPSEEK_V4_1_FLASH_IDS.has(modelId)) {
     if (thinkingMode === "normal") return "off";
@@ -491,6 +491,19 @@ function findClosestThinking(
 ): ThinkingSelection {
   if (isThinkingValueSupported(modelId, current)) return current;
 
+  if (isOpenAiReasoningModel(modelId)) {
+    const caps = MODEL_CAPABILITIES[modelId];
+    const supported = caps?.reasoningEffortOptions ?? [];
+    if ((current === "off" || (current as string) === "none") && supported.includes("none")) {
+      return "off";
+    }
+    const def = caps?.reasoning?.defaultEffort;
+    if (def && supported.includes(def as ReasoningEffortOption) && def !== "none") {
+      return def as ThinkingSelection;
+    }
+    return supported.includes("medium") ? "medium" : (supported[0] as ThinkingSelection);
+  }
+
   const CHAIN: ThinkingSelection[] = [
     "max", "xhigh", "high", "medium", "low", "on", "off",
   ];
@@ -536,15 +549,16 @@ function isThinkingValueSupported(
   value: ThinkingSelection,
 ): boolean {
   if (GEMINI_MODEL_IDS.has(modelId)) return GEMINI_SUPPORTED_THINKING.get(modelId)?.has(value) ?? false;
-  if (OPENAI_ASTRA_MODEL_IDS.has(modelId)) {
-    return value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max";
+  if (isOpenAiReasoningModel(modelId)) {
+    const caps = MODEL_CAPABILITIES[modelId];
+    const supported = caps?.reasoningEffortOptions ?? [];
+    if (value === "off") {
+      return supported.includes("none");
+    }
+    return supported.includes(value as ReasoningEffortOption);
   }
-  if (OPENAI_ASTRA_PRO_IDS.has(modelId) || ANTHROPIC_THINKING_ONLY_IDS.has(modelId)) {
+  if (ANTHROPIC_THINKING_ONLY_IDS.has(modelId)) {
     return value === "on";
-  }
-  if (OPENAI_GPT56_MODEL_IDS.has(modelId)) {
-    return value === "off" || value === "low" || value === "medium"
-        || value === "high" || value === "xhigh" || value === "max";
   }
   if (DEEPSEEK_V4_1_FLASH_IDS.has(modelId)) {
     return value === "off" || value === "low" || value === "high" || value === "max";
@@ -594,27 +608,28 @@ function thinkingOptionsForModel(
       label: value === "minimal" ? "Thinking: Minimal" : `Thinking: ${value.charAt(0).toUpperCase() + value.slice(1)}`,
     }));
   }
-  if (OPENAI_ASTRA_MODEL_IDS.has(modelId)) {
-    return [
-      { value: "low",    label: t("openRouterModels.reasoningLow") },
-      { value: "medium", label: t("openRouterModels.reasoningMedium") },
-      { value: "high",   label: t("openRouterModels.reasoningHigh") },
-      { value: "xhigh",  label: t("openRouterModels.reasoningExtraHigh") },
-      { value: "max",    label: t("openRouterModels.reasoningMax") },
-    ];
+  if (isOpenAiReasoningModel(modelId)) {
+    const caps = MODEL_CAPABILITIES[modelId];
+    const supported = caps?.reasoningEffortOptions ?? [];
+    const options: ThinkingOption[] = [];
+    if (supported.includes("none")) {
+      options.push({ value: "off", label: t("apiKeyPanel.normalMode") });
+    }
+    for (const effort of supported) {
+      if (effort === "none") continue;
+      const label =
+        effort === "low" ? t("openRouterModels.reasoningLow") :
+        effort === "medium" ? t("openRouterModels.reasoningMedium") :
+        effort === "high" ? t("openRouterModels.reasoningHigh") :
+        effort === "xhigh" ? t("openRouterModels.reasoningExtraHigh") :
+        effort === "max" ? t("openRouterModels.reasoningMax") :
+        effort;
+      options.push({ value: effort as ThinkingSelection, label });
+    }
+    return options;
   }
-  if (OPENAI_ASTRA_PRO_IDS.has(modelId) || ANTHROPIC_THINKING_ONLY_IDS.has(modelId)) {
+  if (ANTHROPIC_THINKING_ONLY_IDS.has(modelId)) {
     return [];
-  }
-  if (OPENAI_GPT56_MODEL_IDS.has(modelId)) {
-    return [
-      { value: "off",    label: t("apiKeyPanel.normalMode") },
-      { value: "low",    label: t("openRouterModels.reasoningLow") },
-      { value: "medium", label: t("openRouterModels.reasoningMedium") },
-      { value: "high",   label: t("openRouterModels.reasoningHigh") },
-      { value: "xhigh",  label: t("openRouterModels.reasoningExtraHigh") },
-      { value: "max",    label: t("openRouterModels.reasoningMax") },
-    ];
   }
   if (DEEPSEEK_V4_1_FLASH_IDS.has(modelId)) {
     return [
@@ -1729,7 +1744,7 @@ export default function OpenRouterModelSelector(
             </select>
 
             {/* Thinking mode */}
-            {(OPENAI_ASTRA_PRO_IDS.has(modelSelection) || ANTHROPIC_THINKING_ONLY_IDS.has(modelSelection)) ? (
+            {ANTHROPIC_THINKING_ONLY_IDS.has(modelSelection) ? (
               <>
                 <span className="openrouter-mode-label" style={{ fontStyle: "italic" }}>
                   {t("apiKeyPanel.thinkingOnly")}
@@ -1753,13 +1768,13 @@ export default function OpenRouterModelSelector(
               </>
             ) : thinkingOptions.length > 0 ? (
               <>
-                <span className="openrouter-mode-label">{t("apiKeyPanel.thinkingMode")}</span>
+                <span className="openrouter-mode-label">{isOpenAiReasoningModel(modelSelection) ? t("apiKeyPanel.reasoningEffort") : t("apiKeyPanel.thinkingMode")}</span>
                 <select
                   className="openrouter-thinking-select"
                   value={thinkingSelection}
                   onChange={(e) => void handleThinkingChange(e.target.value as ThinkingSelection)}
                   disabled={saving || !selectedUiModel}
-                  aria-label={t("openRouterModels.thinkingMode")}
+                  aria-label={isOpenAiReasoningModel(modelSelection) ? t("apiKeyPanel.reasoningEffort") : t("openRouterModels.thinkingMode")}
                 >
                   {thinkingSelection &&
                   !thinkingOptions.some((option) => option.value === thinkingSelection) && (
