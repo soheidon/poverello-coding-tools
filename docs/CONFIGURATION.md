@@ -14,7 +14,20 @@ Configuration files are stored under:
 {
   "active_provider": "deepseek",
   "active_openrouter_profile": "openrouter_default",
+  "active_gateway_profile_id": "profile_default",
+  "gateway_profiles": [
+    {
+      "id": "profile_default",
+      "name": "Custom Multi-Provider",
+      "routes": {
+        "claude-opus-5": { "provider": "anthropic", "model": "claude-opus-5-5" },
+        "claude-sonnet-5": { "provider": "deepseek", "model": "deepseek-v4.1-flash" },
+        "claude-haiku-4-5": { "provider": "zai", "model": "glm-5.3-flash" }
+      }
+    }
+  ],
   "providers": {
+    "anthropic": { ... },
     "deepseek": { ... },
     "minimax": { ... },
     "kimi": { ... },
@@ -120,7 +133,48 @@ OpenRouter supports multiple profiles, each with its own independent configurati
 
 ---
 
-## 4. Claude Code Context Management
+## 4. Multi-Provider Gateway Profiles
+
+When `active_provider` is set to `"gateway_profile"`, the proxy resolves model routes using the profile referenced by `active_gateway_profile_id`:
+
+```json
+{
+  "active_provider": "gateway_profile",
+  "active_gateway_profile_id": "profile_default",
+  "gateway_profiles": [
+    {
+      "id": "profile_default",
+      "name": "Custom Multi-Provider",
+      "routes": {
+        "claude-opus-5": {
+          "provider": "anthropic",
+          "model": "claude-opus-5-5",
+          "thinking_mode": "thinking",
+          "reasoning_effort": "high"
+        },
+        "claude-sonnet-5": {
+          "provider": "deepseek",
+          "model": "deepseek-v4.1-flash",
+          "thinking_mode": "thinking",
+          "reasoning_effort": "high"
+        },
+        "claude-haiku-4-5": {
+          "provider": "zai",
+          "model": "glm-5.3-flash"
+        }
+      }
+    }
+  ]
+}
+```
+
+- Every gateway profile must define all three canonical routes: `claude-opus-5`, `claude-sonnet-5`, and `claude-haiku-4-5`.
+- Routes may independently point to any reviewed provider (`anthropic`, `deepseek`, `zai`, `minimax`, `kimi`, `mimo`, `openrouter`).
+- OpenRouter routes require an additional `"profile_id"` specifying the target OpenRouter profile.
+
+---
+
+## 5. Claude Code Context Management
 
 Poverello can manage context capacity to trigger proactive compaction in Claude Code.
 
@@ -157,7 +211,7 @@ Poverello can manage context capacity to trigger proactive compaction in Claude 
 
 ---
 
-## 5. Claude Code Routing & Local LLM (Ollama Local)
+## 6. Claude Code Routing & Local LLM (Ollama Local)
 
 Claude Code CLI routing is governed independently from global provider settings.
 
@@ -189,7 +243,7 @@ Claude Code CLI routing is governed independently from global provider settings.
 
 ---
 
-## 6. MCP Planning Configuration
+## 7. MCP Planning Configuration
 
 The `mcp` section configures the model used when external agents call `poverello/plan`:
 
@@ -219,3 +273,40 @@ The `mcp` section configures the model used when external agents call `poverello
 
 - Target configurations are stored per-provider/profile in `targets`.
 - Switching the active target in the GUI automatically mirrors its values to top-level fields for backwards compatibility.
+
+---
+
+## 8. Orchestrator Journal & Cost Tracking
+
+The Orchestrator persists workflow runs to `%APPDATA%\Poverello\runs\<run_id>.json`.
+
+### Run Cost Summary Schema
+
+For dispatch records with available usage and supported pricing provenance, the journal summary aggregates the resulting estimates. The current bundled estimate applies only to qualifying Anthropic Direct Opus 5.5 / Sonnet 5.5 Planner–Reviewer convergence dispatches with explicit zero cache buckets; other providers and execution paths remain unpriced/unavailable. Example serialized journal fragment (field names use the actual camelCase wire format):
+
+```json
+{
+  "costSummary": {
+    "currency": "USD",
+    "totalCost": {
+      "currency": "USD",
+      "amountNanos": "26000000"
+    },
+    "status": "complete",
+    "pricedDispatches": 2,
+    "unpricedDispatches": 0,
+    "schedules": [
+      "anthropic:claude-opus-5-5:2026-10:uncached"
+    ],
+    "method": "bundled_exact_rate_v1"
+  }
+}
+```
+
+- **Fixed-point integer precision**: All amounts are measured in integer nano-dollars (`1 USD = 1,000,000,000 nanos`) and serialized as strings to preserve full 64-bit integer precision. Floating-point numbers are never used.
+- **Provenance verification**: Only dispatches with verified rate schedules matching the exact provider, model, and currency contribute to the serialized `pricedDispatches` and `totalCost` fields (Rust fields: `priced_dispatches` and `total_cost`).
+- **Fail-closed status**:
+  - `"complete"`: All dispatches are priced with valid schedule provenance.
+  - `"partial"`: At least one dispatch is priced, with unpriced dispatches counted and numeric subtotal preserved.
+  - `"unavailable"`: No dispatches could be verified or priced; `totalCost` is omitted from the serialized summary because the value is unavailable.
+- **Dynamic re-aggregation**: `list_journals()` dynamically re-aggregates summaries on every read, preventing stale on-disk summaries from bypassing verification rules.

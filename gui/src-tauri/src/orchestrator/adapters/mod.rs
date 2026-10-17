@@ -31,6 +31,38 @@ pub struct NormalizedUsage {
     pub cache_write_tokens: Option<u64>,
 }
 
+/// Adapter failure details for callers that need to retain billable usage
+/// reported alongside a response-level failure. The message must already be
+/// redacted; usage is populated only from a successfully parsed supported wire
+/// response.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdapterExecutionFailure {
+    pub message: String,
+    pub usage: Option<NormalizedUsage>,
+}
+
+impl AdapterExecutionFailure {
+    pub fn without_usage(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            usage: None,
+        }
+    }
+
+    pub fn with_usage(message: impl Into<String>, usage: Option<NormalizedUsage>) -> Self {
+        Self {
+            message: message.into(),
+            usage,
+        }
+    }
+}
+
+impl From<String> for AdapterExecutionFailure {
+    fn from(message: String) -> Self {
+        Self::without_usage(message)
+    }
+}
+
 impl NormalizedUsage {
     /// Computes backward-compatible tokens_used:
     /// Prioritizes raw_total_tokens if present.

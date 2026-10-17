@@ -2,18 +2,22 @@
 
 # Poverello Coding Tools
 
-**Claude Code / Claude Desktop をコーディングハーネスとして使用し、推論をサードパーティ LLM API にルーティングしながら、外部モデルを Google Antigravity のプランナー・レビュアーとして活用します。**
+**Claude Code / Claude Desktop をコーディングハーネスとして使用し、推論をサードパーティ LLM API にルーティングしながら、マルチエージェントのプランナー・レビュアー収束実行とコスト見積もりを追跡し、Google Antigravity の外部モデルやルールを統合管理します。**
 
-Poverello Coding Tools（アプリ内表示名 **Poverello**）は、AI 支援ソフトウェア開発のための Windows コンパニオンアプリケーションです。4 つの補完的なワークフローをサポートしています。
+Poverello Coding Tools（アプリ内表示名 **Poverello**）は、AI 支援ソフトウェア開発のための Windows コンパニオンアプリケーションです。5 つの主要ワークフローをサポートしています。
 
 1. **Claude Code / Claude Desktop 向け 3P ゲートウェイ** — Claude のリポジトリ探索、ツール使用、ファイル編集、テスト実行はそのままに、推論をサードパーティプロバイダーにルーティングします。
 2. **Claude Code 向けローカル LLM（Ollama）** — ローカルモデルを使って、Claude Code をオフラインで実行できます。
-3. **Google Antigravity 向け MCP プランナー & レビュアー** — `poverello/plan` および `poverello/review` MCP ツールを通じて、実装計画と実装後レビューを外部モデルに委任します。
-4. **Antigravity ルール管理** — Google Antigravity 向けの軽量 Direct Coding ルール（`pov-direct.md`）を設定・プレビューし、安全に同期します。
+3. **Google Antigravity 向け MCP プランナー & レビュアー** — `poverello/plan`、`poverello/revise`、`poverello/review` MCP ツールを通じて、実装計画と実装後レビューを外部モデルに委任します。
+4. **マルチエージェント開発オーケストレーター** — CLI／APIエージェントを横断した上限付きプランナー・レビュアー収束ワークフローを実行し、正規化トークン使用量とレートスケジュール検証に基づくコスト見積もり（整数ナノドル）を追跡して監査可能なディスパッチジャーナルを維持します。
+5. **Antigravity ルール管理** — Google Antigravity 向けの軽量 Direct Coding ルール（`pov-direct.md`）を設定・プレビューし、安全に同期します。
+
+> [!TIP]
+> **新実装の詳細はこちら**: バージョンごとの新機能や詳細な実装仕様・変更履歴については、[NEWS.md (リリースノート)](../NEWS.md) をご覧ください。
 
 ---
 
-## 4 つのメインワークフロー
+## 5 つのメインワークフロー
 
 ### 1. Claude Code / Claude Desktop と 3P ゲートウェイ
 
@@ -22,11 +26,11 @@ Claude Code / Claude Desktop
              ↓
   Poverello 3P Gateway
              ↓
-DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo
+Anthropic Direct / DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo / GLM
 ```
 
-- **ハーネスとモデルの分離**: Claude のエージェント型ツールを活かしながら、推論をサードパーティプロバイダーにルーティングします。
-- **動的マルチプロファイルルーティング**: GUI からアクティブなプロバイダー、OpenRouter プロファイル、モデルルートを切り替えられます。
+- **ハーネスとモデルの分離**: Claude のエージェント型ツールを活かしながら、推論をサードパーティプロバイダーや Anthropic 公式エンドポイントにルーティングします。
+- **動的マルチプロファイル & マルチプロバイダーゲートウェイ**: GUI からアクティブプロバイダー、OpenRouter プロファイル、または標準ルートごとに異なるプロバイダーを割り当てるマルチプロバイダーゲートウェイプロファイルを切り替えられます。
 - **セットアップガイド**: [Claude Desktop / Cowork 3P ゲートウェイ セットアップ](THIRD_PARTY_INFERENCE.ja.md)
 
 ### 2. Claude Code と専用ローカル LLM（Ollama）
@@ -53,15 +57,15 @@ Antigravity がサブスクリプションの処理能力を使って
 - **計画と実行の分離**: 外部モデルが高レベルの計画またはレビュー判定を生成し、Antigravity のサブスクリプション処理能力がトークン集約的なコード編集を実行します。
 - **ライブ GUI 設定**: プランナーまたはレビュアーのプロバイダー、モデル、推論努力度を切り替えると、次回の呼び出し時から即座に反映されます。
 - **セットアップガイド**: [Google Antigravity + Poverello MCP セットアップ](ANTIGRAVITY_MCP.ja.md)
-- **オプトイン型 Planner–Reviewer Auto-Convergence**: Orchestratorで有効にすると、計画候補を生成し、独立したReviewerが検査する上限付きワークフローを実行します。スコープ内として承認された変更は自動追記される場合がありますが、新しいprimary planには必ずユーザーの明示的な確認が必要です。実モデルの挙動はプロバイダーやアダプターによって異なり、すべての組み合わせを網羅的にスモークテストしたわけではありません。
+- **オーケストレーターとの連携**: マルチエージェントオーケストレーター（ワークフロー 4）と組み合わせて、自律収束ループ、正規化使用量の追跡、レートに基づくコスト見積もりを実行できます。
 
 実行ファイル名とMCPツール名には、互換性維持のため`anthro-bridge`が残っています。
 
 **Antigravity グローバルコマンド:**
 
-- **`/pov-plan`** — 設定済み外部モデルに実装計画を委任します。
-- **`/pov-revise`** — 新しいフィードバックや制約に基づいて既存の計画を修正します。
-- **`/pov-review`** — コミット前に承認済み計画に対して完成した実装をレビューし、明示的に READY / NOT READY の判定を行います。
+- **`/pov-plan`** (旧 `/anthro-plan`) — 設定済み外部モデルに実装計画を委任します。
+- **`/pov-revise`** (旧 `/anthro-revise`) — 新しいフィードバックや制約に基づいて既存の計画を修正します。
+- **`/pov-review`** (旧 `/anthro-review`) — コミット前に承認済み計画に対して完成した実装をレビューし、明示的に READY / NOT READY の判定を行います。
 
 **推奨ワークフロー:**
 
@@ -69,7 +73,40 @@ Antigravity がサブスクリプションの処理能力を使って
 /pov-plan → 実装 & テスト → /pov-review → コミット
 ```
 
-### 4. Antigravity ルール管理（Poverello Direct Coding）
+### 4. マルチエージェント開発オーケストレーター（収束実行 & コスト算出エンジン）
+
+```text
+開発タスク / 要件
+        ↓
++-------------------------------------------------------------+
+| Poverello Orchestrator                                      |
+|                                                             |
+|  [Planner プロファイル]  ⇄  [Reviewer プロファイル]         |
+|  （計画立案・修正）          （検証・監査・判定）            |
+|                                                             |
+|  • 上限付き自律収束ループ（ターン上限・条件付き自動追記）   |
+|  • 完全なディスパッチ履歴（%APPDATA%\Poverello\runs\*.json）|
+|  • ナノドル精度コスト算出 & レートスケジュール検証          |
+|  • フェイルクローズ表示バッジ（Complete / Partial / N/A）   |
++-------------------------------------------------------------+
+        ↓
+承認済み計画 / 監査ログ
+        ↓
+Antigravity / Claude Code による実装・検証
+```
+
+- **自律的な Planner–Reviewer 収束実行**: プランナーとレビュアーに独立した LLM プロファイル（Claude Opus 5.5 / Sonnet 5.5、DeepSeek V4.1、GLM-5.3、ローカル Ollama 等）を割り当て、合意または上限回数に達するまで生成・レビュー・修正ループを自律実行します。
+- **安全不変条件 & 人間による確認**: スコープ内の承認済み変更は自動追記されますが、新しいプライマリ計画の策定には必ず人間の明示的な確認が必要です。
+- **監査可能なディスパッチジャーナル**: `%APPDATA%\Poverello\runs\<run_id>.json` には実行設定、任意のタスクプロンプト、ディスパッチのメタデータとペイロードダイジェスト、取得できた正規化使用量・コスト見積もり、Planner–Reviewer収束監査メタデータが記録されます。アダプターへ送る完全なプロンプトエンベロープやモデル応答本文はjournalには保存されません。
+- **正規化使用量 & レート検証済みコスト見積もり**:
+  - アダプターが対応形式の使用量を返した場合、`input_tokens`、`output_tokens`、`raw_total_tokens`、`cache_read_tokens`、`cache_write_tokens`（シリアライズ名 `cacheWriteTokens`）を正規化して記録します。未取得・未対応の使用量はゼロではなく不明として扱います。プロバイダー固有のキャッシュ作成使用量は `cache_write_tokens` に対応付けられます。
+  - 見積額はすべて整数ナノドル（`u64 amount_nanos`、1 USD = $10^9$ nanos、JSON シリアライズ時は 10 進数文字列）として扱います。これは対応するレートスケジュールに基づく見積もりであり、プロバイダーの請求書や実際の請求額ではありません。浮動小数点演算は使用しません。
+  - レートスケジュールの出所検証: スケジュール ID、プロバイダー、モデル名、通貨が検証済みスケジュール（同梱の Anthropic Opus 5.5 および Sonnet 5.5 レート等）と完全一致することを要求し、不一致や未登録は未算定（unpriced）としてフェイルクローズします。
+  - 現在の同梱コスト見積もりの対象は、Anthropic Direct Opus 5.5 / Sonnet 5.5 でキャッシュ各項目が明示的にゼロの、条件を満たす Planner–Reviewer収束ディスパッチに限定されます。他のプロバイダー、ルート、実行経路は未算定／利用不可であり、コストゼロを意味しません。
+  - UI 上のステータスバッジにより、見積もりの対象範囲が `Complete`、妥当な部分計が `Partial`、または見積もり不可が `Unavailable` であることを識別できます。
+  - `list_journals()` 呼び出し時に不変ディスパッチ記録から動的に再集計するため、古い保存データによる検証迂回を防止します。
+
+### 5. Antigravity ルール管理（Poverello Direct Coding）
 
 ```text
 Poverello GUI（"Antigravity Rules" タブ）
@@ -90,6 +127,7 @@ Google Antigravity がスコープを無闇に広げず
 
 | プロバイダー | 接続方式 | 対応ファミリー | 推論コントロール |
 |---|---|---|---|
+| **Anthropic** | Direct API | Claude Opus 5.5, Sonnet 5.5, Haiku 4.5, 3.7 Sonnet | Adaptive thinking / 推論努力度 |
 | **DeepSeek** | Direct API | DeepSeek V4.1 Flash, V4 Pro 0813 | Normal / Low / High / Max |
 | **GLM (Z.ai)** | Direct API | GLM-5.3, GLM-5.3-Flash, GLM-5.3-FlashX, GLM-5.2 | GLM-5.3: Low / High / Max · GLM-5.2: Normal / Thinking |
 | **Kimi Code** | Direct API | kimi-for-coding, kimi-for-coding-highspeed | Thinking モード |
@@ -98,6 +136,16 @@ Google Antigravity がスコープを無闇に広げず
 | **MiMo / Xiaomi** | Direct API | MiMo V2.6 Flash, Pro, Pro-UltraSpeed（V2.5 後方互換あり） | Normal / Thinking |
 | **Ollama Local** | ローカルループバック | Gemma 4, Qwen 2.5, Llama 3.3, DeepSeek-R1 | Thinking (1024予算) / Disabled |
 | **OpenRouter** | マルチプロファイルゲートウェイ | 下記 OpenRouter セクション参照 | モデル固有 / プロファイル固有 |
+| **マルチプロバイダーゲートウェイ** | カスタムルート設定 | 上記の適格プロバイダーの任意の組み合わせ | プロバイダーごとの個別設定 |
+
+### Anthropic（ダイレクト）
+
+`https://api.anthropic.com` を利用する公式 Anthropic Direct API 接続（`ANTHROPIC_API_KEY`）:
+
+- **専用 API キー**: アプリケーション設定またはユーザー環境変数に安全に保存される公式 Anthropic キーを使用。
+- **対応モデル**: `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5`, `claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-3-5-haiku`。
+- **推論コントロール**: アップストリームが対応するネイティブのアダプティブ思考および推論努力度をサポート。
+- **トークン上限診断**: 思考のみで最終テキストが生成されないまま `stop_reason: "max_tokens"` に達したストリーミング・非ストリーミング応答を検知し、明確な診断エラーとしてフェイルクローズ。
 
 ### DeepSeek（ダイレクト）
 
@@ -110,7 +158,7 @@ Google Antigravity がスコープを無闇に広げず
 
 Z.ai 公式の Anthropic Messages 互換 API（`https://api.z.ai/api/anthropic/v1/messages`）を直接利用します。
 
-- **専用 API キー**: `ZAI_API_KEY`（従量課金）を使用します。Coding Plan トークンは非対応（送信前にフェイルクローズ）です。
+- **API キーと利用条件**: このエンドポイントには設定済みの `ZAI_API_KEY`（または Poverello に入力したキー）を使用します。Poverello はキー種別、Coding Plan の購入履歴、アカウントの許可状態、課金資格を判定しません。Z.ai のアカウントおよびエンドポイント要件は変わる場合があるため、利用前に[公式セットアップガイド](https://zcode.z.ai/en/docs/configuration)を確認してください。
 - **モデル**:
   - `glm-5.3` — 常時思考のフラッグシップ推論モデル。
   - `glm-5.3-flash` — 常時思考の高速推論モデル。
@@ -224,7 +272,15 @@ Windowsインストーラーは8言語に対応しています。Poverello v0.24
 4. `/pov-plan` で計画を作成し、`/pov-revise` で計画を更新し、`/pov-review` でコミット前に実装をレビューします。
 5. 完全な [Antigravity MCP セットアップガイド](ANTIGRAVITY_MCP.ja.md) に従ってください。
 
-### ワークフロー 4: Antigravity ルール管理（Poverello Direct Coding）
+### ワークフロー 4: マルチエージェント開発オーケストレーター
+
+1. Poverello の上部タブから **Orchestrator** を開きます。
+2. **Planner** および **Reviewer** 役割のエージェントプロファイルを選択またはカスタマイズします（Orchestrator 設定で組み込みプリセットの選択も可能です）。
+3. 収束目標と最大反復回数（ターン上限）を設定します。
+4. 収束実行を開始します: リアルタイムのディスパッチ進捗、監査判定、およびコスト見積もりの対象範囲を示すバッジを確認します。
+5. 完了した実行履歴とディスパッチログは `%APPDATA%\Poverello\runs\` に保存され、監査できます。実行の再開可否は状態によって異なり、完了済みの実行を復元できるとは限りません。
+
+### ワークフロー 5: Antigravity ルール管理（Poverello Direct Coding）
 
 1. Poverello の上部タブから **Antigravity Rules** を開きます。
 2. 希望するルールモードを選択し、生成プレビューを確認します。
@@ -237,6 +293,7 @@ Windowsインストーラーは8言語に対応しています。Poverello v0.24
 
 | プロバイダー | 環境変数 |
 |---|---|
+| Anthropic | `ANTHROPIC_API_KEY` |
 | DeepSeek | `DEEPSEEK_API_KEY` |
 | GLM / Z.ai | `ZAI_API_KEY` |
 | Kimi Code | `KIMI_CODE_API_KEY` |
@@ -249,6 +306,7 @@ Windowsインストーラーは8言語に対応しています。Poverello v0.24
 
 ## ドキュメント
 
+- [リリースノート (NEWS.md)](../NEWS.md) — 新実装の詳細およびバージョン変更履歴
 - [Claude Desktop / Cowork 3P ゲートウェイ セットアップ](THIRD_PARTY_INFERENCE.ja.md)
 - [Google Antigravity + Poverello MCP セットアップ](ANTIGRAVITY_MCP.ja.md)
 - [設定リファレンス（`config.json`）](CONFIGURATION.md)

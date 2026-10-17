@@ -2557,6 +2557,73 @@ impl OrchestratorEngine {
         }
     }
 
+    /// Convergence-only adapter execution path that preserves normalized usage
+    /// carried by response-level provider failures. Existing callers keep using
+    /// `execute_adapter` and its `String` error contract.
+    pub(crate) async fn execute_adapter_with_failure_usage(
+        &self,
+        role: AgentRole,
+        profile: &OrchestratorProfile,
+        system_prompt: &str,
+        user_prompt: &str,
+        project_path: &Path,
+        mcp_servers: Option<&HashMap<String, McpServerConfig>>,
+        plan_context: Option<&PlanContext>,
+        frozen_plan: Option<&FrozenPlanPayload>,
+        cancel_token: Option<&CancellationToken>,
+        on_event: &EventCallback,
+    ) -> Result<AdapterExecutionOutput, super::adapters::AdapterExecutionFailure> {
+        #[cfg(test)]
+        if self.scripted_adapter_executor.is_some() || self.ordinary_adapter_test_dispatch.is_some()
+        {
+            return self
+                .execute_adapter(
+                    role,
+                    profile,
+                    system_prompt,
+                    user_prompt,
+                    project_path,
+                    mcp_servers,
+                    plan_context,
+                    frozen_plan,
+                    cancel_token,
+                    on_event,
+                )
+                .await
+                .map_err(super::adapters::AdapterExecutionFailure::without_usage);
+        }
+
+        if profile.adapter == ExecutionAdapterType::Provider {
+            let input = AdapterExecutionInput {
+                role,
+                profile: profile.clone(),
+                system_prompt: system_prompt.to_string(),
+                user_prompt: user_prompt.to_string(),
+                project_path: project_path.to_path_buf(),
+                temperature: None,
+            };
+            return self
+                .provider_adapter
+                .execute_with_failure_usage(&input, cancel_token)
+                .await;
+        }
+
+        self.execute_adapter(
+            role,
+            profile,
+            system_prompt,
+            user_prompt,
+            project_path,
+            mcp_servers,
+            plan_context,
+            frozen_plan,
+            cancel_token,
+            on_event,
+        )
+        .await
+        .map_err(super::adapters::AdapterExecutionFailure::without_usage)
+    }
+
     /// Dedicated read-only review execution path for Code Reviewer.
     /// Strictly enforces read-only sandbox mode and operates inside the disposable worktree.
     pub async fn execute_sandboxed_review(
@@ -9877,6 +9944,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_production_workflow_run_entry_fails_closed_on_persistent_digest_drift_seam_before_side_effects() {
+        let _serial = super::super::plan_workspace::hold_plan_workspace_test_serial();
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().to_path_buf();
         fs::write(
@@ -9949,6 +10017,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_production_workflow_run_entry_recovers_on_transient_drift_seam() {
+        let _serial = super::super::plan_workspace::hold_plan_workspace_test_serial();
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().to_path_buf();
         fs::write(

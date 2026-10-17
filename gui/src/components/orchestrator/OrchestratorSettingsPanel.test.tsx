@@ -573,6 +573,25 @@ describe("OrchestratorSettingsPanel", () => {
     expect((container.querySelector('details[data-provider="deepseek"]') as HTMLDetailsElement).open).toBe(true);
   });
 
+  it("uses the selected Z.ai model catalog context for a newly created profile", async () => {
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "get_orchestrator_config") return { ...persistedConfig, profiles: [], quickSlots: [] };
+      return null;
+    });
+
+    render(<OrchestratorSettingsPanel t={(key) => String(key)} />);
+    await screen.findByText("orchestrator.settings.profiles");
+    fireEvent.click(screen.getByRole("button", { name: "+ orchestrator.settings.addProfile · GLM" }));
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("update_orchestrator_config", expect.objectContaining({
+      config: expect.objectContaining({
+        profiles: expect.arrayContaining([
+          expect.objectContaining({ providerId: "zai", model: "glm-5.3", contextWindowTokens: 1_000_000 }),
+        ]),
+      }),
+    })));
+  });
+
   it("hides the page title and Other group while preserving unknown profiles in saved config", async () => {
     const unknownProfile = {
       id: "future-provider-profile",

@@ -1,6 +1,49 @@
 # Poverello Coding Tools — Release Notes
 
-## v0.25.3 — 2026-10-14
+## v0.24.4 — 2026-10-17
+
+### Official Anthropic Direct Provider (`anthropic`)
+
+- Added official Anthropic Direct API provider support (`anthropic`) across Gateway, Orchestrator, and MCP server using `https://api.anthropic.com`.
+- Authentication via `ANTHROPIC_API_KEY` environment variable or Poverello GUI settings, isolated from third-party and OpenRouter credentials.
+- Direct Anthropic Messages protocol support with validated model catalog: `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5`, `claude-3-7-sonnet`, `claude-3-5-sonnet`, and `claude-3-5-haiku`.
+- Streaming and non-streaming token cap diagnostics (`stop_reason: "max_tokens"` with reasoning but no generated text) failing closed with descriptive provider errors.
+- Native sampling validation and support for adaptive thinking controls and reasoning effort where supported by upstream models.
+
+### Multi-Provider Gateway Profiles (`gateway_profile`)
+
+- Added Multi-Provider Gateway Profiles allowing independent route-to-provider mappings for the three canonical Claude routes:
+  - `claude-opus-5`: mapped independently to any eligible provider/model (e.g. Anthropic Direct Opus 5.5, GLM-5.3, or DeepSeek V4 Pro).
+  - `claude-sonnet-5`: mapped independently to any eligible provider/model (e.g. DeepSeek V4 Flash, GLM-5.3-flashx, or Sonnet 5.5).
+  - `claude-haiku-4-5`: mapped independently to any eligible provider/model (e.g. GLM-5.3-flash, MiMo-V2.6-Flash, or Haiku 4.5).
+- GUI profile creation, editing, switching, and deletion under `active_provider: "gateway_profile"` and `active_gateway_profile_id`.
+- Per-route capability resolution and context capacity integration ensuring Claude Code auto-compact correctly reflects the selected upstream models.
+
+### Canonical Poverello Skills & MCP Namespace Migration
+
+- Migrated public Antigravity skills and MCP tools to the canonical `poverello` namespace:
+  - `/pov-plan` (`poverello/plan`): Architectural and implementation planning via configured external model.
+  - `/pov-revise` (`poverello/revise`): Plan revision based on user feedback or changed requirements.
+  - `/pov-review` (`poverello/review`): Post-implementation review producing explicit READY / NOT READY verdicts.
+- Additive configuration for Antigravity: registers the `poverello` MCP server key while preserving existing `anthro-bridge` server entries and `/anthro-*` legacy skills for complete backward compatibility.
+- Hardened Skill lifecycle operations with deterministic SHA-256 validation, unmanaged file preservation, and safe single-file removal.
+
+### Orchestrator Normalized Usage Capture & Rate-Verified Cost Estimates
+
+- Normalized usage capture across adapter dispatches (`NormalizedUsage`: input tokens, output tokens, cache read tokens, and cache write tokens; provider-native cache-creation usage maps to the normalized cache-write field).
+- Integrated usage tracking into durable `RunJournal` records (`runs/<run_id>.json`) and convergence audit entries.
+- Rate-based cost estimates use fixed-point integer arithmetic in nano-dollars (`u64`, 1 USD = $10^9$ nanos, with no floating-point arithmetic). These are estimates from supported rate schedules, not provider invoices or actual billed amounts.
+- Exact rate schedules with strict provenance verification (`lookup_and_verify_schedule`):
+  - `anthropic:claude-opus-5-5:2026-10:uncached`: $4.00 / MTok input, $20.00 / MTok output.
+  - `anthropic:claude-sonnet-5-5:2026-10:uncached`: $2.00 / MTok input, $10.00 / MTok output.
+- Fail-closed cost summary aggregation (`RunCostSummary`):
+  - `Complete`: All dispatches priced with verified rate schedule provenance and matching currency.
+  - `Partial`: At least one dispatch priced, with unpriced dispatches counted and valid subtotal preserved.
+  - `Unavailable`: No dispatches priced (omits numeric total, counts unpriced dispatches).
+- Dynamic re-aggregation in `list_journals()` ensuring legacy or unverified on-disk summaries cannot bypass provenance verification.
+- GUI cost status badge with title tooltips detailing schedule IDs and calculation method in the Orchestrator panel.
+
+## v0.24.3 — 2026-10-14
 
 ### Antigravity Nerf Commands (`/pov-nerf-balanced` & `/pov-nerf-lightweight`)
 

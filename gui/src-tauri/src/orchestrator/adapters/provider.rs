@@ -4,7 +4,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::super::process_runner::HTTP_INFERENCE_SAFETY_TIMEOUT;
 use super::super::secrets::SecretRedactor;
-use super::{AdapterExecutionInput, AdapterExecutionOutput, NormalizedUsage};
+use super::{
+    AdapterExecutionFailure, AdapterExecutionInput, AdapterExecutionOutput, NormalizedUsage,
+};
 
 static ALLOWED_PROVIDERS: &[&str] = &[
     "mimo",
@@ -44,6 +46,19 @@ impl ProviderAdapter {
         input: &AdapterExecutionInput,
         cancel_token: Option<&CancellationToken>,
     ) -> Result<AdapterExecutionOutput, String> {
+        self.execute_with_failure_usage(input, cancel_token)
+            .await
+            .map_err(|failure| failure.message)
+    }
+
+    /// Executes a provider request while retaining supported usage reported on
+    /// response-level failures. The ordinary `execute` API keeps its existing
+    /// string-error contract for callers that do not consume failure usage.
+    pub async fn execute_with_failure_usage(
+        &self,
+        input: &AdapterExecutionInput,
+        cancel_token: Option<&CancellationToken>,
+    ) -> Result<AdapterExecutionOutput, AdapterExecutionFailure> {
         let profile = &input.profile;
         let provider_id = profile.provider_id.as_deref().ok_or_else(|| {
             "Provider profile is missing required provider_id; refusing to select a default provider.".to_string()
@@ -55,7 +70,8 @@ impl ProviderAdapter {
                 "Unsupported provider ID '{}'. Allowed providers: {}",
                 provider_id,
                 ALLOWED_PROVIDERS.join(", ")
-            ));
+            )
+            .into());
         }
 
         let model = if provider_id == "zai" {
@@ -71,7 +87,8 @@ impl ProviderAdapter {
                 "Unsupported model '{}' for provider 'anthropic'. Allowed models: {}",
                 model,
                 crate::ANTHROPIC_MODELS.join(", ")
-            ));
+            )
+            .into());
         }
 
         let (endpoint, api_key_env) = resolve_provider_endpoint_and_env(provider_id)?;
@@ -98,7 +115,8 @@ impl ProviderAdapter {
             return Err(format!(
                 "API key '{}' is empty for provider '{}'",
                 api_key_env, provider_id
-            ));
+            )
+            .into());
         }
 
         let mut body = if provider_id == "anthropic" {
@@ -141,13 +159,16 @@ impl ProviderAdapter {
                     "Unsupported model '{}' for provider 'zai'. Allowed models: {}",
                     model,
                     crate::ZAI_MODELS_PAY_AS_YOU_GO.join(", ")
-                ));
+                )
+                .into());
             }
             if model == "glm-5.2" && profile.thinking_mode.as_deref() == Some("normal") {
                 body["thinking"] = json!({"type": "disabled"});
             } else {
                 if profile.thinking_mode.as_deref() == Some("normal") {
-                    return Err(format!("Model '{}' does not support disabling thinking", model));
+                    return Err(
+                        format!("Model '{}' does not support disabling thinking", model).into(),
+                    );
                 }
                 body["thinking"] = json!({"type": "enabled"});
                 let effort = profile.reasoning_effort.as_deref().unwrap_or(crate::ZAI_DEFAULT_REASONING_EFFORT);
@@ -156,7 +177,8 @@ impl ProviderAdapter {
                         "Unsupported reasoning effort '{}' for GLM model. Allowed: {}",
                         effort,
                         crate::ZAI_REASONING_EFFORTS.join(", ")
-                    ));
+                    )
+                    .into());
                 }
                 body["reasoning_effort"] = json!(effort);
             }
@@ -243,12 +265,20 @@ impl ProviderAdapter {
                 .map_err(|e| format!("Failed to read response body: {}", e))?;
 
             if !status.is_success() {
+                // Parse only allowlisted provider usage from valid JSON. Never
+                // infer billing data from free-form provider error text.
+                let usage = serde_json::from_str::<Value>(&raw_text)
+                    .ok()
+                    .and_then(|parsed| parse_provider_usage(&parsed, provider_id));
                 let redacted_err = self.redactor.redact_secrets(&raw_text);
-                return Err(format!(
-                    "Provider '{}' returned HTTP {}: {}",
-                    provider_id,
-                    status.as_u16(),
-                    redacted_err
+                return Err(AdapterExecutionFailure::with_usage(
+                    format!(
+                        "Provider '{}' returned HTTP {}: {}",
+                        provider_id,
+                        status.as_u16(),
+                        redacted_err
+                    ),
+                    usage,
                 ));
             }
 
@@ -259,18 +289,24 @@ impl ProviderAdapter {
                 )
             })?;
 
+            let usage = parse_provider_usage(&parsed, provider_id);
             let content = extract_content_from_response(&parsed, provider_id).ok_or_else(|| {
                 if parsed.get("stop_reason").and_then(|s| s.as_str()) == Some("max_tokens") {
-                    format!(
-                        "Provider '{}' completed thinking without generating final text content (max_tokens reached during thinking)",
-                        provider_id
+                    AdapterExecutionFailure::with_usage(
+                        format!(
+                            "Provider '{}' completed thinking without generating final text content (max_tokens reached during thinking)",
+                            provider_id
+                        ),
+                        usage.clone(),
                     )
                 } else {
-                    format!("Could not extract message content from provider '{}' response", provider_id)
+                    AdapterExecutionFailure::with_usage(
+                        format!("Could not extract message content from provider '{}' response", provider_id),
+                        usage.clone(),
+                    )
                 }
             })?;
 
-            let usage = parse_provider_usage(&parsed, provider_id);
             let tokens_used = usage.as_ref().and_then(|u| u.compute_tokens_used());
 
             let duration_ms = start.elapsed().as_millis() as u64;
@@ -287,10 +323,10 @@ impl ProviderAdapter {
 
         tokio::select! {
             _ = tokio::time::sleep(HTTP_INFERENCE_SAFETY_TIMEOUT) => {
-                Err(format!("Inference request to provider '{}' timed out after 180 seconds.", provider_id))
+                Err(AdapterExecutionFailure::without_usage(format!("Inference request to provider '{}' timed out after 180 seconds.", provider_id)))
             }
             _ = cancel_fut => {
-                Err("Inference request cancelled by user.".to_string())
+                Err(AdapterExecutionFailure::without_usage("Inference request cancelled by user."))
             }
             res = request_fut => {
                 res
@@ -958,6 +994,52 @@ mod tests {
                 || err.contains("Could not extract message content"),
             "expected error on thinking-only response, got: {err}"
         );
+    }
+
+    #[tokio::test]
+    async fn anthropic_failure_usage_is_retained_before_content_validation() {
+        let fixture = json!({
+            "id": "msg_opus_failed_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-opus-5-5",
+            "content": [{"type": "thinking", "thinking": "reasoning only"}],
+            "stop_reason": "max_tokens",
+            "usage": {
+                "input_tokens": 1000,
+                "output_tokens": 500,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0
+            }
+        })
+        .to_string();
+
+        let (endpoint, _rx, server) = receive_request_custom(Some(&fixture));
+        let adapter = ProviderAdapter {
+            endpoint_override: Some(endpoint),
+            api_key_override: Some("test-key".into()),
+            ..ProviderAdapter::new()
+        };
+        let mut request = input(Some("anthropic"));
+        request.profile.model = Some("claude-opus-5-5".into());
+
+        let failure = adapter
+            .execute_with_failure_usage(&request, None)
+            .await
+            .expect_err("thinking-only max_tokens response must remain a failure");
+        server.join().unwrap();
+
+        assert!(failure
+            .message
+            .contains("max_tokens reached during thinking"));
+        let usage = failure
+            .usage
+            .expect("valid provider usage must be retained");
+        assert_eq!(usage.input_tokens, Some(1000));
+        assert_eq!(usage.output_tokens, Some(500));
+        assert_eq!(usage.cache_read_tokens, Some(0));
+        assert_eq!(usage.cache_write_tokens, Some(0));
+        assert_eq!(usage.raw_total_tokens, None);
     }
 
     #[tokio::test]

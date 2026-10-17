@@ -10,12 +10,14 @@ This document details supported model providers, reasoning parameters, capabilit
 
 | Provider | Endpoint | Native / OpenRouter | Reasoning Control |
 |---|---|---|---|
+| **Anthropic** | `https://api.anthropic.com` | Native | Adaptive thinking / Reasoning effort |
 | **DeepSeek** | `https://api.deepseek.com/anthropic` | Native | Low / High / Max |
 | **GLM (Z.ai)** | `https://api.z.ai/api/anthropic/v1/messages` | Native | GLM-5.3: Low / High / Max · GLM-5.2: Normal / Thinking |
 | **MiniMax** | `https://api.minimax.io/anthropic` | Native | Model-specific |
 | **Kimi / Moonshot** | `https://api.moonshot.cn/anthropic` | Native | Thinking / Reasoning effort |
 | **MiMo / Xiaomi** | `https://api.xiaomimimo.com/anthropic` | Native | Thinking mode (`thinking` / `normal`) |
 | **OpenRouter** | `https://openrouter.ai/api/v1` | Multi-profile Gateway | Vendor / Model specific |
+| **Gateway Profiles** | Per-route endpoint | Multi-Provider Gateway | Per-route provider settings |
 
 ### Dedicated Local Inference Backend (Claude Code Dedicated Route)
 
@@ -29,6 +31,14 @@ This document details supported model providers, reasoning parameters, capabilit
 ---
 
 ## 2. Direct Provider Details
+
+### Anthropic
+
+- **Endpoint**: `https://api.anthropic.com` (official Messages API)
+- **Supported Models**: `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5`, `claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-3-5-haiku`.
+- **Authentication**: `ANTHROPIC_API_KEY` (or Poverello GUI Settings).
+- **Reasoning Control**: Native adaptive thinking and reasoning effort supported by official Anthropic models.
+- **Diagnostics**: Streaming and non-streaming detection of `stop_reason: "max_tokens"` with reasoning but no generated text, returning descriptive provider errors.
 
 ### DeepSeek
 
@@ -46,7 +56,7 @@ This document details supported model providers, reasoning parameters, capabilit
 - **Reasoning Control**:
   - GLM-5.3 series: Always-on thinking (`thinking: {"type": "enabled"}`) with selectable effort levels (`low`, `high`, `max`).
   - GLM-5.2: Toggle between `thinking` and `normal` (`thinking: {"type": "disabled"}`).
-- **Authentication & Scope**: PAYG API key via `ZAI_API_KEY` (or Poverello GUI). Coding Plan tokens are unsupported and fail closed before send.
+- **Authentication & eligibility**: Uses the configured `ZAI_API_KEY` (or key entered in Poverello) for this endpoint. Poverello does not identify key type, Coding Plan purchase history, account allowlisting, or billing eligibility. Z.ai's current account and endpoint requirements may vary; consult [Z.ai's setup guidance](https://zcode.z.ai/en/docs/configuration).
 - **Output Validation**: Empty text / thinking-only responses (e.g. `stop_reason: "max_tokens"` exhausted inside thinking) fail closed with explicit provider errors across Orchestrator and MCP server.
 
 ### MiniMax
@@ -67,6 +77,16 @@ This document details supported model providers, reasoning parameters, capabilit
   - `mimo-v2.6-pro-ultraspeed`: Ultra-fast variant offering up to 20x output speed with 1,000,000-token context window.
 - **Reasoning Control**: Normal / Thinking mode toggle (`thinking: {"type": "disabled"}` or `thinking: {"type": "enabled"}`).
 - **Multimodal**: Native text, image, and video understanding across all V2.6 models.
+
+### Multi-Provider Gateway Profiles
+
+- **Concept**: A Gateway profile maps each of the three standard Claude routes (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`) independently to different providers and models.
+- **Example Route Mix**:
+  - `claude-opus-5`: Anthropic Direct `claude-opus-5-5` (Deep architectural reasoning).
+  - `claude-sonnet-5`: DeepSeek `deepseek-v4.1-flash` (Fast, high-quality code generation).
+  - `claude-haiku-4-5`: GLM `glm-5.3-flash` (Lightweight summaries, classification).
+- **Authentication**: Requires API keys configured for each participating provider. Unused providers require no keys.
+- **Claude Code Integration**: Auto-compaction automatically computes safe context windows from the minimum capacity among the selected models in the active profile.
 
 ---
 

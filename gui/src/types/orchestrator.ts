@@ -333,7 +333,7 @@ export interface OrchestratorConfig {
   activeWorkflowId?: string;
   activePresetId?: string;
   profiles?: OrchestratorProfile[];
-  assignments?: Record<AgentRole, RoleAssignment>;
+  assignments?: Partial<Record<AgentRole, RoleAssignment>>;
   iterationLimits?: LoopIterationLimits;
   validationGates?: ValidationGateConfig[];
   budgetLimits?: Record<string, BudgetConfig>;
@@ -371,6 +371,109 @@ export interface RunConfigurationSnapshot {
   mcpServers?: Record<string, McpServerConfig>;
 }
 
+export type RunCostStatus = "complete" | "partial" | "unavailable";
+
+export interface EstimatedCost {
+  currency: string;
+  /**
+   * Amount in nano-units (1/1,000,000,000 unit).
+   * Transported as number, string, or bigint.
+   * Values <= Number.MAX_SAFE_INTEGER (~$9,007,199.25) can be represented safely as number.
+   * Arbitrary u64 values up to u64::MAX can be passed as decimal string or BigInt without precision loss.
+   */
+  amountNanos: number | string | bigint;
+}
+
+export interface RunCostSummary {
+  currency: string;
+  totalCost?: EstimatedCost | null;
+  status: RunCostStatus;
+  pricedDispatches: number;
+  unpricedDispatches: number;
+  /**
+   * Exact pricing schedules contributing to this aggregated estimate (provenance).
+   */
+  schedules?: string[];
+  /**
+   * Provenance method identifier used to calculate rates.
+   */
+  method?: string | null;
+}
+
+export interface DispatchCostRecord {
+  dispatchId: string;
+  ordinal: number;
+  role: string;
+  profileId: string;
+  providerId?: string | null;
+  model?: string | null;
+  scheduleId?: string | null;
+  costEstimate?: EstimatedCost | null;
+  status?: string | null;
+}
+
+const MAX_U64_NANOS = 18_446_744_073_709_551_615n;
+
+/**
+ * Formats a cost without accepting an amount that may already have lost precision
+ * at the JavaScript boundary. `null` means the payload is invalid/unrepresentable.
+ */
+export function formatEstimatedCost(cost: EstimatedCost): string | null {
+  let nanos: bigint;
+  if (typeof cost.amountNanos === "number") {
+    if (!Number.isSafeInteger(cost.amountNanos) || cost.amountNanos < 0) return null;
+    nanos = BigInt(cost.amountNanos);
+  } else if (typeof cost.amountNanos === "string") {
+    if (!/^(0|[1-9]\d*)$/.test(cost.amountNanos)) return null;
+    try {
+      nanos = BigInt(cost.amountNanos);
+    } catch {
+      return null;
+    }
+  } else if (typeof cost.amountNanos === "bigint") {
+    nanos = cost.amountNanos;
+  } else {
+    return null;
+  }
+  if (nanos < 0n || nanos > MAX_U64_NANOS) return null;
+
+  if (nanos === 0n) {
+    return cost.currency === "USD" ? "$0.00" : `0.00 ${cost.currency}`;
+  }
+
+  // Sub-cent floor: any positive amount less than 0.0001 currency unit (100,000 nanos)
+  // must never be displayed as $0.00 or $0.0000.
+  if (nanos > 0n && nanos < 100_000n) {
+    return cost.currency === "USD" ? "< $0.0001" : `< 0.0001 ${cost.currency}`;
+  }
+
+  const ONE_BILLION = 1_000_000_000n;
+  const TEN_MILLION = 10_000_000n;
+  const HUNDRED_THOUSAND = 100_000n;
+  const FIFTY_THOUSAND = 50_000n;
+
+  // Exact cents (no sub-cent remainder at all)
+  if (nanos % TEN_MILLION === 0n) {
+    const whole = nanos / ONE_BILLION;
+    const cents = (nanos % ONE_BILLION) / TEN_MILLION;
+    const centsStr = cents.toString().padStart(2, "0");
+    return cost.currency === "USD"
+      ? `$${whole.toString()}.${centsStr}`
+      : `${whole.toString()}.${centsStr} ${cost.currency}`;
+  }
+
+  // Round half-up to 4 decimal places
+  const rounded = nanos + FIFTY_THOUSAND;
+  const whole = rounded / ONE_BILLION;
+  const frac = (rounded % ONE_BILLION) / HUNDRED_THOUSAND;
+  const fracStr = frac.toString().padStart(4, "0");
+
+  if (cost.currency === "USD") {
+    return `$${whole.toString()}.${fracStr}`;
+  }
+  return `${whole.toString()}.${fracStr} ${cost.currency}`;
+}
+
 export type RunRecoveryStatus = "active" | "interrupted" | "complete" | "failed" | "cancelled";
 export interface RunRecoverySummary {
   runId: string;
@@ -384,6 +487,7 @@ export interface RunRecoverySummary {
   updatedAtUnix: number;
   isResumable: boolean;
   error?: string | null;
+  costSummary?: RunCostSummary | null;
 }
 
 export interface PlanConvergenceRecoveryPreview {

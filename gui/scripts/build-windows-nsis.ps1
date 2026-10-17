@@ -6,11 +6,40 @@ $ErrorActionPreference = 'Stop'
 $script:buildLogPath = $null
 $script:transcriptStarted = $false
 trap {
+  $originalError = $_
+  $nativeExitCodeAtFailure = $LASTEXITCODE
   if ($script:transcriptStarted) {
-    try { Stop-Transcript | Out-Null } catch { }
+    try {
+      Write-Output 'BUILD FAILURE: terminating PowerShell error captured by build-helper trap.'
+      Write-Output "Exception: $($originalError.Exception.Message)"
+      Write-Output "FullyQualifiedErrorId: $($originalError.FullyQualifiedErrorId)"
+      Write-Output "Script: $($originalError.InvocationInfo.ScriptName)"
+      Write-Output "Line: $($originalError.InvocationInfo.ScriptLineNumber)"
+      Write-Output "Command: $($originalError.InvocationInfo.Line.Trim())"
+      Write-Output "Position: $($originalError.InvocationInfo.PositionMessage)"
+      Write-Output "LASTEXITCODE at trap entry (may be stale; native-command association is unknown): $nativeExitCodeAtFailure"
+      Stop-Transcript | Out-Null
+    } catch { }
     $script:transcriptStarted = $false
   }
-  throw
+  throw $originalError
+}
+
+function Get-FileSha256Hex {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $stream = $null
+  $sha256 = $null
+  try {
+    $stream = [System.IO.File]::OpenRead($Path)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $digestBytes = $sha256.ComputeHash($stream)
+    return [System.BitConverter]::ToString($digestBytes).Replace('-', '').ToUpperInvariant()
+  }
+  finally {
+    if ($null -ne $stream) { $stream.Dispose() }
+    if ($null -ne $sha256) { $sha256.Dispose() }
+  }
 }
 
 $guiRoot = Split-Path -Parent $PSScriptRoot
@@ -37,7 +66,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not capture source HEAD for build proven
 $dirtyStatus = (& git -C $guiRoot\.. status --porcelain --untracked-files=all 2>&1 | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Could not capture dirty-worktree state for build provenance.' }
 $exePath = Join-Path $tauriRoot 'target\release\anthro-bridge.exe'
-$preBuildExeHash = if (Test-Path -LiteralPath $exePath -PathType Leaf) { (Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash } else { '<missing>' }
+$preBuildExeInfo = if (Test-Path -LiteralPath $exePath -PathType Leaf) { Get-Item -LiteralPath $exePath } else { $null }
+$preBuildExeHash = if ($preBuildExeInfo) { Get-FileSha256Hex -Path $exePath } else { '<missing>' }
 Start-Transcript -LiteralPath $script:buildLogPath | Out-Null
 $script:transcriptStarted = $true
 Write-Output "Build log: $script:buildLogPath"
@@ -46,7 +76,10 @@ Write-Output "Dirty worktree: $([bool]$dirtyStatus)"
 Write-Output "Build started UTC: $($buildStartedUtc.ToString('o'))"
 Write-Output "Build command: npm run tauri:build:stable:raw -- --bundles nsis"
 Write-Output 'Effective CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1'
+Write-Output "Pre-build application path: $exePath"
 Write-Output "Pre-build application SHA-256: $preBuildExeHash"
+Write-Output "Pre-build application bytes: $(if ($preBuildExeInfo) { $preBuildExeInfo.Length } else { '<missing>' })"
+Write-Output "Pre-build application last-write UTC: $(if ($preBuildExeInfo) { $preBuildExeInfo.LastWriteTimeUtc.ToString('o') } else { '<missing>' })"
 
 if (-not $ReuseGeneratedBundle) {
   $previousCodegenUnits = [Environment]::GetEnvironmentVariable('CARGO_PROFILE_RELEASE_CODEGEN_UNITS', 'Process')
@@ -317,14 +350,25 @@ Write-Output "Bytes: $($file.Length)"
 Write-Output "SHA-256: $hash"
 Write-Output "Product: $($version.ProductName) $($version.ProductVersion)"
 Write-Output "Expected release basename: $installerName"
-Write-Output "Authenticode status: $((Get-AuthenticodeSignature -FilePath $bundleInstaller).Status)"
+$authenticodeStatus = $null
+try {
+  $authenticodeStatus = [string](Get-AuthenticodeSignature -FilePath $bundleInstaller -ErrorAction Stop).Status
+}
+catch {
+  $statusReason = ([string]$_.Exception.Message -replace '[\r\n\t]+', ' ').Trim()
+  if ([string]::IsNullOrWhiteSpace($statusReason)) {
+    $statusReason = [string]$_.FullyQualifiedErrorId
+  }
+  $authenticodeStatus = "Unavailable ($statusReason)"
+}
+Write-Output "Authenticode status: $authenticodeStatus"
 Write-Output "Build finished UTC: $([DateTime]::UtcNow.ToString('o'))"
 Write-Output "Application payload last-write UTC: $((Get-Item -LiteralPath $exePath).LastWriteTimeUtc.ToString('o'))"
-Write-Output "Application payload SHA-256: $((Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash)"
+Write-Output "Application payload SHA-256: $(Get-FileSha256Hex -Path $exePath)"
 Write-Output "Application payload metadata: $((([System.Diagnostics.FileVersionInfo]::GetVersionInfo($exePath)).ProductName)) $((([System.Diagnostics.FileVersionInfo]::GetVersionInfo($exePath)).ProductVersion))"
-Write-Output "Generated NSIS script SHA-256: $((Get-FileHash -LiteralPath $installerScript -Algorithm SHA256).Hash)"
-Write-Output "Hook source SHA-256: $((Get-FileHash -LiteralPath $hookPath -Algorithm SHA256).Hash)"
-Write-Output "Build helper SHA-256: $((Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash)"
+Write-Output "Generated NSIS script SHA-256: $(Get-FileSha256Hex -Path $installerScript)"
+Write-Output "Hook source SHA-256: $(Get-FileSha256Hex -Path $hookPath)"
+Write-Output "Build helper SHA-256: $(Get-FileSha256Hex -Path $PSCommandPath)"
 Write-Output "Pre-build application SHA-256: $preBuildExeHash"
 Write-Output "Tauri exit code: $(if ($ReuseGeneratedBundle) { 'not invoked (ReuseGeneratedBundle)' } else { $tauriExitCode })"
 Write-Output "Patched NSIS compiler exit code: $compileExitCode"

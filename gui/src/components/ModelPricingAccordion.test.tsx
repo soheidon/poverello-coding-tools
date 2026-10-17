@@ -206,4 +206,19 @@ describe("ModelPricingAccordion", () => {
     expect(screen.getByText("GLM-5.3 Flash")).toBeInTheDocument();
     expect(screen.getByText("GLM-5.3 FlashX")).toBeInTheDocument();
   });
+
+  it("shows GLM pricing without a Coding Plan eligibility or PAYG warning", () => {
+    openPricing();
+
+    for (const modelName of [
+      "GLM-5.2",
+      "GLM-5.3",
+      "GLM-5.3 Flash",
+      "GLM-5.3 FlashX",
+    ]) {
+      const row = screen.getByText(modelName).closest("tr");
+      expect(row).not.toBeNull();
+      expect(row).not.toHaveTextContent(/Coding Plan|PAYG/i);
+    }
+  });
 });

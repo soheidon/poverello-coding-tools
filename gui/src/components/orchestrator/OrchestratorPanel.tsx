@@ -37,6 +37,7 @@ import {
   shouldAcceptRunEvent,
   validateActiveRoleCapabilities,
   getActiveRolesForWorkflow,
+  formatEstimatedCost,
 } from "../../types/orchestrator";
 import {
   DEFAULT_ORCHESTRATOR_PROFILES,
@@ -63,6 +64,77 @@ function defaultPlanArchiveDirectory(projectPath: string): string {
   if (!trimmed) return "";
   const separator = trimmed.includes("\\") ? "\\" : "/";
   return `${trimmed.replace(/[\\/]+$/, "")}${separator}.plan`;
+}
+
+function renderCostBadge(costSummary: RunRecoverySummary["costSummary"], t: (key: any, params?: any) => string) {
+  const badgeStyle: React.CSSProperties = {
+    display: "inline-block",
+    marginLeft: "8px",
+    padding: "2px 6px",
+    borderRadius: "4px",
+    fontSize: "0.8rem",
+    fontWeight: 500,
+    backgroundColor: "var(--color-bg-secondary, rgba(255,255,255,0.06))",
+    border: "1px solid var(--color-border, rgba(255,255,255,0.12))",
+    color: "var(--color-text-secondary, #aaa)",
+  };
+
+  if (!costSummary || costSummary.status === "unavailable" || !costSummary.totalCost) {
+    return (
+      <span className="orchestrator-cost-badge orchestrator-cost-unavailable" style={badgeStyle}>
+        {t("orchestrator.cost.unavailable")}
+      </span>
+    );
+  }
+  const formatted = formatEstimatedCost(costSummary.totalCost);
+  if (formatted === null) {
+    return (
+      <span className="orchestrator-cost-badge orchestrator-cost-unavailable" style={badgeStyle}>
+        {t("orchestrator.cost.unavailable")}
+      </span>
+    );
+  }
+  const provenanceText =
+    costSummary.schedules && costSummary.schedules.length > 0
+      ? ` · ${costSummary.schedules.join(", ")}`
+      : "";
+  const provenanceTitle = [
+    costSummary.method ? `Method: ${costSummary.method}` : null,
+    costSummary.schedules && costSummary.schedules.length > 0
+      ? `Schedules: ${costSummary.schedules.join(", ")}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  if (costSummary.status === "complete") {
+    return (
+      <span
+        className="orchestrator-cost-badge orchestrator-cost-complete"
+        title={provenanceTitle || undefined}
+        style={{ ...badgeStyle, color: "var(--color-success, #4caf50)", borderColor: "rgba(76, 175, 80, 0.3)" }}
+      >
+        {formatted} ({t("orchestrator.cost.estimated")}{provenanceText})
+      </span>
+    );
+  }
+  if (costSummary.status === "partial") {
+    const unpricedStr = t("orchestrator.cost.unpricedCount", { count: String(costSummary.unpricedDispatches) });
+    return (
+      <span
+        className="orchestrator-cost-badge orchestrator-cost-partial"
+        title={provenanceTitle || undefined}
+        style={{ ...badgeStyle, color: "var(--color-warning, #ff9800)", borderColor: "rgba(255, 152, 0, 0.3)" }}
+      >
+        {formatted} ({t("orchestrator.cost.partial")}, {unpricedStr}{provenanceText})
+      </span>
+    );
+  }
+  return (
+    <span className="orchestrator-cost-badge orchestrator-cost-unavailable" style={badgeStyle}>
+      {t("orchestrator.cost.unavailable")}
+    </span>
+  );
 }
 
 export default function OrchestratorPanel() {
@@ -116,7 +188,7 @@ export default function OrchestratorPanel() {
   }, [planArchiveRequired, projectPath, archiveDirectory, archiveRefreshNonce]);
 
   const [profiles, setProfiles] = useState<OrchestratorProfile[]>(DEFAULT_ORCHESTRATOR_PROFILES);
-  const [roleAssignments, setRoleAssignments] = useState<Record<AgentRole, RoleAssignment>>(
+  const [roleAssignments, setRoleAssignments] = useState<Partial<Record<AgentRole, RoleAssignment>>>(
     () => getDefaultRoleAssignments("balanced")
   );
   const [validationGates, setValidationGates] = useState<ValidationGateConfig[]>(DEFAULT_VALIDATION_GATES);
@@ -157,11 +229,25 @@ export default function OrchestratorPanel() {
   const [convergenceActionPending, setConvergenceActionPending] = useState(false);
   const [convergenceActionError, setConvergenceActionError] = useState<string | null>(null);
   const [interruptedRuns, setInterruptedRuns] = useState<RunRecoverySummary[]>([]);
+  const [completedRunSummary, setCompletedRunSummary] = useState<RunRecoverySummary | null>(null);
   const [recoverySelection, setRecoverySelection] = useState<RecoveryPreflight | null>(null);
   const [convergenceRecoveryPreview, setConvergenceRecoveryPreview] = useState<PlanConvergenceRecoveryPreview | null>(null);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [recoveryConfirmation, setRecoveryConfirmation] = useState<"restore" | "adopt" | "resume" | "convergence" | null>(null);
+
+  const refreshCompletedRunSummary = useCallback((runId: string) => {
+    setCompletedRunSummary(null);
+    void invoke<RunRecoverySummary[]>("list_interrupted_runs")
+      .then((runs) => {
+        if (currentRunIdRef.current !== runId) return;
+        const completed = runs.find((run) => run.runId === runId && run.status === "complete");
+        setCompletedRunSummary(completed ?? null);
+      })
+      .catch(() => {
+        if (currentRunIdRef.current === runId) setCompletedRunSummary(null);
+      });
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -186,6 +272,7 @@ export default function OrchestratorPanel() {
     convergenceRunRef.current = false;
     setRunningWorkflowId(null);
     setCurrentRunId(null);
+    setCompletedRunSummary(null);
     setCurrentStep(null);
     setExecutionState("idle");
     setVerdict(null);
@@ -343,6 +430,8 @@ export default function OrchestratorPanel() {
             setCurrentStep("completed");
             setExecutionState("completed");
             setArchiveRefreshNonce((value) => value + 1);
+            // Resolve by exact run ID; delayed responses cannot overwrite a newer run.
+            refreshCompletedRunSummary(data.runId);
           } else if (stepStr === "failed") {
             setExecutionState("failed");
           } else if (stepStr === "paused") {
@@ -425,7 +514,7 @@ export default function OrchestratorPanel() {
       if (unlistenStep) unlistenStep();
       if (unlistenLog) unlistenLog();
     };
-  }, []);
+  }, [refreshCompletedRunSummary]);
 
   // Save config helper
   const saveConfig = useCallback(
@@ -433,7 +522,7 @@ export default function OrchestratorPanel() {
       updatedPath: string,
       updatedWorkflow: string,
       updatedPreset: string,
-      updatedAssignments: Record<AgentRole, RoleAssignment>,
+      updatedAssignments: Partial<Record<AgentRole, RoleAssignment>>,
       updatedGates: ValidationGateConfig[],
       updatedLimits: LoopIterationLimits,
       updatedLeanMode?: boolean
@@ -466,15 +555,14 @@ export default function OrchestratorPanel() {
 
   // Handle Role Assignment change
   const handleChangeRoleProfile = useCallback(
-    (role: AgentRole, profileId: string) => {
+    (role: AgentRole, profileId: string | null) => {
       setPresetError(null);
-      const next = {
-        ...roleAssignments,
-        [role]: {
-          ...roleAssignments[role],
-          profileId,
-        },
-      };
+      const next = { ...roleAssignments };
+      if (profileId === null) {
+        delete next[role];
+      } else {
+        next[role] = { ...roleAssignments[role], role, profileId };
+      }
       setRoleAssignments(next);
       setActivePresetId("custom");
       void saveConfig(projectPath, activeWorkflowId, "custom", next, validationGates, limits);
@@ -563,6 +651,7 @@ export default function OrchestratorPanel() {
       setRunningWorkflowId(workflowForRun);
       currentRunIdRef.current = null;
       setCurrentRunId(null);
+      setCompletedRunSummary(null);
       setExecutionState("running");
       const initialStep: OrchestratorStep =
         workflowForRun === "review_only"
@@ -736,6 +825,7 @@ export default function OrchestratorPanel() {
       if (result.kind === "created") {
         setLogs((prev) => [...prev, t("orchestrator.planConvergence.newPlanCreated")]);
         setExecutionState("completed");
+        refreshCompletedRunSummary(candidate.runId);
       } else {
         setLogs((prev) => [...prev, t("orchestrator.planConvergence.newPlanRejected")]);
         setExecutionState("cancelled");
@@ -799,6 +889,7 @@ export default function OrchestratorPanel() {
         setExecutionState("completed");
         const runs = await invoke<RunRecoverySummary[]>("list_interrupted_runs");
         setInterruptedRuns(runs.filter((run) => run.status === "interrupted" || run.status === "active" || (run.workflowType === "plan_convergence" && run.status === "failed")));
+        setCompletedRunSummary(runs.find((run) => run.runId === result.runId && run.status === "complete") ?? null);
         setConvergenceRecoveryPreview(null);
         setRecoveryConfirmation(null);
       } catch (error) { setRecoveryError(String(error)); }
@@ -879,7 +970,10 @@ export default function OrchestratorPanel() {
             <h3 id="orchestrator-recovery-title" className="orchestrator-card-title">{t("orchestrator.recovery.title")}</h3>
             <p className="orchestrator-desc">{t("orchestrator.recovery.description")}</p>
             {interruptedRuns.map((run) => <div className="orchestrator-recovery-row" key={run.runId}>
-              <span>{run.workflowType} · {run.currentState} · {run.runId}</span>
+              <span>
+                {run.workflowType} · {run.currentState} · {run.runId}
+                {renderCostBadge(run.costSummary, t)}
+              </span>
               <button type="button" className="orchestrator-button-secondary" disabled={recoveryBusy || isRunActive} onClick={() => void inspectRecovery(run.runId)}>
                 {recoveryBusy ? t("orchestrator.recovery.loading") : t("orchestrator.recovery.inspect")}
               </button>
@@ -1037,6 +1131,7 @@ export default function OrchestratorPanel() {
                     selectedProfileId={roleAssignments[role]?.profileId ?? ""}
                     workflowId={activeWorkflowId}
                     onSelect={(profileId) => handleChangeRoleProfile(role, profileId)}
+                      onUnassign={() => handleChangeRoleProfile(role, null)}
                     invalidMessage={roleErr?.message}
                     t={t}
                   />
@@ -1079,6 +1174,17 @@ export default function OrchestratorPanel() {
             convergenceActionError={convergenceActionError}
             onConfirmConvergedNewPlan={handleConfirmConvergedNewPlan}
           />
+          {executionState === "completed" && completedRunSummary && completedRunSummary.runId === currentRunId && (
+            <section className="orchestrator-card" aria-labelledby="orchestrator-run-cost-title">
+              <h3 id="orchestrator-run-cost-title" className="orchestrator-card-title">
+                {t("orchestrator.cost.runEstimateTitle")}
+              </h3>
+              <p className="orchestrator-desc">
+                {completedRunSummary.workflowType} · {completedRunSummary.runId}
+                {renderCostBadge(completedRunSummary.costSummary, t)}
+              </p>
+            </section>
+          )}
       </div>
     </div>
   );

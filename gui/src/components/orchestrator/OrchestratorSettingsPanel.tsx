@@ -23,7 +23,7 @@ import {
 import { BUILTIN_OPENROUTER_MODELS, getOpenRouterModelDisplayName } from "../../config/builtinOpenRouter";
 import { getModelDisplayName } from "../../config/modelDisplayNames";
 import { getOrchestratorProfileDisplayName } from "../../config/orchestratorProfileDisplayName";
-import { getProviderModels, MODEL_CAPABILITIES } from "../../modelCapabilities";
+import { getProviderModels, MODEL_CAPABILITIES, MODEL_CATALOG } from "../../modelCapabilities";
 import type { ModelCapabilities, ReasoningEffortOption, ThinkingModePolicy } from "../../modelCapabilities";
 import { isReasoningEffortOption, normalizeReasoningEffort } from "../../reasoningEffort";
 import {
@@ -113,11 +113,15 @@ function defaultProfileForGroup(
         : providerId === "openrouter" ? "openai/gpt-5.6-sol"
           : models[0] ?? "";
   const model = models.includes(preferredModel) || providerId === "deepseek" ? preferredModel : models[0] ?? preferredModel;
-  const contextWindowTokens = providerId === "kimi" ? 1_048_576
-    : providerId === "kimi-code" ? 200_000
-      : providerId === "mimo" || providerId === "minimax" ? 1_000_000
-        : providerId === "openrouter" ? 1_050_000
-          : 128_000;
+  const contextWindowTokens = providerId === "zai"
+    ? MODEL_CATALOG.contextWindows[`${providerId}:${model}`]?.context_length
+      ?? MODEL_CATALOG.contextWindows[model]?.context_length
+      ?? 128_000
+    : providerId === "kimi" ? 1_048_576
+      : providerId === "kimi-code" ? 200_000
+        : providerId === "mimo" || providerId === "minimax" ? 1_000_000
+          : providerId === "openrouter" ? 1_050_000
+            : 128_000;
   const profile: OrchestratorProfile = {
     ...base,
     adapter: "provider",

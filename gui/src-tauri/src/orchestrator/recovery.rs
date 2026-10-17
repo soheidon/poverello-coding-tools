@@ -138,6 +138,9 @@ pub struct RunJournal {
     pub status: RunRecoveryStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<super::adapters::NormalizedUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "cost_summary")]
+    pub cost_summary: Option<super::cost::RunCostSummary>,
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     #[serde(alias = "next_dispatch_ordinal")]
     pub next_dispatch_ordinal: u64,
@@ -165,12 +168,21 @@ pub struct AdapterDispatchRecord {
     #[serde(alias = "profile_id")]
     pub profile_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "provider_id")]
+    pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "schedule_id")]
+    pub schedule_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(alias = "payload_digest")]
     pub payload_digest: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<super::adapters::NormalizedUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "cost_estimate")]
+    pub cost_estimate: Option<super::cost::EstimatedCost>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
     #[serde(alias = "created_at_unix")]
@@ -206,6 +218,9 @@ pub struct RunRecoverySummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(alias = "error")]
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "cost_summary")]
+    pub cost_summary: Option<super::cost::RunCostSummary>,
 }
 
 /// Type of tracked file change in a checkpoint.
@@ -354,21 +369,27 @@ pub struct CheckpointPayloadEntry {
 pub struct JournalManager {
     runs_dir: PathBuf,
     #[cfg(test)]
-    pub permissions_test_hook: Mutex<Option<Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>>>,
+    pub permissions_test_hook:
+        Mutex<Option<Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>>>,
     #[cfg(test)]
-    directory_permissions_test_hook: Mutex<Option<Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>>>,
+    directory_permissions_test_hook:
+        Mutex<Option<Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>>>,
     #[cfg(test)]
-    existing_metadata_test_hook: Mutex<Option<Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>>>,
+    existing_metadata_test_hook:
+        Mutex<Option<Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>>>,
     #[cfg(test)]
     pub write_test_hook: Mutex<Option<Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>>>,
     #[cfg(test)]
     pub cleanup_test_hook: Mutex<Option<Arc<dyn Fn(&Path) -> Result<(), String> + Send + Sync>>>,
     #[cfg(test)]
-    pub reserve_test_hook: Mutex<Option<Arc<dyn Fn(&RunJournal) -> Result<(), String> + Send + Sync>>>,
+    pub reserve_test_hook:
+        Mutex<Option<Arc<dyn Fn(&RunJournal) -> Result<(), String> + Send + Sync>>>,
     #[cfg(test)]
-    pub record_test_hook: Mutex<Option<Arc<dyn Fn(&RunJournal) -> Result<(), String> + Send + Sync>>>,
+    pub record_test_hook:
+        Mutex<Option<Arc<dyn Fn(&RunJournal) -> Result<(), String> + Send + Sync>>>,
     #[cfg(test)]
-    pub dispatch_lock_test_hook: Mutex<Option<Arc<dyn Fn(&std::sync::Mutex<()>) -> Result<(), String> + Send + Sync>>>,
+    pub dispatch_lock_test_hook:
+        Mutex<Option<Arc<dyn Fn(&std::sync::Mutex<()>) -> Result<(), String> + Send + Sync>>>,
 }
 
 /// Replays durable reservations; a missing verdict never refunds a dispatched slot.
@@ -382,30 +403,41 @@ pub fn replay_convergence_review_count(journal: &RunJournal) -> Result<u32, Stri
             if entry.artifact_ref.is_none() || entry.artifact_digest.is_none() {
                 return Err("PC_INVALID_REVIEW_HISTORY: candidate artifact missing".into());
             }
-            let id = entry.candidate_id.as_ref().filter(|id| !id.is_empty())
+            let id = entry
+                .candidate_id
+                .as_ref()
+                .filter(|id| !id.is_empty())
                 .ok_or("PC_INVALID_REVIEW_HISTORY: candidate ID missing")?;
             if entry.sequence != count + 1 || !candidates.insert((entry.sequence, id.clone())) {
                 return Err("PC_INVALID_REVIEW_HISTORY: invalid candidate sequence".into());
             }
         }
         if entry.event_type == "review_attempt_reserved" {
-            let id = entry.candidate_id.as_ref()
+            let id = entry
+                .candidate_id
+                .as_ref()
                 .ok_or("PC_INVALID_REVIEW_HISTORY: reservation candidate missing")?;
             let key = (entry.sequence, id.clone());
             if entry.sequence != count + 1 || !candidates.contains(&key) || !reserved.insert(key) {
                 return Err("PC_INVALID_REVIEW_HISTORY: invalid review reservation".into());
             }
-            count = count.checked_add(1).ok_or("PC_INVALID_REVIEW_HISTORY: overflow")?;
+            count = count
+                .checked_add(1)
+                .ok_or("PC_INVALID_REVIEW_HISTORY: overflow")?;
             if count > journal.snapshot.iteration_limits.max_plan_review_iterations {
                 return Err("PC_INVALID_REVIEW_HISTORY: review budget exceeded".into());
             }
         }
         if entry.event_type == "verdict_recorded" {
-            let id = entry.candidate_id.as_ref()
+            let id = entry
+                .candidate_id
+                .as_ref()
                 .ok_or("PC_INVALID_REVIEW_HISTORY: verdict candidate missing")?;
-            if entry.artifact_ref.is_none() || entry.artifact_digest.is_none()
+            if entry.artifact_ref.is_none()
+                || entry.artifact_digest.is_none()
                 || !reserved.contains(&(entry.sequence, id.clone()))
-                || !verdicts.insert((entry.sequence, id.clone())) {
+                || !verdicts.insert((entry.sequence, id.clone()))
+            {
                 return Err("PC_INVALID_REVIEW_HISTORY: verdict without reservation".into());
             }
         }
@@ -433,7 +465,10 @@ fn validate_journal(journal: &RunJournal) -> Result<(), String> {
             || intent.target_revision == 0
             || intent.idempotency_key.trim().is_empty()
             || intent.content_digest.len() != 64
-            || !intent.content_digest.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
+            || !intent
+                .content_digest
+                .chars()
+                .all(|c| matches!(c, '0'..='9' | 'a'..='f'))
         {
             return Err("PC_INVALID_CONFIRMATION_INTENT: malformed confirmation intent".into());
         }
@@ -492,7 +527,9 @@ fn validate_journal(journal: &RunJournal) -> Result<(), String> {
 
     for d in &journal.adapter_dispatches {
         if d.ordinal == 0 {
-            return Err("PC_DISPATCH_INVALID_ORDINAL: dispatch ordinal must be non-zero".to_string());
+            return Err(
+                "PC_DISPATCH_INVALID_ORDINAL: dispatch ordinal must be non-zero".to_string(),
+            );
         }
         let expected_id = format!("{}:{}", journal.run_id, d.ordinal);
         if d.dispatch_id != expected_id {
@@ -503,7 +540,10 @@ fn validate_journal(journal: &RunJournal) -> Result<(), String> {
         }
         if let Some(status_str) = d.status.as_deref() {
             if status_str.trim().is_empty() {
-                return Err("PC_DISPATCH_INVALID_STATUS: empty or whitespace-only dispatch status".to_string());
+                return Err(
+                    "PC_DISPATCH_INVALID_STATUS: empty or whitespace-only dispatch status"
+                        .to_string(),
+                );
             }
         }
         if !seen_ids.insert(&d.dispatch_id) || !seen_ordinals.insert(d.ordinal) {
@@ -512,8 +552,19 @@ fn validate_journal(journal: &RunJournal) -> Result<(), String> {
                 d.dispatch_id, d.ordinal
             ));
         }
+        if let Some(ref cost) = d.cost_estimate {
+            if cost.currency.trim().is_empty() {
+                return Err("PC_DISPATCH_INVALID_COST: empty cost currency".to_string());
+            }
+        }
         if d.ordinal > max_ordinal {
             max_ordinal = d.ordinal;
+        }
+    }
+
+    if let Some(ref summary) = journal.cost_summary {
+        if summary.currency.trim().is_empty() {
+            return Err("PC_JOURNAL_INVALID_COST_SUMMARY: empty cost summary currency".to_string());
         }
     }
 
@@ -666,7 +717,11 @@ impl JournalManager {
         let tmp_path = self.runs_dir.join(tmp_filename);
 
         fs::write(&tmp_path, b"").map_err(|e| {
-            format!("Failed to create temporary journal file '{}': {}", tmp_path.display(), e)
+            format!(
+                "Failed to create temporary journal file '{}': {}",
+                tmp_path.display(),
+                e
+            )
         })?;
 
         // 2. Apply and verify permissions on temporary file BEFORE writing journal content
@@ -690,7 +745,9 @@ impl JournalManager {
         let serialized = match serde_json::to_vec_pretty(journal) {
             Ok(bytes) => bytes,
             Err(e) => {
-                return Err(self.cleanup_error(&tmp_path, format!("Failed to serialize journal: {e}")));
+                return Err(
+                    self.cleanup_error(&tmp_path, format!("Failed to serialize journal: {e}"))
+                );
             }
         };
 
@@ -713,10 +770,9 @@ impl JournalManager {
 
         // 4. Atomic replace / rename
         if let Err(e) = replace_file_atomically(&tmp_path, &target_path) {
-            return Err(self.cleanup_error(
-                &tmp_path,
-                format!("Atomic replace failed for journal: {e}"),
-            ));
+            return Err(
+                self.cleanup_error(&tmp_path, format!("Atomic replace failed for journal: {e}"))
+            );
         }
 
         // 5. Verify permissions on target file
@@ -731,7 +787,10 @@ impl JournalManager {
             return hook(path);
         }
         fs::remove_file(path).map_err(|e| {
-            format!("Failed to remove temporary journal '{}': {e}", path.display())
+            format!(
+                "Failed to remove temporary journal '{}': {e}",
+                path.display()
+            )
         })
     }
 
@@ -750,9 +809,8 @@ impl JournalManager {
             return Err(format!("Journal for run '{}' not found", run_id));
         }
         let data = fs::read(&path).map_err(|e| format!("Failed to read journal: {}", e))?;
-        let journal: RunJournal = serde_json::from_slice(&data).map_err(|e| {
-            format!("Failed to deserialize journal for run '{}': {}", run_id, e)
-        })?;
+        let journal: RunJournal = serde_json::from_slice(&data)
+            .map_err(|e| format!("Failed to deserialize journal for run '{}': {}", run_id, e))?;
         if journal.run_id != run_id {
             return Err(format!(
                 "Run ID mismatch in journal: expected '{}', got '{}'",
@@ -777,7 +835,10 @@ impl JournalManager {
             if path.is_file() {
                 if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
                     if file_name.ends_with(".json") && !file_name.contains(".tmp.") {
-                        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(file_name);
+                        let stem = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or(file_name);
                         let mod_time = entry
                             .metadata()
                             .and_then(|m| m.modified())
@@ -790,11 +851,16 @@ impl JournalManager {
                             Ok(bytes) => {
                                 match serde_json::from_slice::<RunJournal>(&bytes) {
                                     Ok(journal) => {
-                                        if validate_journal(&journal).is_ok() && journal.run_id == stem {
+                                        if validate_journal(&journal).is_ok()
+                                            && journal.run_id == stem
+                                        {
                                             let status = match journal.status {
-                                                RunRecoveryStatus::Active => RunRecoveryStatus::Interrupted,
+                                                RunRecoveryStatus::Active => {
+                                                    RunRecoveryStatus::Interrupted
+                                                }
                                                 other => other,
                                             };
+                                            let cost_summary = journal.aggregate_dispatches_cost();
                                             // In Phase A, resumability is false until payload restore is implemented
                                             summaries.push(RunRecoverySummary {
                                                 run_id: journal.run_id,
@@ -802,21 +868,30 @@ impl JournalManager {
                                                 project_path: journal.canonical_project_path,
                                                 status,
                                                 current_state: journal.current_state,
-                                                last_successful_state: journal.last_successful_state,
+                                                last_successful_state: journal
+                                                    .last_successful_state,
                                                 revision: journal.revision,
                                                 created_at_unix: journal.created_at_unix,
                                                 updated_at_unix: journal.updated_at_unix,
                                                 is_resumable: false,
                                                 error: None,
+                                                cost_summary,
                                             });
                                         } else {
                                             // Invalid schema or run ID mismatch
                                             let err_msg = if journal.run_id != stem {
                                                 format!("Run ID mismatch: filename '{}' != journal '{}'", stem, journal.run_id)
-                                            } else if let Err(validation_error) = validate_journal(&journal) {
+                                            } else if let Err(validation_error) =
+                                                validate_journal(&journal)
+                                            {
                                                 validation_error
-                                            } else if journal.schema_version != JOURNAL_SCHEMA_VERSION {
-                                                format!("Unsupported schema version {}", journal.schema_version)
+                                            } else if journal.schema_version
+                                                != JOURNAL_SCHEMA_VERSION
+                                            {
+                                                format!(
+                                                    "Unsupported schema version {}",
+                                                    journal.schema_version
+                                                )
                                             } else {
                                                 "Journal failed semantic validation".to_string()
                                             };
@@ -832,6 +907,7 @@ impl JournalManager {
                                                 updated_at_unix: mod_time,
                                                 is_resumable: false,
                                                 error: Some(err_msg),
+                                                cost_summary: None,
                                             });
                                         }
                                     }
@@ -849,6 +925,7 @@ impl JournalManager {
                                             updated_at_unix: mod_time,
                                             is_resumable: false,
                                             error: Some(format!("Malformed journal JSON: {e}")),
+                                            cost_summary: None,
                                         });
                                     }
                                 }
@@ -866,6 +943,7 @@ impl JournalManager {
                                     updated_at_unix: mod_time,
                                     is_resumable: false,
                                     error: Some(format!("Unreadable journal file: {e}")),
+                                    cost_summary: None,
                                 });
                             }
                         }
@@ -971,7 +1049,12 @@ impl RunJournal {
     /// Guarantees that any ordinal previously reserved or present in existing dispatches
     /// is strictly exceeded. Rejects on u64 overflow.
     pub fn reserve_dispatch_ordinal(&mut self) -> Result<u64, String> {
-        let max_dispatch = self.adapter_dispatches.iter().map(|d| d.ordinal).max().unwrap_or(0);
+        let max_dispatch = self
+            .adapter_dispatches
+            .iter()
+            .map(|d| d.ordinal)
+            .max()
+            .unwrap_or(0);
         let min_from_dispatches = if max_dispatch == 0 {
             1
         } else {
@@ -1002,9 +1085,14 @@ impl RunJournal {
     ///   - Rejects ordinal collision.
     ///   - Advances next_dispatch_ordinal on checked_add(1).
     ///   - Appends record and aggregates usage.
-    pub fn record_adapter_dispatch(&mut self, record: AdapterDispatchRecord) -> Result<bool, String> {
+    pub fn record_adapter_dispatch(
+        &mut self,
+        record: AdapterDispatchRecord,
+    ) -> Result<bool, String> {
         if record.ordinal == 0 {
-            return Err("PC_DISPATCH_INVALID_ORDINAL: dispatch ordinal must be non-zero".to_string());
+            return Err(
+                "PC_DISPATCH_INVALID_ORDINAL: dispatch ordinal must be non-zero".to_string(),
+            );
         }
         let expected_id = format!("{}:{}", self.run_id, record.ordinal);
         if record.dispatch_id != expected_id {
@@ -1021,7 +1109,11 @@ impl RunJournal {
             ));
         }
 
-        if let Some(existing_idx) = self.adapter_dispatches.iter().position(|d| d.dispatch_id == record.dispatch_id) {
+        if let Some(existing_idx) = self
+            .adapter_dispatches
+            .iter()
+            .position(|d| d.dispatch_id == record.dispatch_id)
+        {
             let existing = &self.adapter_dispatches[existing_idx];
 
             if existing.ordinal != record.ordinal
@@ -1029,6 +1121,15 @@ impl RunJournal {
                 || existing.profile_id != record.profile_id
                 || existing.model != record.model
                 || existing.payload_digest != record.payload_digest
+                || (existing.provider_id.is_some()
+                    && record.provider_id.is_some()
+                    && existing.provider_id != record.provider_id)
+                || (existing.schedule_id.is_some()
+                    && record.schedule_id.is_some()
+                    && existing.schedule_id != record.schedule_id)
+                || (existing.cost_estimate.is_some()
+                    && record.cost_estimate.is_some()
+                    && existing.cost_estimate != record.cost_estimate)
             {
                 return Err(format!(
                     "PC_DISPATCH_CONFLICT: dispatch id '{}' already exists with conflicting identity or payload",
@@ -1044,19 +1145,31 @@ impl RunJournal {
                     "completed" => {
                         self.adapter_dispatches[existing_idx].status = Some("completed".to_string());
                         self.adapter_dispatches[existing_idx].usage = record.usage;
+                        self.adapter_dispatches[existing_idx].provider_id = record
+                            .provider_id
+                            .or_else(|| self.adapter_dispatches[existing_idx].provider_id.clone());
+                        self.adapter_dispatches[existing_idx].schedule_id = record.schedule_id;
+                        self.adapter_dispatches[existing_idx].cost_estimate = record.cost_estimate;
                         self.adapter_dispatches[existing_idx].completed_at_unix = record.completed_at_unix.or_else(|| {
                             Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
                         });
                         self.usage = self.aggregate_dispatches_usage();
+                        self.cost_summary = self.aggregate_dispatches_cost();
                         Ok(true)
                     }
                     "failed" => {
                         self.adapter_dispatches[existing_idx].status = Some("failed".to_string());
                         self.adapter_dispatches[existing_idx].usage = record.usage;
+                        self.adapter_dispatches[existing_idx].provider_id = record
+                            .provider_id
+                            .or_else(|| self.adapter_dispatches[existing_idx].provider_id.clone());
+                        self.adapter_dispatches[existing_idx].schedule_id = record.schedule_id;
+                        self.adapter_dispatches[existing_idx].cost_estimate = record.cost_estimate;
                         self.adapter_dispatches[existing_idx].completed_at_unix = record.completed_at_unix.or_else(|| {
                             Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
                         });
                         self.usage = self.aggregate_dispatches_usage();
+                        self.cost_summary = self.aggregate_dispatches_cost();
                         Ok(true)
                     }
                     other => Err(format!(
@@ -1066,11 +1179,14 @@ impl RunJournal {
                 },
                 "completed" => match target_status {
                     "completed" => {
-                        if existing.usage == record.usage {
+                        if existing.usage == record.usage
+                            && existing.cost_estimate == record.cost_estimate
+                            && existing.schedule_id == record.schedule_id
+                        {
                             Ok(false)
                         } else {
                             Err(format!(
-                                "PC_DISPATCH_CONFLICT: dispatch id '{}' already completed with different usage",
+                                "PC_DISPATCH_CONFLICT: dispatch id '{}' already completed with different usage or cost",
                                 record.dispatch_id
                             ))
                         }
@@ -1082,11 +1198,14 @@ impl RunJournal {
                 },
                 "failed" => match target_status {
                     "failed" => {
-                        if existing.usage == record.usage {
+                        if existing.usage == record.usage
+                            && existing.cost_estimate == record.cost_estimate
+                            && existing.schedule_id == record.schedule_id
+                        {
                             Ok(false)
                         } else {
                             Err(format!(
-                                "PC_DISPATCH_CONFLICT: dispatch id '{}' already failed with different usage",
+                                "PC_DISPATCH_CONFLICT: dispatch id '{}' already failed with different usage or cost",
                                 record.dispatch_id
                             ))
                         }
@@ -1102,7 +1221,11 @@ impl RunJournal {
                 )),
             }
         } else {
-            if self.adapter_dispatches.iter().any(|d| d.ordinal == record.ordinal) {
+            if self
+                .adapter_dispatches
+                .iter()
+                .any(|d| d.ordinal == record.ordinal)
+            {
                 return Err(format!(
                     "PC_DISPATCH_ORDINAL_COLLISION: ordinal {} already assigned to another dispatch",
                     record.ordinal
@@ -1111,14 +1234,104 @@ impl RunJournal {
 
             if record.ordinal >= self.next_dispatch_ordinal {
                 self.next_dispatch_ordinal = record.ordinal.checked_add(1).ok_or_else(|| {
-                    "PC_DISPATCH_ORDINAL_OVERFLOW: next dispatch ordinal exceeded u64::MAX".to_string()
+                    "PC_DISPATCH_ORDINAL_OVERFLOW: next dispatch ordinal exceeded u64::MAX"
+                        .to_string()
                 })?;
             }
 
             self.adapter_dispatches.push(record);
             self.usage = self.aggregate_dispatches_usage();
+            self.cost_summary = self.aggregate_dispatches_cost();
             Ok(true)
         }
+    }
+
+    /// Aggregates financial cost estimates across all dispatches in this run using checked integer arithmetic.
+    /// Never converts currencies or fabricates totals.
+    /// Complete: all dispatches were priced without overflow.
+    /// Partial: at least one dispatch was priced, but one or more were unpriced (or had currency/overflow mismatch).
+    /// Unavailable: no dispatches could be priced.
+    pub fn aggregate_dispatches_cost(&self) -> Option<super::cost::RunCostSummary> {
+        if self.adapter_dispatches.is_empty() {
+            return None;
+        }
+
+        let mut priced_count = 0u64;
+        let mut unpriced_count = 0u64;
+        let mut total_nanos = 0u64;
+        let mut primary_currency = "USD".to_string();
+        let mut has_cost = false;
+        let mut overflowed = false;
+        let mut schedules_set = std::collections::BTreeSet::new();
+
+        for d in &self.adapter_dispatches {
+            // A dispatch contributes to priced totals only when it has a valid cost_estimate
+            // AND a non-empty schedule_id that resolves to the exact bundled schedule matching
+            // its provider_id, model, and currency.
+            let verified_schedule = match (&d.cost_estimate, &d.schedule_id) {
+                (Some(ref cost), Some(ref sched_id)) => super::cost::lookup_and_verify_schedule(
+                    sched_id,
+                    d.provider_id.as_deref(),
+                    d.model.as_deref(),
+                    &cost.currency,
+                ),
+                _ => None,
+            };
+
+            if let (Some(ref cost), Some(schedule)) = (&d.cost_estimate, verified_schedule) {
+                if !has_cost {
+                    primary_currency = cost.currency.clone();
+                    has_cost = true;
+                }
+                if cost.currency != primary_currency {
+                    // Cross-currency separation: cannot sum directly
+                    unpriced_count = unpriced_count.saturating_add(1);
+                } else if let Some(sum) = total_nanos.checked_add(cost.amount_nanos) {
+                    total_nanos = sum;
+                    priced_count = priced_count.saturating_add(1);
+                    schedules_set.insert(schedule.schedule_id.to_string());
+                } else {
+                    overflowed = true;
+                    unpriced_count = unpriced_count.saturating_add(1);
+                }
+            } else {
+                unpriced_count = unpriced_count.saturating_add(1);
+            }
+        }
+
+        let status = if priced_count > 0 && unpriced_count == 0 && !overflowed {
+            super::cost::RunCostStatus::Complete
+        } else if priced_count > 0 {
+            super::cost::RunCostStatus::Partial
+        } else {
+            super::cost::RunCostStatus::Unavailable
+        };
+
+        let total_cost = if priced_count > 0 {
+            Some(super::cost::EstimatedCost {
+                currency: primary_currency.clone(),
+                amount_nanos: total_nanos,
+            })
+        } else {
+            None
+        };
+
+        let schedules: Vec<String> = schedules_set.into_iter().collect();
+        let method = if priced_count > 0 {
+            Some(super::cost::BUNDLED_EXACT_RATE_METHOD.to_string())
+        } else {
+            None
+        };
+
+        Some(super::cost::RunCostSummary {
+            currency: primary_currency,
+            total_cost,
+            status,
+            priced_dispatches: priced_count,
+            unpriced_dispatches: unpriced_count,
+            schedules,
+            method,
+        })
     }
 
     /// Aggregates token counts from all actual dispatches in this run using checked addition.
@@ -1133,9 +1346,12 @@ impl RunJournal {
 
         let input_tokens = aggregate_single_field(&self.adapter_dispatches, |u| u.input_tokens);
         let output_tokens = aggregate_single_field(&self.adapter_dispatches, |u| u.output_tokens);
-        let cache_read_tokens = aggregate_single_field(&self.adapter_dispatches, |u| u.cache_read_tokens);
-        let cache_write_tokens = aggregate_single_field(&self.adapter_dispatches, |u| u.cache_write_tokens);
-        let raw_total_tokens = aggregate_single_field(&self.adapter_dispatches, |u| u.raw_total_tokens);
+        let cache_read_tokens =
+            aggregate_single_field(&self.adapter_dispatches, |u| u.cache_read_tokens);
+        let cache_write_tokens =
+            aggregate_single_field(&self.adapter_dispatches, |u| u.cache_write_tokens);
+        let raw_total_tokens =
+            aggregate_single_field(&self.adapter_dispatches, |u| u.raw_total_tokens);
 
         if input_tokens.is_none()
             && output_tokens.is_none()
@@ -1527,7 +1743,10 @@ fn replace_file_atomically(temp: &Path, target: &Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use crate::orchestrator::adapters::NormalizedUsage;
-    use crate::orchestrator::types::{AgentRole, ExecutionAdapterType, LoopIterationLimits, OrchestratorProfile, ProfileCapability};
+    use crate::orchestrator::types::{
+        AgentRole, ExecutionAdapterType, LoopIterationLimits, OrchestratorProfile,
+        ProfileCapability,
+    };
     use std::collections::HashMap;
 
     fn sample_snapshot() -> RunConfigurationSnapshot {
@@ -1570,7 +1789,9 @@ mod tests {
             RunRecoveryStatus::Complete => WorkflowState::Complete,
             RunRecoveryStatus::Failed => WorkflowState::Failed,
             RunRecoveryStatus::Cancelled => WorkflowState::Cancelled,
-            RunRecoveryStatus::Active | RunRecoveryStatus::Interrupted => WorkflowState::PlanGeneration,
+            RunRecoveryStatus::Active | RunRecoveryStatus::Interrupted => {
+                WorkflowState::PlanGeneration
+            }
         };
         RunJournal {
             schema_version: JOURNAL_SCHEMA_VERSION,
@@ -1595,6 +1816,7 @@ mod tests {
             plan_convergence_audit: Vec::new(),
             plan_convergence_confirmation_intent: None,
             usage: None,
+            cost_summary: None,
             next_dispatch_ordinal: 0,
             adapter_dispatches: Vec::new(),
             revision,
@@ -1793,7 +2015,10 @@ mod tests {
 
         let active_summary = list.iter().find(|s| s.run_id == "run-active").unwrap();
         assert_eq!(active_summary.status, RunRecoveryStatus::Interrupted);
-        assert!(!active_summary.is_resumable, "Phase A reports is_resumable=false");
+        assert!(
+            !active_summary.is_resumable,
+            "Phase A reports is_resumable=false"
+        );
         assert!(active_summary.error.is_none());
 
         let complete_summary = list.iter().find(|s| s.run_id == "run-complete").unwrap();
@@ -1817,14 +2042,22 @@ mod tests {
         let res = manager.write_journal(&journal);
 
         assert!(res.is_err());
-        assert!(res.unwrap_err().contains("Injected permission setup failure"));
+        assert!(res
+            .unwrap_err()
+            .contains("Injected permission setup failure"));
 
         let target_path = temp.path().join("runs").join("run-zero-bytes.json");
-        assert!(!target_path.exists(), "Target journal must not exist on permission failure");
+        assert!(
+            !target_path.exists(),
+            "Target journal must not exist on permission failure"
+        );
 
         // Verify no orphaned temporary files exist in runs directory
         let files: Vec<_> = fs::read_dir(temp.path().join("runs")).unwrap().collect();
-        assert!(files.is_empty(), "No temporary file should remain on permission failure");
+        assert!(
+            files.is_empty(),
+            "No temporary file should remain on permission failure"
+        );
     }
 
     #[test]
@@ -1845,7 +2078,10 @@ mod tests {
         let manager = JournalManager::new(runs_dir.clone());
         let journal = sample_journal("protected-access", 1, RunRecoveryStatus::Active);
         manager.write_journal(&journal).unwrap();
-        assert!(runs_dir.exists(), "test exercises an already-existing runs directory");
+        assert!(
+            runs_dir.exists(),
+            "test exercises an already-existing runs directory"
+        );
 
         let verification_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let observed = Arc::clone(&verification_count);
@@ -1859,7 +2095,10 @@ mod tests {
         assert!(read_error.contains("injected runs-directory protection verification failure"));
         let list_error = manager.list_journals().unwrap_err();
         assert!(list_error.contains("injected runs-directory protection verification failure"));
-        assert_eq!(verification_count.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(
+            verification_count.load(std::sync::atomic::Ordering::SeqCst),
+            2
+        );
         // The existing journal is preserved; neither API returns its contents after failed verification.
         assert!(runs_dir.join("protected-access.json").exists());
     }
@@ -1902,7 +2141,11 @@ mod tests {
         // 2. Schema mismatch file
         let mut bad_schema = sample_journal("run-bad-schema", 1, RunRecoveryStatus::Active);
         bad_schema.schema_version = 999;
-        fs::write(runs_dir.join("run-bad-schema.json"), serde_json::to_vec_pretty(&bad_schema).unwrap()).unwrap();
+        fs::write(
+            runs_dir.join("run-bad-schema.json"),
+            serde_json::to_vec_pretty(&bad_schema).unwrap(),
+        )
+        .unwrap();
 
         let manager = JournalManager::new(runs_dir);
         let list = manager.list_journals().unwrap();
@@ -1911,7 +2154,11 @@ mod tests {
         let corrupt = list.iter().find(|s| s.run_id == "run-corrupt").unwrap();
         assert_eq!(corrupt.status, RunRecoveryStatus::Failed);
         assert!(!corrupt.is_resumable);
-        assert!(corrupt.error.as_ref().unwrap().contains("Malformed journal JSON"));
+        assert!(corrupt
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("Malformed journal JSON"));
 
         let bad_sch = list.iter().find(|s| s.run_id == "run-bad-schema").unwrap();
         assert_eq!(bad_sch.status, RunRecoveryStatus::Failed);
@@ -1937,13 +2184,22 @@ mod tests {
         let journal = sample_journal("run-corrupt-target", 1, RunRecoveryStatus::Active);
 
         let res = manager.write_journal(&journal);
-        assert!(res.is_err(), "write_journal must fail on corrupt existing file");
+        assert!(
+            res.is_err(),
+            "write_journal must fail on corrupt existing file"
+        );
         let err_msg = res.unwrap_err();
-        assert!(err_msg.contains("corrupt or invalid JSON"), "Error was: {err_msg}");
+        assert!(
+            err_msg.contains("corrupt or invalid JSON"),
+            "Error was: {err_msg}"
+        );
 
         // Assert file bytes remain strictly unchanged
         let current_bytes = fs::read(&target_file).unwrap();
-        assert_eq!(current_bytes, corrupt_content, "Corrupt file must remain byte-for-byte untouched");
+        assert_eq!(
+            current_bytes, corrupt_content,
+            "Corrupt file must remain byte-for-byte untouched"
+        );
     }
 
     #[test]
@@ -1957,13 +2213,19 @@ mod tests {
         let original = b"existing journal bytes must remain untouched";
         fs::write(&target, original).unwrap();
         *manager.existing_metadata_test_hook.lock().unwrap() = Some(Arc::new(|path| {
-            assert!(path.exists(), "injected metadata failure targets an existing file");
+            assert!(
+                path.exists(),
+                "injected metadata failure targets an existing file"
+            );
             Err("injected metadata inspection failure".to_string())
         }));
 
         let replacement = sample_journal("metadata-error", 2, RunRecoveryStatus::Active);
         let error = manager.write_journal(&replacement).unwrap_err();
-        assert!(error.contains("injected metadata inspection failure"), "{error}");
+        assert!(
+            error.contains("injected metadata inspection failure"),
+            "{error}"
+        );
         assert_eq!(fs::read(&target).unwrap(), original);
     }
 
@@ -1983,7 +2245,10 @@ mod tests {
         let valid_journal = sample_journal("run-unknown-schema", 2, RunRecoveryStatus::Active);
 
         let res = manager.write_journal(&valid_journal);
-        assert!(res.is_err(), "write_journal must fail on unsupported schema existing file");
+        assert!(
+            res.is_err(),
+            "write_journal must fail on unsupported schema existing file"
+        );
         assert!(res.unwrap_err().contains("unsupported schema version 42"));
 
         // Assert file bytes remain strictly untouched
@@ -2056,11 +2321,15 @@ mod tests {
 
         journal = sample_journal("semantic-validation", 1, RunRecoveryStatus::Complete);
         journal.current_state = WorkflowState::PlanGeneration;
-        assert!(validate_journal(&journal).unwrap_err().contains("contradicts"));
+        assert!(validate_journal(&journal)
+            .unwrap_err()
+            .contains("contradicts"));
 
         journal = sample_journal("semantic-validation", 1, RunRecoveryStatus::Active);
         journal.current_state = WorkflowState::Failed;
-        assert!(validate_journal(&journal).unwrap_err().contains("contradicts"));
+        assert!(validate_journal(&journal)
+            .unwrap_err()
+            .contains("contradicts"));
     }
 
     #[test]
@@ -2070,25 +2339,34 @@ mod tests {
             let runs_dir = temp.path().join("runs");
             let manager = JournalManager::new(runs_dir.clone());
             if primary_failure == "permission" {
-                *manager.permissions_test_hook.lock().unwrap() = Some(Arc::new(|_| {
-                    Err("injected permission failure".to_string())
-                }));
+                *manager.permissions_test_hook.lock().unwrap() =
+                    Some(Arc::new(|_| Err("injected permission failure".to_string())));
             } else {
                 *manager.write_test_hook.lock().unwrap() = Some(Arc::new(|_| {
                     Err("injected content write failure".to_string())
                 }));
             }
             *manager.cleanup_test_hook.lock().unwrap() = Some(Arc::new(|path| {
-                Err(format!("injected temp cleanup failure for {}", path.display()))
+                Err(format!(
+                    "injected temp cleanup failure for {}",
+                    path.display()
+                ))
             }));
 
             let journal = sample_journal("cleanup-failure", 1, RunRecoveryStatus::Active);
             let error = manager.write_journal(&journal).unwrap_err();
-            assert!(error.contains(&format!("injected {primary_failure}")), "{error}");
+            assert!(
+                error.contains(&format!("injected {primary_failure}")),
+                "{error}"
+            );
             assert!(error.contains("injected temp cleanup failure"), "{error}");
             assert!(!runs_dir.join("cleanup-failure.json").exists());
             let leftovers: Vec<_> = fs::read_dir(&runs_dir).unwrap().collect();
-            assert_eq!(leftovers.len(), 1, "injected cleanup failure should leave only the reported temp file");
+            assert_eq!(
+                leftovers.len(),
+                1,
+                "injected cleanup failure should leave only the reported temp file"
+            );
         }
     }
 
@@ -2300,7 +2578,10 @@ mod tests {
         manager.write_journal(&journal).unwrap();
 
         let loaded2 = manager.read_journal("run-stage-1").unwrap();
-        assert_eq!(loaded2.last_successful_state, Some(WorkflowState::PlanGeneration));
+        assert_eq!(
+            loaded2.last_successful_state,
+            Some(WorkflowState::PlanGeneration)
+        );
         assert_eq!(loaded2.current_state, WorkflowState::Implementation);
 
         // A failed stage does not clear or regress the last successful boundary
@@ -2310,7 +2591,10 @@ mod tests {
         manager.write_journal(&journal).unwrap();
 
         let loaded3 = manager.read_journal("run-stage-1").unwrap();
-        assert_eq!(loaded3.last_successful_state, Some(WorkflowState::PlanGeneration));
+        assert_eq!(
+            loaded3.last_successful_state,
+            Some(WorkflowState::PlanGeneration)
+        );
         assert_eq!(loaded3.status, RunRecoveryStatus::Failed);
     }
 
@@ -2381,7 +2665,10 @@ mod tests {
 
         // Explicit null in JSON deserializes to None
         let mut modified_val = parsed_val.clone();
-        modified_val.as_object_mut().unwrap().insert("usage".to_string(), serde_json::Value::Null);
+        modified_val
+            .as_object_mut()
+            .unwrap()
+            .insert("usage".to_string(), serde_json::Value::Null);
         let deserialized: RunJournal = serde_json::from_value(modified_val).unwrap();
         assert_eq!(deserialized.usage, None);
     }
@@ -2441,6 +2728,9 @@ mod tests {
             model: Some("model-a".to_string()),
             payload_digest: Some("hash1".to_string()),
             usage: Some(usage.clone()),
+            provider_id: None,
+            schedule_id: None,
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 100,
             completed_at_unix: Some(105),
@@ -2453,7 +2743,10 @@ mod tests {
         assert_eq!(loaded.usage, Some(usage));
         assert_eq!(loaded.next_dispatch_ordinal, 3);
         assert_eq!(loaded.adapter_dispatches.len(), 1);
-        assert_eq!(loaded.adapter_dispatches[0].dispatch_id, "run-roundtrip-usage:1");
+        assert_eq!(
+            loaded.adapter_dispatches[0].dispatch_id,
+            "run-roundtrip-usage:1"
+        );
     }
 
     #[test]
@@ -2480,39 +2773,54 @@ mod tests {
         assert_ne!(id1, id3);
 
         // Repeated role dispatch
-        let res1 = manager.record_adapter_dispatch("run-monotonic", AdapterDispatchRecord {
-            dispatch_id: id1.clone(),
-            ordinal: ord1,
-            role: "planner".to_string(),
-            profile_id: "prof-1".to_string(),
-            model: None,
-            payload_digest: Some("digest-1".to_string()),
-            usage: None,
-            status: Some("completed".to_string()),
-            created_at_unix: 1,
-            completed_at_unix: Some(2),
-        });
+        let res1 = manager.record_adapter_dispatch(
+            "run-monotonic",
+            AdapterDispatchRecord {
+                dispatch_id: id1.clone(),
+                ordinal: ord1,
+                role: "planner".to_string(),
+                profile_id: "prof-1".to_string(),
+                model: None,
+                payload_digest: Some("digest-1".to_string()),
+                usage: None,
+                provider_id: None,
+                schedule_id: None,
+                cost_estimate: None,
+                status: Some("completed".to_string()),
+                created_at_unix: 1,
+                completed_at_unix: Some(2),
+            },
+        );
         assert!(res1.is_ok());
 
-        let res2 = manager.record_adapter_dispatch("run-monotonic", AdapterDispatchRecord {
-            dispatch_id: id2.clone(),
-            ordinal: ord2,
-            role: "planner".to_string(), // repeated role
-            profile_id: "prof-1".to_string(),
-            model: None,
-            payload_digest: Some("digest-2".to_string()),
-            usage: None,
-            status: Some("completed".to_string()),
-            created_at_unix: 3,
-            completed_at_unix: Some(4),
-        });
+        let res2 = manager.record_adapter_dispatch(
+            "run-monotonic",
+            AdapterDispatchRecord {
+                dispatch_id: id2.clone(),
+                ordinal: ord2,
+                role: "planner".to_string(), // repeated role
+                profile_id: "prof-1".to_string(),
+                model: None,
+                payload_digest: Some("digest-2".to_string()),
+                usage: None,
+                provider_id: None,
+                schedule_id: None,
+                cost_estimate: None,
+                status: Some("completed".to_string()),
+                created_at_unix: 3,
+                completed_at_unix: Some(4),
+            },
+        );
         assert!(res2.is_ok());
 
         let loaded = manager.read_journal("run-monotonic").unwrap();
         assert_eq!(loaded.adapter_dispatches.len(), 2);
         assert_eq!(loaded.adapter_dispatches[0].role, "planner");
         assert_eq!(loaded.adapter_dispatches[1].role, "planner");
-        assert_ne!(loaded.adapter_dispatches[0].dispatch_id, loaded.adapter_dispatches[1].dispatch_id);
+        assert_ne!(
+            loaded.adapter_dispatches[0].dispatch_id,
+            loaded.adapter_dispatches[1].dispatch_id
+        );
     }
 
     #[test]
@@ -2549,17 +2857,24 @@ mod tests {
             model: Some("m1".to_string()),
             payload_digest: Some("hash-abc".to_string()),
             usage: None,
+            provider_id: None,
+            schedule_id: None,
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 10,
             completed_at_unix: Some(15),
         };
 
         // First attempt inserts
-        let changed1 = manager.record_adapter_dispatch("run-idempotent", record.clone()).unwrap();
+        let changed1 = manager
+            .record_adapter_dispatch("run-idempotent", record.clone())
+            .unwrap();
         assert!(changed1);
 
         // Retry with same ID and same payload is an idempotent no-op
-        let changed2 = manager.record_adapter_dispatch("run-idempotent", record.clone()).unwrap();
+        let changed2 = manager
+            .record_adapter_dispatch("run-idempotent", record.clone())
+            .unwrap();
         assert!(!changed2);
 
         let loaded = manager.read_journal("run-idempotent").unwrap();
@@ -2582,11 +2897,16 @@ mod tests {
             model: Some("m1".to_string()),
             payload_digest: Some("hash-original".to_string()),
             usage: None,
+            provider_id: None,
+            schedule_id: None,
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 10,
             completed_at_unix: Some(15),
         };
-        manager.record_adapter_dispatch("run-conflict", record1).unwrap();
+        manager
+            .record_adapter_dispatch("run-conflict", record1)
+            .unwrap();
 
         // Same dispatch ID but different payload_digest => Conflict error
         let record2 = AdapterDispatchRecord {
@@ -2597,6 +2917,9 @@ mod tests {
             model: Some("m1".to_string()),
             payload_digest: Some("hash-tampered".to_string()),
             usage: None,
+            provider_id: None,
+            schedule_id: None,
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 10,
             completed_at_unix: Some(15),
@@ -2646,6 +2969,9 @@ mod tests {
                 model: Some("m1".to_string()),
                 payload_digest: Some(format!("digest-{ord}")),
                 usage: None,
+                provider_id: None,
+                schedule_id: None,
+                cost_estimate: None,
                 status: Some("reserved".to_string()),
                 created_at_unix: 10,
                 completed_at_unix: None,
@@ -2681,6 +3007,9 @@ mod tests {
                     cache_read_tokens: None,
                     cache_write_tokens: None,
                 }),
+                provider_id: None,
+                schedule_id: None,
+                cost_estimate: None,
                 status: Some("completed".to_string()),
                 created_at_unix: 10,
                 completed_at_unix: Some(20),
@@ -2688,7 +3017,9 @@ mod tests {
             handles.push(std::thread::spawn(move || {
                 let m = JournalManager::new(runs_dir_clone);
                 b.wait();
-                let changed = m.record_adapter_dispatch("run-concurrent-cross", record).unwrap();
+                let changed = m
+                    .record_adapter_dispatch("run-concurrent-cross", record)
+                    .unwrap();
                 assert!(changed);
                 None
             }));
@@ -2756,7 +3087,10 @@ mod tests {
 
         // Verify acquire_dispatch_lock returns Err with PC_DISPATCH_LOCK_POISONED without panicking
         let result = acquire_dispatch_lock(&test_mutex);
-        assert!(result.is_err(), "acquire_dispatch_lock must return Err on poisoned mutex");
+        assert!(
+            result.is_err(),
+            "acquire_dispatch_lock must return Err on poisoned mutex"
+        );
         let err_msg = result.err().unwrap();
         assert!(
             err_msg.contains("PC_DISPATCH_LOCK_POISONED"),
@@ -2768,7 +3102,9 @@ mod tests {
         let manager = JournalManager::new(temp.path().join("runs"));
         let res_reserve = manager.reserve_dispatch_ordinal_with_lock("run-poison", &test_mutex);
         assert!(res_reserve.is_err());
-        assert!(res_reserve.unwrap_err().contains("PC_DISPATCH_LOCK_POISONED"));
+        assert!(res_reserve
+            .unwrap_err()
+            .contains("PC_DISPATCH_LOCK_POISONED"));
 
         let dummy_record = AdapterDispatchRecord {
             dispatch_id: "run-poison:1".to_string(),
@@ -2778,13 +3114,19 @@ mod tests {
             model: None,
             payload_digest: None,
             usage: None,
+            provider_id: None,
+            schedule_id: None,
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 1,
             completed_at_unix: None,
         };
-        let res_record = manager.record_adapter_dispatch_with_lock("run-poison", dummy_record, &test_mutex);
+        let res_record =
+            manager.record_adapter_dispatch_with_lock("run-poison", dummy_record, &test_mutex);
         assert!(res_record.is_err());
-        assert!(res_record.unwrap_err().contains("PC_DISPATCH_LOCK_POISONED"));
+        assert!(res_record
+            .unwrap_err()
+            .contains("PC_DISPATCH_LOCK_POISONED"));
     }
 
     #[test]
@@ -2812,8 +3154,14 @@ mod tests {
             tx_reserver_in_cs.send(()).unwrap();
             // Wait for Thread 2 to attempt lock acquisition and verify WouldBlock.
             // Timeout is solely a hang watchdog (not used for pass/fail determination).
-            let ok = rx_cont_hook.lock().unwrap().recv_timeout(std::time::Duration::from_secs(5));
-            assert!(ok.is_ok(), "hang watchdog: reserver should have received continue signal");
+            let ok = rx_cont_hook
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_secs(5));
+            assert!(
+                ok.is_ok(),
+                "hang watchdog: reserver should have received continue signal"
+            );
             Ok(())
         }));
 
@@ -2865,6 +3213,9 @@ mod tests {
                     cache_read_tokens: None,
                     cache_write_tokens: None,
                 }),
+                provider_id: None,
+                schedule_id: None,
+                cost_estimate: None,
                 status: Some("completed".to_string()),
                 created_at_unix: 10,
                 completed_at_unix: Some(20),
@@ -2878,15 +3229,33 @@ mod tests {
 
         // Deterministically verify that the second acquisition attempt yielded WouldBlock
         let would_block = rx_wouldblock_observed.recv_timeout(std::time::Duration::from_secs(5));
-        assert!(would_block.is_ok(), "hang watchdog: should receive WouldBlock notification");
-        assert!(would_block.unwrap(), "Second acquisition attempt must be WouldBlock");
+        assert!(
+            would_block.is_ok(),
+            "hang watchdog: should receive WouldBlock notification"
+        );
+        assert!(
+            would_block.unwrap(),
+            "Second acquisition attempt must be WouldBlock"
+        );
 
         // Thread joining and cleanup (スレッド回収)
-        let res_reserver = handle_reserver.join().expect("reserver thread should not panic");
-        let res_recorder = handle_recorder.join().expect("recorder thread should not panic");
+        let res_reserver = handle_reserver
+            .join()
+            .expect("reserver thread should not panic");
+        let res_recorder = handle_recorder
+            .join()
+            .expect("recorder thread should not panic");
 
-        assert!(res_reserver.is_ok(), "reserve_dispatch_ordinal must succeed: {:?}", res_reserver.err());
-        assert!(res_recorder.is_ok(), "record_adapter_dispatch must succeed: {:?}", res_recorder.err());
+        assert!(
+            res_reserver.is_ok(),
+            "reserve_dispatch_ordinal must succeed: {:?}",
+            res_reserver.err()
+        );
+        assert!(
+            res_recorder.is_ok(),
+            "record_adapter_dispatch must succeed: {:?}",
+            res_recorder.err()
+        );
 
         // Verify final journal state on disk with a fresh JournalManager instance
         let verify_manager = JournalManager::new(runs_dir);
@@ -2896,7 +3265,10 @@ mod tests {
         assert_eq!(final_journal.revision, 3);
         assert_eq!(final_journal.adapter_dispatches.len(), 1);
         assert_eq!(final_journal.adapter_dispatches[0].ordinal, 100);
-        assert_eq!(final_journal.adapter_dispatches[0].status.as_deref(), Some("completed"));
+        assert_eq!(
+            final_journal.adapter_dispatches[0].status.as_deref(),
+            Some("completed")
+        );
         // Ordinal reservation allocated ordinal 1 (initial empty journal had 0, so next is 1)
         assert_eq!(res_reserver.unwrap(), 1);
         // Next ordinal after 100 is 101
@@ -2928,8 +3300,14 @@ mod tests {
             tx_recorder_in_cs.send(()).unwrap();
             // Wait for Thread 2 to attempt lock acquisition and verify WouldBlock.
             // Timeout is solely a hang watchdog (not used for pass/fail determination).
-            let ok = rx_cont_hook.lock().unwrap().recv_timeout(std::time::Duration::from_secs(5));
-            assert!(ok.is_ok(), "hang watchdog: recorder should have received continue signal");
+            let ok = rx_cont_hook
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_secs(5));
+            assert!(
+                ok.is_ok(),
+                "hang watchdog: recorder should have received continue signal"
+            );
             Ok(())
         }));
 
@@ -2985,6 +3363,9 @@ mod tests {
                     cache_read_tokens: None,
                     cache_write_tokens: None,
                 }),
+                provider_id: None,
+                schedule_id: None,
+                cost_estimate: None,
                 status: Some("completed".to_string()),
                 created_at_unix: 10,
                 completed_at_unix: Some(20),
@@ -2994,15 +3375,33 @@ mod tests {
 
         // Deterministically verify that the second acquisition attempt yielded WouldBlock
         let would_block = rx_wouldblock_observed.recv_timeout(std::time::Duration::from_secs(5));
-        assert!(would_block.is_ok(), "hang watchdog: should receive WouldBlock notification");
-        assert!(would_block.unwrap(), "Second acquisition attempt must be WouldBlock");
+        assert!(
+            would_block.is_ok(),
+            "hang watchdog: should receive WouldBlock notification"
+        );
+        assert!(
+            would_block.unwrap(),
+            "Second acquisition attempt must be WouldBlock"
+        );
 
         // Thread joining and cleanup (スレッド回収)
-        let res_recorder = handle_recorder.join().expect("recorder thread should not panic");
-        let res_reserver = handle_reserver.join().expect("reserver thread should not panic");
+        let res_recorder = handle_recorder
+            .join()
+            .expect("recorder thread should not panic");
+        let res_reserver = handle_reserver
+            .join()
+            .expect("reserver thread should not panic");
 
-        assert!(res_recorder.is_ok(), "record_adapter_dispatch must succeed: {:?}", res_recorder.err());
-        assert!(res_reserver.is_ok(), "reserve_dispatch_ordinal must succeed: {:?}", res_reserver.err());
+        assert!(
+            res_recorder.is_ok(),
+            "record_adapter_dispatch must succeed: {:?}",
+            res_recorder.err()
+        );
+        assert!(
+            res_reserver.is_ok(),
+            "reserve_dispatch_ordinal must succeed: {:?}",
+            res_reserver.err()
+        );
 
         // Verify final journal state on disk with a fresh JournalManager instance
         let verify_manager = JournalManager::new(runs_dir);
@@ -3012,7 +3411,10 @@ mod tests {
         assert_eq!(final_journal.revision, 3);
         assert_eq!(final_journal.adapter_dispatches.len(), 1);
         assert_eq!(final_journal.adapter_dispatches[0].ordinal, 50);
-        assert_eq!(final_journal.adapter_dispatches[0].status.as_deref(), Some("completed"));
+        assert_eq!(
+            final_journal.adapter_dispatches[0].status.as_deref(),
+            Some("completed")
+        );
         // Ordinal reservation happened after record with ordinal 50, so next is 51
         assert_eq!(res_reserver.unwrap(), 51);
         assert_eq!(final_journal.next_dispatch_ordinal, 52);
@@ -3033,6 +3435,9 @@ mod tests {
             model: Some("m1".to_string()),
             payload_digest: Some("hash-1".to_string()),
             usage: None,
+            provider_id: None,
+            schedule_id: None,
+            cost_estimate: None,
             status: Some("reserved".to_string()),
             created_at_unix: 10,
             completed_at_unix: None,
@@ -3062,6 +3467,9 @@ mod tests {
                 cache_read_tokens: Some(0),
                 cache_write_tokens: None,
             }),
+            provider_id: None,
+            schedule_id: None,
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 10,
             completed_at_unix: Some(20),
@@ -3090,6 +3498,9 @@ mod tests {
             model: Some("m2".to_string()),
             payload_digest: Some("hash-2".to_string()),
             usage: None,
+            provider_id: None,
+            schedule_id: None,
+            cost_estimate: None,
             status: Some("reserved".to_string()),
             created_at_unix: 30,
             completed_at_unix: None,
@@ -3105,6 +3516,9 @@ mod tests {
             model: Some("m2".to_string()),
             payload_digest: Some("hash-2".to_string()),
             usage: None,
+            provider_id: None,
+            schedule_id: None,
+            cost_estimate: None,
             status: Some("failed".to_string()),
             created_at_unix: 30,
             completed_at_unix: Some(40),
@@ -3137,6 +3551,9 @@ mod tests {
             model: None,
             payload_digest: None,
             usage: None,
+            provider_id: None,
+            schedule_id: None,
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 1,
             completed_at_unix: None,
@@ -3156,7 +3573,9 @@ mod tests {
             ordinal: 1,
             role: "planner".to_string(),
             profile_id: "prof".to_string(),
+            provider_id: None,
             model: None,
+            schedule_id: None,
             payload_digest: None,
             usage: Some(NormalizedUsage {
                 input_tokens: Some(100),
@@ -3165,6 +3584,7 @@ mod tests {
                 cache_read_tokens: Some(20),
                 cache_write_tokens: Some(0),
             }),
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 1,
             completed_at_unix: Some(2),
@@ -3174,7 +3594,9 @@ mod tests {
             ordinal: 2,
             role: "plan_reviewer".to_string(),
             profile_id: "prof".to_string(),
+            provider_id: None,
             model: None,
+            schedule_id: None,
             payload_digest: None,
             usage: Some(NormalizedUsage {
                 input_tokens: Some(200),
@@ -3183,6 +3605,7 @@ mod tests {
                 cache_read_tokens: Some(40),
                 cache_write_tokens: Some(10),
             }),
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 3,
             completed_at_unix: Some(4),
@@ -3203,7 +3626,9 @@ mod tests {
             ordinal: 3,
             role: "planner".to_string(),
             profile_id: "prof".to_string(),
+            provider_id: None,
             model: None,
+            schedule_id: None,
             payload_digest: None,
             usage: Some(NormalizedUsage {
                 input_tokens: Some(50),
@@ -3212,6 +3637,7 @@ mod tests {
                 cache_read_tokens: None, // unmeasured
                 cache_write_tokens: Some(5),
             }),
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 5,
             completed_at_unix: Some(6),
@@ -3224,9 +3650,30 @@ mod tests {
 
         // Raw records in adapter_dispatches are preserved exactly
         assert_eq!(journal.adapter_dispatches.len(), 3);
-        assert_eq!(journal.adapter_dispatches[0].usage.as_ref().unwrap().cache_read_tokens, Some(20));
-        assert_eq!(journal.adapter_dispatches[1].usage.as_ref().unwrap().cache_read_tokens, Some(40));
-        assert_eq!(journal.adapter_dispatches[2].usage.as_ref().unwrap().cache_read_tokens, None);
+        assert_eq!(
+            journal.adapter_dispatches[0]
+                .usage
+                .as_ref()
+                .unwrap()
+                .cache_read_tokens,
+            Some(20)
+        );
+        assert_eq!(
+            journal.adapter_dispatches[1]
+                .usage
+                .as_ref()
+                .unwrap()
+                .cache_read_tokens,
+            Some(40)
+        );
+        assert_eq!(
+            journal.adapter_dispatches[2]
+                .usage
+                .as_ref()
+                .unwrap()
+                .cache_read_tokens,
+            None
+        );
 
         // 3. Overflow yields None rather than saturating
         let d_overflow = AdapterDispatchRecord {
@@ -3234,7 +3681,9 @@ mod tests {
             ordinal: 4,
             role: "planner".to_string(),
             profile_id: "prof".to_string(),
+            provider_id: None,
             model: None,
+            schedule_id: None,
             payload_digest: None,
             usage: Some(NormalizedUsage {
                 input_tokens: Some(u64::MAX),
@@ -3243,6 +3692,7 @@ mod tests {
                 cache_read_tokens: None,
                 cache_write_tokens: None,
             }),
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 7,
             completed_at_unix: Some(8),
@@ -3265,14 +3715,19 @@ mod tests {
             ordinal: 1,
             role: "planner".to_string(),
             profile_id: "profile-1".to_string(),
+            provider_id: None,
             model: Some("model-a".to_string()),
+            schedule_id: None,
             payload_digest: Some("hash1".to_string()),
             usage: None,
+            cost_estimate: None,
             status: None, // Defaults to "reserved"
             created_at_unix: 100,
             completed_at_unix: None,
         };
-        let changed1 = manager.record_adapter_dispatch("run-val-test", valid_rec1).unwrap();
+        let changed1 = manager
+            .record_adapter_dispatch("run-val-test", valid_rec1)
+            .unwrap();
         assert!(changed1);
 
         // Update record 1 to "completed"
@@ -3281,14 +3736,19 @@ mod tests {
             ordinal: 1,
             role: "planner".to_string(),
             profile_id: "profile-1".to_string(),
+            provider_id: None,
             model: Some("model-a".to_string()),
+            schedule_id: None,
             payload_digest: Some("hash1".to_string()),
             usage: None,
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 100,
             completed_at_unix: Some(105),
         };
-        let changed2 = manager.record_adapter_dispatch("run-val-test", valid_rec1_comp).unwrap();
+        let changed2 = manager
+            .record_adapter_dispatch("run-val-test", valid_rec1_comp)
+            .unwrap();
         assert!(changed2);
 
         // Capture durable state before invalid attempts
@@ -3302,16 +3762,21 @@ mod tests {
             ordinal: 0,
             role: "planner".to_string(),
             profile_id: "profile-1".to_string(),
+            provider_id: None,
             model: None,
+            schedule_id: None,
             payload_digest: None,
             usage: None,
+            cost_estimate: None,
             status: Some("reserved".to_string()),
             created_at_unix: 110,
             completed_at_unix: None,
         };
         let err_zero = manager.record_adapter_dispatch("run-val-test", rec_ord_zero);
         assert!(err_zero.is_err());
-        assert!(err_zero.unwrap_err().contains("PC_DISPATCH_INVALID_ORDINAL"));
+        assert!(err_zero
+            .unwrap_err()
+            .contains("PC_DISPATCH_INVALID_ORDINAL"));
 
         // 3. Reject ID/ordinal mismatch
         let rec_mismatch = AdapterDispatchRecord {
@@ -3319,16 +3784,21 @@ mod tests {
             ordinal: 2,
             role: "planner".to_string(),
             profile_id: "profile-1".to_string(),
+            provider_id: None,
             model: None,
+            schedule_id: None,
             payload_digest: None,
             usage: None,
+            cost_estimate: None,
             status: Some("reserved".to_string()),
             created_at_unix: 110,
             completed_at_unix: None,
         };
         let err_mismatch = manager.record_adapter_dispatch("run-val-test", rec_mismatch);
         assert!(err_mismatch.is_err());
-        assert!(err_mismatch.unwrap_err().contains("PC_DISPATCH_ID_MISMATCH"));
+        assert!(err_mismatch
+            .unwrap_err()
+            .contains("PC_DISPATCH_ID_MISMATCH"));
 
         // Reject ID with different run_id
         let rec_diff_run = AdapterDispatchRecord {
@@ -3336,16 +3806,21 @@ mod tests {
             ordinal: 2,
             role: "planner".to_string(),
             profile_id: "profile-1".to_string(),
+            provider_id: None,
             model: None,
+            schedule_id: None,
             payload_digest: None,
             usage: None,
+            cost_estimate: None,
             status: Some("reserved".to_string()),
             created_at_unix: 110,
             completed_at_unix: None,
         };
         let err_diff_run = manager.record_adapter_dispatch("run-val-test", rec_diff_run);
         assert!(err_diff_run.is_err());
-        assert!(err_diff_run.unwrap_err().contains("PC_DISPATCH_ID_MISMATCH"));
+        assert!(err_diff_run
+            .unwrap_err()
+            .contains("PC_DISPATCH_ID_MISMATCH"));
 
         // 4. Reject unknown status and empty status
         let rec_unknown_status = AdapterDispatchRecord {
@@ -3353,32 +3828,42 @@ mod tests {
             ordinal: 2,
             role: "planner".to_string(),
             profile_id: "profile-1".to_string(),
+            provider_id: None,
             model: None,
+            schedule_id: None,
             payload_digest: None,
             usage: None,
+            cost_estimate: None,
             status: Some("in_progress".to_string()),
             created_at_unix: 110,
             completed_at_unix: None,
         };
         let err_status = manager.record_adapter_dispatch("run-val-test", rec_unknown_status);
         assert!(err_status.is_err());
-        assert!(err_status.unwrap_err().contains("PC_DISPATCH_INVALID_STATUS"));
+        assert!(err_status
+            .unwrap_err()
+            .contains("PC_DISPATCH_INVALID_STATUS"));
 
         let rec_empty_status = AdapterDispatchRecord {
             dispatch_id: "run-val-test:2".to_string(),
             ordinal: 2,
             role: "planner".to_string(),
             profile_id: "profile-1".to_string(),
+            provider_id: None,
             model: None,
+            schedule_id: None,
             payload_digest: None,
             usage: None,
+            cost_estimate: None,
             status: Some("".to_string()),
             created_at_unix: 110,
             completed_at_unix: None,
         };
         let err_empty = manager.record_adapter_dispatch("run-val-test", rec_empty_status);
         assert!(err_empty.is_err());
-        assert!(err_empty.unwrap_err().contains("PC_DISPATCH_INVALID_STATUS"));
+        assert!(err_empty
+            .unwrap_err()
+            .contains("PC_DISPATCH_INVALID_STATUS"));
 
         // 5. Reject duplicate ordinal collision on new dispatch
         let rec_dup_ordinal = AdapterDispatchRecord {
@@ -3386,16 +3871,21 @@ mod tests {
             ordinal: 1, // Already exists with dispatch_id "run-val-test:1"
             role: "reviewer".to_string(),
             profile_id: "profile-2".to_string(),
+            provider_id: None,
             model: None,
+            schedule_id: None,
             payload_digest: None,
             usage: None,
+            cost_estimate: None,
             status: Some("reserved".to_string()),
             created_at_unix: 110,
             completed_at_unix: None,
         };
         let err_dup_id_mismatch = manager.record_adapter_dispatch("run-val-test", rec_dup_ordinal);
         assert!(err_dup_id_mismatch.is_err());
-        assert!(err_dup_id_mismatch.unwrap_err().contains("PC_DISPATCH_ID_MISMATCH"));
+        assert!(err_dup_id_mismatch
+            .unwrap_err()
+            .contains("PC_DISPATCH_ID_MISMATCH"));
 
         // Conflict on existing dispatch
         let rec_conflict = AdapterDispatchRecord {
@@ -3403,9 +3893,12 @@ mod tests {
             ordinal: 1,
             role: "conflicting-role".to_string(),
             profile_id: "profile-1".to_string(),
+            provider_id: None,
             model: Some("model-a".to_string()),
+            schedule_id: None,
             payload_digest: Some("hash1".to_string()),
             usage: None,
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 100,
             completed_at_unix: Some(105),
@@ -3418,12 +3911,24 @@ mod tests {
         let current_journal = manager.read_journal("run-val-test").unwrap();
         assert_eq!(current_journal.revision, baseline.revision);
         assert_eq!(current_journal.updated_at_unix, baseline.updated_at_unix);
-        assert_eq!(current_journal.next_dispatch_ordinal, baseline.next_dispatch_ordinal);
-        assert_eq!(current_journal.adapter_dispatches.len(), baseline.adapter_dispatches.len());
-        assert_eq!(current_journal.adapter_dispatches[0].status, baseline.adapter_dispatches[0].status);
+        assert_eq!(
+            current_journal.next_dispatch_ordinal,
+            baseline.next_dispatch_ordinal
+        );
+        assert_eq!(
+            current_journal.adapter_dispatches.len(),
+            baseline.adapter_dispatches.len()
+        );
+        assert_eq!(
+            current_journal.adapter_dispatches[0].status,
+            baseline.adapter_dispatches[0].status
+        );
 
         let current_raw = std::fs::read(&baseline_path).unwrap();
-        assert_eq!(current_raw, baseline_raw, "Disk file must remain byte-for-byte identical after rejected records");
+        assert_eq!(
+            current_raw, baseline_raw,
+            "Disk file must remain byte-for-byte identical after rejected records"
+        );
 
         // In-memory RunJournal direct call verification
         let mut mem_journal = baseline.clone();
@@ -3432,16 +3937,27 @@ mod tests {
             ordinal: 0,
             role: "planner".to_string(),
             profile_id: "p".to_string(),
+            provider_id: None,
             model: None,
+            schedule_id: None,
             payload_digest: None,
             usage: None,
+            cost_estimate: None,
             status: Some("reserved".to_string()),
             created_at_unix: 1,
             completed_at_unix: None,
         };
-        assert!(mem_journal.record_adapter_dispatch(rec_invalid_mem).is_err());
-        assert_eq!(mem_journal.adapter_dispatches.len(), baseline.adapter_dispatches.len());
-        assert_eq!(mem_journal.next_dispatch_ordinal, baseline.next_dispatch_ordinal);
+        assert!(mem_journal
+            .record_adapter_dispatch(rec_invalid_mem)
+            .is_err());
+        assert_eq!(
+            mem_journal.adapter_dispatches.len(),
+            baseline.adapter_dispatches.len()
+        );
+        assert_eq!(
+            mem_journal.next_dispatch_ordinal,
+            baseline.next_dispatch_ordinal
+        );
     }
 
     #[test]
@@ -3459,9 +3975,12 @@ mod tests {
                     ordinal: 1,
                     role: "planner".to_string(),
                     profile_id: "p1".to_string(),
+                    provider_id: None,
                     model: None,
+                    schedule_id: None,
                     payload_digest: None,
                     usage: None,
+                    cost_estimate: None,
                     status: Some("completed".to_string()),
                     created_at_unix: 10,
                     completed_at_unix: Some(12),
@@ -3471,9 +3990,12 @@ mod tests {
                     ordinal: 2,
                     role: "plan_reviewer".to_string(),
                     profile_id: "p2".to_string(),
+                    provider_id: None,
                     model: None,
+                    schedule_id: None,
                     payload_digest: None,
                     usage: None,
+                    cost_estimate: None,
                     status: Some("reserved".to_string()),
                     created_at_unix: 15,
                     completed_at_unix: None,
@@ -3518,7 +4040,9 @@ mod tests {
         empty_status.adapter_dispatches[0].status = Some("".to_string());
         let err_empty = validate_journal(&empty_status);
         assert!(err_empty.is_err());
-        assert!(err_empty.unwrap_err().contains("PC_DISPATCH_INVALID_STATUS"));
+        assert!(err_empty
+            .unwrap_err()
+            .contains("PC_DISPATCH_INVALID_STATUS"));
 
         let mut ws_status = make_base();
         ws_status.adapter_dispatches[0].status = Some("   \t ".to_string());
@@ -3529,11 +4053,12 @@ mod tests {
         // 7. Non-empty unknown status is accepted on validation/read as unresolved state
         let mut unknown_status_j = make_base();
         unknown_status_j.adapter_dispatches[0].status = Some("custom_unresolved".to_string());
-        unknown_status_j.adapter_dispatches[0].usage = Some(crate::orchestrator::adapters::NormalizedUsage {
-            input_tokens: Some(100),
-            output_tokens: Some(50),
-            ..Default::default()
-        });
+        unknown_status_j.adapter_dispatches[0].usage =
+            Some(crate::orchestrator::adapters::NormalizedUsage {
+                input_tokens: Some(100),
+                output_tokens: Some(50),
+                ..Default::default()
+            });
         assert!(validate_journal(&unknown_status_j).is_ok());
 
         // Unknown status dispatch usage is NOT aggregated as a confirmed value (yields None)
@@ -3545,9 +4070,12 @@ mod tests {
             ordinal: 1,
             role: "planner".to_string(),
             profile_id: "p1".to_string(),
+            provider_id: None,
             model: None,
+            schedule_id: None,
             payload_digest: None,
             usage: None,
+            cost_estimate: None,
             status: Some("completed".to_string()),
             created_at_unix: 10,
             completed_at_unix: Some(15),
@@ -3569,12 +4097,16 @@ mod tests {
         bad_next.next_dispatch_ordinal = 2; // max ordinal is 2 -> must be > 2
         let err = validate_journal(&bad_next);
         assert!(err.is_err());
-        assert!(err.unwrap_err().contains("PC_DISPATCH_INVALID_NEXT_ORDINAL"));
+        assert!(err
+            .unwrap_err()
+            .contains("PC_DISPATCH_INVALID_NEXT_ORDINAL"));
 
         bad_next.next_dispatch_ordinal = 1;
         let err2 = validate_journal(&bad_next);
         assert!(err2.is_err());
-        assert!(err2.unwrap_err().contains("PC_DISPATCH_INVALID_NEXT_ORDINAL"));
+        assert!(err2
+            .unwrap_err()
+            .contains("PC_DISPATCH_INVALID_NEXT_ORDINAL"));
 
         // 9. Reading corrupted file from disk via manager is rejected
         std::fs::create_dir_all(manager.runs_dir()).unwrap();
@@ -3589,7 +4121,9 @@ mod tests {
 
         let read_err = manager.read_journal("run-corrupt");
         assert!(read_err.is_err());
-        assert!(read_err.unwrap_err().contains("PC_DISPATCH_INVALID_NEXT_ORDINAL"));
+        assert!(read_err
+            .unwrap_err()
+            .contains("PC_DISPATCH_INVALID_NEXT_ORDINAL"));
     }
 
     #[test]
@@ -3648,5 +4182,675 @@ mod tests {
         assert_eq!(loaded.next_dispatch_ordinal, 0);
         assert!(loaded.adapter_dispatches.is_empty());
         assert_eq!(loaded.usage, None);
+        assert_eq!(loaded.cost_summary, None);
+    }
+
+    #[test]
+    fn test_cost_summary_aggregation_all_statuses() {
+        use crate::orchestrator::cost::{EstimatedCost, RunCostStatus};
+
+        let temp = tempfile::tempdir().unwrap();
+        let manager = JournalManager::new(temp.path().join("runs"));
+        let mut journal = sample_journal("run-cost-agg", 1, RunRecoveryStatus::Active);
+
+        // Case 1: No dispatches -> None (absent summary, rendered as unavailable in UI)
+        assert!(journal.aggregate_dispatches_cost().is_none());
+
+        // Case 2: One priced dispatch ($0.05 = 50_000_000 nanos) -> complete
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-agg:1".to_string(),
+            ordinal: 1,
+            role: "planner".to_string(),
+            profile_id: "prof".to_string(),
+            model: Some("claude-opus-5-5".to_string()),
+            payload_digest: None,
+            usage: None,
+            provider_id: Some("anthropic".to_string()),
+            schedule_id: Some("anthropic:claude-opus-5-5:2026-10:uncached".to_string()),
+            cost_estimate: Some(EstimatedCost::new_usd(50_000_000)),
+            status: Some("completed".to_string()),
+            created_at_unix: 1,
+            completed_at_unix: Some(2),
+        });
+        let agg2 = journal.aggregate_dispatches_cost().unwrap();
+        assert_eq!(agg2.status, RunCostStatus::Complete);
+        assert_eq!(agg2.priced_dispatches, 1);
+        assert_eq!(agg2.unpriced_dispatches, 0);
+        assert_eq!(agg2.total_cost.unwrap().amount_nanos, 50_000_000);
+        assert_eq!(
+            agg2.schedules,
+            vec!["anthropic:claude-opus-5-5:2026-10:uncached".to_string()]
+        );
+        assert_eq!(
+            agg2.method,
+            Some(crate::orchestrator::cost::BUNDLED_EXACT_RATE_METHOD.to_string())
+        );
+
+        // Case 3: Add unpriced dispatch -> partial
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-agg:2".to_string(),
+            ordinal: 2,
+            role: "reviewer".to_string(),
+            profile_id: "prof".to_string(),
+            model: Some("deepseek-chat".to_string()),
+            payload_digest: None,
+            usage: None,
+            provider_id: Some("deepseek".to_string()),
+            schedule_id: None,
+            cost_estimate: None,
+            status: Some("completed".to_string()),
+            created_at_unix: 3,
+            completed_at_unix: Some(4),
+        });
+        let agg3 = journal.aggregate_dispatches_cost().unwrap();
+        assert_eq!(agg3.status, RunCostStatus::Partial);
+        assert_eq!(agg3.priced_dispatches, 1);
+        assert_eq!(agg3.unpriced_dispatches, 1);
+        assert_eq!(agg3.total_cost.unwrap().amount_nanos, 50_000_000);
+        assert_eq!(
+            agg3.schedules,
+            vec!["anthropic:claude-opus-5-5:2026-10:uncached".to_string()]
+        );
+
+        // Case 4: Only unpriced dispatches -> unavailable
+        journal.adapter_dispatches[0].cost_estimate = None;
+        let agg4 = journal.aggregate_dispatches_cost().unwrap();
+        assert_eq!(agg4.status, RunCostStatus::Unavailable);
+        assert_eq!(agg4.priced_dispatches, 0);
+        assert_eq!(agg4.unpriced_dispatches, 2);
+        assert!(agg4.total_cost.is_none());
+        assert!(agg4.schedules.is_empty());
+        assert_eq!(agg4.method, None);
+
+        // Case 5: Writing journal persists and re-aggregates cost_summary
+        journal.next_dispatch_ordinal = 3;
+        journal.adapter_dispatches[0].cost_estimate = Some(EstimatedCost::new_usd(50_000_000));
+        journal.cost_summary = journal.aggregate_dispatches_cost();
+        manager.write_journal(&journal).unwrap();
+        let loaded = manager.read_journal("run-cost-agg").unwrap();
+        let loaded_cost = loaded.cost_summary.expect("cost_summary must be present");
+        assert_eq!(loaded_cost.status, RunCostStatus::Partial);
+        assert_eq!(loaded_cost.priced_dispatches, 1);
+        assert_eq!(loaded_cost.unpriced_dispatches, 1);
+        assert_eq!(loaded_cost.total_cost.unwrap().amount_nanos, 50_000_000);
+        assert_eq!(
+            loaded_cost.schedules,
+            vec!["anthropic:claude-opus-5-5:2026-10:uncached".to_string()]
+        );
+        assert_eq!(
+            loaded_cost.method,
+            Some(crate::orchestrator::cost::BUNDLED_EXACT_RATE_METHOD.to_string())
+        );
+
+        // list_journals exposes cost_summary
+        let list = manager.list_journals().unwrap();
+        let summary = list.iter().find(|s| s.run_id == "run-cost-agg").unwrap();
+        let list_cost = summary.cost_summary.as_ref().expect("summary cost_summary");
+        assert_eq!(list_cost.status, RunCostStatus::Partial);
+        assert_eq!(
+            list_cost.total_cost.as_ref().unwrap().amount_nanos,
+            50_000_000
+        );
+    }
+
+    #[test]
+    fn test_dispatch_cost_conflict_rejection() {
+        use crate::orchestrator::cost::EstimatedCost;
+
+        let temp = tempfile::tempdir().unwrap();
+        let manager = JournalManager::new(temp.path().join("runs"));
+        let journal = sample_journal("run-cost-conf", 1, RunRecoveryStatus::Active);
+        manager.write_journal(&journal).unwrap();
+
+        let ord = manager.reserve_dispatch_ordinal("run-cost-conf").unwrap();
+        let record = AdapterDispatchRecord {
+            dispatch_id: format!("run-cost-conf:{ord}"),
+            ordinal: ord,
+            role: "planner".to_string(),
+            profile_id: "prof".to_string(),
+            model: Some("m".to_string()),
+            payload_digest: Some("hash".to_string()),
+            usage: None,
+            provider_id: Some("anthropic".to_string()),
+            schedule_id: Some("sched1".to_string()),
+            cost_estimate: Some(EstimatedCost::new_usd(100)),
+            status: Some("completed".to_string()),
+            created_at_unix: 1,
+            completed_at_unix: Some(2),
+        };
+        assert!(manager
+            .record_adapter_dispatch("run-cost-conf", record.clone())
+            .unwrap());
+
+        // Idempotent retry with identical record passes
+        assert!(!manager
+            .record_adapter_dispatch("run-cost-conf", record.clone())
+            .unwrap());
+
+        // Tampering with cost_estimate -> conflict error
+        let mut tampered = record.clone();
+        tampered.cost_estimate = Some(EstimatedCost::new_usd(200));
+        let err = manager.record_adapter_dispatch("run-cost-conf", tampered);
+        assert!(err.is_err());
+        assert!(err.unwrap_err().contains("PC_DISPATCH_CONFLICT"));
+
+        // Tampering with provider_id -> conflict error
+        let mut tampered_prov = record.clone();
+        tampered_prov.provider_id = Some("deepseek".to_string());
+        let err2 = manager.record_adapter_dispatch("run-cost-conf", tampered_prov);
+        assert!(err2.is_err());
+        assert!(err2.unwrap_err().contains("PC_DISPATCH_CONFLICT"));
+
+        // Tampering with schedule_id -> conflict error
+        let mut tampered_sched = record;
+        tampered_sched.schedule_id = Some("sched_tampered".to_string());
+        let err3 = manager.record_adapter_dispatch("run-cost-conf", tampered_sched);
+        assert!(err3.is_err());
+        assert!(err3.unwrap_err().contains("PC_DISPATCH_CONFLICT"));
+    }
+
+    #[test]
+    fn test_cost_aggregation_includes_failed_dispatch_with_cost() {
+        use crate::orchestrator::adapters::NormalizedUsage;
+        use crate::orchestrator::cost::{EstimatedCost, RunCostStatus};
+
+        let mut journal = sample_journal("run-cost-failed", 1, RunRecoveryStatus::Active);
+        journal.next_dispatch_ordinal = 3;
+
+        // Dispatch 1: completed, cost $0.05
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-failed:1".to_string(),
+            ordinal: 1,
+            role: "planner".to_string(),
+            profile_id: "p1".to_string(),
+            model: Some("claude-opus-5-5".to_string()),
+            payload_digest: None,
+            usage: Some(NormalizedUsage {
+                input_tokens: Some(1000),
+                output_tokens: Some(500),
+                raw_total_tokens: Some(1500),
+                cache_read_tokens: Some(0),
+                cache_write_tokens: Some(0),
+            }),
+            provider_id: Some("anthropic".to_string()),
+            schedule_id: Some("anthropic:claude-opus-5-5:2026-10:uncached".to_string()),
+            cost_estimate: Some(EstimatedCost::new_usd(50_000_000)),
+            status: Some("completed".to_string()),
+            created_at_unix: 1,
+            completed_at_unix: Some(2),
+        });
+
+        // Dispatch 2: failed, but reported partial usage and cost $0.02
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-failed:2".to_string(),
+            ordinal: 2,
+            role: "plan_reviewer".to_string(),
+            profile_id: "p2".to_string(),
+            model: Some("claude-sonnet-5-5".to_string()),
+            payload_digest: None,
+            usage: Some(NormalizedUsage {
+                input_tokens: Some(500),
+                output_tokens: Some(100),
+                raw_total_tokens: Some(600),
+                cache_read_tokens: Some(0),
+                cache_write_tokens: Some(0),
+            }),
+            provider_id: Some("anthropic".to_string()),
+            schedule_id: Some("anthropic:claude-sonnet-5-5:2026-10:uncached".to_string()),
+            cost_estimate: Some(EstimatedCost::new_usd(20_000_000)),
+            status: Some("failed".to_string()),
+            created_at_unix: 3,
+            completed_at_unix: Some(4),
+        });
+
+        let summary = journal
+            .aggregate_dispatches_cost()
+            .expect("must aggregate cost");
+        assert_eq!(summary.status, RunCostStatus::Complete);
+        assert_eq!(summary.priced_dispatches, 2);
+        assert_eq!(summary.unpriced_dispatches, 0);
+        assert_eq!(summary.total_cost.unwrap().amount_nanos, 70_000_000);
+    }
+
+    #[test]
+    fn test_cost_aggregation_mixed_currency_separation() {
+        use crate::orchestrator::cost::{EstimatedCost, RunCostStatus};
+
+        let mut journal = sample_journal("run-cost-mixed", 1, RunRecoveryStatus::Active);
+        journal.next_dispatch_ordinal = 3;
+
+        // Dispatch 1: USD $0.05
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-mixed:1".to_string(),
+            ordinal: 1,
+            role: "planner".to_string(),
+            profile_id: "p1".to_string(),
+            model: Some("claude-opus-5-5".to_string()),
+            payload_digest: None,
+            usage: None,
+            provider_id: Some("anthropic".to_string()),
+            schedule_id: Some("anthropic:claude-opus-5-5:2026-10:uncached".to_string()),
+            cost_estimate: Some(EstimatedCost::new_usd(50_000_000)),
+            status: Some("completed".to_string()),
+            created_at_unix: 1,
+            completed_at_unix: Some(2),
+        });
+
+        // Dispatch 2: EUR 0.03 (different currency)
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-mixed:2".to_string(),
+            ordinal: 2,
+            role: "reviewer".to_string(),
+            profile_id: "p2".to_string(),
+            model: Some("custom-eu".to_string()),
+            payload_digest: None,
+            usage: None,
+            provider_id: Some("custom".to_string()),
+            schedule_id: Some("custom:eu:2026-10".to_string()),
+            cost_estimate: Some(EstimatedCost {
+                currency: "EUR".to_string(),
+                amount_nanos: 30_000_000,
+            }),
+            status: Some("completed".to_string()),
+            created_at_unix: 3,
+            completed_at_unix: Some(4),
+        });
+
+        let summary = journal
+            .aggregate_dispatches_cost()
+            .expect("must aggregate cost");
+        // Primary currency is USD from first dispatch; EUR is separated and counted as unpriced, yielding Partial
+        assert_eq!(summary.currency, "USD");
+        assert_eq!(summary.status, RunCostStatus::Partial);
+        assert_eq!(summary.priced_dispatches, 1);
+        assert_eq!(summary.unpriced_dispatches, 1);
+        assert_eq!(summary.total_cost.unwrap().amount_nanos, 50_000_000);
+    }
+
+    #[test]
+    fn test_schema_v1_legacy_journal_roundtrip_without_cost_fields() {
+        let temp = tempfile::tempdir().unwrap();
+        let manager = JournalManager::new(temp.path().join("runs"));
+        std::fs::create_dir_all(manager.runs_dir()).unwrap();
+
+        let mut journal = sample_journal("run-legacy-cost", 1, RunRecoveryStatus::Interrupted);
+        journal.next_dispatch_ordinal = 2;
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-legacy-cost:1".to_string(),
+            ordinal: 1,
+            role: "planner".to_string(),
+            profile_id: "prof1".to_string(),
+            model: None,
+            schedule_id: None,
+            payload_digest: None,
+            usage: None,
+            cost_estimate: None,
+            provider_id: None,
+            status: Some("completed".to_string()),
+            created_at_unix: 1000,
+            completed_at_unix: Some(1001),
+        });
+
+        // Serialize to JSON Value and strip all cost/schedule fields to simulate schema v1 before cost support
+        let mut val = serde_json::to_value(&journal).unwrap();
+        if let Some(obj) = val.as_object_mut() {
+            obj.remove("costSummary");
+            obj.remove("cost_summary");
+            if let Some(dispatches) = obj
+                .get_mut("adapterDispatches")
+                .and_then(|d| d.as_array_mut())
+            {
+                for d in dispatches {
+                    if let Some(d_obj) = d.as_object_mut() {
+                        d_obj.remove("costEstimate");
+                        d_obj.remove("cost_estimate");
+                        d_obj.remove("scheduleId");
+                        d_obj.remove("schedule_id");
+                        d_obj.remove("providerId");
+                        d_obj.remove("provider_id");
+                    }
+                }
+            }
+        }
+
+        let legacy_json = serde_json::to_string_pretty(&val).unwrap();
+        let file_path = manager.runs_dir().join("run-legacy-cost.json");
+        std::fs::write(&file_path, legacy_json).unwrap();
+
+        // Read through JournalManager
+        let loaded = manager
+            .read_journal("run-legacy-cost")
+            .expect("legacy journal must read");
+        assert_eq!(loaded.schema_version, 1);
+        assert_eq!(loaded.run_id, "run-legacy-cost");
+        // Legacy file did not have cost_summary serialized
+        assert_eq!(loaded.cost_summary, None);
+        assert_eq!(loaded.adapter_dispatches.len(), 1);
+        assert_eq!(loaded.adapter_dispatches[0].cost_estimate, None);
+        assert_eq!(loaded.adapter_dispatches[0].schedule_id, None);
+        assert_eq!(loaded.adapter_dispatches[0].provider_id, None);
+
+        // list_journals dynamically computes cost_summary fallback for legacy journals
+        let list = manager.list_journals().unwrap();
+        let summary = list.iter().find(|s| s.run_id == "run-legacy-cost").unwrap();
+        assert_eq!(
+            summary.cost_summary,
+            Some(crate::orchestrator::cost::RunCostSummary {
+                currency: "USD".to_string(),
+                total_cost: None,
+                status: crate::orchestrator::cost::RunCostStatus::Unavailable,
+                priced_dispatches: 0,
+                unpriced_dispatches: 1,
+                schedules: vec![],
+                method: None,
+            })
+        );
+
+        // Re-writing and re-reading preserves compatibility
+        manager
+            .write_journal(&loaded)
+            .expect("must write legacy journal cleanly");
+        let reloaded = manager
+            .read_journal("run-legacy-cost")
+            .expect("must re-read legacy journal cleanly");
+        assert_eq!(reloaded.schema_version, 1);
+        assert_eq!(reloaded.adapter_dispatches.len(), 1);
+    }
+
+    #[test]
+    fn test_cost_aggregation_rejects_missing_schedule_id_as_unpriced() {
+        use crate::orchestrator::cost::{EstimatedCost, RunCostStatus};
+
+        let mut journal = sample_journal("run-cost-no-sched", 1, RunRecoveryStatus::Active);
+        journal.next_dispatch_ordinal = 2;
+
+        // A dispatch with cost_estimate but NO schedule_id
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-no-sched:1".to_string(),
+            ordinal: 1,
+            role: "planner".to_string(),
+            profile_id: "prof".to_string(),
+            model: Some("claude-opus-5-5".to_string()),
+            payload_digest: None,
+            usage: None,
+            provider_id: Some("anthropic".to_string()),
+            schedule_id: None, // Missing schedule provenance!
+            cost_estimate: Some(EstimatedCost::new_usd(50_000_000)),
+            status: Some("completed".to_string()),
+            created_at_unix: 1,
+            completed_at_unix: Some(2),
+        });
+
+        let summary = journal
+            .aggregate_dispatches_cost()
+            .expect("must aggregate cost");
+        // Fails closed to Unavailable because schedule provenance is missing
+        assert_eq!(summary.status, RunCostStatus::Unavailable);
+        assert_eq!(summary.priced_dispatches, 0);
+        assert_eq!(summary.unpriced_dispatches, 1);
+        assert!(summary.total_cost.is_none());
+        assert!(summary.schedules.is_empty());
+        assert_eq!(summary.method, None);
+    }
+
+    #[test]
+    fn test_cost_aggregation_rejects_mismatched_or_unknown_schedule_provenance() {
+        use crate::orchestrator::cost::{EstimatedCost, RunCostStatus};
+
+        let mut journal = sample_journal("run-cost-mismatch", 1, RunRecoveryStatus::Active);
+        journal.next_dispatch_ordinal = 4;
+
+        // Dispatch 1: unknown schedule ID
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-mismatch:1".to_string(),
+            ordinal: 1,
+            role: "planner".to_string(),
+            profile_id: "prof".to_string(),
+            model: Some("claude-opus-5-5".to_string()),
+            payload_digest: None,
+            usage: None,
+            provider_id: Some("anthropic".to_string()),
+            schedule_id: Some("unknown:schedule:2026-10".to_string()),
+            cost_estimate: Some(EstimatedCost::new_usd(50_000_000)),
+            status: Some("completed".to_string()),
+            created_at_unix: 1,
+            completed_at_unix: Some(2),
+        });
+
+        // Dispatch 2: model mismatch (Opus schedule ID on Sonnet model)
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-mismatch:2".to_string(),
+            ordinal: 2,
+            role: "reviewer".to_string(),
+            profile_id: "prof".to_string(),
+            model: Some("claude-sonnet-5-5".to_string()),
+            payload_digest: None,
+            usage: None,
+            provider_id: Some("anthropic".to_string()),
+            schedule_id: Some("anthropic:claude-opus-5-5:2026-10:uncached".to_string()),
+            cost_estimate: Some(EstimatedCost::new_usd(20_000_000)),
+            status: Some("completed".to_string()),
+            created_at_unix: 3,
+            completed_at_unix: Some(4),
+        });
+
+        // Dispatch 3: provider mismatch (Anthropic schedule ID on DeepSeek provider)
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-mismatch:3".to_string(),
+            ordinal: 3,
+            role: "implementer".to_string(),
+            profile_id: "prof".to_string(),
+            model: Some("claude-opus-5-5".to_string()),
+            payload_digest: None,
+            usage: None,
+            provider_id: Some("deepseek".to_string()),
+            schedule_id: Some("anthropic:claude-opus-5-5:2026-10:uncached".to_string()),
+            cost_estimate: Some(EstimatedCost::new_usd(50_000_000)),
+            status: Some("completed".to_string()),
+            created_at_unix: 5,
+            completed_at_unix: Some(6),
+        });
+
+        // Dispatch 4: currency mismatch (Anthropic schedule ID expects USD, cost estimate has EUR)
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-mismatch:4".to_string(),
+            ordinal: 4,
+            role: "worker".to_string(),
+            profile_id: "prof".to_string(),
+            model: Some("claude-opus-5-5".to_string()),
+            payload_digest: None,
+            usage: None,
+            provider_id: Some("anthropic".to_string()),
+            schedule_id: Some("anthropic:claude-opus-5-5:2026-10:uncached".to_string()),
+            cost_estimate: Some(EstimatedCost {
+                currency: "EUR".to_string(),
+                amount_nanos: 50_000_000,
+            }),
+            status: Some("completed".to_string()),
+            created_at_unix: 7,
+            completed_at_unix: Some(8),
+        });
+
+        let summary = journal
+            .aggregate_dispatches_cost()
+            .expect("must aggregate cost");
+        assert_eq!(summary.status, RunCostStatus::Unavailable);
+        assert_eq!(summary.priced_dispatches, 0);
+        assert_eq!(summary.unpriced_dispatches, 4);
+        assert!(summary.total_cost.is_none());
+        assert!(summary.schedules.is_empty());
+        assert_eq!(summary.method, None);
+    }
+
+    #[test]
+    fn test_cost_aggregation_rejects_currency_mismatch_with_known_schedule() {
+        use crate::orchestrator::cost::{EstimatedCost, RunCostStatus};
+
+        let mut journal = sample_journal("run-cost-curr-mismatch", 1, RunRecoveryStatus::Active);
+        journal.next_dispatch_ordinal = 2;
+
+        // Known schedule ID and matching provider and model, but currency is EUR instead of USD
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-curr-mismatch:1".to_string(),
+            ordinal: 1,
+            role: "planner".to_string(),
+            profile_id: "prof".to_string(),
+            model: Some("claude-opus-5-5".to_string()),
+            payload_digest: None,
+            usage: None,
+            provider_id: Some("anthropic".to_string()),
+            schedule_id: Some("anthropic:claude-opus-5-5:2026-10:uncached".to_string()),
+            cost_estimate: Some(EstimatedCost {
+                currency: "EUR".to_string(),
+                amount_nanos: 50_000_000,
+            }),
+            status: Some("completed".to_string()),
+            created_at_unix: 1,
+            completed_at_unix: Some(2),
+        });
+
+        let summary = journal
+            .aggregate_dispatches_cost()
+            .expect("must aggregate cost");
+        assert_eq!(summary.status, RunCostStatus::Unavailable);
+        assert_eq!(summary.priced_dispatches, 0);
+        assert_eq!(summary.unpriced_dispatches, 1);
+        assert!(summary.total_cost.is_none());
+        assert!(summary.schedules.is_empty());
+        assert_eq!(summary.method, None);
+    }
+
+    #[test]
+    fn test_list_journals_recomputes_stale_persisted_complete_cost_summary_to_unavailable() {
+        use crate::orchestrator::cost::{EstimatedCost, RunCostStatus, RunCostSummary};
+
+        let dir = tempfile::tempdir().unwrap();
+        let manager = JournalManager::new(dir.path().to_path_buf());
+
+        let mut journal = sample_journal("run-stale-cost", 1, RunRecoveryStatus::Complete);
+        journal.next_dispatch_ordinal = 2;
+
+        // Dispatch has cost estimate but NO schedule provenance (unbundled / unverified)
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-stale-cost:1".to_string(),
+            ordinal: 1,
+            role: "planner".to_string(),
+            profile_id: "prof".to_string(),
+            model: Some("claude-opus-5-5".to_string()),
+            payload_digest: None,
+            usage: None,
+            provider_id: Some("anthropic".to_string()),
+            schedule_id: None,
+            cost_estimate: Some(EstimatedCost::new_usd(50_000_000)),
+            status: Some("completed".to_string()),
+            created_at_unix: 1,
+            completed_at_unix: Some(2),
+        });
+
+        // Artificially inject a persisted "Complete" summary into the journal file
+        // (as might have been written by an older permissive aggregation implementation)
+        journal.cost_summary = Some(RunCostSummary {
+            currency: "USD".to_string(),
+            total_cost: Some(EstimatedCost::new_usd(50_000_000)),
+            status: RunCostStatus::Complete,
+            priced_dispatches: 1,
+            unpriced_dispatches: 0,
+            schedules: vec![],
+            method: None,
+        });
+
+        manager.write_journal(&journal).unwrap();
+
+        // Verify that the on-disk journal still has the exact historical cost_summary (not mutated on disk)
+        let loaded = manager.read_journal("run-stale-cost").unwrap();
+        assert_eq!(
+            loaded.cost_summary.as_ref().unwrap().status,
+            RunCostStatus::Complete
+        );
+        assert_eq!(loaded.adapter_dispatches[0].schedule_id, None);
+
+        // list_journals must dynamically re-aggregate from dispatch records and fail closed to Unavailable
+        let list = manager.list_journals().unwrap();
+        let summary = list
+            .iter()
+            .find(|s| s.run_id == "run-stale-cost")
+            .expect("must find run");
+        let list_cost = summary
+            .cost_summary
+            .as_ref()
+            .expect("must have cost_summary");
+
+        assert_eq!(list_cost.status, RunCostStatus::Unavailable);
+        assert_eq!(list_cost.priced_dispatches, 0);
+        assert_eq!(list_cost.unpriced_dispatches, 1);
+        assert!(list_cost.total_cost.is_none());
+        assert!(list_cost.schedules.is_empty());
+        assert_eq!(list_cost.method, None);
+
+        // Verify on-disk journal was NOT mutated by list_journals
+        let loaded_after = manager.read_journal("run-stale-cost").unwrap();
+        assert_eq!(
+            loaded_after.cost_summary.as_ref().unwrap().status,
+            RunCostStatus::Complete
+        );
+        assert_eq!(loaded_after.adapter_dispatches[0].schedule_id, None);
+    }
+
+    #[test]
+    fn test_cost_aggregation_valid_and_invalid_provenance_yields_partial() {
+        use crate::orchestrator::cost::{EstimatedCost, RunCostStatus};
+
+        let mut journal = sample_journal("run-cost-val-inval", 1, RunRecoveryStatus::Active);
+        journal.next_dispatch_ordinal = 3;
+
+        // Dispatch 1: Valid Opus 5.5 dispatch with verified schedule
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-val-inval:1".to_string(),
+            ordinal: 1,
+            role: "planner".to_string(),
+            profile_id: "prof".to_string(),
+            model: Some("claude-opus-5-5".to_string()),
+            payload_digest: None,
+            usage: None,
+            provider_id: Some("anthropic".to_string()),
+            schedule_id: Some("anthropic:claude-opus-5-5:2026-10:uncached".to_string()),
+            cost_estimate: Some(EstimatedCost::new_usd(50_000_000)),
+            status: Some("completed".to_string()),
+            created_at_unix: 1,
+            completed_at_unix: Some(2),
+        });
+
+        // Dispatch 2: Has cost_estimate but invalid/unbundled schedule
+        journal.adapter_dispatches.push(AdapterDispatchRecord {
+            dispatch_id: "run-cost-val-inval:2".to_string(),
+            ordinal: 2,
+            role: "reviewer".to_string(),
+            profile_id: "prof".to_string(),
+            model: Some("custom-model".to_string()),
+            payload_digest: None,
+            usage: None,
+            provider_id: Some("custom-prov".to_string()),
+            schedule_id: Some("custom:sched:v1".to_string()),
+            cost_estimate: Some(EstimatedCost::new_usd(30_000_000)),
+            status: Some("completed".to_string()),
+            created_at_unix: 3,
+            completed_at_unix: Some(4),
+        });
+
+        let summary = journal
+            .aggregate_dispatches_cost()
+            .expect("must aggregate cost");
+        assert_eq!(summary.status, RunCostStatus::Partial);
+        assert_eq!(summary.priced_dispatches, 1);
+        assert_eq!(summary.unpriced_dispatches, 1);
+        assert_eq!(summary.total_cost.unwrap().amount_nanos, 50_000_000);
+        assert_eq!(
+            summary.schedules,
+            vec!["anthropic:claude-opus-5-5:2026-10:uncached".to_string()]
+        );
+        assert_eq!(
+            summary.method,
+            Some(crate::orchestrator::cost::BUNDLED_EXACT_RATE_METHOD.to_string())
+        );
     }
 }

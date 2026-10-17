@@ -15,6 +15,7 @@ interface Props {
   workflowId?: string;
   invalidMessage?: string;
   onSelect: (profileId: string) => void;
+  onUnassign?: () => void;
   t: (key: any) => string;
 }
 
@@ -46,6 +47,7 @@ export function QuickProfileRoleCard({
   workflowId,
   invalidMessage,
   onSelect,
+  onUnassign,
   t,
 }: Props) {
   const hiddenProfileIds = new Set(
@@ -113,6 +115,11 @@ export function QuickProfileRoleCard({
         disabled={options.length === 0}
         onChange={onSelect}
       />
+      {selectedProfileId && onUnassign && (
+        <button type="button" className="orchestrator-btn orchestrator-btn-secondary" onClick={onUnassign}>
+          {t("orchestrator.roles.unassign")}
+        </button>
+      )}
     </section>
   );
 }

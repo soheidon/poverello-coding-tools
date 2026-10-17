@@ -93,7 +93,7 @@ For development builds, point directly to the release build executable:
 ```
 
 > [!TIP]
-> You do **not** need to write provider API keys into Antigravity's `mcp_config.json`. The MCP server leverages Poverello's credential resolution (reading from Windows user environment variables like `DEEPSEEK_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `MINIMAX_API_KEY`, `XIAOMI_API_KEY`, or saved application settings).
+> You do **not** need to write provider API keys into Antigravity's `mcp_config.json`. The MCP server leverages Poverello's credential resolution (reading from Windows user environment variables like `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `MINIMAX_API_KEY`, `XIAOMI_API_KEY`, or saved application settings).
 
 ---
 

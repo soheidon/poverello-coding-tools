@@ -120,26 +120,27 @@ fn test_dispatch_payload_digest_covers_all_executor_inputs_deterministically() {
     servers_b.insert("b".to_string(), server_b);
     servers_b.insert("a".to_string(), server_a);
 
-    let digest = |role: &AgentRole,
-                  profile: &OrchestratorProfile,
-                  system_prompt: &str,
-                  user_prompt: &str,
-                  project_path: &Path,
-                  servers: Option<&HashMap<String, McpServerConfig>>,
-                  context: Option<&crate::orchestrator::plan_workspace::PlanContext>,
-                  frozen: Option<&crate::orchestrator::plan_workspace::FrozenPlanPayload>| {
-        super::driver::dispatch_payload_digest(
-            role,
-            profile,
-            system_prompt,
-            user_prompt,
-            project_path,
-            servers,
-            context,
-            frozen,
-        )
-        .expect("serialize complete dispatch identity")
-    };
+    let digest =
+        |role: &AgentRole,
+         profile: &OrchestratorProfile,
+         system_prompt: &str,
+         user_prompt: &str,
+         project_path: &Path,
+         servers: Option<&HashMap<String, McpServerConfig>>,
+         context: Option<&crate::orchestrator::plan_workspace::PlanContext>,
+         frozen: Option<&crate::orchestrator::plan_workspace::FrozenPlanPayload>| {
+            super::driver::dispatch_payload_digest(
+                role,
+                profile,
+                system_prompt,
+                user_prompt,
+                project_path,
+                servers,
+                context,
+                frozen,
+            )
+            .expect("serialize complete dispatch identity")
+        };
 
     let baseline = digest(
         &role,
@@ -225,41 +226,113 @@ fn test_dispatch_payload_digest_covers_all_executor_inputs_deterministically() {
     );
     assert_ne!(
         baseline,
-        digest(&role, &profile, "changed system", &user_prompt, &project_path, Some(&servers_a), Some(&context), Some(&frozen_plan))
+        digest(
+            &role,
+            &profile,
+            "changed system",
+            &user_prompt,
+            &project_path,
+            Some(&servers_a),
+            Some(&context),
+            Some(&frozen_plan)
+        )
     );
     assert_ne!(
         baseline,
-        digest(&role, &profile, &system_prompt, "changed task", &project_path, Some(&servers_a), Some(&context), Some(&frozen_plan))
+        digest(
+            &role,
+            &profile,
+            &system_prompt,
+            "changed task",
+            &project_path,
+            Some(&servers_a),
+            Some(&context),
+            Some(&frozen_plan)
+        )
     );
     assert_ne!(
         baseline,
-        digest(&role, &profile, &system_prompt, &user_prompt, &project_path.join("other"), Some(&servers_a), Some(&context), Some(&frozen_plan))
+        digest(
+            &role,
+            &profile,
+            &system_prompt,
+            &user_prompt,
+            &project_path.join("other"),
+            Some(&servers_a),
+            Some(&context),
+            Some(&frozen_plan)
+        )
     );
     assert_ne!(
         baseline,
-        digest(&role, &profile, &system_prompt, &user_prompt, &project_path, None, Some(&context), Some(&frozen_plan))
+        digest(
+            &role,
+            &profile,
+            &system_prompt,
+            &user_prompt,
+            &project_path,
+            None,
+            Some(&context),
+            Some(&frozen_plan)
+        )
     );
     assert_ne!(
         baseline,
-        digest(&role, &profile, &system_prompt, &user_prompt, &project_path, Some(&HashMap::new()), Some(&context), Some(&frozen_plan))
+        digest(
+            &role,
+            &profile,
+            &system_prompt,
+            &user_prompt,
+            &project_path,
+            Some(&HashMap::new()),
+            Some(&context),
+            Some(&frozen_plan)
+        )
     );
     let mut changed_servers = servers_a.clone();
     changed_servers.get_mut("a").unwrap().executable = "changed-server".into();
     assert_ne!(
         baseline,
-        digest(&role, &profile, &system_prompt, &user_prompt, &project_path, Some(&changed_servers), Some(&context), Some(&frozen_plan))
+        digest(
+            &role,
+            &profile,
+            &system_prompt,
+            &user_prompt,
+            &project_path,
+            Some(&changed_servers),
+            Some(&context),
+            Some(&frozen_plan)
+        )
     );
     let mut changed_context = context.clone();
     changed_context.project_root_identity.push_str("-changed");
     assert_ne!(
         baseline,
-        digest(&role, &profile, &system_prompt, &user_prompt, &project_path, Some(&servers_a), Some(&changed_context), Some(&frozen_plan))
+        digest(
+            &role,
+            &profile,
+            &system_prompt,
+            &user_prompt,
+            &project_path,
+            Some(&servers_a),
+            Some(&changed_context),
+            Some(&frozen_plan)
+        )
     );
     let mut changed_plan = frozen_plan.clone();
     changed_plan.effective_plan_content.push_str(" changed");
     assert_ne!(
         baseline,
-        digest(&role, &profile, &system_prompt, &user_prompt, &project_path, Some(&servers_a), Some(&context), Some(&changed_plan))
+        digest(
+            &role,
+            &profile,
+            &system_prompt,
+            &user_prompt,
+            &project_path,
+            Some(&servers_a),
+            Some(&context),
+            Some(&changed_plan)
+        )
     );
 }
 
@@ -305,6 +378,9 @@ fn test_dispatch_payload_digest_conflict_rejected_for_same_id_when_non_prompt_in
         model: profile.model.clone(),
         payload_digest: Some(original_digest),
         usage: None,
+        provider_id: None,
+        schedule_id: None,
+        cost_estimate: None,
         status: Some("reserved".into()),
         created_at_unix: 1,
         completed_at_unix: None,
@@ -315,7 +391,10 @@ fn test_dispatch_payload_digest_conflict_rejected_for_same_id_when_non_prompt_in
     let error = journal
         .record_adapter_dispatch(conflicting_retry)
         .expect_err("same dispatch ID with changed typed context must conflict");
-    assert!(error.contains("PC_DISPATCH_CONFLICT"), "unexpected error: {error}");
+    assert!(
+        error.contains("PC_DISPATCH_CONFLICT"),
+        "unexpected error: {error}"
+    );
 }
 
 fn sample_append_proposal_json(target_plan_id: &str) -> String {
@@ -1776,6 +1855,7 @@ async fn test_convergence_disk_restart_never_reuses_reserved_review_slots() {
             plan_convergence_audit: vec![],
             plan_convergence_confirmation_intent: None,
             usage: None,
+            cost_summary: None,
             next_dispatch_ordinal: 0,
             adapter_dispatches: vec![],
             revision: 1,
@@ -2711,6 +2791,7 @@ async fn test_later_failure_and_cancellation_retains_usage() {
         plan_convergence_audit: vec![],
         plan_convergence_confirmation_intent: None,
         usage: None,
+        cost_summary: None,
         next_dispatch_ordinal: 0,
         adapter_dispatches: vec![],
         revision: 1,
@@ -2850,6 +2931,7 @@ async fn test_later_failure_and_cancellation_retains_usage() {
         plan_convergence_audit: vec![],
         plan_convergence_confirmation_intent: None,
         usage: None,
+        cost_summary: None,
         next_dispatch_ordinal: 0,
         adapter_dispatches: vec![],
         revision: 1,
@@ -2992,6 +3074,130 @@ async fn test_failed_dispatch_persistence_error_precedence_and_details() {
     }
 }
 
+#[tokio::test]
+async fn test_failed_provider_dispatch_with_usage_is_costed_and_persisted_once() {
+    let (_temp, project_path, runs_dir) = setup_test_workspace();
+    let mut driver = create_test_driver(project_path, runs_dir, true, 3);
+    driver.planner_profile.adapter = ExecutionAdapterType::Provider;
+    driver.planner_profile.provider_id = Some("anthropic".into());
+    driver.planner_profile.model = Some("claude-opus-5-5".into());
+
+    struct FailedUsageExecutor;
+    impl ConvergenceAdapterExecutor for FailedUsageExecutor {
+        async fn execute_role(
+            &self,
+            _role: AgentRole,
+            _profile: &OrchestratorProfile,
+            _system_prompt: &str,
+            _user_prompt: &str,
+            _project_path: &Path,
+            _mcp_servers: Option<&HashMap<String, crate::orchestrator::types::McpServerConfig>>,
+            _plan_context: Option<&crate::orchestrator::plan_workspace::PlanContext>,
+            _frozen_plan: Option<&crate::orchestrator::plan_workspace::FrozenPlanPayload>,
+            _timeout: Duration,
+            _cancel_token: Option<&CancellationToken>,
+        ) -> Result<String, String> {
+            unreachable!("typed failure path should be used")
+        }
+
+        async fn execute_role_with_failure_usage(
+            &self,
+            _role: AgentRole,
+            _profile: &OrchestratorProfile,
+            _system_prompt: &str,
+            _user_prompt: &str,
+            _project_path: &Path,
+            _mcp_servers: Option<&HashMap<String, crate::orchestrator::types::McpServerConfig>>,
+            _plan_context: Option<&crate::orchestrator::plan_workspace::PlanContext>,
+            _frozen_plan: Option<&crate::orchestrator::plan_workspace::FrozenPlanPayload>,
+            _timeout: Duration,
+            _cancel_token: Option<&CancellationToken>,
+        ) -> Result<RoleExecutionOutput, crate::orchestrator::adapters::AdapterExecutionFailure>
+        {
+            Err(
+                crate::orchestrator::adapters::AdapterExecutionFailure::with_usage(
+                    "provider returned max_tokens without final text",
+                    Some(crate::orchestrator::adapters::NormalizedUsage {
+                        input_tokens: Some(1000),
+                        output_tokens: Some(500),
+                        raw_total_tokens: None,
+                        cache_read_tokens: Some(0),
+                        cache_write_tokens: Some(0),
+                    }),
+                ),
+            )
+        }
+    }
+
+    let manager =
+        setup_journal_with_dispatches(&driver.project_path, &driver.runs_dir, &driver, Vec::new());
+    let manager_for_audit = Arc::clone(&manager);
+    let audit_entries = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&audit_entries);
+    let audit_callback: AuditPersistenceFn = Arc::new(move |entry| {
+        if let Some(record) = entry.dispatch_record.clone() {
+            manager_for_audit.record_adapter_dispatch("test-run-123", record)?;
+        }
+        captured.lock().unwrap().push(entry);
+        Ok(())
+    });
+    let outcome = driver
+        .run(&FailedUsageExecutor, audit_callback, None, None)
+        .await;
+
+    match outcome {
+        ConvergenceOutcome::Failed {
+            stable_error_code,
+            usage,
+            ..
+        } => {
+            assert_eq!(stable_error_code, "PC_ADAPTER_EXECUTION_FAILED");
+            let usage = usage.expect("failure usage must be included in run totals");
+            assert_eq!(usage.input_tokens, Some(1000));
+            assert_eq!(usage.output_tokens, Some(500));
+        }
+        other => panic!("expected adapter failure, got {other:?}"),
+    }
+
+    let entries = audit_entries.lock().unwrap();
+    let failed: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry.event_type == "dispatch_failed")
+        .collect();
+    assert_eq!(failed.len(), 1, "failed dispatch should be persisted once");
+    let entry = failed[0];
+    let usage = entry.usage.as_ref().expect("audit must retain usage");
+    assert_eq!(usage.input_tokens, Some(1000));
+    let record = entry
+        .dispatch_record
+        .as_ref()
+        .expect("failed dispatch record must be attached");
+    assert_eq!(record.status.as_deref(), Some("failed"));
+    assert_eq!(
+        record.usage.as_ref().and_then(|usage| usage.output_tokens),
+        Some(500)
+    );
+    assert_eq!(
+        record.schedule_id.as_deref(),
+        Some("anthropic:claude-opus-5-5:2026-10:uncached")
+    );
+    assert_eq!(
+        record.cost_estimate.as_ref().map(|cost| cost.amount_nanos),
+        Some(14_000_000)
+    );
+
+    let journal = manager
+        .read_journal("test-run-123")
+        .expect("dispatch audit callback should persist the run journal");
+    assert_eq!(journal.adapter_dispatches.len(), 1);
+    let summary = journal
+        .aggregate_dispatches_cost()
+        .expect("failed dispatch usage should be included in cost aggregation");
+    assert_eq!(summary.priced_dispatches, 1);
+    assert_eq!(summary.unpriced_dispatches, 0);
+    assert_eq!(summary.total_cost.unwrap().amount_nanos, 14_000_000);
+}
+
 struct CustomMockExecutor {
     planner_res: Result<RoleExecutionOutput, String>,
     reviewer_res: Result<RoleExecutionOutput, String>,
@@ -3080,6 +3286,7 @@ fn setup_journal_with_dispatches(
         plan_convergence_audit: vec![],
         plan_convergence_confirmation_intent: None,
         usage: None,
+        cost_summary: None,
         next_dispatch_ordinal,
         adapter_dispatches: dispatches,
         revision: 1,
@@ -3115,6 +3322,9 @@ async fn test_restart_usage_aggregation_all_terminal_known() {
             cache_read_tokens: Some(10),
             cache_write_tokens: Some(5),
         }),
+        provider_id: None,
+        schedule_id: None,
+        cost_estimate: None,
         created_at_unix: 1,
         completed_at_unix: Some(2),
     };
@@ -3133,6 +3343,9 @@ async fn test_restart_usage_aggregation_all_terminal_known() {
             cache_read_tokens: Some(20),
             cache_write_tokens: Some(10),
         }),
+        provider_id: None,
+        schedule_id: None,
+        cost_estimate: None,
         created_at_unix: 3,
         completed_at_unix: Some(4),
     };
@@ -3186,6 +3399,9 @@ async fn test_restart_usage_aggregation_unresolved_or_unknown_yields_unknown() {
             output_tokens: Some(50),
             ..Default::default()
         }),
+        provider_id: None,
+        schedule_id: None,
+        cost_estimate: None,
         created_at_unix: 1,
         completed_at_unix: Some(2),
     };
@@ -3199,6 +3415,9 @@ async fn test_restart_usage_aggregation_unresolved_or_unknown_yields_unknown() {
         payload_digest: Some("digest2".to_string()),
         status: Some("reserved".to_string()),
         usage: None,
+        provider_id: None,
+        schedule_id: None,
+        cost_estimate: None,
         created_at_unix: 3,
         completed_at_unix: None,
     };
@@ -3212,6 +3431,9 @@ async fn test_restart_usage_aggregation_unresolved_or_unknown_yields_unknown() {
         payload_digest: Some("digest3".to_string()),
         status: Some("custom_unresolved".to_string()),
         usage: None,
+        provider_id: None,
+        schedule_id: None,
+        cost_estimate: None,
         created_at_unix: 4,
         completed_at_unix: None,
     };
@@ -3255,6 +3477,9 @@ async fn test_restart_usage_aggregation_reserved_followed_by_new_completed_remai
         payload_digest: Some("digest1".to_string()),
         status: Some("reserved".to_string()),
         usage: None,
+        provider_id: None,
+        schedule_id: None,
+        cost_estimate: None,
         created_at_unix: 1,
         completed_at_unix: None,
     };

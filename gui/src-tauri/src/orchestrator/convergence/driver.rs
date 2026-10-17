@@ -69,9 +69,9 @@ pub(super) fn dispatch_payload_digest(
 
 fn canonicalize_dispatch_value(value: serde_json::Value) -> serde_json::Value {
     match value {
-        serde_json::Value::Array(items) => serde_json::Value::Array(
-            items.into_iter().map(canonicalize_dispatch_value).collect(),
-        ),
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(canonicalize_dispatch_value).collect())
+        }
         serde_json::Value::Object(object) => {
             let mut entries: Vec<_> = object.into_iter().collect();
             entries.sort_by(|left, right| left.0.cmp(&right.0));
@@ -278,6 +278,38 @@ pub trait ConvergenceAdapterExecutor: Send + Sync {
             usage: None,
         })
     }
+
+    /// Executes a role while preserving normalized usage that may accompany a
+    /// response-level failure. Existing test/custom executors remain source
+    /// compatible through this default adapter.
+    async fn execute_role_with_failure_usage(
+        &self,
+        role: AgentRole,
+        profile: &OrchestratorProfile,
+        system_prompt: &str,
+        user_prompt: &str,
+        project_path: &Path,
+        mcp_servers: Option<&HashMap<String, crate::orchestrator::types::McpServerConfig>>,
+        plan_context: Option<&PlanContext>,
+        frozen_plan: Option<&FrozenPlanPayload>,
+        timeout: Duration,
+        cancel_token: Option<&CancellationToken>,
+    ) -> Result<RoleExecutionOutput, crate::orchestrator::adapters::AdapterExecutionFailure> {
+        self.execute_role_with_output(
+            role,
+            profile,
+            system_prompt,
+            user_prompt,
+            project_path,
+            mcp_servers,
+            plan_context,
+            frozen_plan,
+            timeout,
+            cancel_token,
+        )
+        .await
+        .map_err(crate::orchestrator::adapters::AdapterExecutionFailure::without_usage)
+    }
 }
 
 /// Standard engine-backed adapter executor used in production.
@@ -365,6 +397,64 @@ impl ConvergenceAdapterExecutor for EngineAdapterExecutor {
             Err(_) => {
                 effective_cancel.cancel();
                 Err("Adapter execution timed out".to_string())
+            }
+        }
+    }
+
+    async fn execute_role_with_failure_usage(
+        &self,
+        role: AgentRole,
+        profile: &OrchestratorProfile,
+        system_prompt: &str,
+        user_prompt: &str,
+        project_path: &Path,
+        mcp_servers: Option<&HashMap<String, crate::orchestrator::types::McpServerConfig>>,
+        plan_context: Option<&PlanContext>,
+        frozen_plan: Option<&FrozenPlanPayload>,
+        timeout: Duration,
+        cancel_token: Option<&CancellationToken>,
+    ) -> Result<RoleExecutionOutput, crate::orchestrator::adapters::AdapterExecutionFailure> {
+        let event_cb: crate::orchestrator::engine::EventCallback = Arc::new(|_| Ok(()));
+        let timeout_token = CancellationToken::new();
+        let effective_cancel = match cancel_token {
+            Some(ct) => {
+                let cloned_ct = ct.clone();
+                let child = timeout_token.clone();
+                tokio::spawn(async move {
+                    cloned_ct.cancelled().await;
+                    child.cancel();
+                });
+                timeout_token.clone()
+            }
+            None => timeout_token.clone(),
+        };
+
+        let exec_future = self.engine.execute_adapter_with_failure_usage(
+            role,
+            profile,
+            system_prompt,
+            user_prompt,
+            project_path,
+            mcp_servers,
+            plan_context,
+            frozen_plan,
+            Some(&effective_cancel),
+            &event_cb,
+        );
+
+        match tokio::time::timeout(timeout, exec_future).await {
+            Ok(Ok(output)) => Ok(RoleExecutionOutput {
+                content: output.content,
+                usage: output.usage,
+            }),
+            Ok(Err(error)) => Err(error),
+            Err(_) => {
+                effective_cancel.cancel();
+                Err(
+                    crate::orchestrator::adapters::AdapterExecutionFailure::without_usage(
+                        "Adapter execution timed out",
+                    ),
+                )
             }
         }
     }
@@ -742,9 +832,12 @@ impl ConvergenceDriver {
                 ordinal: planner_ordinal,
                 role: "planner".to_string(),
                 profile_id: self.planner_profile.id.clone(),
+                provider_id: self.planner_profile.provider_id.clone(),
                 model: self.planner_profile.model.clone(),
+                schedule_id: None,
                 payload_digest: Some(planner_payload_digest.clone()),
                 usage: None,
+                cost_estimate: None,
                 status: Some("reserved".to_string()),
                 created_at_unix: now_unix(),
                 completed_at_unix: None,
@@ -780,7 +873,7 @@ impl ConvergenceDriver {
             // Dispatch Planner adapter
             let planner_adapter_timeout = remaining_time.min(Duration::from_secs(180));
             let planner_exec_output = match executor
-                .execute_role_with_output(
+                .execute_role_with_failure_usage(
                     AgentRole::Planner,
                     &self.planner_profile,
                     system_prompt,
@@ -796,15 +889,28 @@ impl ConvergenceDriver {
             {
                 Ok(out) => out,
                 Err(err) => {
+                    let failed_usage = err.usage.clone();
+                    let (failed_schedule_id, failed_cost_estimate) =
+                        match crate::orchestrator::cost::estimate_dispatch_cost(
+                            self.planner_profile.provider_id.as_deref(),
+                            self.planner_profile.model.as_deref(),
+                            failed_usage.as_ref(),
+                        ) {
+                            Some((schedule, cost)) => (Some(schedule), Some(cost)),
+                            None => (None, None),
+                        };
                     let planner_failed_record =
                         crate::orchestrator::recovery::AdapterDispatchRecord {
                             dispatch_id: planner_dispatch_id.clone(),
                             ordinal: planner_ordinal,
                             role: "planner".to_string(),
                             profile_id: self.planner_profile.id.clone(),
+                            provider_id: self.planner_profile.provider_id.clone(),
                             model: self.planner_profile.model.clone(),
+                            schedule_id: failed_schedule_id,
                             payload_digest: Some(planner_payload_digest.clone()),
-                            usage: None,
+                            usage: failed_usage.clone(),
+                            cost_estimate: failed_cost_estimate,
                             status: Some("failed".to_string()),
                             created_at_unix: now_unix(),
                             completed_at_unix: Some(now_unix()),
@@ -822,18 +928,19 @@ impl ConvergenceDriver {
                         decision: None,
                         waiting_reason: None,
                         error_code: Some("PC_ADAPTER_EXECUTION_FAILED".to_string()),
-                        usage: None,
+                        usage: failed_usage.clone(),
                         dispatch_id: Some(planner_dispatch_id.clone()),
                         dispatch_ordinal: Some(planner_ordinal),
                         dispatch_record: Some(planner_failed_record),
                     });
-                    executed_dispatches_usage.push(None);
+                    executed_dispatches_usage.push(failed_usage);
                     cumulative_usage = aggregate_dispatches_usage(&executed_dispatches_usage);
                     if let Err(persist_err) = persist_res {
                         return ConvergenceOutcome::Failed {
                             stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
                             safe_details: Some(format!(
-                                "Failed to persist planner failed dispatch: {persist_err}; original adapter error: {err}"
+                                "Failed to persist planner failed dispatch: {persist_err}; original adapter error: {}",
+                                err.message
                             )),
                             usage: cumulative_usage.clone(),
                         };
@@ -845,20 +952,33 @@ impl ConvergenceDriver {
                     }
                     return ConvergenceOutcome::Failed {
                         stable_error_code: "PC_ADAPTER_EXECUTION_FAILED".to_string(),
-                        safe_details: Some(format!("Planner adapter error: {err}")),
+                        safe_details: Some(format!("Planner adapter error: {}", err.message)),
                         usage: cumulative_usage.clone(),
                     };
                 }
             };
+
+            let (planner_schedule_id, planner_cost_estimate) =
+                match crate::orchestrator::cost::estimate_dispatch_cost(
+                    self.planner_profile.provider_id.as_deref(),
+                    self.planner_profile.model.as_deref(),
+                    planner_exec_output.usage.as_ref(),
+                ) {
+                    Some((sched, cost)) => (Some(sched), Some(cost)),
+                    None => (None, None),
+                };
 
             let planner_completed_record = crate::orchestrator::recovery::AdapterDispatchRecord {
                 dispatch_id: planner_dispatch_id.clone(),
                 ordinal: planner_ordinal,
                 role: "planner".to_string(),
                 profile_id: self.planner_profile.id.clone(),
+                provider_id: self.planner_profile.provider_id.clone(),
                 model: self.planner_profile.model.clone(),
+                schedule_id: planner_schedule_id,
                 payload_digest: Some(planner_payload_digest.clone()),
                 usage: planner_exec_output.usage.clone(),
+                cost_estimate: planner_cost_estimate,
                 status: Some("completed".to_string()),
                 created_at_unix: now_unix(),
                 completed_at_unix: Some(now_unix()),
@@ -1137,9 +1257,12 @@ impl ConvergenceDriver {
                 ordinal: reviewer_ordinal,
                 role: "plan_reviewer".to_string(),
                 profile_id: self.reviewer_profile.id.clone(),
+                provider_id: self.reviewer_profile.provider_id.clone(),
                 model: self.reviewer_profile.model.clone(),
+                schedule_id: None,
                 payload_digest: Some(reviewer_payload_digest.clone()),
                 usage: None,
+                cost_estimate: None,
                 status: Some("reserved".to_string()),
                 created_at_unix: now_unix(),
                 completed_at_unix: None,
@@ -1186,7 +1309,7 @@ impl ConvergenceDriver {
                 .min(Duration::from_secs(180));
 
             let reviewer_exec_output = match executor
-                .execute_role_with_output(
+                .execute_role_with_failure_usage(
                     AgentRole::PlanReviewer,
                     &self.reviewer_profile,
                     reviewer_system_prompt,
@@ -1202,15 +1325,28 @@ impl ConvergenceDriver {
             {
                 Ok(out) => out,
                 Err(err) => {
+                    let failed_usage = err.usage.clone();
+                    let (failed_schedule_id, failed_cost_estimate) =
+                        match crate::orchestrator::cost::estimate_dispatch_cost(
+                            self.reviewer_profile.provider_id.as_deref(),
+                            self.reviewer_profile.model.as_deref(),
+                            failed_usage.as_ref(),
+                        ) {
+                            Some((schedule, cost)) => (Some(schedule), Some(cost)),
+                            None => (None, None),
+                        };
                     let reviewer_failed_record =
                         crate::orchestrator::recovery::AdapterDispatchRecord {
                             dispatch_id: reviewer_dispatch_id.clone(),
                             ordinal: reviewer_ordinal,
                             role: "plan_reviewer".to_string(),
                             profile_id: self.reviewer_profile.id.clone(),
+                            provider_id: self.reviewer_profile.provider_id.clone(),
                             model: self.reviewer_profile.model.clone(),
+                            schedule_id: failed_schedule_id,
                             payload_digest: Some(reviewer_payload_digest.clone()),
-                            usage: None,
+                            usage: failed_usage.clone(),
+                            cost_estimate: failed_cost_estimate,
                             status: Some("failed".to_string()),
                             created_at_unix: now_unix(),
                             completed_at_unix: Some(now_unix()),
@@ -1228,18 +1364,19 @@ impl ConvergenceDriver {
                         decision: None,
                         waiting_reason: None,
                         error_code: Some("PC_ADAPTER_EXECUTION_FAILED".to_string()),
-                        usage: None,
+                        usage: failed_usage.clone(),
                         dispatch_id: Some(reviewer_dispatch_id.clone()),
                         dispatch_ordinal: Some(reviewer_ordinal),
                         dispatch_record: Some(reviewer_failed_record),
                     });
-                    executed_dispatches_usage.push(None);
+                    executed_dispatches_usage.push(failed_usage);
                     cumulative_usage = aggregate_dispatches_usage(&executed_dispatches_usage);
                     if let Err(persist_err) = persist_res {
                         return ConvergenceOutcome::Failed {
                             stable_error_code: "PC_PERSISTENCE_FAILED".to_string(),
                             safe_details: Some(format!(
-                                "Failed to persist reviewer failed dispatch: {persist_err}; original adapter error: {err}"
+                                "Failed to persist reviewer failed dispatch: {persist_err}; original adapter error: {}",
+                                err.message
                             )),
                             usage: cumulative_usage.clone(),
                         };
@@ -1251,21 +1388,34 @@ impl ConvergenceDriver {
                     }
                     return ConvergenceOutcome::Failed {
                         stable_error_code: "PC_ADAPTER_EXECUTION_FAILED".to_string(),
-                        safe_details: Some(format!("PlanReviewer adapter error: {err}")),
+                        safe_details: Some(format!("PlanReviewer adapter error: {}", err.message)),
                         usage: cumulative_usage.clone(),
                     };
                 }
             };
             let review_duration_ms = reviewer_start.elapsed().as_millis() as u64;
 
+            let (reviewer_schedule_id, reviewer_cost_estimate) =
+                match crate::orchestrator::cost::estimate_dispatch_cost(
+                    self.reviewer_profile.provider_id.as_deref(),
+                    self.reviewer_profile.model.as_deref(),
+                    reviewer_exec_output.usage.as_ref(),
+                ) {
+                    Some((sched, cost)) => (Some(sched), Some(cost)),
+                    None => (None, None),
+                };
+
             let reviewer_completed_record = crate::orchestrator::recovery::AdapterDispatchRecord {
                 dispatch_id: reviewer_dispatch_id.clone(),
                 ordinal: reviewer_ordinal,
                 role: "plan_reviewer".to_string(),
                 profile_id: self.reviewer_profile.id.clone(),
+                provider_id: self.reviewer_profile.provider_id.clone(),
                 model: self.reviewer_profile.model.clone(),
+                schedule_id: reviewer_schedule_id,
                 payload_digest: Some(reviewer_payload_digest.clone()),
                 usage: reviewer_exec_output.usage.clone(),
+                cost_estimate: reviewer_cost_estimate,
                 status: Some("completed".to_string()),
                 created_at_unix: now_unix(),
                 completed_at_unix: Some(now_unix()),

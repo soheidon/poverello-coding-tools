@@ -3,6 +3,7 @@ import { act, render, screen, fireEvent, waitFor, within } from "@testing-librar
 import React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import OrchestratorPanel from "./OrchestratorPanel";
+import { formatEstimatedCost } from "../../types/orchestrator";
 import { LanguageProvider } from "../../i18n";
 import { DEFAULT_ORCHESTRATOR_PROFILES, DEFAULT_ORCHESTRATOR_QUICK_SLOTS, DEFAULT_VALIDATION_GATES, DEFAULT_ITERATION_LIMITS } from "../../config/orchestratorPresets";
 import { translations as enTranslations } from "../../i18n/lang/en";
@@ -833,6 +834,103 @@ describe("OrchestratorPanel", () => {
     expect(screen.queryByRole("region", { name: "orchestrator.roles.planIntegrator" })).not.toBeInTheDocument();
   });
 
+  it("persists role unassignment without changing peer roles and blocks a required role after reload", async () => {
+    const originalInvoke = invokeMock.getMockImplementation() as (cmd: string, args: any) => Promise<any>;
+    let savedAssignments = {
+      planner: { role: "planner" as const, profileId: "mimo-v26-pro" },
+      plan_reviewer: { role: "plan_reviewer" as const, profileId: "deepseek-v41-flash" },
+      implementer: { role: "implementer" as const, profileId: "codex-cli" },
+      fixer: { role: "fixer" as const, profileId: "codex-cli", escalationRole: "implementer" as const },
+      code_reviewer: { role: "code_reviewer" as const, profileId: "codex-cli" },
+    };
+    invokeMock.mockImplementation(async (cmd: string, args: any) => {
+      if (cmd === "get_orchestrator_config") {
+        return { ...(await originalInvoke(cmd, args)), assignments: savedAssignments };
+      }
+      if (cmd === "update_orchestrator_config") {
+        savedAssignments = args.config.assignments;
+        return null;
+      }
+      return originalInvoke(cmd, args);
+    });
+
+    const firstRender = render(<LanguageProvider><OrchestratorPanel /></LanguageProvider>);
+    await screen.findByDisplayValue("C:\\mock\\project");
+    const plannerCard = screen.getByRole("region", { name: "orchestrator.roles.planner" });
+    fireEvent.click(within(plannerCard).getByRole("button", { name: "orchestrator.roles.unassign" }));
+
+    await waitFor(() => expect(savedAssignments).not.toHaveProperty("planner"));
+    expect(savedAssignments).toEqual({
+      plan_reviewer: { role: "plan_reviewer", profileId: "deepseek-v41-flash" },
+      implementer: { role: "implementer", profileId: "codex-cli" },
+      fixer: { role: "fixer", profileId: "codex-cli", escalationRole: "implementer" },
+      code_reviewer: { role: "code_reviewer", profileId: "codex-cli" },
+    });
+    firstRender.unmount();
+
+    render(<LanguageProvider><OrchestratorPanel /></LanguageProvider>);
+    await screen.findByDisplayValue("C:\\mock\\project");
+    const reloadedPlannerCard = screen.getByRole("region", { name: "orchestrator.roles.planner" });
+    expect(within(reloadedPlannerCard).getByRole("combobox")).toHaveTextContent("orchestrator.quickSlots.choose");
+    expect(within(reloadedPlannerCard).queryByRole("button", { name: "orchestrator.roles.unassign" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText(/Implement user login session caching/), { target: { value: "Do not run without planner" } });
+    expect(screen.getByRole("button", { name: /orchestrator\.exec\.startBtn/ })).toBeDisabled();
+    expect(invokeMock.mock.calls.some(([cmd]) => cmd === "start_orchestrator_run")).toBe(false);
+
+    fireEvent.click(within(reloadedPlannerCard).getByRole("combobox"));
+    const plannerListbox = within(reloadedPlannerCard).getByRole("listbox");
+    fireEvent.click(within(plannerListbox).getByRole("option", { name: /deepseek-v4\.1-flash/ }));
+    await waitFor(() => expect(savedAssignments).toHaveProperty("planner", { role: "planner", profileId: "deepseek-v41-flash" }));
+    expect(savedAssignments.plan_reviewer).toEqual({ role: "plan_reviewer", profileId: "deepseek-v41-flash" });
+  });
+
+  it("allows assigning a GLM provider profile to a role through the role selector", async () => {
+    const glmProfile = {
+      id: "zai-glm-53-reviewer",
+      displayName: "GLM-5.3 (Z.ai Direct API)",
+      adapter: "provider" as const,
+      providerId: "zai",
+      model: "glm-5.3",
+      thinkingMode: "thinking" as const,
+      reasoningEffort: "high",
+      capabilities: ["reasoning", "review", "workspace_read"] as const,
+      contextWindowTokens: 1_000_000,
+    };
+    const originalInvoke = invokeMock.getMockImplementation() as (cmd: string, args: any) => Promise<any>;
+    invokeMock.mockImplementation(async (cmd: string, args: any) => {
+      if (cmd === "get_orchestrator_config") {
+        return {
+          ...(await originalInvoke(cmd, args)),
+          profiles: [...DEFAULT_ORCHESTRATOR_PROFILES, glmProfile],
+          quickSlots: [
+            ...DEFAULT_ORCHESTRATOR_QUICK_SLOTS,
+            { id: "slot-glm-reviewer", profileId: glmProfile.id, label: "GLM-5.3 Reviewer", visible: true, order: 4 },
+          ],
+        };
+      }
+      return originalInvoke(cmd, args);
+    });
+
+    render(<LanguageProvider><OrchestratorPanel /></LanguageProvider>);
+    await screen.findByDisplayValue("C:\\mock\\project");
+
+    const reviewerCard = screen.getByRole("region", { name: "orchestrator.roles.planReviewer" });
+    fireEvent.click(within(reviewerCard).getByRole("combobox"));
+    const reviewerListbox = within(reviewerCard).getByRole("listbox");
+    fireEvent.click(within(reviewerListbox).getByRole("option", { name: /glm-5\.3 \+ thinking: High/ }));
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith(
+      "update_orchestrator_config",
+      expect.objectContaining({
+        config: expect.objectContaining({
+          assignments: expect.objectContaining({
+            plan_reviewer: { role: "plan_reviewer", profileId: "zai-glm-53-reviewer" },
+          }),
+        }),
+      }),
+    ));
+  });
+
   it("enforces read-only profile validation for review_only workflow", async () => {
     const originalInvoke = invokeMock.getMockImplementation() as (cmd: string, args: any) => Promise<any>;
     invokeMock.mockImplementation(async (cmd: string, args: any) => {
@@ -1411,6 +1509,52 @@ describe("OrchestratorPanel", () => {
       // Step 6 (completed) should be active
       expect(stepperSteps[6].className).toContain("active");
     });
+  });
+
+  it("shows the exact completed run cost estimate in the execution view", async () => {
+    const completedRun = {
+      runId: "completed-cost-run",
+      workflowType: "full_loop",
+      projectPath: "C:\\mock\\project",
+      status: "complete",
+      currentState: "completed",
+      revision: 2,
+      createdAtUnix: 1000,
+      updatedAtUnix: 1001,
+      isResumable: false,
+      costSummary: {
+        status: "complete",
+        currency: "USD",
+        totalCost: { currency: "USD", amountNanos: 50_000_000 },
+        pricedDispatches: 1,
+        unpricedDispatches: 0,
+        schedules: ["anthropic:claude-opus-5-5:2026-10:uncached"],
+        method: "bundled_exact_rate_v1",
+      },
+    };
+    const originalInvoke = invokeMock.getMockImplementation() as (cmd: string, args: any) => Promise<any>;
+    invokeMock.mockImplementation(async (cmd: string, args: any) => {
+      if (cmd === "start_orchestrator_run") return { runId: completedRun.runId };
+      if (cmd === "list_interrupted_runs") return [completedRun];
+      return originalInvoke(cmd, args);
+    });
+
+    render(<LanguageProvider><OrchestratorPanel /></LanguageProvider>);
+    await waitFor(() => expect(eventHandlers.has("orchestrator:step_update")).toBe(true));
+    await screen.findByDisplayValue("C:\\mock\\project");
+    fireEvent.change(screen.getByPlaceholderText(/Implement user login session caching/), { target: { value: "Cost summary smoke test" } });
+    fireEvent.click(screen.getByRole("button", { name: /orchestrator\.exec\.startBtn/ }));
+    await waitFor(() => expect(screen.getByText(`ID: ${completedRun.runId.slice(0, 8)}`)).toBeDefined());
+
+    act(() => {
+      eventHandlers.get("orchestrator:step_update")?.({
+        payload: { runId: completedRun.runId, step: "complete", message: "Done" },
+      });
+    });
+
+    expect(await screen.findByText("orchestrator.cost.runEstimateTitle")).toBeInTheDocument();
+    expect(screen.getByText(/\$0\.05/)).toBeInTheDocument();
+    expect(screen.getByText(/orchestrator\.cost\.estimated/)).toBeInTheDocument();
   });
 
   describe("Workflow-Lock & Post-Run Lifecycle Separation", () => {
@@ -2579,6 +2723,229 @@ describe("OrchestratorPanel", () => {
       }));
 
       expect(screen.queryByLabelText("convergence-progress")).toBeNull();
+    });
+  });
+
+  describe("Orchestrator Cost Badges on Interrupted Runs", () => {
+    it("renders complete cost badge for complete cost summary on interrupted runs", async () => {
+      const originalInvoke = invokeMock.getMockImplementation() as (cmd: string, args: any) => Promise<any>;
+      invokeMock.mockImplementation(async (cmd: string, args: any) => {
+        if (cmd === "list_interrupted_runs") {
+          return [
+            {
+              runId: "run-complete-cost",
+              workflowType: "human_gated_loop",
+              projectPath: "C:\\mock\\project",
+              status: "interrupted",
+              currentState: "plan_review",
+              revision: 1,
+              createdAtUnix: 1000,
+              updatedAtUnix: 1000,
+              isResumable: true,
+              costSummary: {
+                status: "complete",
+                currency: "USD",
+                totalCost: { currency: "USD", amountNanos: 50_000_000 },
+                pricedDispatches: 1,
+                unpricedDispatches: 0,
+                schedules: ["anthropic:claude-opus-5-5:2026-10:uncached"],
+                method: "bundled_exact_rate_v1",
+              },
+            },
+          ];
+        }
+        return originalInvoke(cmd, args);
+      });
+
+      render(
+        <LanguageProvider>
+          <OrchestratorPanel />
+        </LanguageProvider>
+      );
+
+      expect(await screen.findByText(/\$0\.05/)).toBeInTheDocument();
+      expect(screen.getByText(/orchestrator\.cost\.estimated/)).toBeInTheDocument();
+      expect(screen.getByText(/anthropic:claude-opus-5-5:2026-10:uncached/)).toBeInTheDocument();
+      expect(screen.getByTitle(/Method: bundled_exact_rate_v1/)).toBeInTheDocument();
+    });
+
+    it("renders partial cost badge with unpriced count for partial cost summary", async () => {
+      const originalInvoke = invokeMock.getMockImplementation() as (cmd: string, args: any) => Promise<any>;
+      invokeMock.mockImplementation(async (cmd: string, args: any) => {
+        if (cmd === "list_interrupted_runs") {
+          return [
+            {
+              runId: "run-partial-cost",
+              workflowType: "human_gated_loop",
+              projectPath: "C:\\mock\\project",
+              status: "interrupted",
+              currentState: "plan_review",
+              revision: 1,
+              createdAtUnix: 1000,
+              updatedAtUnix: 1000,
+              isResumable: true,
+              costSummary: {
+                status: "partial",
+                currency: "USD",
+                totalCost: { currency: "USD", amountNanos: 50_000_000 },
+                pricedDispatches: 1,
+                unpricedDispatches: 2,
+                schedules: ["anthropic:claude-sonnet-5-5:2026-10:uncached"],
+                method: "bundled_exact_rate_v1",
+              },
+            },
+          ];
+        }
+        return originalInvoke(cmd, args);
+      });
+
+      render(
+        <LanguageProvider>
+          <OrchestratorPanel />
+        </LanguageProvider>
+      );
+
+      expect(await screen.findByText(/\$0\.05/)).toBeInTheDocument();
+      expect(screen.getByText(/orchestrator\.cost\.partial/)).toBeInTheDocument();
+      expect(screen.getByText(/anthropic:claude-sonnet-5-5:2026-10:uncached/)).toBeInTheDocument();
+      expect(screen.getByTitle(/Method: bundled_exact_rate_v1/)).toBeInTheDocument();
+    });
+
+    it("renders unavailable cost badge when status is unavailable or cost is missing", async () => {
+      const originalInvoke = invokeMock.getMockImplementation() as (cmd: string, args: any) => Promise<any>;
+      invokeMock.mockImplementation(async (cmd: string, args: any) => {
+        if (cmd === "list_interrupted_runs") {
+          return [
+            {
+              runId: "run-unavailable-cost",
+              workflowType: "human_gated_loop",
+              projectPath: "C:\\mock\\project",
+              status: "interrupted",
+              currentState: "plan_review",
+              revision: 1,
+              createdAtUnix: 1000,
+              updatedAtUnix: 1000,
+              isResumable: true,
+              costSummary: {
+                status: "unavailable",
+                currency: "USD",
+                totalCost: null,
+                pricedDispatches: 0,
+                unpricedDispatches: 1,
+              },
+            },
+          ];
+        }
+        return originalInvoke(cmd, args);
+      });
+
+      render(
+        <LanguageProvider>
+          <OrchestratorPanel />
+        </LanguageProvider>
+      );
+
+      expect(await screen.findByText("orchestrator.cost.unavailable")).toBeInTheDocument();
+      expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/orchestrator\.cost\.estimated/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("formatEstimatedCost precision and boundary tests", () => {
+    it("formats zero amount accurately", () => {
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: 0 })).toBe("$0.00");
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: "0" })).toBe("$0.00");
+      expect(formatEstimatedCost({ currency: "EUR", amountNanos: 0 })).toBe("0.00 EUR");
+    });
+
+    it("formats small positive amounts without silent truncation to zero", () => {
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: 1 })).toBe("< $0.0001");
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: 99_999 })).toBe("< $0.0001");
+      expect(formatEstimatedCost({ currency: "EUR", amountNanos: 50 })).toBe("< 0.0001 EUR");
+    });
+
+    it("formats exact threshold at 100,000 nanos", () => {
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: 100_000 })).toBe("$0.0001");
+    });
+
+    it("formats exact cents with 2 decimal places", () => {
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: 50_000_000 })).toBe("$0.05");
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: 1_000_000_000 })).toBe("$1.00");
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: 2_500_000_000 })).toBe("$2.50");
+      expect(formatEstimatedCost({ currency: "EUR", amountNanos: 50_000_000 })).toBe("0.05 EUR");
+    });
+
+    it("rounds half-up at 4 decimal places for sub-cent values", () => {
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: 123_400_000 })).toBe("$0.1234");
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: 123_449_999 })).toBe("$0.1234");
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: 123_450_000 })).toBe("$0.1235");
+    });
+
+    it("formats Number.MAX_SAFE_INTEGER with full precision", () => {
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: Number.MAX_SAFE_INTEGER })).toBe(
+        "$9007199.2547"
+      );
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: String(Number.MAX_SAFE_INTEGER) })).toBe(
+        "$9007199.2547"
+      );
+    });
+
+    it("formats maximum supported u64 value from decimal string and BigInt", () => {
+      const u64MaxStr = "18446744073709551615";
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: u64MaxStr })).toBe(
+        "$18446744073.7096"
+      );
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: 18446744073709551615n })).toBe(
+        "$18446744073.7096"
+      );
+    });
+
+    it("rejects unsafe, negative, fractional, and out-of-range numeric amounts", () => {
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: Number.MAX_SAFE_INTEGER + 1 })).toBeNull();
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: Number.MAX_SAFE_INTEGER + 2 })).toBeNull();
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: -1 })).toBeNull();
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: 1.5 })).toBeNull();
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: Number.NaN })).toBeNull();
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: Number.POSITIVE_INFINITY })).toBeNull();
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: "18446744073709551616" })).toBeNull();
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: "-1" })).toBeNull();
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: "1.5" })).toBeNull();
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: null as any })).toBeNull();
+      expect(formatEstimatedCost({ currency: "USD", amountNanos: undefined as any })).toBeNull();
+    });
+
+    it("renders malformed cost payloads as unavailable instead of throwing or showing a value", async () => {
+      const originalInvoke = invokeMock.getMockImplementation() as (cmd: string, args: any) => Promise<any>;
+      invokeMock.mockImplementation(async (cmd: string, args: any) => {
+        if (cmd === "list_interrupted_runs") {
+          return [{
+            runId: "run-invalid-cost",
+            workflowType: "plan_convergence",
+            projectPath: "/tmp/project",
+            status: "interrupted",
+            currentState: "reviewing",
+            revision: 1,
+            createdAtUnix: 1,
+            updatedAtUnix: 2,
+            isResumable: false,
+            costSummary: {
+              currency: "USD",
+              totalCost: { currency: "USD", amountNanos: Number.MAX_SAFE_INTEGER + 1 },
+              status: "complete",
+              pricedDispatches: 1,
+              unpricedDispatches: 0,
+              schedules: ["test:schedule"],
+              method: "test",
+            },
+          }];
+        }
+        return originalInvoke(cmd, args);
+      });
+
+      render(<OrchestratorPanel />);
+
+      expect(await screen.findByText("orchestrator.cost.unavailable")).toBeInTheDocument();
+      expect(screen.queryByText(/\$9007199/)).not.toBeInTheDocument();
     });
   });
 });

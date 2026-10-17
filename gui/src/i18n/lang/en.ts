@@ -473,7 +473,6 @@ export const translations = {
   "modelPricing.notes.gpt56StandardPrice": "OpenAI's revised standard price; no discount is applied.",
   "modelPricing.notes.gpt56Promotion": "Limited-time promotional pricing is currently active on OpenRouter for this model. No end date has been announced.",
   "modelPricing.notes.gpt56LongContext": "Prompts of 272K tokens or more use long-context pricing.",
-  "modelPricing.notes.zaiPricing": "Pay-as-you-go direct API pricing. Cache storage is free for a limited time. Coding Plan is not supported by this application.",
   "modelPricing.discountedPriceAria": "Current price {current}, revised standard price {regular}",
   "peakValley.peak": "PEAK",
   "peakValley.valley": "VALLEY",
@@ -694,6 +693,7 @@ export const translations = {
   "orchestrator.settings.processIsolationActive": "Process-tree isolation: Active (platform-specific)",
   "orchestrator.quickSlots.other": "Other",
   "orchestrator.quickSlots.choose": "Choose a compatible profile",
+  "orchestrator.roles.unassign": "Unassign role",
   "orchestrator.quickSlots.notInWorkspaceList": "Not shown in workspace list",
   "orchestrator.quickSlots.unavailable": "Unavailable for this workflow",
   "orchestrator.advancedRun.title": "Advanced settings (this run only)",
@@ -940,6 +940,11 @@ export const translations = {
   "orchestrator.planConvergence.waiting.confirmError": "The plan could not be created. Review the run status and try again.",
   "orchestrator.planConvergence.newPlanCreated": "Plan created from the confirmed candidate.",
   "orchestrator.planConvergence.newPlanRejected": "The candidate was rejected. No plan file was created.",
+  "orchestrator.cost.estimated": "estimated",
+  "orchestrator.cost.partial": "partial",
+  "orchestrator.cost.unavailable": "Cost estimate unavailable",
+  "orchestrator.cost.unpricedCount": "{count} unpriced",
+  "orchestrator.cost.runEstimateTitle": "Completed run cost estimate",
 } as const;
 
 export type TranslationKey = keyof typeof translations;

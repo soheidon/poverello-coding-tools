@@ -2,18 +2,22 @@
 
 # Poverello Coding Tools
 
-**Use Claude Code / Claude Desktop as the coding harness, route inference to third-party LLM APIs, and use external models as planners and reviewers for Google Antigravity.**
+**Use Claude Code / Claude Desktop as the coding harness, route inference to third-party LLM APIs, orchestrate multi-agent planner–reviewer convergence with cost-estimate tracking, and manage external models and rules for Google Antigravity.**
 
-Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companion application for AI-assisted software development. It supports four core workflows:
+Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companion application for AI-assisted software development. It supports five core workflows:
 
 1. **3P Gateway for Claude Code / Claude Desktop** — Keep Claude's repository exploration, tool use, file editing, and test execution while routing inference to third-party cloud providers.
 2. **Dedicated Local LLMs for Claude Code (Ollama)** — Run Claude Code completely offline with zero API costs using local Ollama models.
 3. **MCP Planner & Reviewer for Google Antigravity** — Delegate implementation planning and post-implementation review to external models via the canonical `poverello/plan`, `poverello/revise`, and `poverello/review` MCP tools (with `anthro-bridge/*` maintained for backward compatibility).
-4. **Antigravity Rules Management** — Configure, preview, and safely synchronize lightweight Poverello Direct Coding rules (`pov-direct.md`) for Antigravity.
+4. **Multi-Agent Development Orchestrator** — Execute bounded Planner–Reviewer convergence workflows across CLI and API agents, track normalized token usage and rate-verified cost estimates (in nano-dollars), and maintain auditable dispatch journals.
+5. **Antigravity Rules Management** — Configure, preview, and safely synchronize lightweight Poverello Direct Coding rules (`pov-direct.md`) for Antigravity.
+
+> [!TIP]
+> **What's New / 新実装の詳細はこちら**: For detailed specifications and changelogs of new implementations, see [NEWS.md (Release Notes)](NEWS.md). バージョンごとの新機能や詳細な実装仕様については [NEWS.md](NEWS.md) をご覧ください。
 
 ---
 
-## Four Main Workflows
+## Five Main Workflows
 
 ### 1. Claude Code / Claude Desktop with 3P Gateway
 
@@ -22,11 +26,11 @@ Claude Code / Claude Desktop
              ↓
   Poverello 3P Gateway
              ↓
-DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo
+Anthropic Direct / DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo / GLM
 ```
 
-- **Harness & Model Separation**: Keep Claude's agentic tooling while routing inference to third-party providers.
-- **Dynamic Multi-Profile Routing**: Switch active providers, OpenRouter profiles, and model routes from the GUI.
+- **Harness & Model Separation**: Keep Claude's agentic tooling while routing inference to third-party providers or official Anthropic endpoints.
+- **Dynamic Multi-Profile Routing & Multi-Provider Gateway**: Switch active providers, OpenRouter profiles, or configure Multi-Provider Gateway profiles that map each canonical Claude route independently to different providers from the GUI.
 - **Setup Guide**: [Claude Desktop / Cowork 3P Gateway Setup](docs/THIRD_PARTY_INFERENCE.md)
 
 ### 2. Claude Code with Dedicated Local LLMs (Ollama)
@@ -63,11 +67,7 @@ using subscription-backed capacity
 - **Planning vs. Execution Split**: External models generate the high-level plan or review verdict; Antigravity subscription capacity executes token-intensive code edits.
 - **Live GUI Configuration**: Switching the planner or reviewer provider, model, or reasoning effort takes effect immediately on the next invocation.
 - **Setup Guide**: [Google Antigravity + Poverello MCP Setup](docs/ANTIGRAVITY_MCP.md)
-- **Opt-in Planner–Reviewer Auto-Convergence**: In the Orchestrator, enable the
-  bounded convergence workflow to generate and independently review plan
-  candidates. Approved in-scope changes may be appended automatically; a new
-  primary plan always requires explicit user confirmation. Real-model behavior
-  varies by provider and adapter and has not been exhaustively smoke-tested.
+- **Orchestrator Integration**: Can be paired with the Multi-Agent Orchestrator (Workflow 4) for autonomous convergence, normalized usage tracking, and rate-based cost estimates.
 
 The executable retains the `anthro-bridge.exe` name, and the legacy `anthro-bridge`
 MCP server key and `/anthro-*` skills remain supported for backward compatibility.
@@ -84,7 +84,40 @@ MCP server key and `/anthro-*` skills remain supported for backward compatibilit
 /pov-plan → Implementation & Tests → /pov-review → Commit
 ```
 
-### 4. Antigravity Rules Management (Poverello Direct Coding)
+### 4. Multi-Agent Development Orchestrator (Convergence & Cost Engine)
+
+```text
+Task / Requirement
+        ↓
++-------------------------------------------------------------+
+| Poverello Orchestrator                                      |
+|                                                             |
+|  [Planner Profile]  ⇄  [Reviewer Profile]                   |
+|  (Generate / Revise)     (Verify / Audit Verdicts)          |
+|                                                             |
+|  • Bounded convergence loop (configurable turn limit)        |
+|  • Full dispatch journals (%APPDATA%\Poverello\runs\*.json) |
+|  • Integer nano-dollar cost estimates & provenance checks    |
+|  • Fail-closed status badges (Complete / Partial / N/A)     |
++-------------------------------------------------------------+
+        ↓
+Approved Plan / Audit Log
+        ↓
+Execution via Antigravity / Claude Code Harness
+```
+
+- **Autonomous Planner–Reviewer Convergence**: Configure independent LLM profiles for planning and reviewing (e.g. Claude Opus 5.5 / Sonnet 5.5, DeepSeek V4.1, GLM-5.3, or local Ollama). The Orchestrator automates iterative generation, review, and revision loops with strict criteria enforcement until convergence or maximum turn limits.
+- **Safety Invariants & Human-in-the-Loop**: Approved in-scope additions can auto-converge; proposing a new primary plan always requires explicit human confirmation.
+- **Auditable Run Journals**: `%APPDATA%\Poverello\runs\<run_id>.json` records run configuration, an optional task prompt, dispatch metadata and payload digests, available normalized usage and cost estimates, and Planner–Reviewer convergence audit metadata. Full adapter prompt envelopes and model responses are not stored in the run journal.
+- **Normalized Usage & Rate-Verified Cost Estimates**:
+  - When an adapter returns supported, parseable usage, the journal records normalized token metrics (`input_tokens`, `output_tokens`, `raw_total_tokens`, `cache_read_tokens`, `cache_write_tokens`; serialized as `cacheWriteTokens`). Missing or unsupported usage remains unknown, not zero. Provider-native cache-creation usage maps to `cache_write_tokens`.
+  - Calculates estimates in integer nano-dollars (`u64 amount_nanos`, 1 USD = $10^9$ nanos, serialized as decimal strings to prevent JavaScript floating-point truncation). These are estimates from supported rate schedules, not provider invoices or actual billed amounts; floating-point math is strictly forbidden.
+  - Enforces schedule provenance verification: rate schedules require exact matches across schedule ID, provider, model, and currency against verified rate tables (e.g., bundled Anthropic Opus 5.5 and Sonnet 5.5 rates). Mismatched or unknown rates fail closed as unpriced dispatches.
+  - Current bundled estimates are limited to qualifying Planner–Reviewer convergence dispatches using Anthropic Direct Opus 5.5 or Sonnet 5.5 with explicitly zero cache buckets. Other providers, routes, and execution paths remain unpriced/unavailable; this is not evidence of zero cost.
+  - Fail-closed status badges in the UI indicate whether estimate coverage is `Complete`, a valid subtotal is `Partial`, or estimates are `Unavailable`.
+  - Recalculates dynamically from immutable dispatch records on every `list_journals()` read, preventing stale saved summaries from bypassing verification.
+
+### 5. Antigravity Rules Management (Poverello Direct Coding)
 
 ```text
 Poverello GUI ("Antigravity Rules" Tab)
@@ -105,6 +138,7 @@ without expanding autonomous scope
 
 | Provider | Connection | Supported Families | Reasoning Controls |
 |---|---|---|---|
+| **Anthropic** | Direct API | Claude Opus 5.5, Sonnet 5.5, Haiku 4.5, 3.7 Sonnet | Adaptive thinking / effort |
 | **DeepSeek** | Direct API | DeepSeek V4.1 Flash, V4 Pro 0813 | Normal / Low / High / Max |
 | **Kimi Code** | Direct API | kimi-for-coding, kimi-for-coding-highspeed | Thinking mode |
 | **MiniMax** | Direct API | MiniMax M3, M2.7 | Model-specific |
@@ -113,6 +147,16 @@ without expanding autonomous scope
 | **MiMo / Xiaomi** | Direct API | MiMo V2.6 Flash, Pro, Pro-UltraSpeed (V2.5 backward-compatible) | Normal / Thinking |
 | **Ollama Local** | Local Loopback | Gemma 4, Qwen 2.5, Llama 3.3, DeepSeek-R1 | Thinking (1024 budget) / Disabled |
 | **OpenRouter** | Multi-profile Gateway | See OpenRouter section below | Model-specific / Profile-specific |
+| **Multi-Provider Gateway** | Custom Routes | Any combination of above eligible providers | Per-route provider controls |
+
+### Anthropic (Direct)
+
+Direct official access via `https://api.anthropic.com` using `ANTHROPIC_API_KEY`:
+
+- **Dedicated API Key**: Uses official Anthropic credentials stored safely in application settings or user environment variables.
+- **Supported Models**: `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5`, `claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-3-5-haiku`.
+- **Reasoning Controls**: Native adaptive thinking and reasoning effort controls supported by upstream models.
+- **Token-Cap Diagnostics**: Streaming and non-streaming detection of `stop_reason: "max_tokens"` with reasoning-only output failing closed with clear diagnostic errors.
 
 ### DeepSeek (Direct)
 
@@ -125,7 +169,7 @@ Built-in **Direct DeepSeek** preset routes Opus 5 → V4.1 Flash / Max · Sonnet
 
 Direct access using Z.ai's official Anthropic Messages-compatible API (`https://api.z.ai/api/anthropic/v1/messages`):
 
-- **Dedicated API Key**: Uses `ZAI_API_KEY` (pay-as-you-go). Coding Plan tokens are unsupported and fail closed before send.
+- **API Key and eligibility**: Uses the configured `ZAI_API_KEY` (or key entered in Poverello) for this endpoint. Poverello does not identify key type, Coding Plan purchase history, account allowlisting, or billing eligibility. Z.ai's current account and endpoint requirements may vary; consult [Z.ai's setup guidance](https://zcode.z.ai/en/docs/configuration) before use.
 - **Models**:
   - `glm-5.3` — Flagship reasoning model with always-on thinking.
   - `glm-5.3-flash` — High-speed reasoning model with always-on thinking.
@@ -239,7 +283,15 @@ The Windows installer supports 8 languages. Poverello v0.24.1 keeps the existing
 4. Use `/pov-plan` to design plans, `/pov-revise` to update plans, and `/pov-review` to review implementations before commit (legacy `/anthro-*` commands remain recognized).
 5. Follow the complete [Antigravity MCP Setup Guide](docs/ANTIGRAVITY_MCP.md).
 
-### Workflow 4: Antigravity Rules Management (Poverello Direct Coding)
+### Workflow 4: Multi-Agent Development Orchestrator
+
+1. Open Poverello and switch to the **Orchestrator** tab in the top navigation bar.
+2. Select or customize agent profiles for the **Planner** and **Reviewer** roles (or choose a built-in preset in Orchestrator Settings).
+3. Set the convergence goal and iteration bounds.
+4. Launch convergence: monitor live dispatch progress, audit verdicts, and cost-estimate coverage badges.
+5. Review completed runs and dispatch logs stored under `%APPDATA%\Poverello\runs\`.
+
+### Workflow 5: Antigravity Rules Management (Poverello Direct Coding)
 
 1. Open Poverello and switch to the **Antigravity Rules** tab in the top navigation bar.
 2. Select the desired rule mode and inspect the generated rule preview.
@@ -252,6 +304,7 @@ The Windows installer supports 8 languages. Poverello v0.24.1 keeps the existing
 
 | Provider | Environment Variable |
 |---|---|
+| Anthropic | `ANTHROPIC_API_KEY` |
 | DeepSeek | `DEEPSEEK_API_KEY` |
 | GLM / Z.ai | `ZAI_API_KEY` |
 | Kimi Code | `KIMI_CODE_API_KEY` |
@@ -264,6 +317,7 @@ The Windows installer supports 8 languages. Poverello v0.24.1 keeps the existing
 
 ## Documentation
 
+- [Release Notes (NEWS.md)](NEWS.md) — Detailed changelog and newly implemented features（新実装の詳細はこちら）
 - [Claude Desktop / Cowork 3P Gateway Setup](docs/THIRD_PARTY_INFERENCE.md)
 - [Ollama Local Setup & CLI Configuration](docs/OLLAMA_LOCAL.md)
 - [Google Antigravity + Poverello MCP Setup](docs/ANTIGRAVITY_MCP.md)

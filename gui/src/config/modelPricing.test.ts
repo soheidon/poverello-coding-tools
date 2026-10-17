@@ -202,7 +202,7 @@ describe("GLM (Z.ai Direct API) pricing data", () => {
     expect(glm52.cachedInputPerMillionUsd).toBe(0.26);
     expect(glm52.verifiedAt).toBe("2026-10-12");
     expect(glm52.sourceUrl).toBe("https://docs.z.ai/guides/overview/pricing");
-    expect(glm52.pricingNoteKey).toBe("modelPricing.notes.zaiPricing");
+    expect(glm52.pricingNoteKey).toBeUndefined();
 
     const glm53 = MODEL_PRICING["zai:glm-5.3"];
     expect(glm53).toBeDefined();
@@ -211,6 +211,7 @@ describe("GLM (Z.ai Direct API) pricing data", () => {
     expect(glm53.cachedInputPerMillionUsd).toBe(0.26);
     expect(glm53.verifiedAt).toBe("2026-10-12");
     expect(glm53.sourceUrl).toBe("https://docs.z.ai/guides/overview/pricing");
+    expect(glm53.pricingNoteKey).toBeUndefined();
 
     const flash = MODEL_PRICING["zai:glm-5.3-flash"];
     expect(flash).toBeDefined();
@@ -218,6 +219,8 @@ describe("GLM (Z.ai Direct API) pricing data", () => {
     expect(flash.outputPerMillionUsd).toBe(0.50);
     expect(flash.cachedInputPerMillionUsd).toBe(0.03);
     expect(flash.verifiedAt).toBe("2026-10-12");
+    expect(flash.sourceUrl).toBe("https://docs.z.ai/guides/overview/pricing");
+    expect(flash.pricingNoteKey).toBeUndefined();
 
     const flashx = MODEL_PRICING["zai:glm-5.3-flashx"];
     expect(flashx).toBeDefined();
@@ -225,6 +228,8 @@ describe("GLM (Z.ai Direct API) pricing data", () => {
     expect(flashx.outputPerMillionUsd).toBe(1.25);
     expect(flashx.cachedInputPerMillionUsd).toBe(0.075);
     expect(flashx.verifiedAt).toBe("2026-10-12");
+    expect(flashx.sourceUrl).toBe("https://docs.z.ai/guides/overview/pricing");
+    expect(flashx.pricingNoteKey).toBeUndefined();
   });
 
   it("keeps direct GLM namespace isolated from OpenRouter models", () => {

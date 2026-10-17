@@ -17,7 +17,7 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
 | (axum 0.7 + reqwest プロキシ, APIキー検証, ルート解決)      |
 +-------------------------------------------------------------+
              |
-             +---> クラウドプロバイダー (DeepSeek / MiMo / Kimi / MiniMax / GLM / OpenRouter)
+             +---> クラウドプロバイダー (Anthropic Direct / DeepSeek / MiMo / Kimi / MiniMax / GLM / OpenRouter / ゲートウェイプロファイル)
 
 [Claude Code CLI] (active_route: "gateway")
              |
@@ -83,12 +83,22 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
 - **Claude Code 起動コマンド生成**: `build_claude_code_launch_command` は、ゲートウェイ接続変数（ローカルゲートウェイを指す `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`）と Claude Code コンテキスト制御変数（`CLAUDE_CODE_AUTO_COMPACT_WINDOW`、`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`）を組み合わせた完全な PowerShell コマンドを生成する。コンテキスト管理が無効、Incomplete、または Claude デフォルト設定の場合、コマンドは `Remove-Item Env:... -ErrorAction SilentlyContinue` で古いコンテキスト変数を削除し、以前設定されたセッション値が新しい起動に漏れないようにする。Claude 設定パネルの「Claude Code起動コマンドをコピー」ボタンがコマンドをクリップボードにコピーする。Poverello はコマンドの生成とコピーのみを行い、実行は一切しない。
 - **共有モデルルーティングモジュール**: `model_routing.rs` は、ルートから upstream への解決を `proxy.rs` とコンテキストリゾルバーが共有する純粋関数に抽出し、コンテキストウィンドウがプロキシが実際に転送する upstream モデルと同一のモデルを解決することを保証する。
 - **コンテキスト容量レジストリ**: `model_catalog.json` は、既知のコンテキスト容量の静的レジストリ。組み込みの直接プロバイダーモデル（DeepSeek、MiniMax、Kimi、MiMo V2.6 および V2.5）と組み込みの OpenRouter モデル（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-5.6）をカバーする。不明なカスタム OpenRouter モデルは有効なルートターゲットのままであるが、メタデータが追加されるか手動モードが設定されるまで、コンテキスト管理は Incomplete として報告される。
-- **GLM (Z.ai) ダイレクトプロバイダー対応**: Z.ai 公式の Messages 互換エンドポイント（`https://api.z.ai/api/anthropic/v1/messages`）を `ZAI_API_KEY` 経由で直接利用。Coding Plan トークンは非対応（送信前にフェイルクローズ）。4モデル構成（`glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx`、`glm-5.2`）。GLM-5.3 系列は推論強度（`low`, `high`, `max`）を選択可能な常時思考、GLM-5.2 は Normal/Thinking トグル。厳格な出力検証により、思考ブロックのみで最終テキストが空の場合（思考中の `max_tokens` 到達等）は Orchestrator・MCP の双方で明示的なプロバイダーエラーとしてフェイルクローズする。
+- **GLM (Z.ai) ダイレクトプロバイダー対応**: 設定された `ZAI_API_KEY`（または Poverello に入力したキー）を使って Z.ai の Anthropic 互換エンドポイントへリクエストを送信。Poverello はキー種別、Coding Plan の購入履歴、アカウントの許可状態、課金資格を判定しないため、利用前に[Z.ai の現行セットアップガイド](https://zcode.z.ai/en/docs/configuration)でアカウントおよびエンドポイント要件を確認してください。4モデル構成（`glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx`、`glm-5.2`）。GLM-5.3 系列は推論強度（`low`, `high`, `max`）を選択可能な常時思考、GLM-5.2 は Normal/Thinking トグル。厳格な出力検証により、思考ブロックのみで最終テキストが空の場合（思考中の `max_tokens` 到達等）は Orchestrator・MCP の双方で明示的なプロバイダーエラーとしてフェイルクローズする。
 - **Antigravity ルール管理（「Antigravity Rules」タブ）**: Google Antigravity 向けの軽量 Direct Coding ルール（`pov-direct.md`）を設定・同期。YAML の `trigger` スカラーと管理ブロック（`<!-- pov-direct:managed:begin -->` ... `<!-- pov-direct:managed:end -->`）のみを操作する単一ファイルステートマシンを採用し、ユーザー独自の frontmatter、コメント、Skill インクルードを保持する。衝突耐性のある保持バックアップ、置換直前の SHA-256 および外部削除競合の検出、読み戻し検証ロールバック、旧 sidecar フォルダ存在時の保存拒否、24,000 UTF-8 バイト上限ガードを備える。8言語完全ローカライズ。
+- **Anthropic 公式 Direct プロバイダー対応**: `https://api.anthropic.com` を `ANTHROPIC_API_KEY` 経由で直接利用。ネイティブの Messages プロトコルをプロトコル変換なしで透過転送。検証済みモデルカタログ（`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5` 等）、ストリーミングおよび非ストリーミングのトークン上限障害診断（思考ブロックのみで最終テキストが生成されないまま `stop_reason: "max_tokens"` となった場合に明示的エラーでフェイルクローズ）、およびサンプリングパラメータ検証。
+- **マルチプロバイダーゲートウェイプロファイル（`gateway_profile`）**: 3つの標準 Claude ルート（`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`）それぞれに独立して異なるプロバイダーとモデルを割り当て可能。`active_provider: "gateway_profile"` および `active_gateway_profile_id` で制御され、`gateway_profiles` 配下の指定プロファイルを参照する。ルートごとの機能チェックおよび Claude Code 自動圧縮のためのコンテキスト容量計算に統合される。
+- **正本 Poverello スキル & MCP 名前空間の移行**: 正本 MCP ツール（`poverello/plan`, `poverello/revise`, `poverello/review`）およびスラッシュコマンド（`/pov-plan`, `/pov-revise`, `/pov-review`）。Poverello は Antigravity の `mcp_config.json` に `poverello` サーバーキーを加法的に登録し、既存の `anthro-bridge` キーや旧 `/anthro-*` スキルを完全な後方互換性のために保持する。親ディレクトリを削除しない堅牢な単一ファイルライフサイクル管理。
+- **Orchestrator 正規化使用量 & 財務コスト計算エンジン**:
+  - `NormalizedUsage` スキーマ: アダプターが対応形式の使用量を返した場合に `input_tokens`, `output_tokens`, `raw_total_tokens`, `cache_read_tokens`, `cache_write_tokens` を捕捉し、取得できた値を `RunJournal`（`runs/<run_id>.json`）および収束監査ログに永続化する。未取得・不正形式の値はゼロではなく不明として扱う。正規化フィールド `cache_write_tokens` のシリアライズ名は `cacheWriteTokens` であり、プロバイダー固有のキャッシュ作成使用量はこのフィールドに対応付けられる。
+  - 現在の同梱コスト見積もりは、Anthropic Direct Opus 5.5 / Sonnet 5.5 でキャッシュ各項目が明示的にゼロの、条件を満たす Planner–Reviewer収束ディスパッチに限定される。他のプロバイダー、ルート、実行経路は未算定／利用不可であり、コストゼロを意味しない。
+  - 高精度ナノドル整数財務エンジン: 金額は `amount_nanos: u64`（1 USD = $10^9$ ナノドル）で表現され、JavaScript の float64 精度損失を防ぐため文字列としてシリアライズされる。浮動小数点演算（`f32`/`f64`）は一切使用しない。
+  - スケジュールID・プロバイダー・モデル・通貨の厳格な一致検証（`lookup_and_verify_schedule`）: 同梱スケジュールとして `anthropic:claude-opus-5-5:2026-10:uncached`（入力 $4.00 / 出力 $20.00 / MTok）および `anthropic:claude-sonnet-5-5:2026-10:uncached`（入力 $2.00 / 出力 $10.00 / MTok）に対応。未知ID、不一致、未指定はすべて未算定（unpriced）としてフェイルクローズ。
+  - フェイルクローズ集計（`RunCostSummary`）: すべてのディスパッチが検証済みスケジュールで算出できた場合は `Complete`、一部のみ算出できた場合は未算定数を記録し小計を保持する `Partial`、1件も算出できない場合は数値を非表示とする `Unavailable`。寄与したスケジュール一覧（`schedules`）および算出方法（`method`）を明示。
+  - `list_journals()` による動的再集計: ジャーナル一覧取得時にディスク上の不変ディスパッチ記録から動的に再集計を実行し、ディスク上の古い集計値が厳格な検証を迂回して表示されるのを完全に防止。
 
 ### GUI 管理ツール
 
-Tauri v2 + React 19 + TypeScript。ダッシュボード + 設定の2画面構成。
+Tauri v2 + React 19 + TypeScript。上部ナビゲーションタブ: Gateway（ダッシュボード）、MCP、Antigravity Rules、Orchestrator、Settings。
 
 ```
 +------------------------------------------+

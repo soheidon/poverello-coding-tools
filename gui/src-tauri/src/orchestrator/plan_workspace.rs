@@ -233,6 +233,20 @@ pub type CaptureDriftSeamFn = std::sync::Arc<dyn Fn(&PlanContext, usize) + Send 
 static CAPTURE_DRIFT_SEAM: LazyLock<Mutex<Option<CaptureDriftSeamFn>>> =
     LazyLock::new(|| Mutex::new(None));
 
+/// Serializes tests that mutate process-global Plan Workspace state, including
+/// test-only seams. Engine tests that install a Plan Workspace seam must use
+/// this same guard so they cannot race with each other or with Plan Workspace
+/// fixture tests.
+#[cfg(test)]
+static PLAN_WORKSPACE_TEST_SERIAL: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+#[cfg(test)]
+pub(crate) fn hold_plan_workspace_test_serial() -> std::sync::MutexGuard<'static, ()> {
+    PLAN_WORKSPACE_TEST_SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[cfg(test)]
 pub fn set_capture_drift_seam(seam: Option<CaptureDriftSeamFn>) {
     seam_slot_store(&CAPTURE_DRIFT_SEAM, seam);
@@ -3150,12 +3164,8 @@ version = "0.23.0"
     ///
     /// Poison is ignored: the guard carries no state, and a panicking test must
     /// not fail its successors.
-    static PLAN_WORKSPACE_TEST_SERIAL: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-
     fn hold_plan_workspace_test_serial() -> std::sync::MutexGuard<'static, ()> {
-        PLAN_WORKSPACE_TEST_SERIAL
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        super::hold_plan_workspace_test_serial()
     }
 
     /// Teardown for the lock-bypass negative-control harness.
