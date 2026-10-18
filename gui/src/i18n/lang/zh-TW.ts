@@ -28,6 +28,8 @@ export const translations: TranslationMap = {
   "settings.nav.claudeDesktop": "Claude Desktop",
   "settings.nav.antigravity": "Antigravity",
   "settings.nav.orchestrator": "協調器",
+  "tab.autoConverge": "Auto-Converge",
+  "autoConverge.unavailable": "此桌面版本目前無法使用 Auto-Converge。由於未提供 Reviewer 作業系統隔離，執行會在啟動任何代理程序前遭到阻止。",
 
   // MCP Panel
   "mcp.statusHeader": "MCP 伺服器狀態",
@@ -462,8 +464,8 @@ export const translations: TranslationMap = {
   "modelPricing.deepseekPeakNote": "peak-valley pricing(×2): 9AM–12PM & 2PM–6PM (CST, UTC+8).",
   "modelPricing.notes.deepseekPeakValley": "尖峰時段所有計費項目以2倍計費：日本標準時間10:00–13:00及15:00–19:00（UTC+09:00）。",
   "modelPricing.notes.deepseekPeakValleyPrefix": "尖峰時段所有計費項目以2倍計費：",
-  "modelPricing.notes.deepseekV4ProTransition": "DeepSeek V4.1上線期間DeepSeek V4 Pro的過渡期價格。",
-  "modelPricing.notes.deepseekV4ProGoingAway": "預計於2026年9月14日退役。",
+  "modelPricing.notes.deepseekV4ProTransition": "目前官方價格頁列出這些 V4 Pro 費率，並表示 API 服務在 2026 年 9 月 14 日後持續提供。9 月 10 日公告曾指出，在 V4.1-Pro 發布前，Pro 請求會暫時轉送至 V4.1 Flash 並採用 Flash 費率。Poverello 無法核實每筆請求的路由或帳單；此處顯示的是公開費率，不是帳單或保證。",
+  "modelPricing.notes.deepseekV4ProGoingAway": "2026 年 9 月 10 日公告的下線計畫已由確認持續提供 V4 Pro API 服務的官方通知更新；每筆請求的路由與帳單尚未核實。",
     "modelPricing.notes.mimoV26ProUltraSpeed": "MiMo-V2.6-Pro的超高速版本。價格約為標準版的10倍。API 用量額度需個別洽詢。",
     "modelPricing.notes.mimoV25ProUltraSpeed": "MiMo-V2.5-Pro的超高速版本。價格約為標準版的3倍。需要申請並取得核准，且為限量提供。",
   "modelPricing.notes.minimaxLongCtx": "顯示價格適用於不超過512K的輸入。超過512K時，輸入為$0.60，輸出為$2.40。",

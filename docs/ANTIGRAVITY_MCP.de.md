@@ -114,7 +114,7 @@ anthro-bridge
 Poverello trennt die Planerauswahl klar von der detaillierten Parameterverwaltung:
 
 1. **Oberster Reiter `MCP` (`MCP for Antigravity`)**:
-   - Zeigt verfügbare Anbieter (DeepSeek, OpenRouter, MiniMax, MiMo (V2.6), Kimi) und Profile als Kacheln an.
+   - Zeigt verfügbare Anbieter (DeepSeek, OpenRouter, MiniMax, MiMo (V2.6), Kimi und GLM) sowie Profile als Kacheln an.
    - Ein Klick auf eine Kachel wechselt das aktive Planer-Ziel sofort.
 2. **`Einstellungen` > `Antigravity`**:
    - Karte **MCP Plan Detaileinstellungen**: Konfigurieren Sie Modell, Thinking-Modus und Reasoning Effort pro Anbieter/Profil.
@@ -125,7 +125,7 @@ Poverello trennt die Planerauswahl klar von der detaillierten Parameterverwaltun
 
 ---
 
-## 6. Antigravity Commands (`/pov-plan` & `/pov-revise`) verwenden (Empfohlen)
+## 6. Antigravity Commands (`/pov-plan`, `/pov-revise` & `/pov-review`) verwenden (Empfohlen)
 
 Über **Einstellungen > Antigravity > Google Antigravity Integration** können Sie Global Skills installieren, um Slash-Befehle in jedem Antigravity-Workspace zu nutzen:
 
@@ -156,7 +156,7 @@ Poverello trennt die Planerauswahl klar von der detaillierten Parameterverwaltun
 
 ## 7. Planung mit Workspace Rules automatisieren
 
-Platzieren Sie eine Workspace-Regel wie [`.agents/rules/deepseek-planner.md`](../.agents/rules/deepseek-planner.md) in Ihrem Projekt, um den externen Planer bei komplexen Programmieraufgaben automatisch aufzurufen:
+Sie können eine optionale projektspezifische Workspace-Regel nach dem folgenden Beispiel erstellen. Poverello liefert keine DeepSeek-spezifische Planerregel mit und installiert sie auch nicht; der konfigurierte MCP-Anbieter und das Modell werden in den Poverello-Einstellungen ausgewählt:
 
 ```markdown
 ---
@@ -164,7 +164,7 @@ trigger: model_decision
 description: Use for implementation, debugging, architectural changes, or multi-file code changes where an external implementation plan would be useful. Do not use for trivial text-only edits.
 ---
 
-# DeepSeek Planner Rule
+# Poverello Planner Rule (Beispiel)
 
 For non-trivial implementation tasks in this repository:
 
@@ -176,7 +176,7 @@ For non-trivial implementation tasks in this repository:
    - the relevant repository context;
    - important constraints.
    Note: "Exactly once" means duplicate planner calls are prohibited once a successful usable result is obtained. If the tool call itself fails or returns an unusable response (e.g. transport or decoding error), exactly 1 recovery retry is permitted.
-5. Use the returned DeepSeek plan as the basis for implementation.
+5. Use the returned plan as the basis for implementation.
 6. Perform file edits, builds, and tests yourself.
 7. Do not call `poverello/plan` again unless the implementation encounters a major unresolved problem.
 8. Do not ask the user to repeat this workflow.

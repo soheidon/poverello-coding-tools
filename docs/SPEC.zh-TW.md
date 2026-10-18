@@ -41,6 +41,7 @@
 
 #### 設計原則
 
+- **Claude Code 專用本機 LLM**：Claude Code CLI 可獨立路由至本機 Ollama loopback 執行個體（`http://127.0.0.1:11434/v1`），無需 API 金鑰。透過 `claude_code.active_route`（`gateway` 或 `ollama`）控制，並與 Claude Desktop 和 MCP 完全隔離。
 - **外殼模型 + 提供者選擇**：Claude Desktop 始終看到 `claude-opus-5` / `claude-sonnet-5` / `claude-haiku-4-5`。實際的 LLM 在 GUI 中選擇（DeepSeek / MiniMax / Kimi / MiMo / OpenRouter）。使用活動提供者的模型映射進行路由。
 - **OpenRouter 支援**：路由到 OpenRouter 的 Anthropic 相容端點，預設使用 Poolside Laguna S/XS。專用的 thinking 模式控制（Max/On/Off）在請求時轉換為 OpenRouter 的 `reasoning` 格式。
 - **僅活動提供者需要 API 金鑰**：自 v0.5.0 起，僅檢查路由表引用的提供者的 API 金鑰。非活動提供者的金鑰不需要。
@@ -49,9 +50,10 @@
 - **Windows 原生 GUI**：Tauri v2 + React 19 + TypeScript。Rust 後端，Vite + React 19 前端。
 - **零外部依賴**：自 v0.3.0 起代理嵌入於 Tauri 二進位檔。不需要 Python。
 - **多語言**：支援 8 種語言（en, ja, zh-CN, zh-TW, ko, fr, de, es）。將語言檔案放入 `lang/` 即可新增語言。首次啟動語言選擇器。
-- **推理強度**：DeepSeek V4 Pro（V4-Pro-0813）和 V4 Flash（V4-Flash-0731）在 Thinking 模式下均支援推理強度 Low / High / Max。推理強度在普通模式下停用。為 V4 Pro 路由儲存的舊版 `medium`/`xhigh` 強度會在啟動時遷移為 `high`。代理在傳送至 DeepSeek 前會正規化強度值（`medium`/`xhigh` → `high`），並使用 `output_config.effort` 格式。
+- **Direct DeepSeek 模型**：正規 API ID 為 `deepseek-flash` 與 `deepseek-v4-pro`；目前官方價格頁分別列為 DeepSeek-V4.1-Flash-1017 與 DeepSeek-V4-Pro-0813。兩者支援 Anthropic Messages 相容端點、工具呼叫、1M 上下文及最高 384K 輸出 token。Flash 支援視覺輸入，Pro 不支援。DeepSeek 仍接受舊 ID `deepseek-v4-flash` 與 `deepseek-v4-flash-vision-exp` 作為 Flash 別名；Poverello 內建預設使用正規 ID。官方資料對 Pro 路由與計費的說明不一致；Poverello 顯示公開費率，但無法核實單筆請求的實際模型或費用。請參閱[價格頁](https://api-docs.deepseek.com/quick_start/pricing/)與[9 月 10 日公告](https://api-docs.deepseek.com/news/news260910/)。
 - **能力偵測**：從 OpenRouter API 取得即時能力旗標（`supports_image_url`、`supports_image_base64`、`supports_video_url`、`supports_video_base64`）並持久化到 config.json。
 - **峰谷定價感知**：DeepSeek 與 OpenRouter 的峰值時段在本地時區顯示。
+- **DeepSeek 推理與價格日曆**：Thinking 模式透過 `output_config.effort` 傳送 Low / High / Max，Normal 模式則停用推理。平日 UTC 01:00–04:00、06:00–10:00 為尖峰（中國法定假日除外）；週末與假日全天為離峰。Poverello 隨附已核驗的 2026 年中國假日與調休上班日，並顯示日曆狀態（`current` / `update_due` / `expired`）。未收錄年份會回退至一般星期／時段規則。DeepSeek 不納入 Orchestrator 成本估算。
 - **MiniMax-M3 thinking 切換**：MiniMax-M3 透過 Anthropic 相容 API 支援 Thinking ON/OFF（`thinking: {"type":"adaptive"}` / `{"type":"disabled"}`）。M2.x 模型仍僅支援 thinking。啟動遷移會將現有用戶的舊版 `thinking_only` → `thinking` 轉換。
 - **小米 MiMo-V2.6 支援**：MiMo-V2.6-Flash、MiMo-V2.6-Pro 與 MiMo-V2.6-Pro-UltraSpeed 新增為 Direct MiMo 提供者模型。三個模型均具備 1,000,000 權杖的上下文視窗與原生多模態支援（文字、圖像、影片）。內建預設路由：Opus 5 → `mimo-v2.6-pro`（Thinking），Sonnet 5 → `mimo-v2.6-pro`（Normal），Haiku 4.5 → `mimo-v2.6-flash`（Thinking）。MiMo 僅支援 Normal/Thinking 切換——不支援推理強度級別（`supportsReasoningEffort: false`）。
 - **MiMo V2.5 向下相容**：舊版 `mimo-v2.5`、`mimo-v2.5-pro` 與 `mimo-v2.5-pro-ultraspeed` 保留其原始能力並繼續被靜態識別。未修改的歷史預設路由會在啟動時自動遷移至 V2.6；使用者自訂的路由目標、thinking 模式與 default_model 設定均會被保留。使用 `model_map` 但沒有 `models` 物件的舊版設定，將透過靜態能力解析器（`try_resolve_static_model_capabilities`）逐路由解析能力，而非回退至提供者層級的旗標，確保 V2.6 路由即使在舊版設定中也能獲得正確的影片能力。
@@ -81,7 +83,15 @@
 - **Claude Code 上下文管理**：針對 Claude Code 的模型感知自動壓縮。`resolve_effective_auto_compact` 將每條標準路由（claude-opus-5、claude-sonnet-5、claude-haiku-4-5）解析為其上游模型，在靜態 `model_catalog.json` 登錄中查詢每個模型的上下文容量，並在 Auto 模式下使用已知的最小容量作為安全上下文視窗。上下文控制僅在三種容量皆已知時套用（否則狀態為 Incomplete）。標題列切換可開啟/關閉上下文管理；進階模式與閾值在 `config.json` 的 `claude_code.auto_compact` 下設定。模式：`auto`、`manual`（`window_tokens`）、`claude_default`。
 - **Claude Code 啟動命令產生**：`build_claude_code_launch_command` 產生完整的 PowerShell 命令，結合閘道連線變數（指向本機閘道的 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`）與 Claude Code 上下文控制變數（`CLAUDE_CODE_AUTO_COMPACT_WINDOW`、`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`）。當上下文管理停用、不完整或設為 Claude 預設時，命令使用 `Remove-Item Env:... -ErrorAction SilentlyContinue` 移除過時的上下文變數，以避免先前設定的工作階段值洩漏到新的啟動中。Claude 設定面板中的「複製 Claude Code 啟動命令」按鈕會將命令複製到剪貼簿。Poverello 僅產生並複製命令——絕不會執行它。
 - **共享模型路由模組**：`model_routing.rs` 將路由到上游的解析抽取為純函式，由 `proxy.rs` 與上下文解析器共享，確保上下文視窗解析出的上游模型與代理實際轉發的模型相同。
-- **上下文容量登錄**：`model_catalog.json` 是已知上下文容量的靜態登錄，涵蓋內建的直接提供者模型（DeepSeek、MiniMax、Kimi、MiMo V2.6 與 V2.5）與內建的 OpenRouter 模型（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-5.6）。未知的自訂 OpenRouter 模型仍可作為有效的路由目標，但在加入元資料或設定手動模式之前，會將上下文管理回報為 Incomplete。
+- **上下文容量登錄**：`model_catalog.json` 是已知上下文容量的靜態登錄，涵蓋內建的直接提供者模型（DeepSeek、MiniMax、Kimi、MiMo V2.6 與 V2.5）與內建的 OpenRouter 模型（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-6.1、GPT-6、GPT Astra Latest、GPT-5.6 與 Google Gemini）。未知的自訂 OpenRouter 模型仍可作為有效的路由目標，但在加入元資料或設定手動模式之前，會將上下文管理回報為 Incomplete。
+- **Google Gemini 模型支援**：OpenRouter 設定支援內建的 Gemini 3.1 Pro Preview 與 Gemini 3.7 Flash，並附有價格與能力資料。Gemini 3.7 Flash 會同時顯示促銷價格與刪除線標示的標準價格。
+- **v0.24.6 Auto-Converge 範圍**：完整 Auto-Converge 工作流程及其專屬分頁已隱藏且無法使用。實作程式碼會保留，但本版本不支援將其作為可運作功能。既有受限的 Orchestrator 計畫／審查工作流程仍可使用，但不會自動實作程式碼。
+- **GLM（Z.ai）直接提供者支援**：使用設定的 `ZAI_API_KEY`（或 Poverello 儲存的金鑰）向 Z.ai 的 Anthropic 相容端點送出請求。Poverello 不判斷金鑰類型、Coding Plan 購買紀錄、帳戶允許名單或計費資格；使用前請參閱 [Z.ai 最新設定指南](https://zcode.z.ai/en/docs/configuration)。目錄包含 `glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx` 與 `glm-5.2`。GLM-5.3 系列一律啟用思考並可選推理強度（`low`、`high`、`max`）；GLM-5.2 提供一般/思考切換。空白或僅有思考內容的回應會在 Orchestrator 與 MCP 中以明確提供者錯誤 fail-closed。
+- **Antigravity 規則管理**：「Antigravity Rules」分頁以狀態機管理 `pov-direct.md`，只修改 YAML `trigger` 純量與有界管理區塊，同時保留使用者的 frontmatter、註解及 Skill 引用。安全措施包括防衝突且不自動清理的備份、替換前 SHA-256 與外部刪除衝突檢查、驗證後回復、舊 sidecar 資料夾保護，以及 24,000 UTF-8 位元組限制；提供八種語言在地化。
+- **Anthropic 官方直接提供者**：透過 `ANTHROPIC_API_KEY` 直接連線 `https://api.anthropic.com`，不做協定轉換而轉送原生 Messages 請求；包含已驗證模型目錄、串流與非串流 token 上限故障診斷，以及原生取樣參數驗證。
+- **多提供者閘道設定檔（`gateway_profile`）**：可為三個標準 Claude 路由（`claude-opus-5`、`claude-sonnet-5`、`claude-haiku-4-5`）分別指定提供者與模型。透過 `active_provider` 和 `active_gateway_profile_id` 啟用，設定存於 `gateway_profiles`，並整合能力檢查及 Claude Code 自動壓縮的上下文計算。
+- **Poverello Skills 與 MCP 正式命名空間**：正式工具為 `poverello/plan`、`poverello/revise`、`poverello/review`，斜線命令為 `/pov-plan`、`/pov-revise`、`/pov-review`。Poverello 會在 Antigravity 中以新增方式註冊 `poverello` 伺服器鍵，同時保留 `anthro-bridge` 與舊 `/anthro-*` Skills 以維持相容性，並安全管理單一檔案生命週期。
+- **Orchestrator 正規化用量與成本引擎**：支援時會將 `input_tokens`、`output_tokens`、`raw_total_tokens`、`cache_read_tokens`、`cache_write_tokens` 寫入 RunJournal 與稽核記錄；缺少或無效的值維持未知，快取建立量序列化為 `cacheWriteTokens`。目前僅估算符合條件且快取桶明確為零的 Anthropic Direct Opus 5.5/Sonnet 5.5 Planner–Reviewer dispatch；其他情況為未定價，不代表零成本。金額以整數奈美元（`amount_nanos: u64`）計算並序列化為十進位字串，禁止浮點運算。嚴格核對費率表 ID、提供者、模型與幣別；未知或不符時 fail-closed 並標示未定價。`RunCostSummary` 狀態為 `Complete`、`Partial` 或 `Unavailable`；`list_journals()` 每次讀取都會依不可變 dispatch 紀錄重新彙總。
 
 ### GUI 管理工具
 

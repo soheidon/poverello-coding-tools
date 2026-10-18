@@ -1,4 +1,5 @@
 pub mod adapters;
+pub mod auto_converge;
 pub mod checkpoint;
 pub mod commands;
 pub mod context_builder;
@@ -16,6 +17,7 @@ pub mod token_estimator;
 pub mod types;
 pub mod validation;
 
+pub use auto_converge::*;
 pub use checkpoint::*;
 pub use commands::*;
 pub use convergence::{

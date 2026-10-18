@@ -5021,8 +5021,10 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_direct_adapter_zero_mailbox_activity() {
         use crate::orchestrator::mailbox::{
-            get_session_descriptor_path, MailboxState,
+            get_session_descriptor_path, lock_global_session_descriptor_for_test, MailboxState,
         };
+
+        let _descriptor_guard = lock_global_session_descriptor_for_test();
 
         let temp = tempdir().unwrap();
         let peer = build_stdio_peer(&temp);

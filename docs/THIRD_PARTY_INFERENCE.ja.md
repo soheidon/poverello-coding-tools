@@ -125,6 +125,16 @@ claude-haiku-4-5
 
 再起動後、Claude Desktop / Cowork on 3P からのリクエストは Poverello に送られます。Poverello は、そのリクエストを設定済みの上流プロバイダへ中継します。
 
+## Direct DeepSeek API
+
+Poverello で Direct DeepSeek プロバイダーを選択すると、Claude Desktop / Cowork on 3P からのリクエストは DeepSeek の Anthropic Messages 互換エンドポイントへ送られます。
+
+正規 DeepSeek API モデルIDは `deepseek-flash` と `deepseek-v4-pro` です。現在の公式料金表では、それぞれ DeepSeek-V4.1-Flash-1017 と DeepSeek-V4-Pro-0813 として掲載されています。これらは上流APIのIDです。`inferenceModels` に設定するClaude側の表示名はローカルの選択項目であり、Poverelloが選択中のプロバイダープロフィールへ対応付けます。
+
+両モデルはツール呼び出し、1Mトークンのコンテキスト、最大384Kの出力に対応します。画像入力に対応するのはFlashのみです。DeepSeekで廃止された `deepseek-v4-flash` と `deepseek-v4-flash-vision-exp` は、現在もFlashへの上流エイリアスとして受け付けられます。PoverelloのDirect DeepSeek組み込み設定は正規IDを使用します。Proの転送・課金について公式資料間で説明が異なります。現在の料金表は個別のPro料金と9月14日以降のAPI提供継続を記載する一方、9月10日の告知はV4.1-Pro公開までV4.1 Flashへ一時転送しFlash料金を適用するとしていました。Poverelloはリクエストごとの転送先・請求額を確認できません。表示額は公開料金表の値であり、請求額や保証ではありません。[現在の料金表](https://api-docs.deepseek.com/quick_start/pricing/)と[9月10日の告知](https://api-docs.deepseek.com/news/news260910/)を参照してください。
+
+最新のトークン単価とピーク／オフピーク規則は、[DeepSeek公式価格表](https://api-docs.deepseek.com/quick_start/pricing/)および[プロバイダー詳細ガイド](PROVIDERS.md#deepseek)を参照してください。Poverello同梱の休日カレンダーはローカルのピーク／オフピーク料金判定に使用されます。収録状況とフォールバック動作もプロバイダー詳細ガイドに記載しています。
+
 ## Xiaomi MiMo プロバイダー
 
 Poverello が Direct MiMo プロバイダーを使用するよう設定されている場合、Claude Desktop からの推論リクエストは小米（Xiaomi）の MiMo API にルーティングされます。

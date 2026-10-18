@@ -114,7 +114,7 @@ anthro-bridge
 Poverello는 플래너 선택과 상세 파라미터 관리의 역할을 명확히 구분합니다:
 
 1. **최상위 `MCP` 탭 (`MCP for Antigravity`)**:
-   - 사용 가능한 제공업체(DeepSeek, OpenRouter, MiniMax, MiMo (V2.6), Kimi) 및 프로필 카드 목록이 표시됩니다.
+   - 사용 가능한 제공업체(DeepSeek, OpenRouter, MiniMax, MiMo (V2.6), Kimi, GLM)와 프로필 카드 목록이 표시됩니다.
    - 카드를 클릭하여 활성 플래너 대상을 즉시 전환합니다.
 2. **`설정` > `Antigravity`**:
    - **MCP Plan 상세 설정** 카드: 제공업체/프로필별로 모델, Thinking 모드, 추론 강도(Reasoning Effort)를 상세히 설정합니다.
@@ -125,7 +125,7 @@ Poverello는 플래너 선택과 상세 파라미터 관리의 역할을 명확�
 
 ---
 
-## 6. Antigravity Commands (`/pov-plan` & `/pov-revise`) 활용 (권장)
+## 6. Antigravity Commands (`/pov-plan`, `/pov-revise` & `/pov-review`) 활용 (권장)
 
 **설정 > Antigravity**의 **Google Antigravity 연동** 카드에서 전역 스킬을 설치하면 모든 Antigravity 워크스페이스에서 슬래시 명령어를 사용할 수 있습니다:
 
@@ -156,7 +156,7 @@ Poverello는 플래너 선택과 상세 파라미터 관리의 역할을 명확�
 
 ## 7. Workspace Rule을 통한 계획 수립 자동화
 
-프로젝트에 [`.agents/rules/deepseek-planner.md`](../.agents/rules/deepseek-planner.md)와 같은 Workspace Rule을 배치하면 복잡한 작업 시 외부 플래너 호출을 자동화할 수 있습니다:
+아래 예시를 바탕으로 프로젝트별 Workspace Rule을 선택적으로 만들 수 있습니다. Poverello는 DeepSeek 전용 플래너 규칙을 포함하거나 설치하지 않으며, 사용할 MCP 공급자와 모델은 Poverello 설정에서 선택합니다:
 
 ```markdown
 ---
@@ -164,7 +164,7 @@ trigger: model_decision
 description: Use for implementation, debugging, architectural changes, or multi-file code changes where an external implementation plan would be useful. Do not use for trivial text-only edits.
 ---
 
-# DeepSeek Planner Rule
+# Poverello Planner Rule (예시)
 
 For non-trivial implementation tasks in this repository:
 
@@ -176,7 +176,7 @@ For non-trivial implementation tasks in this repository:
    - the relevant repository context;
    - important constraints.
    Note: "Exactly once" means duplicate planner calls are prohibited once a successful usable result is obtained. If the tool call itself fails or returns an unusable response (e.g. transport or decoding error), exactly 1 recovery retry is permitted.
-5. Use the returned DeepSeek plan as the basis for implementation.
+5. Use the returned plan as the basis for implementation.
 6. Perform file edits, builds, and tests yourself.
 7. Do not call `poverello/plan` again unless the implementation encounters a major unresolved problem.
 8. Do not ask the user to repeat this workflow.
@@ -214,65 +214,6 @@ Antigravity가 파일 수정 및 테스트 실행
 - **독립적인 작동**: MCP 서버는 Poverello 3P Gateway와 완전히 독립적으로 작동합니다. MCP 도구를 사용하기 위해 3P Gateway를 실행(ON)해 둘 필요는 없습니다.
 - **과금 분리**: `poverello/plan` 호출에는 선택한 제공업체의 API 비용이 발생합니다. 이후의 파일 수정 및 테스트는 Antigravity 자체의 구독 용량을 사용합니다.
 - **실시간 반영**: Poverello GUI에서 플래너 제공업체나 모델 설정을 변경하면 다음 `plan()` 호출 시 즉시 적용됩니다.
-��게 멈추고 사용자의 확인을 기다립니다.
-
----
-
-## 7. Workspace Rule을 통한 계획 수립 자동화
-
-[`.agents/rules/deepseek-planner.md`](../.agents/rules/deepseek-planner.md)와 같은 Workspace Rule을 프로젝트에 배치하면 복잡한 작업 시 플래너 호출을 자동화할 수 있습니다:
-
-```markdown
----
-trigger: model_decision
-description: Use for implementation, debugging, architectural changes, or multi-file code changes where an external implementation plan would be useful. Do not use for trivial text-only edits.
----
-
-# Planner Rule
-
-For non-trivial implementation tasks in this repository:
-
-1. If the current task is being executed through the `/pov-plan` or `/pov-revise` command, do NOT invoke `poverello/plan` separately. The command workflow owns the single planner call.
-2. First inspect the repository yourself and identify the files and code relevant to the task.
-3. Summarize only the context necessary for implementation planning.
-4. Call the `poverello/plan` MCP tool exactly once with:
-   - the user's task;
-   - the relevant repository context;
-   - important constraints.
-5. Use the returned plan as the basis for implementation.
-6. Perform file edits, builds, and tests yourself.
-7. Do not call `poverello/plan` again unless the implementation encounters a major unresolved problem.
-8. Do not ask the user to repeat this workflow.
-9. Do not use the planner for trivial tasks such as a one-word text change unless planning would materially help.
-```
-
----
-
-## 8. 일반적인 자동화 워크플로
-
-```text
-사용자: "다중 프로필을 지원하도록 기능 X를 리팩토링해줘."
-    ↓
-Antigravity가 코드를 조사하고 컨텍스트 요약
-    ↓
-Antigravity가 자동으로 poverello/plan 도구 호출
-    ↓
-Poverello가 선택된 외부 모델로 프롬프트 전송
-    ↓
-Antigravity가 구조화된 구현 계획 수신
-    ↓
-사용자가 계획 검토 및 승인
-    ↓
-Antigravity가 파일 수정 및 테스트 실행
-```
-
----
-
-## 9. 중요 참고 사항
-
-- **독립적인 작동**: MCP 서버는 Poverello 3P Gateway와 독립적으로 작동합니다. MCP 도구를 사용하기 위해 3P Gateway가 실행 중일 필요는 없습니다.
-- **과금 분리**: `poverello/plan` 호출에는 선택한 제공업체의 API 비용이 발생합니다. 이후의 파일 수정 및 테스트는 Antigravity 자체의 구독 용량을 사용합니다.
-- **실시간 반영**: Poverello GUI에서 플래너 설정을 변경하면 다음 `plan()` 호출 시 즉시 적용됩니다.
 
 ---
 > [!NOTE]

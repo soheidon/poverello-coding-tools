@@ -26,6 +26,8 @@ export const translations = {
   "settings.nav.claudeDesktop": "Claude Desktop",
   "settings.nav.antigravity": "Antigravity",
   "settings.nav.orchestrator": "Orchestrator",
+  "tab.autoConverge": "Auto-Converge",
+  "autoConverge.unavailable": "Auto-Converge is unavailable in this desktop build. Reviewer OS isolation is not available, so runs are blocked before any agent process starts.",
 
   // MCP Panel
   "mcp.statusHeader": "MCP Server Status",
@@ -461,8 +463,8 @@ export const translations = {
   "modelPricing.deepseekPeakNote": "peak-valley pricing(×2): 6PM–9PM & 11PM–3AM (PDT, UTC-7).",
   "modelPricing.notes.deepseekPeakValley": "All billing items are charged at 2× during peak hours: 10:00–13:00 and 15:00–19:00 JST (UTC+09:00).",
   "modelPricing.notes.deepseekPeakValleyPrefix": "All billing items are charged at 2× during peak hours:",
-  "modelPricing.notes.deepseekV4ProTransition": "DeepSeek V4 Pro transition pricing during DeepSeek V4.1 rollout.",
-  "modelPricing.notes.deepseekV4ProGoingAway": "Scheduled for retirement on September 14, 2026.",
+  "modelPricing.notes.deepseekV4ProTransition": "The current official pricing page lists these V4 Pro rates and says API service continued after Sep 14, 2026. A Sep 10 announcement said Pro requests would temporarily route to V4.1 Flash at Flash rates until V4.1-Pro launches. Poverello cannot verify per-request routing or billing; these are published rates, not an invoice or guarantee.",
+  "modelPricing.notes.deepseekV4ProGoingAway": "The Sep 10, 2026 retirement plan was superseded by an official notice that V4 Pro API service would continue; per-request routing and billing remain unverified.",
     "modelPricing.notes.mimoV26ProUltraSpeed": "Ultra-fast version of MiMo-V2.6-Pro. Approximately 10x standard pricing. API quota is available by individual inquiry.",
     "modelPricing.notes.mimoV25ProUltraSpeed": "Ultra-fast version of MiMo-V2.5-Pro. Approximately 3× standard pricing. Approval is required and availability is limited.",
   "modelPricing.notes.minimaxLongCtx": "Pricing shown applies to inputs up to 512K. Above 512K: $0.60 input and $2.40 output.",

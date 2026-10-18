@@ -150,6 +150,51 @@ describe("ModelPricingAccordion", () => {
     expect(existingRow?.querySelectorAll("s")).toHaveLength(0);
   });
 
+  it("shows published DeepSeek V4 Pro rates with an explicit routing and billing caveat", () => {
+    const translationSpy = vi.spyOn(i18n, "useTranslation").mockImplementation(() => ({
+      t: (key: string) => (en as Record<string, string>)[key] ?? key,
+      lang: "en",
+    }) as ReturnType<typeof i18n.useTranslation>);
+    openPricing();
+
+    const proRow = screen.getByText("DeepSeek V4 Pro 0813").closest("tr");
+    expect(proRow).not.toBeNull();
+    expect(within(proRow!).getByText("$0.660")).toBeInTheDocument();
+    expect(within(proRow!).getByText("$1.980")).toBeInTheDocument();
+    expect(within(proRow!).getByText("$0.0220")).toBeInTheDocument();
+    expect(proRow).toHaveTextContent("Poverello cannot verify per-request routing or billing");
+    expect(MODEL_PRICING["deepseek-v4-pro"]).toMatchObject({
+      inputPerMillionUsd: 0.66,
+      outputPerMillionUsd: 1.98,
+      cachedInputPerMillionUsd: 0.022,
+      verifiedAt: "2026-10-19",
+    });
+    translationSpy.mockRestore();
+  });
+
+  it("provides the V4 Pro routing and billing caveat in all supported locales", () => {
+    const locales = [
+      { code: "en", map: en },
+      { code: "ja", map: ja },
+      { code: "zh-CN", map: zhCN },
+      { code: "zh-TW", map: zhTW },
+      { code: "ko", map: ko },
+      { code: "de", map: de },
+      { code: "fr", map: fr },
+      { code: "es", map: es },
+    ];
+
+    for (const { code, map } of locales) {
+      const caveat = (map as Record<string, string>)["modelPricing.notes.deepseekV4ProTransition"];
+      const obsolete = (map as Record<string, string>)["modelPricing.notes.deepseekV4ProGoingAway"];
+      expect(caveat, `Missing routing/billing caveat in ${code}`).toBeDefined();
+      expect(caveat.length, `Caveat is unexpectedly short in ${code}`).toBeGreaterThan(100);
+      expect(obsolete, `Missing corrected legacy note in ${code}`).not.toMatch(
+        /Scheduled for retirement on September 14, 2026|Geplante Außerbetriebnahme am 14\. September 2026|Retirada prevista para el 14 de septiembre de 2026|Retrait prévu le 14 septembre 2026|2026년 9월 14일 제공 종료 예정입니다\.|2026年9月14日に提供終了予定。|计划于2026年9月14日下线。|預計於2026年9月14日退役。/,
+      );
+    }
+  });
+
   it("preserves zero as a valid price", () => {
     expect(formatPrice(0, 3)).toBe("$0.000");
     render(<PriceCell current={0} decimals={3} />);

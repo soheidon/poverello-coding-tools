@@ -10583,8 +10583,12 @@ mod tests {
     #[tokio::test]
     async fn test_engine_mcp_dispatch_zero_mailbox_activity() {
         use crate::orchestrator::adapters::direct_mcp::tests::build_stdio_peer;
-        use crate::orchestrator::mailbox::{get_session_descriptor_path, MailboxState};
+        use crate::orchestrator::mailbox::{
+            get_session_descriptor_path, lock_global_session_descriptor_for_test, MailboxState,
+        };
         use crate::orchestrator::types::{McpServerTransport, McpToolContract};
+
+        let _descriptor_guard = lock_global_session_descriptor_for_test();
 
         let temp = tempfile::tempdir().unwrap();
         let peer = build_stdio_peer(&temp);

@@ -124,6 +124,16 @@ claude-haiku-4-5
 
 重启后，Cowork on 3P 的请求将发送到 Poverello。Poverello 随后将请求路由到您在 Poverello 中配置的上游提供商。
 
+## Direct DeepSeek API
+
+将 Poverello 配置为 Direct DeepSeek 提供商后，Claude Desktop / Cowork on 3P 的请求会路由到 DeepSeek 的 Anthropic Messages 兼容端点。
+
+DeepSeek 规范 API 模型 ID 为 `deepseek-flash` 和 `deepseek-v4-pro`；当前官方价格页面分别将其列为 DeepSeek-V4.1-Flash-1017 和 DeepSeek-V4-Pro-0813。这些是上游 API ID。`inferenceModels` 中面向 Claude 的名称只是本地模型选择项，由 Poverello 映射到所选提供商配置。
+
+两款模型都支持工具调用、1M token 上下文和最高 384K 输出 token。只有 Flash 支持图像输入。DeepSeek 仍将已退役的 `deepseek-v4-flash` 和 `deepseek-v4-flash-vision-exp` ID 作为 Flash 的上游别名接受。Poverello 内置的 Direct DeepSeek 默认配置使用规范 ID。官方资料对 Pro 路由和计费的说明不一致：当前价格页面列出单独的 Pro 费率，并说明 API 服务在 2026 年 9 月 14 日后继续提供；而 9 月 10 日公告曾称 V4.1-Pro 发布前会临时路由至 V4.1 Flash 并按 Flash 费率计费。Poverello 无法核实每个请求的路由或账单；显示的是公开费率，并非账单或保证。请参阅[当前价格页面](https://api-docs.deepseek.com/quick_start/pricing/)和[9 月 10 日公告](https://api-docs.deepseek.com/news/news260910/)。
+
+当前 token 单价及高峰／非高峰规则请参阅 [DeepSeek 官方价格表](https://api-docs.deepseek.com/quick_start/pricing/)和[提供商详情指南](PROVIDERS.md#deepseek)。Poverello 随附的节假日日历会影响本地高峰／非高峰估算；覆盖状态和回退行为也见提供商指南。
+
 ## Xiaomi MiMo 提供商
 
 当 Poverello 配置为使用 Direct MiMo 提供商时，来自 Claude Desktop 的推理请求将被路由到小米的 MiMo API。
@@ -183,6 +193,20 @@ MiniMax-M2.x 系列模型（`MiniMax-M2.7-highspeed`）不支持关闭思考功�
 > **Ollama Local** 后端是 **Claude Code CLI 专用** 的，与 Claude Desktop 和 MCP 完全隔离。有关 Claude Code 的本地 LLM 配置，请参阅 [Ollama Local 指南](OLLAMA_LOCAL.zh-CN.md)。
 
 ---
+
+## Laguna S/XS 2.1（OpenRouter）配置
+
+默认情况下，Poverello 将 OpenRouter 的 `claude-opus-5` 和 `claude-sonnet-5` 路由到 `poolside/laguna-s-2.1`，将 `claude-haiku-4-5` 路由到 `poolside/laguna-xs-2.1`。
+
+### 思考行为
+
+第三方测试观察到，系统提示词的结构可能影响 Laguna S 2.1 的思考行为。有报告称，加入明确的职业角色和清晰的验收标准可显著减少不必要的推理。基于这些测试结果，Laguna Opus（`claude-opus-5`）的默认模式已改为普通（关闭思考）；可在设置中重新启用 Thinking。
+
+### 已知限制：达到 token 上限时没有可用输出
+
+在某些情况下，尤其是模型在推理阶段达到单轮 token 上限时，Laguna S 2.1 可能只返回推理内容，没有文本输出或工具调用，并将 `stop_reason` 设为 `max_tokens`。Poverello 会检测此情况并在日志面板记录警告。如果反复出现“Reasoning-only response reached the per-turn token limit”，可考虑提高最大输出 token 数或关闭该模型的 Thinking。
+
+这些观察来自第三方社区测试，结果可能因提供商配置和模型版本而异。
 
 ## 注意事项
 

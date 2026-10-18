@@ -9751,6 +9751,14 @@ fn initialize_file_tracing(log_dir: &PathBuf) -> Option<InitializedTracing> {
     Some(InitializedTracing { guard, log_path })
 }
 
+pub fn is_auto_converge_guard_mode(args: &[String]) -> bool {
+    orchestrator::auto_converge::guards::is_auto_converge_guard_mode(args)
+}
+
+pub fn run_auto_converge_guard_cli(args: &[String]) -> i32 {
+    orchestrator::auto_converge::guards::run_auto_converge_guard_cli(args)
+}
+
 pub fn is_mcp_server_mode(args: &[String]) -> bool {
     args.iter().any(|arg| arg == "--mcp-server")
 }
@@ -9933,6 +9941,13 @@ pub fn run() {
             append_plan_section,
             preview_new_plan,
             confirm_new_plan,
+            orchestrator::auto_converge_get_profiles,
+            orchestrator::auto_converge_save_profile,
+            orchestrator::auto_converge_start_run,
+            orchestrator::auto_converge_get_run_state,
+            orchestrator::auto_converge_pause_run,
+            orchestrator::auto_converge_resume_run,
+            orchestrator::auto_converge_abort_run,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

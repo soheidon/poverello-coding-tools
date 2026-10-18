@@ -34,6 +34,35 @@ pub fn get_session_descriptor_path() -> PathBuf {
     crate::paths::user_data_dir().join("orchestrator_session.json")
 }
 
+#[cfg(test)]
+fn global_session_descriptor_test_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+#[cfg(test)]
+pub(crate) fn lock_global_session_descriptor_for_test() -> std::sync::MutexGuard<'static, ()> {
+    global_session_descriptor_test_lock()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Serializes only mutations of the shared descriptor in tests. The closure is
+/// synchronous by design so the lock is never held across an await or server lifetime.
+fn with_session_descriptor_mutation<T>(
+    session_path: &std::path::Path,
+    operation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    #[cfg(test)]
+    if session_path == get_session_descriptor_path() {
+        let _guard = lock_global_session_descriptor_for_test();
+        return operation();
+    }
+
+    let _ = session_path;
+    operation()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BudgetExhaustionScope {
@@ -285,17 +314,25 @@ impl MailboxServer {
         let json = serde_json::to_string_pretty(&descriptor)
             .map_err(|e| format!("Failed to serialize session descriptor: {}", e))?;
 
-        std::fs::write(&session_path, json.as_bytes())
-            .map_err(|e| format!("Failed to write session descriptor to {:?}: {}", session_path, e))?;
+        with_session_descriptor_mutation(&session_path, || {
+            std::fs::write(&session_path, json.as_bytes()).map_err(|e| {
+                format!(
+                    "Failed to write session descriptor to {:?}: {}",
+                    session_path, e
+                )
+            })?;
 
-        // 3. Enforce user-only ACL and FAIL CLOSED if permission restriction fails
-        if let Err(acl_err) = perm_fn(&session_path) {
-            let _ = std::fs::remove_file(&session_path);
-            return Err(format!(
-                "Security failure: Failed to enforce user-only ACL on session descriptor at {:?}: {}",
-                session_path, acl_err
-            ));
-        }
+            // Enforce user-only ACL and FAIL CLOSED if permission restriction fails.
+            if let Err(acl_err) = perm_fn(&session_path) {
+                let _ = std::fs::remove_file(&session_path);
+                return Err(format!(
+                    "Security failure: Failed to enforce user-only ACL on session descriptor at {:?}: {}",
+                    session_path, acl_err
+                ));
+            }
+
+            Ok(())
+        })?;
 
         // 4. Only after ACL is verified, launch HTTP server
         let (submit_tx, submit_rx) = mpsc::channel::<SubmitTaskRequest>(32);
@@ -367,9 +404,12 @@ impl MailboxServer {
         if let Some(handle) = self.server_handle.take() {
             let _ = handle.await;
         }
-        if self.session_path.exists() {
-            let _ = std::fs::remove_file(&self.session_path);
-        }
+        let _ = with_session_descriptor_mutation(&self.session_path, || {
+            if self.session_path.exists() {
+                let _ = std::fs::remove_file(&self.session_path);
+            }
+            Ok(())
+        });
     }
 }
 
@@ -378,9 +418,12 @@ impl Drop for MailboxServer {
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
         }
-        if self.session_path.exists() {
-            let _ = std::fs::remove_file(&self.session_path);
-        }
+        let _ = with_session_descriptor_mutation(&self.session_path, || {
+            if self.session_path.exists() {
+                let _ = std::fs::remove_file(&self.session_path);
+            }
+            Ok(())
+        });
     }
 }
 
@@ -644,6 +687,26 @@ async fn handle_submit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn global_descriptor_mutation_lock_is_released_after_operation() {
+        let path = get_session_descriptor_path();
+        with_session_descriptor_mutation(&path, || {
+            assert!(matches!(
+                global_session_descriptor_test_lock().try_lock(),
+                Err(std::sync::TryLockError::WouldBlock)
+            ));
+            Ok(())
+        })
+        .unwrap();
+
+        // MailboxServer stores no guard; observers acquire the same lock after
+        // descriptor setup has returned rather than waiting for server teardown.
+        let observer = std::thread::spawn(|| {
+            let _guard = lock_global_session_descriptor_for_test();
+        });
+        observer.join().expect("descriptor lock should be available");
+    }
 
     #[tokio::test]
     async fn failed_durable_dispatch_record_never_releases_task_to_worker() {

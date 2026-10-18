@@ -28,6 +28,8 @@ export const translations: TranslationMap = {
   "settings.nav.claudeDesktop": "Claude Desktop",
   "settings.nav.antigravity": "Antigravity",
   "settings.nav.orchestrator": "オーケストレーター",
+  "tab.autoConverge": "Auto-Converge",
+  "autoConverge.unavailable": "このデスクトップ版ではAuto-Convergeを利用できません。ReviewerのOS隔離が利用できないため、エージェントプロセスの起動前に実行がブロックされます。",
 
   // MCP Panel
   "mcp.statusHeader": "MCP サーバーステータス",
@@ -463,8 +465,8 @@ export const translations: TranslationMap = {
   "modelPricing.deepseekPeakNote": "peak-valley pricing(×2): 10AM–1PM & 3PM–7PM (JST, UTC+9).",
   "modelPricing.notes.deepseekPeakValley": "ピーク時間帯は全課金項目が2倍。10:00～13:00、15:00～19:00（JST・UTC+09:00）。",
   "modelPricing.notes.deepseekPeakValleyPrefix": "ピーク時間帯は全課金項目が2倍。",
-  "modelPricing.notes.deepseekV4ProTransition": "DeepSeek V4.1提供開始に伴うDeepSeek V4 Proの移行価格。",
-  "modelPricing.notes.deepseekV4ProGoingAway": "2026年9月14日に提供終了予定。",
+  "modelPricing.notes.deepseekV4ProTransition": "現在の公式料金表にはV4 Proの料金が掲載され、9月14日以降もAPI提供を継続すると記載されています。一方、9月10日の告知ではV4.1-Pro公開までProリクエストをV4.1 Flashへ転送しFlash料金を適用するとされていました。Poverelloはリクエストごとの転送先・請求額を確認できません。表示額は公開料金表の値であり、請求額や保証ではありません。",
+  "modelPricing.notes.deepseekV4ProGoingAway": "2026年9月10日の提供終了予定は、V4 Pro APIの提供継続を知らせる公式告知で更新されました。リクエストごとの転送先・請求額は未確認です。",
     "modelPricing.notes.mimoV26ProUltraSpeed": "MiMo-V2.6-Proの超高速版。通常版の約10倍の料金。API利用枠は個別問い合わせ。",
     "modelPricing.notes.mimoV25ProUltraSpeed": "MiMo-V2.5-Proの超高速版。通常版の約3倍の料金。利用には申請・承認が必要な限定提供モデル。",
   "modelPricing.notes.minimaxLongCtx": "入力512K以下の料金。512K超では入力$0.60、出力$2.40。",

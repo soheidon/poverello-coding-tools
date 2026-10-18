@@ -123,6 +123,16 @@ claude-haiku-4-5
 
 Claude Desktop 重新啟動後，來自 Cowork on 3P 的請求將被發送到 Poverello。Poverello 然後將請求路由到在 Poverello 中配置的上游提供者。
 
+## Direct DeepSeek API
+
+將 Poverello 設定為 Direct DeepSeek 供應商後，Claude Desktop / Cowork on 3P 的請求會路由至 DeepSeek 的 Anthropic Messages 相容端點。
+
+DeepSeek 正規 API 模型 ID 為 `deepseek-flash` 與 `deepseek-v4-pro`；目前官方價格頁分別列為 DeepSeek-V4.1-Flash-1017 與 DeepSeek-V4-Pro-0813。這些是上游 API ID。`inferenceModels` 中提供給 Claude 顯示的名稱只是本機模型選項，由 Poverello 對應至所選供應商設定檔。
+
+兩款模型皆支援工具呼叫、1M token 上下文及最高 384K 輸出 token。只有 Flash 支援圖片輸入。DeepSeek 仍接受已退役的 `deepseek-v4-flash` 和 `deepseek-v4-flash-vision-exp` ID，並將其作為 Flash 的上游別名。Poverello 內建的 Direct DeepSeek 預設設定使用正規 ID。官方資料對 Pro 路由與計費的說明不一致：目前價格頁列出獨立 Pro 費率，並表示 API 服務於 2026 年 9 月 14 日後持續提供；但 9 月 10 日公告曾稱 V4.1-Pro 發布前會暫時轉送至 V4.1 Flash 並採用 Flash 費率。Poverello 無法核實每筆請求的路由或帳單；顯示的是公開費率，不是帳單或保證。請參閱[目前價格頁](https://api-docs.deepseek.com/quick_start/pricing/)與[9 月 10 日公告](https://api-docs.deepseek.com/news/news260910/)。
+
+目前 token 單價與尖峰／離峰規則請參閱 [DeepSeek 官方價格表](https://api-docs.deepseek.com/quick_start/pricing/)及[供應商詳細指南](PROVIDERS.md#deepseek)。Poverello 內附的假日日曆會影響本機尖峰／離峰估算；涵蓋狀態與備援行為亦記載於供應商指南。
+
 ## Xiaomi MiMo 供應商
 
 當 Poverello 設定為使用 Direct MiMo 供應商時，來自 Claude Desktop 的推理請求將被路由至小米的 MiMo API。
@@ -159,6 +169,32 @@ Direct MiMo 預設的內建路由：
 ### V2.5 向後相容性
 
 已儲存的 `mimo-v2.5`、`mimo-v2.5-pro` 和 `mimo-v2.5-pro-ultraspeed` 設定將被保留並繼續有效。啟動時僅自動遷移未經修改的出廠預設路由。自訂路由、思考模式設定以及自訂 `default_model` 值不會被覆寫。
+
+## MiniMax-M3 Thinking 模式
+
+MiniMax-M3 可透過 Anthropic 相容 API 開啟或關閉延伸 Thinking。
+
+| 設定 | 上游 API 參數 | 行為 |
+| --- | --- | --- |
+| 開啟 Thinking | `thinking: {"type": "adaptive"}` | 啟用延伸 Thinking |
+| 關閉 Thinking | `thinking: {"type": "disabled"}` | 停用延伸 Thinking |
+| 預設（未設定） | *省略* | API 預設：停用 Thinking |
+
+Poverello 設定中的 MiniMax-M3 列會顯示 Thinking／一般切換。`MiniMax-M2.7-highspeed` 等 MiniMax-M2.x 模型不支援停用 Thinking，固定為 Thinking 專用模式。
+
+## Laguna S/XS 2.1（OpenRouter）設定
+
+Poverello 預設將 OpenRouter 的 `claude-opus-5` 與 `claude-sonnet-5` 路由至 `poolside/laguna-s-2.1`，並將 `claude-haiku-4-5` 路由至 `poolside/laguna-xs-2.1`。
+
+### Thinking 行為
+
+第三方測試觀察到，系統提示詞結構可能影響 Laguna S 2.1 的 Thinking 行為。有報告指出，加入明確的職業角色和具體驗收條件可大幅減少不必要的推理。依據這些結果，Laguna Opus（`claude-opus-5`）預設已改為一般（關閉 Thinking）；可在設定中重新啟用 Thinking。
+
+### 已知限制：達到 token 上限時沒有可用輸出
+
+在某些情況下，尤其模型於推理期間達到每回合 token 上限時，Laguna S 2.1 可能只傳回推理內容，沒有文字輸出或工具呼叫，且 `stop_reason` 為 `max_tokens`。Poverello 會偵測此狀況並在記錄面板顯示警告。若「Reasoning-only response reached the per-turn token limit」反覆出現，可考慮提高最大輸出 token 數，或關閉該模型的 Thinking。
+
+這些觀察來自第三方社群測試，結果可能因提供者設定和模型版本而異。
 
 ## 備註
 

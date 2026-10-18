@@ -21,7 +21,7 @@ Configuration files are stored under:
       "name": "Custom Multi-Provider",
       "routes": {
         "claude-opus-5": { "provider": "anthropic", "model": "claude-opus-5-5" },
-        "claude-sonnet-5": { "provider": "deepseek", "model": "deepseek-v4.1-flash" },
+        "claude-sonnet-5": { "provider": "deepseek", "model": "deepseek-flash" },
         "claude-haiku-4-5": { "provider": "zai", "model": "glm-5.3-flash" }
       }
     }
@@ -154,7 +154,7 @@ When `active_provider` is set to `"gateway_profile"`, the proxy resolves model r
         },
         "claude-sonnet-5": {
           "provider": "deepseek",
-          "model": "deepseek-v4.1-flash",
+          "model": "deepseek-flash",
           "thinking_mode": "thinking",
           "reasoning_effort": "high"
         },

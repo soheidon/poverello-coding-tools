@@ -2,14 +2,14 @@
 
 # Poverello Coding Tools
 
-**Claude Code / Claude Desktop をコーディングハーネスとして使用し、推論をサードパーティ LLM API にルーティングしながら、マルチエージェントのプランナー・レビュアー収束実行とコスト見積もりを追跡し、Google Antigravity の外部モデルやルールを統合管理します。**
+**Claude Code / Claude Desktop をコーディングハーネスとして使用し、推論をサードパーティ LLM API にルーティングします。対応済みのマルチエージェント計画・レビューとコスト見積もりを管理し、Google Antigravity の外部モデルやルールを統合管理します。**
 
 Poverello Coding Tools（アプリ内表示名 **Poverello**）は、AI 支援ソフトウェア開発のための Windows コンパニオンアプリケーションです。5 つの主要ワークフローをサポートしています。
 
 1. **Claude Code / Claude Desktop 向け 3P ゲートウェイ** — Claude のリポジトリ探索、ツール使用、ファイル編集、テスト実行はそのままに、推論をサードパーティプロバイダーにルーティングします。
 2. **Claude Code 向けローカル LLM（Ollama）** — ローカルモデルを使って、Claude Code をオフラインで実行できます。
 3. **Google Antigravity 向け MCP プランナー & レビュアー** — `poverello/plan`、`poverello/revise`、`poverello/review` MCP ツールを通じて、実装計画と実装後レビューを外部モデルに委任します。
-4. **マルチエージェント開発オーケストレーター** — CLI／APIエージェントを横断した上限付きプランナー・レビュアー収束ワークフローを実行し、正規化トークン使用量とレートスケジュール検証に基づくコスト見積もり（整数ナノドル）を追跡して監査可能なディスパッチジャーナルを維持します。
+4. **マルチエージェント開発オーケストレーター** — CLI／APIエージェントを横断して、対応済みの上限付きプラン・レビュー・ワークフローを実行し、正規化トークン使用量とレートスケジュール検証に基づくコスト見積もり（整数ナノドル）を追跡して監査可能なディスパッチジャーナルを維持します。このワークフローはコード実装を自動実行しません。独立した全自動Auto-Convergeはv0.24.6では利用できません。
 5. **Antigravity ルール管理** — Google Antigravity 向けの軽量 Direct Coding ルール（`pov-direct.md`）を設定・プレビューし、安全に同期します。
 
 > [!TIP]
@@ -57,7 +57,7 @@ Antigravity がサブスクリプションの処理能力を使って
 - **計画と実行の分離**: 外部モデルが高レベルの計画またはレビュー判定を生成し、Antigravity のサブスクリプション処理能力がトークン集約的なコード編集を実行します。
 - **ライブ GUI 設定**: プランナーまたはレビュアーのプロバイダー、モデル、推論努力度を切り替えると、次回の呼び出し時から即座に反映されます。
 - **セットアップガイド**: [Google Antigravity + Poverello MCP セットアップ](ANTIGRAVITY_MCP.ja.md)
-- **オーケストレーターとの連携**: マルチエージェントオーケストレーター（ワークフロー 4）と組み合わせて、自律収束ループ、正規化使用量の追跡、レートに基づくコスト見積もりを実行できます。
+- **Auto-Convergeについて**: 独立した全自動のAuto-Convergeワークフローはv0.24.6では非表示・利用不可です。ここで説明する対応済みOrchestratorワークフローとは別機能であり、Auto-Convergeは後続バージョンへ延期されています。
 
 実行ファイル名とMCPツール名には、互換性維持のため`anthro-bridge`が残っています。
 
@@ -73,7 +73,7 @@ Antigravity がサブスクリプションの処理能力を使って
 /pov-plan → 実装 & テスト → /pov-review → コミット
 ```
 
-### 4. マルチエージェント開発オーケストレーター（収束実行 & コスト算出エンジン）
+### 4. マルチエージェント開発オーケストレーター（対応ワークフロー & コスト見積もり）
 
 ```text
 開発タスク / 要件
@@ -84,7 +84,7 @@ Antigravity がサブスクリプションの処理能力を使って
 |  [Planner プロファイル]  ⇄  [Reviewer プロファイル]         |
 |  （計画立案・修正）          （検証・監査・判定）            |
 |                                                             |
-|  • 上限付き自律収束ループ（ターン上限・条件付き自動追記）   |
+|  • 上限付きプラン・レビュー（ターン上限）                  |
 |  • 完全なディスパッチ履歴（%APPDATA%\Poverello\runs\*.json）|
 |  • ナノドル精度コスト算出 & レートスケジュール検証          |
 |  • フェイルクローズ表示バッジ（Complete / Partial / N/A）   |
@@ -92,11 +92,11 @@ Antigravity がサブスクリプションの処理能力を使って
         ↓
 承認済み計画 / 監査ログ
         ↓
-Antigravity / Claude Code による実装・検証
+コーディングハーネスによる別途・ユーザー管理の実装
 ```
 
-- **自律的な Planner–Reviewer 収束実行**: プランナーとレビュアーに独立した LLM プロファイル（Claude Opus 5.5 / Sonnet 5.5、DeepSeek V4.1、GLM-5.3、ローカル Ollama 等）を割り当て、合意または上限回数に達するまで生成・レビュー・修正ループを自律実行します。
-- **安全不変条件 & 人間による確認**: スコープ内の承認済み変更は自動追記されますが、新しいプライマリ計画の策定には必ず人間の明示的な確認が必要です。
+- **上限付き Planner–Reviewer プラン・レビュー**: プランナーとレビュアーに独立した LLM プロファイルを割り当て、対応済みの計画・レビュー作業を設定された上限内で実行します。コード実装の自動化を含む全自動Auto-Convergeはv0.24.6では非表示・利用不可です。
+- **安全不変条件 & 人間による確認**: 新しいプライマリ計画の策定には必ず人間の明示的な確認が必要です。実装と検証は別途、ユーザーが選んだコーディングハーネスで行います。
 - **監査可能なディスパッチジャーナル**: `%APPDATA%\Poverello\runs\<run_id>.json` には実行設定、任意のタスクプロンプト、ディスパッチのメタデータとペイロードダイジェスト、取得できた正規化使用量・コスト見積もり、Planner–Reviewer収束監査メタデータが記録されます。アダプターへ送る完全なプロンプトエンベロープやモデル応答本文はjournalには保存されません。
 - **正規化使用量 & レート検証済みコスト見積もり**:
   - アダプターが対応形式の使用量を返した場合、`input_tokens`、`output_tokens`、`raw_total_tokens`、`cache_read_tokens`、`cache_write_tokens`（シリアライズ名 `cacheWriteTokens`）を正規化して記録します。未取得・未対応の使用量はゼロではなく不明として扱います。プロバイダー固有のキャッシュ作成使用量は `cache_write_tokens` に対応付けられます。
@@ -128,7 +128,7 @@ Google Antigravity がスコープを無闇に広げず
 | プロバイダー | 接続方式 | 対応ファミリー | 推論コントロール |
 |---|---|---|---|
 | **Anthropic** | Direct API | Claude Opus 5.5, Sonnet 5.5, Haiku 4.5, 3.7 Sonnet | Adaptive thinking / 推論努力度 |
-| **DeepSeek** | Direct API | DeepSeek V4.1 Flash, V4 Pro 0813 | Normal / Low / High / Max |
+| **DeepSeek** | Direct API | `deepseek-flash`（V4.1 Flash 1017）、`deepseek-v4-pro`（V4 Pro 0813） | Normal / Thinking · Low / High / Max |
 | **GLM (Z.ai)** | Direct API | GLM-5.3, GLM-5.3-Flash, GLM-5.3-FlashX, GLM-5.2 | GLM-5.3: Low / High / Max · GLM-5.2: Normal / Thinking |
 | **Kimi Code** | Direct API | kimi-for-coding, kimi-for-coding-highspeed | Thinking モード |
 | **MiniMax** | Direct API | MiniMax M3, M2.7 | モデル固有 |
@@ -149,10 +149,11 @@ Google Antigravity がスコープを無闇に広げず
 
 ### DeepSeek（ダイレクト）
 
-組み込みの **Direct DeepSeek** プリセット: Opus 5 → V4.1 Flash / Max · Sonnet 5 → V4.1 Flash / High · Haiku 4.5 → V4.1 Flash / Low。
+組み込みの **Direct DeepSeek** プリセットは、公式の安定 API ID `deepseek-flash`（現在のモデルは DeepSeek-V4.1-Flash-1017）を使用します: Opus 5 → Max · Sonnet 5 → High · Haiku 4.5 → Low。
 
-- `deepseek-v4.1-flash` — 現行フラッグシップ推論モデル（$0.27 / 1M 入力 · $1.10 / 1M 出力）。
-- `deepseek-v4-pro-0813` — 拡張推論なしの高品質ベースラインモデル（$0.27 / 1M 入力 · $1.10 / 1M 出力）。
+- `deepseek-v4-pro` — API ID。現在の公式料金表では DeepSeek-V4-Pro-0813 として掲載されています。
+- 両モデルはコンテキスト長 1M、最大出力 384K token。Flash は画像入力に対応し、Pro は非対応です。
+- 旧 API ID `deepseek-v4-flash` と `deepseek-v4-flash-vision-exp` は、DeepSeek 側で Flash の別名として受け付けられ、Flash 料金で課金されます。
 
 ### GLM / Z.ai（ダイレクト）
 
@@ -198,10 +199,16 @@ Moonshot Kimi とは別の、コーディング専用 API（`KIMI_CODE_API_KEY`�
 
 ### OpenRouter
 
-複数の名前付きプロファイルをサポート。OpenAI の全モデルカタログ（単一ドロップダウン）:
+複数の名前付きプロファイルをサポート。単一ドロップダウンで選択できる現在のOpenAIモデルカタログ（15モデル）:
 
 | モデル ID | 表示名 |
 |---|---|
+| `openai/gpt-6.1-sol` | GPT-6.1 Sol |
+| `openai/gpt-6.1-sol-pro` | GPT-6.1 Sol Pro |
+| `openai/gpt-6-sol` | GPT-6 Sol |
+| `openai/gpt-6-sol-pro` | GPT-6 Sol Pro |
+| `openai/gpt-6-luna` | GPT-6 Luna |
+| `openai/gpt-6-luna-pro` | GPT-6 Luna Pro |
 | `openai/gpt-6-astra` | GPT-6 Astra |
 | `openai/gpt-6-astra-pro` | GPT-6 Astra Pro |
 | `openai/gpt-astra-latest` | GPT Astra Latest |
@@ -222,19 +229,14 @@ Moonshot Kimi とは別の、コーディング専用 API（`KIMI_CODE_API_KEY`�
 
 ---
 
-## モデル料金（v0.23.0 時点）
+## DeepSeek API 料金（2026-10-18 確認）
 
-| モデル | 入力 | 出力 |
-|---|---|---|
-| DeepSeek V4.1 Flash | \$0.27 / 1M | \$1.10 / 1M |
-| DeepSeek V4 Pro 0813 | \$0.27 / 1M | \$1.10 / 1M |
-| GPT-6 Astra / Astra Pro / Astra Latest | \$10 / 1M | \$50 / 1M |
-| GPT-5.6 Sol / Terra / Luna | \$5 / 1M | \$25 / 1M |
-| GPT-5.6 Sol Pro / Terra Pro / Luna Pro | \$5 / 1M | \$25 / 1M |
-| Gemini 3.8 Flash (OpenRouter) | \$0.75 / 1M | \$3.75 / 1M |
-| MiMo-V2.6-Flash | \$0.14 / 1M | \$0.28 / 1M |
-| MiMo-V2.6-Pro | \$0.435 / 1M | \$0.87 / 1M |
-| MiMo-V2.6-Pro-UltraSpeed | \$4.35 / 1M | \$8.70 / 1M |
+| モデル ID | Peak 入力（キャッシュミス / ヒット） | Off-peak 入力（キャッシュミス / ヒット） | Peak 出力 | Off-peak 出力 |
+|---|---:|---:|---:|---:|
+| `deepseek-flash` | \$0.30（\$0.006） | \$0.15（\$0.003） | \$1.20 | \$0.60 |
+| `deepseek-v4-pro` | \$1.32（\$0.044） | \$0.66（\$0.022） | \$3.96 | \$1.98 |
+
+DeepSeek の料金は 100 万 token あたりです。平日の UTC 01:00–04:00 と 06:00–10:00（中国の法定休日を除く）が Peak、週末と休日は終日 Off-peak です。Poverello は確認済みの 2026 年中国休日・振替出勤日を同梱し、翌年のカレンダーが未収録の場合は画面に表示します。他プロバイダーの料金はアプリ内の参考値で、変更される場合があります。Orchestrator のコスト見積もりは現在、cache 使用量が明示的にゼロの対象 Anthropic Direct 実行のみを計算し、DeepSeek は対象外です。Proについては、現在の公式料金表に個別料金が掲載され、2026年9月14日以降もAPI提供を継続したと記載されています。一方、9月10日の告知ではV4.1-Pro公開までV4.1 Flashへ一時転送しFlash料金を適用するとされていました。Poverelloはリクエストごとの転送先・請求額を確認できません。表示額は公開料金表の値であり、請求額や保証ではありません。[現在の公式料金表](https://api-docs.deepseek.com/quick_start/pricing/)と[9月10日の告知](https://api-docs.deepseek.com/news/news260910/)をご確認ください。
 
 ---
 
@@ -242,7 +244,7 @@ Moonshot Kimi とは別の、コーディング専用 API（`KIMI_CODE_API_KEY`�
 
 [Releases](https://github.com/soheidon/poverello-coding-tools/releases) ページから最新の公開済み Windows インストーラーをダウンロードして実行してください。
 
-Windowsインストーラーは8言語に対応しています。Poverello v0.24.1は既存のアプリケーションIDを維持し、Anthro Bridgeからの上書きアップグレード経路を備えています。初回起動時には、`%APPDATA%\Anthro Bridge`（開発版では`%APPDATA%\Anthro Bridge Dev`）の設定と実行データを対応するPoverelloデータフォルダーへコピーし、元のフォルダーを復旧用コピーとして保持する設計です。実際のWindows環境でのインストール、データ移行、アップグレード、再インストール、キャンセル、アンインストールは未検証のため、アップグレード前に重要なデータをバックアップしてください。
+Windowsインストーラーは8言語に対応しています。Poverelloは既存のアプリケーションIDを維持し、Anthro Bridgeからの上書きアップグレードをサポートします。初回起動時には、`%APPDATA%\Anthro Bridge`（開発版では`%APPDATA%\Anthro Bridge Dev`）の設定と実行データを対応するPoverelloデータフォルダーへコピーし、元のフォルダーを復旧用コピーとして保持する設計です。実際のWindows環境でのインストール、データ移行、アップグレード、再インストール、キャンセル、アンインストールは未検証のため、アップグレード前に重要なデータをバックアップしてください。
 
 ---
 
@@ -276,8 +278,8 @@ Windowsインストーラーは8言語に対応しています。Poverello v0.24
 
 1. Poverello の上部タブから **Orchestrator** を開きます。
 2. **Planner** および **Reviewer** 役割のエージェントプロファイルを選択またはカスタマイズします（Orchestrator 設定で組み込みプリセットの選択も可能です）。
-3. 収束目標と最大反復回数（ターン上限）を設定します。
-4. 収束実行を開始します: リアルタイムのディスパッチ進捗、監査判定、およびコスト見積もりの対象範囲を示すバッジを確認します。
+3. 選択した対応済みOrchestratorワークフローのタスク目標と最大反復回数（ターン上限）を設定します。
+4. 対応するワークフローを実行し、ディスパッチ進捗、監査判定、コスト見積もりの対象範囲を示すバッジを確認します。独立した全自動Auto-Convergeはv0.24.6では利用できません。
 5. 完了した実行履歴とディスパッチログは `%APPDATA%\Poverello\runs\` に保存され、監査できます。実行の再開可否は状態によって異なり、完了済みの実行を復元できるとは限りません。
 
 ### ワークフロー 5: Antigravity ルール管理（Poverello Direct Coding）

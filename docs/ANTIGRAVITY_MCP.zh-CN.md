@@ -114,7 +114,7 @@ anthro-bridge
 Poverello 明确划分了规划器选择与详细参数管理的职责：
 
 1. **顶层 `MCP` 选项卡 (`MCP for Antigravity`)**：
-   - 显示可用提供商（DeepSeek、OpenRouter、MiniMax、MiMo (V2.6)、Kimi）和配置文件的卡片列表。
+   - 显示可用提供商（DeepSeek、OpenRouter、MiniMax、MiMo (V2.6)、Kimi、GLM）和配置文件的卡片列表。
    - 点击卡片即可立即切换生效的规划器目标。
 2. **`设置` > `Antigravity`**：
    - **MCP Plan 详细设置** 卡片：按提供商/配置文件详细配置所选模型、思考模式 (Thinking Mode) 及推理强度 (Reasoning Effort)。
@@ -125,7 +125,7 @@ Poverello 明确划分了规划器选择与详细参数管理的职责：
 
 ---
 
-## 6. 使用 Antigravity Commands (`/pov-plan` & `/pov-revise`)（推荐）
+## 6. 使用 Antigravity Commands (`/pov-plan`、`/pov-revise` 和 `/pov-review`)（推荐）
 
 在 **设置 > Antigravity** 的 **Google Antigravity 集成** 卡片中安装全局技能后，可在所有 Antigravity 工作区中使用斜杠命令：
 
@@ -156,7 +156,7 @@ Poverello 明确划分了规划器选择与详细参数管理的职责：
 
 ## 7. 通过 Workspace Rule 自动化计划流程
 
-可以在项目中放置如 [`.agents/rules/deepseek-planner.md`](../.agents/rules/deepseek-planner.md) 的 Workspace Rule，在复杂编码任务时自动化调用外部规划器：
+您可以参考下面的示例，按需创建项目专用的 Workspace Rule。Poverello 不附带或安装 DeepSeek 专用规划规则；配置使用的 MCP 提供商和模型可在 Poverello 设置中选择：
 
 ```markdown
 ---
@@ -164,7 +164,7 @@ trigger: model_decision
 description: Use for implementation, debugging, architectural changes, or multi-file code changes where an external implementation plan would be useful. Do not use for trivial text-only edits.
 ---
 
-# DeepSeek Planner Rule
+# Poverello Planner Rule（示例）
 
 For non-trivial implementation tasks in this repository:
 
@@ -176,7 +176,7 @@ For non-trivial implementation tasks in this repository:
    - the relevant repository context;
    - important constraints.
    Note: "Exactly once" means duplicate planner calls are prohibited once a successful usable result is obtained. If the tool call itself fails or returns an unusable response (e.g. transport or decoding error), exactly 1 recovery retry is permitted.
-5. Use the returned DeepSeek plan as the basis for implementation.
+5. Use the returned plan as the basis for implementation.
 6. Perform file edits, builds, and tests yourself.
 7. Do not call `poverello/plan` again unless the implementation encounters a major unresolved problem.
 8. Do not ask the user to repeat this workflow.

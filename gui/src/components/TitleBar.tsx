@@ -4,8 +4,8 @@ import { useTranslation } from "../i18n";
 import { version } from "../../package.json";
 
 interface TitleBarProps {
-  activeTab?: "gateway" | "mcp" | "antigravityRules" | "orchestrator" | "settings";
-  onTabChange?: (tab: "gateway" | "mcp" | "antigravityRules" | "orchestrator" | "settings") => void;
+  activeTab?: "gateway" | "mcp" | "antigravityRules" | "orchestrator" | "autoConverge" | "settings";
+  onTabChange?: (tab: "gateway" | "mcp" | "antigravityRules" | "orchestrator" | "autoConverge" | "settings") => void;
 }
 
 export default function TitleBar({

@@ -135,6 +135,16 @@ Once Claude Desktop restarts, requests from Cowork on 3P will be sent to Poverel
 
 For specific provider thinking parameters and model capabilities, see: [Provider Details & Model Behaviors](PROVIDERS.md).
 
+## Direct DeepSeek API
+
+When Poverello is configured with the Direct DeepSeek provider, requests from Claude Desktop / Cowork on 3P are routed through the Anthropic Messages-compatible DeepSeek endpoint.
+
+The canonical DeepSeek API IDs are `deepseek-flash` and `deepseek-v4-pro`; the current official pricing page lists them as DeepSeek-V4.1-Flash-1017 and DeepSeek-V4-Pro-0813, respectively. These are upstream API IDs; the Claude-facing model names in `inferenceModels` are local picker entries and are mapped by Poverello to the selected provider profile.
+
+Both models support tool calls and a 1M-token context window, with up to 384K output tokens. Flash supports image input; Pro does not. DeepSeek's retired `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` IDs remain upstream aliases to Flash. Poverello's built-in Direct DeepSeek defaults use the canonical IDs. Official sources differ on Pro routing and billing: the current pricing page lists separate Pro rates and continued API service after September 14, 2026, while the September 10 announcement described temporary Flash routing and Flash rates until V4.1-Pro launches. Poverello cannot verify individual request routing or charges; its displayed Pro prices reflect the published schedule, not an invoice or guarantee. See [current pricing](https://api-docs.deepseek.com/quick_start/pricing/) and the [September 10 announcement](https://api-docs.deepseek.com/news/news260910/).
+
+For current per-token pricing and peak/off-peak rules, see [DeepSeek's official pricing](https://api-docs.deepseek.com/quick_start/pricing/) and the [Provider Details guide](PROVIDERS.md#deepseek). Poverello's bundled holiday calendar affects the local peak/off-peak estimate; the coverage status and fallback behavior are described in the Provider Details guide.
+
 ## Xiaomi MiMo Provider
 
 When Poverello is configured to use the Direct MiMo provider, inference requests from Claude Desktop are routed to Xiaomi's MiMo API.
@@ -182,6 +192,32 @@ Saved `mimo-v2.5`, `mimo-v2.5-pro`, and `mimo-v2.5-pro-ultraspeed` configuration
 > The **Ollama Local** backend is strictly dedicated to **Claude Code CLI** and is completely isolated from Claude Desktop and MCP. For local LLM setup with Claude Code, please see the [Ollama Local Guide](OLLAMA_LOCAL.md).
 
 ---
+
+## MiniMax-M3 Thinking Mode
+
+MiniMax-M3 supports turning extended thinking on or off through the Anthropic-compatible API.
+
+| Setting | Upstream API parameter | Behavior |
+| --- | --- | --- |
+| Thinking ON | `thinking: {"type": "adaptive"}` | Enables extended thinking |
+| Thinking OFF | `thinking: {"type": "disabled"}` | Disables extended thinking |
+| Default (unset) | *omitted* | API default: thinking disabled |
+
+Poverello displays a Thinking/Normal toggle on the MiniMax-M3 row in Settings. MiniMax-M2.x models (such as `MiniMax-M2.7-highspeed`) do not support disabling thinking and remain fixed to Thinking-only mode.
+
+## Laguna S/XS 2.1 (OpenRouter) Configuration
+
+By default, Poverello routes OpenRouter `claude-opus-5` and `claude-sonnet-5` to `poolside/laguna-s-2.1`, and `claude-haiku-4-5` to `poolside/laguna-xs-2.1`.
+
+### Thinking behavior
+
+Third-party tests have observed that Laguna S 2.1 thinking behavior can be affected by system-prompt structure. Reports indicate that including a clear professional persona and explicit acceptance criteria substantially reduced unnecessary reasoning. Based on these results, the default for Laguna Opus (`claude-opus-5`) was changed to Normal (thinking off); Thinking can be enabled again in Settings.
+
+### Known limitation: no usable output at the token limit
+
+Under certain conditions—especially when the model reaches its per-turn token limit during reasoning—Laguna S 2.1 may return reasoning content only, with no text output or tool call and `stop_reason` set to `max_tokens`. The client may then be unable to continue the conversation. Poverello detects this and logs a warning. If “Reasoning-only response reached the per-turn token limit” appears repeatedly, consider increasing the maximum output tokens or turning thinking off for that model.
+
+These observations are based on third-party community tests. Results may vary by provider configuration and model revision.
 
 ## Notes
 

@@ -42,8 +42,10 @@ This document details supported model providers, reasoning parameters, capabilit
 
 ### DeepSeek
 
-- **Supported Models**: `deepseek-v4-pro` (V4-Pro-0813), `deepseek-flash` (DeepSeek V4.1 Flash), `deepseek-v4-flash` (V4-Flash-0731 legacy), `deepseek-v4-flash-vision-exp` (V4-Flash-Vision-Exp).
-- **Reasoning Control**: DeepSeek models support reasoning effort levels (`low`, `high`, `max`).
+- **Current API models**: the current official pricing page lists `deepseek-flash` as DeepSeek-V4.1-Flash-1017 and `deepseek-v4-pro` as DeepSeek-V4-Pro-0813. Both support the Anthropic Messages-compatible endpoint and tool calls; Flash supports vision, while Pro does not. The official model catalog lists a 1M-token context window and up to 384K output tokens.
+- **Compatibility IDs**: DeepSeek still accepts the retired `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` IDs, but routes them to the current Flash model and bills them at Flash rates. New configurations should use `deepseek-flash`.
+- **Reasoning Control**: Poverello exposes Normal/Thinking behavior and supported reasoning-effort levels (`low`, `high`, `max`) for Direct DeepSeek routes.
+- **Pricing and routing caveat**: The current pricing page lists separate V4 Pro rates and says API service continued after September 14, 2026; the September 10 announcement described temporary routing of Pro requests to V4.1 Flash at Flash rates until V4.1-Pro launches. Poverello cannot verify per-request routing or billing and displays the published schedule, not a guaranteed charge. See [current pricing](https://api-docs.deepseek.com/quick_start/pricing/) and the [September 10 announcement](https://api-docs.deepseek.com/news/news260910/). Peak/off-peak and cache-hit rates are time-dependent.
 
 ### GLM / Z.ai
 
@@ -83,7 +85,7 @@ This document details supported model providers, reasoning parameters, capabilit
 - **Concept**: A Gateway profile maps each of the three standard Claude routes (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`) independently to different providers and models.
 - **Example Route Mix**:
   - `claude-opus-5`: Anthropic Direct `claude-opus-5-5` (Deep architectural reasoning).
-  - `claude-sonnet-5`: DeepSeek `deepseek-v4.1-flash` (Fast, high-quality code generation).
+  - `claude-sonnet-5`: DeepSeek `deepseek-flash` (Fast, high-quality code generation).
   - `claude-haiku-4-5`: GLM `glm-5.3-flash` (Lightweight summaries, classification).
 - **Authentication**: Requires API keys configured for each participating provider. Unused providers require no keys.
 - **Claude Code Integration**: Auto-compaction automatically computes safe context windows from the minimum capacity among the selected models in the active profile.

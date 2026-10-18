@@ -4,15 +4,19 @@
 
 **以 Claude Code / Claude Desktop 作為程式碼執行框架，將推論請求路由至第三方 LLM API，並使用外部模型作為 Google Antigravity 的規劃器與審查器。**
 
-Poverello Coding Tools（應用程式內顯示名稱為 **Poverello**）是一款專為 AI 輔助軟體開發設計的 Windows 配套應用程式，支援三種互補的工作流程：
+Poverello Coding Tools（應用程式內顯示名稱為 **Poverello**）是一款專為 AI 輔助軟體開發設計的 Windows 配套應用程式，支援五種互補的工作流程：
 
 1. **Claude Code / Claude Desktop 的第三方閘道（3P Gateway）** — 保留 Claude 的程式庫探索、工具使用、檔案編輯與測試執行功能，同時將推論請求路由至第三方供應商。
 2. **Claude Code 專用本機 LLM（Ollama）** — 使用本機模型離線執行 Claude Code。
-3. **Google Antigravity 的 MCP 規劃器與審查器** — 透過 `poverello/plan` 和 `poverello/review` MCP 工具，將實作規劃與實作後審查委派給外部模型處理。
+3. **Google Antigravity 的 MCP 規劃器與審查器** — 透過 `poverello/plan`、`poverello/revise` 和 `poverello/review` MCP 工具，將實作規劃、計畫修訂與實作後審查委派給外部模型。
+4. **多代理開發 Orchestrator** — 執行目前支援的有界 Planner–Reviewer 工作流程，並記錄標準化 token 用量與依已核驗供應商費率計算的成本估算。
+5. **Antigravity 規則管理** — 為 Antigravity 設定、預覽並安全同步 Poverello Direct Coding 規則（`pov-direct.md`）。
+
+> **最新消息：** 請參閱 [NEWS.md（版本說明）](../NEWS.md)，了解各版本功能、實作細節與變更記錄。
 
 ---
 
-## 三大主要工作流程
+## 五大主要工作流程
 
 ### 1. Claude Code / Claude Desktop 搭配第三方閘道
 
@@ -21,7 +25,7 @@ Claude Code / Claude Desktop
              ↓
   Poverello 3P Gateway
              ↓
-DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo
+Anthropic Direct / DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo / GLM
 ```
 
 - **框架與模型分離**：保留 Claude 的智能代理工具，同時將推論請求路由至第三方供應商。
@@ -62,9 +66,11 @@ Antigravity 使用訂閱容量
 - **規劃與執行分工**：外部模型負責生成高階計畫或審查結論；Antigravity 訂閱容量負責執行耗費大量 Token 的程式碼編輯。
 - **即時 GUI 設定**：切換規劃器或審查器的供應商、模型或推論強度，下次呼叫時立即生效。
 - **設定指南**：[Google Antigravity + Poverello MCP 設定](ANTIGRAVITY_MCP.zh-TW.md)
-- **選擇性 Planner–Reviewer 自動收斂**：在 Orchestrator 中啟用有界收斂工作流程，以產生計畫候選並由獨立 Reviewer 審查。獲准且在範圍內的變更可能會自動附加；建立新的主要計畫一律需要使用者明確確認。實際模型行為會因供應商與介接器而異，尚未對所有組合進行完整的真實模型冒煙測試。
+- **Auto-Converge 說明**：獨立的完整 Auto-Converge 工作流程在 v0.24.6 中已隱藏且不可使用。本文所述目前支援的 Orchestrator 工作流程與其不同；Auto-Converge 已延期至後續版本。
 
 為維持相容性，可執行檔與 MCP 工具識別名稱仍保留 `anthro-bridge`。
+
+Antigravity 的正式指令為 `/pov-plan`、`/pov-revise` 和 `/pov-review`；舊版 `/anthro-*` 指令仍為相容性保留。
 
 **Antigravity 全域指令：**
 
@@ -80,23 +86,44 @@ Antigravity 使用訂閱容量
 
 ---
 
+### 4. 多代理開發 Orchestrator（有界工作流程與成本）
+
+Orchestrator 使用可設定的角色設定檔與迭代上限執行目前支援的 Planner–Reviewer 工作流程。獨立的完整 Auto-Converge 工作流程在 v0.24.6 中不可使用。建立新的主要計畫一律需要使用者明確確認。`%APPDATA%\Poverello\runs\` 中的執行記錄會保存可取得的標準化用量、稽核中繼資料與依已核驗費率計算的成本估算。估算不是供應商帳單；不支援的路由不會計算成本。
+
+### 5. Antigravity 規則管理（Poverello Direct Coding）
+
+可透過 GUI 設定、預覽並同步 `pov-direct.md`。應用程式會保留自訂 frontmatter 與註解，並提供經驗證的套用、備份及復原保護。
+
 ## 支援的供應商
 
 | 供應商 | 連線方式 | 支援系列 | 推論控制 |
 |---|---|---|---|
-| **DeepSeek** | 直接 API | DeepSeek V4.1 Flash、V4 Pro 0813 | Normal / Low / High / Max |
+| **Anthropic** | 直接 API | Claude Opus 5.5、Sonnet 5.5、Haiku 4.5、Sonnet 3.7 | Adaptive thinking / 推論強度 |
+| **DeepSeek** | 直接 API | `deepseek-flash`（V4.1 Flash 1017）、`deepseek-v4-pro`（V4 Pro 0813） | Normal / Thinking · Low / High / Max |
+| **GLM (Z.ai)** | 直接 API | GLM-5.3、GLM-5.3-Flash、GLM-5.3-FlashX、GLM-5.2 | GLM-5.3: Low / High / Max · GLM-5.2: Normal / Thinking |
 | **Kimi Code** | 直接 API | kimi-for-coding、kimi-for-coding-highspeed | 思考模式 |
 | **MiniMax** | 直接 API | MiniMax M3、M2.7 | 依模型而定 |
 | **Kimi / Moonshot** | 直接 API | Kimi K2.x、Kimi K3 | 思考 / 推論強度 |
 | **MiMo / Xiaomi** | 直接 API | MiMo V2.6 Flash、Pro、Pro-UltraSpeed（相容 V2.5） | Normal / Thinking |
+| **Ollama Local** | 本機迴路 | Gemma 4、Qwen 2.5、Llama 3.3、DeepSeek-R1 | Thinking（1024 預算）/ Disabled |
 | **OpenRouter** | 多配置檔閘道 | 請參閱下方 OpenRouter 章節 | 依模型 / 配置檔而定 |
+| **多供應商閘道** | 自訂路由 | 任意符合資格的供應商組合 | 依路由控制 |
+
+### Anthropic（直接連線）
+
+使用 `https://api.anthropic.com` 和 `ANTHROPIC_API_KEY` 直接連線官方 API。支援 `claude-opus-5-5`、`claude-sonnet-5-5`、`claude-haiku-4-5`、`claude-3-7-sonnet`、`claude-3-5-sonnet` 和 `claude-3-5-haiku`，並支援上游模型提供的 adaptive thinking 與推論強度控制。
+
+### GLM / Z.ai（直接連線）
+
+使用 Z.ai 官方 Anthropic Messages 相容 API（`https://api.z.ai/api/anthropic/v1/messages`）搭配 `ZAI_API_KEY` 直接連線。GLM-5.3 系列可選擇推論強度（`low`、`high`、`max`）；GLM-5.2 提供 Normal / Thinking 切換。
 
 ### DeepSeek（直接連線）
 
 內建的 **Direct DeepSeek** 預設路由：Opus 5 → V4.1 Flash / Max · Sonnet 5 → V4.1 Flash / High · Haiku 4.5 → V4.1 Flash / Low。
 
-- `deepseek-v4.1-flash` — 目前的旗艦推理模型（輸入 $0.27 / 1M · 輸出 $1.10 / 1M）。
-- `deepseek-v4-pro-0813` — 不含擴充推理的高品質基礎模型（輸入 $0.27 / 1M · 輸出 $1.10 / 1M）。
+- `deepseek-flash` — DeepSeek-V4.1-Flash-1017 的正規穩定 API ID；上下文視窗 1M，最多輸出 384K token。
+- `deepseek-v4-pro` — API ID；目前官方價格頁將其列為 DeepSeek-V4-Pro-0813。上下文視窗 1M，最多輸出 384K token。
+- Flash 支援視覺輸入，Pro 不支援。DeepSeek 仍接受舊 ID `deepseek-v4-flash` 與 `deepseek-v4-flash-vision-exp`，並將它們視為 Flash 別名、按 Flash 費率計費。
 
 ### Kimi Code（直接連線）
 
@@ -121,10 +148,16 @@ Antigravity 使用訂閱容量
 
 ### OpenRouter
 
-支援多個命名配置檔。完整 OpenAI 模型目錄（單一下拉選單）：
+支援多個命名配置檔。單一下拉選單中的目前 OpenAI 模型目錄（15 個模型）：
 
 | 模型 ID | 顯示名稱 |
 |---|---|
+| `openai/gpt-6.1-sol` | GPT-6.1 Sol |
+| `openai/gpt-6.1-sol-pro` | GPT-6.1 Sol Pro |
+| `openai/gpt-6-sol` | GPT-6 Sol |
+| `openai/gpt-6-sol-pro` | GPT-6 Sol Pro |
+| `openai/gpt-6-luna` | GPT-6 Luna |
+| `openai/gpt-6-luna-pro` | GPT-6 Luna Pro |
 | `openai/gpt-6-astra` | GPT-6 Astra |
 | `openai/gpt-6-astra-pro` | GPT-6 Astra Pro |
 | `openai/gpt-astra-latest` | GPT Astra Latest |
@@ -145,19 +178,14 @@ Antigravity 使用訂閱容量
 
 ---
 
-## 模型定價（截至 v0.23.0）
+## DeepSeek API 價格（核驗於 2026-10-18）
 
-| 模型 | 輸入 | 輸出 |
-|---|---|---|
-| DeepSeek V4.1 Flash | \$0.27 / 1M | \$1.10 / 1M |
-| DeepSeek V4 Pro 0813 | \$0.27 / 1M | \$1.10 / 1M |
-| GPT-6 Astra / Astra Pro / Astra Latest | \$10 / 1M | \$50 / 1M |
-| GPT-5.6 Sol / Terra / Luna | \$5 / 1M | \$25 / 1M |
-| GPT-5.6 Sol Pro / Terra Pro / Luna Pro | \$5 / 1M | \$25 / 1M |
-| Gemini 3.8 Flash（OpenRouter） | \$0.75 / 1M | \$3.75 / 1M |
-| MiMo-V2.6-Flash | \$0.14 / 1M | \$0.28 / 1M |
-| MiMo-V2.6-Pro | \$0.435 / 1M | \$0.87 / 1M |
-| MiMo-V2.6-Pro-UltraSpeed | \$4.35 / 1M | \$8.70 / 1M |
+| 模型 ID | 尖峰輸入（快取未命中 / 命中） | 離峰輸入（快取未命中 / 命中） | 尖峰輸出 | 離峰輸出 |
+|---|---:|---:|---:|---:|
+| `deepseek-flash` | \$0.30（\$0.006） | \$0.15（\$0.003） | \$1.20 | \$0.60 |
+| `deepseek-v4-pro` | \$1.32（\$0.044） | \$0.66（\$0.022） | \$3.96 | \$1.98 |
+
+DeepSeek 費率均以每百萬 token 計。工作日 UTC 01:00–04:00、06:00–10:00 為尖峰時段（中國法定假日除外）；週末及假日全天為離峰。Poverello 內含已核驗的 2026 年中國假日與調休上班日資料，並會提示次年日曆尚未收錄。其他提供者價格為應用程式內建參考值，可能變動。Orchestrator 成本估算目前只涵蓋符合條件且快取用量明確為零的 Anthropic Direct 呼叫，不估算 DeepSeek 費用。關於 Pro，目前官方價格頁列出獨立費率，並表示 API 服務於 2026 年 9 月 14 日後持續提供；但 9 月 10 日公告曾稱 V4.1-Pro 發布前會暫時轉送至 V4.1 Flash 並採用 Flash 費率。Poverello 無法核實每筆請求的路由或帳單；顯示的是公開費率，不是帳單或保證。請參閱[目前價格頁](https://api-docs.deepseek.com/quick_start/pricing/)和[9 月 10 日公告](https://api-docs.deepseek.com/news/news260910/)。
 
 ---
 
@@ -165,7 +193,7 @@ Antigravity 使用訂閱容量
 
 從 [Releases](https://github.com/soheidon/poverello-coding-tools/releases) 頁面下載目前最新已發布的 Windows 安裝程式並執行。
 
-Windows 安裝程式支援 8 種語言。Poverello v0.24.1 保留既有應用程式識別碼，並包含從 Anthro Bridge 原位升級的路徑。首次啟動時，程式設計為將 `%APPDATA%\Anthro Bridge`（開發版為 `%APPDATA%\Anthro Bridge Dev`）中的設定與執行資料複製到對應的 Poverello 資料夾，同時保留原資料夾作為復原副本。實際 Windows 環境中的安裝、資料移轉、升級、重新安裝、取消及解除安裝流程尚未驗證；升級前請備份重要資料。
+Windows 安裝程式支援 8 種語言。Poverello 保留既有應用程式識別碼，並支援從 Anthro Bridge 原位升級。首次啟動時，程式設計為將 `%APPDATA%\Anthro Bridge`（開發版為 `%APPDATA%\Anthro Bridge Dev`）中的設定與執行資料複製到對應的 Poverello 資料夾，同時保留原資料夾作為復原副本。實際 Windows 環境中的安裝、資料移轉、升級、重新安裝、取消及解除安裝流程尚未驗證；升級前請備份重要資料。
 
 ---
 
@@ -195,13 +223,29 @@ Windows 安裝程式支援 8 種語言。Poverello v0.24.1 保留既有應用程
 4. 使用 `/pov-plan` 設計計畫、`/pov-revise` 更新計畫，以及 `/pov-review` 在提交前審查實作成果。
 5. 請參閱完整的 [Antigravity MCP 設定指南](ANTIGRAVITY_MCP.zh-TW.md)。
 
+### 工作流程 4：多代理開發 Orchestrator
+
+1. 開啟上方導覽列中的 **Orchestrator** 分頁。
+2. 選取或自訂 **Planner** 與 **Reviewer** 角色設定檔。
+3. 設定所選支援 Orchestrator 工作流程的任務目標與迭代上限。
+4. 檢視即時進度、稽核判定、成本估算狀態，以及 `%APPDATA%\Poverello\runs\` 中的執行記錄。
+
+### 工作流程 5：Antigravity 規則管理
+
+1. 開啟上方導覽列中的 **Antigravity Rules** 分頁。
+2. 選擇規則模式並檢查預覽。
+3. 點擊 **Apply Settings**，安全套用 `pov-direct.md`。
+4. 自訂註解、frontmatter 欄位與備份都會保留。
+
 ---
 
 ## API 金鑰
 
 | 供應商 | 環境變數 |
 |---|---|
+| Anthropic | `ANTHROPIC_API_KEY` |
 | DeepSeek | `DEEPSEEK_API_KEY` |
+| GLM / Z.ai | `ZAI_API_KEY` |
 | Kimi Code | `KIMI_CODE_API_KEY` |
 | Kimi / Moonshot | `MOONSHOT_API_KEY` |
 | MiniMax | `MINIMAX_API_KEY` |
@@ -212,6 +256,7 @@ Windows 安裝程式支援 8 種語言。Poverello v0.24.1 保留既有應用程
 
 ## 文件
 
+- [版本說明 (NEWS.md)](../NEWS.md) — 各版本功能與實作細節
 - [Claude Desktop / Cowork 第三方閘道設定](THIRD_PARTY_INFERENCE.md)
 - [Google Antigravity + Poverello MCP 設定](ANTIGRAVITY_MCP.zh-TW.md)
 - [設定參考（`config.json`）](CONFIGURATION.md)

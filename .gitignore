@@ -42,3 +42,6 @@ icon/
 !icon/
 icon/*
 !icon/Icon-Poverello03.png
+
+# Auto-Converge runtime state
+.poverello/runs/

@@ -125,6 +125,16 @@ Redémarrez Claude Desktop si vous y êtes invité.
 
 Une fois Claude Desktop redémarré, les requêtes de Cowork on 3P seront envoyées à Poverello. Poverello route ensuite les requêtes vers le fournisseur upstream configuré dans Poverello.
 
+## API DeepSeek directe
+
+Lorsque Poverello est configuré avec le fournisseur Direct DeepSeek, les requêtes de Claude Desktop / Cowork on 3P sont acheminées vers le point de terminaison DeepSeek compatible avec Anthropic Messages.
+
+Les ID API canoniques de DeepSeek sont `deepseek-flash` et `deepseek-v4-pro` ; la page officielle des tarifs actuelle les répertorie comme DeepSeek-V4.1-Flash-1017 et DeepSeek-V4-Pro-0813. Ce sont des ID de l’API upstream. Les noms visibles par Claude dans `inferenceModels` sont des entrées locales du sélecteur, associées par Poverello au profil fournisseur sélectionné.
+
+Les deux modèles prennent en charge les appels d’outils, un contexte de 1M tokens et jusqu’à 384K tokens en sortie. Seul Flash prend en charge les images en entrée. DeepSeek accepte encore les anciens ID `deepseek-v4-flash` et `deepseek-v4-flash-vision-exp` comme alias upstream de Flash. Les paramètres Direct DeepSeek intégrés à Poverello utilisent les ID canoniques. Les sources officielles divergent sur le routage et la facturation de Pro : la page actuelle publie des tarifs Pro distincts et confirme la poursuite du service API après le 14 septembre 2026, tandis qu’une annonce du 10 septembre décrivait un routage temporaire vers V4.1 Flash au tarif Flash jusqu’au lancement de V4.1-Pro. Poverello ne peut pas vérifier le routage ni la facturation de chaque requête ; les tarifs affichés sont ceux publiés, pas une facture ni une garantie. Voir les [tarifs actuels](https://api-docs.deepseek.com/quick_start/pricing/) et l’[annonce du 10 septembre](https://api-docs.deepseek.com/news/news260910/).
+
+Consultez les [tarifs officiels de DeepSeek](https://api-docs.deepseek.com/quick_start/pricing/) et le [guide des détails des fournisseurs](PROVIDERS.md#deepseek) pour les tarifs par token et les règles de périodes de pointe et hors pointe. Le calendrier des jours fériés fourni avec Poverello influence l’estimation locale ; sa couverture et le comportement de repli sont décrits dans le guide des fournisseurs.
+
 ## Fournisseur Xiaomi MiMo
 
 Lorsque Poverello est configuré pour utiliser le fournisseur Direct MiMo, les requêtes d'inférence de Claude Desktop sont acheminées vers l'API MiMo de Xiaomi.
@@ -170,6 +180,32 @@ Les configurations `mimo-v2.5`, `mimo-v2.5-pro` et `mimo-v2.5-pro-ultraspeed` sa
 > Le backend **Ollama Local** est strictement réservé à **Claude Code CLI** et reste totalement isolé de Claude Desktop et du MCP. Pour la configuration du LLM local avec Claude Code, veuillez consulter le [Guide Ollama Local](OLLAMA_LOCAL.fr.md).
 
 ---
+
+## Mode Thinking de MiniMax-M3
+
+MiniMax-M3 permet d'activer ou de désactiver le thinking étendu via l'API compatible avec Anthropic.
+
+| Réglage | Paramètre de l'API upstream | Comportement |
+| --- | --- | --- |
+| Thinking activé | `thinking: {"type": "adaptive"}` | Active le thinking étendu |
+| Thinking désactivé | `thinking: {"type": "disabled"}` | Désactive le thinking étendu |
+| Par défaut (non défini) | *omis* | Valeur par défaut de l'API : thinking désactivé |
+
+Les paramètres de Poverello affichent un commutateur Thinking/Normal pour MiniMax-M3. Les modèles MiniMax-M2.x (par exemple `MiniMax-M2.7-highspeed`) ne permettent pas de désactiver le thinking et restent en mode Thinking uniquement.
+
+## Configuration de Laguna S/XS 2.1 (OpenRouter)
+
+Par défaut, Poverello route les modèles OpenRouter `claude-opus-5` et `claude-sonnet-5` vers `poolside/laguna-s-2.1`, et `claude-haiku-4-5` vers `poolside/laguna-xs-2.1`.
+
+### Comportement du thinking
+
+Des tests tiers ont observé que la structure du prompt système peut influencer le comportement Thinking de Laguna S 2.1. Un persona professionnel clair accompagné de critères d'acceptation explicites aurait réduit le raisonnement inutile. À la suite de ces résultats, le mode par défaut de Laguna Opus (`claude-opus-5`) est passé à Normal (thinking désactivé) ; Thinking peut être réactivé dans les paramètres.
+
+### Limitation connue : aucune sortie exploitable à la limite de jetons
+
+Dans certaines conditions — notamment lorsque le modèle atteint sa limite de jetons par tour pendant le raisonnement — Laguna S 2.1 peut renvoyer uniquement du contenu de raisonnement, sans texte ni appel d'outil, avec `stop_reason: "max_tokens"`. Poverello détecte cette situation et consigne un avertissement. Si « Reasoning-only response reached the per-turn token limit » apparaît régulièrement, envisagez d'augmenter le maximum de jetons de sortie ou de désactiver Thinking pour ce modèle.
+
+Ces observations proviennent de tests communautaires tiers ; les résultats peuvent varier selon la configuration du fournisseur et la révision du modèle.
 
 ## Notes
 

@@ -1,5 +1,25 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.24.6 — 2026-10-19
+
+### Auto-Converge deferred
+
+- The separate full Auto-Converge workflow and its top-level tab are hidden and unavailable in this release. Its operational implementation is deferred to a later version; the code retained in this repository is not a supported v0.24.6 feature.
+- The existing bounded Orchestrator planning/review workflows remain distinct from automatic code implementation. Implementation and installer lifecycle smoke testing are not part of this release's Auto-Converge scope.
+
+### Documentation: current DeepSeek API models and pricing
+
+- The current Direct DeepSeek API IDs are `deepseek-flash` and `deepseek-v4-pro`. The current pricing page lists `deepseek-flash` as DeepSeek-V4.1-Flash-1017 and `deepseek-v4-pro` as DeepSeek-V4-Pro-0813. DeepSeek's retired `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` IDs remain upstream aliases to Flash.
+- Official sources differ on Pro routing: the pricing page lists separate Pro rates and says API service continued after September 14, 2026, while the September 10 announcement described temporary routing to V4.1 Flash at Flash rates until V4.1-Pro launches. Poverello cannot verify per-request routing or billing; the UI and README show the published pricing schedule, not a guaranteed invoice. See [current pricing](https://api-docs.deepseek.com/quick_start/pricing/) and the [September 10 announcement](https://api-docs.deepseek.com/news/news260910/).
+- Updated README and specification pricing references to the official peak/off-peak, cache-hit, and cache-miss rates and documented the bundled 2026 Chinese holiday/make-up-workday calendar. These provider prices are not Orchestrator cost estimates; that estimator currently prices only eligible Anthropic Direct dispatches.
+- Source: [DeepSeek API pricing](https://api-docs.deepseek.com/quick_start/pricing/) (checked 2026-10-19); the official [September 10 routing announcement](https://api-docs.deepseek.com/news/news260910/) is also disclosed because its Pro routing statement differs from the current pricing page.
+- Windows installer lifecycle testing (VM and pre-release manual smoke) was skipped by the user's selected release disposition; no install/upgrade/uninstall lifecycle result is claimed.
+- Windows x64 NSIS installer: `Poverello-Coding-Tools_0.24.6_x64-setup.exe` (SHA-256: `35C7607805A0A47C0ECB8413686EBB075149E993853A5FFF428DFEE487D28BF9`).
+
+### Documentation: OpenRouter OpenAI catalog
+
+- Updated the current README translations to list the 15 OpenAI model IDs available in the OpenRouter chatGPT selector, and updated the SPEC translations' model-registry summary. This documents the existing catalog; it does not claim that these model options were introduced in v0.24.6.
+
 ## v0.24.5 — 2026-10-18
 
 ### Antigravity MCP executable recovery
@@ -250,7 +270,7 @@ Built-in **OpenRouter: chatGPT** preset updated: Opus 5 → GPT-6 Astra / max ·
 
 ### Unified OpenRouter OpenAI Model Selector
 
-The **OpenRouter: chatGPT** profile model selector (Claude Code side) has been redesigned from a two-dropdown Tier × Mode matrix to a **single dropdown** containing the full 9-model OpenAI catalog:
+When this selector was introduced, the **OpenRouter: chatGPT** profile model selector (Claude Code side) was redesigned from a two-dropdown Tier × Mode matrix to a **single dropdown** containing the initial 9-model OpenAI catalog available at that time:
 
 ```
 GPT-6 Astra · GPT-6 Astra Pro · GPT Astra Latest
@@ -263,7 +283,7 @@ GPT-5.6 Sol · GPT-5.6 Sol Pro · GPT-5.6 Terra · GPT-5.6 Terra Pro · GPT-5.6 
 
 ### MCP Plan / Review: OpenRouter OpenAI Catalog Sync
 
-The MCP Plan and Review settings panel now shows the full 9-model OpenAI catalog when an OpenRouter: chatGPT profile is selected, instead of only the 3 route-target upstream models (Sol / Terra / Luna). Model display names (e.g., "GPT-6 Astra") are now shown in MCP profile tiles and dropdowns. The `xhigh` reasoning effort option is correctly labeled in the MCP settings UI.
+At that time, the MCP Plan and Review settings panel showed the initial 9-model OpenAI catalog when an OpenRouter: chatGPT profile was selected, instead of only the 3 route-target upstream models (Sol / Terra / Luna). Model display names (e.g., "GPT-6 Astra") were shown in MCP profile tiles and dropdowns. The `xhigh` reasoning effort option was correctly labeled in the MCP settings UI. The catalog has since expanded; the current 15-model inventory is documented in the README.
 
 ### DeepSeek V4.1 Flash
 

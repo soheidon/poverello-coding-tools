@@ -19,6 +19,7 @@ import McpSettingPanel from "./components/McpSettingPanel";
 import AntigravityRulesPanel from "./components/AntigravityRulesPanel";
 import OrchestratorPanel from "./components/orchestrator/OrchestratorPanel";
 import OrchestratorSettingsPanel from "./components/orchestrator/OrchestratorSettingsPanel";
+import AutoConvergePanel from "./components/autoConverge/AutoConvergePanel";
 import { useHealthCheck } from "./hooks/useHealthCheck";
 import { useProxyToggle } from "./hooks/useProxyToggle";
 import { LanguageProvider, useTranslation } from "./i18n";
@@ -35,7 +36,7 @@ import {
 
 function AppContent() {
   const { t } = useTranslation();
-  const [mainTab, setMainTab] = useState<"gateway" | "mcp" | "antigravityRules" | "orchestrator" | "settings">("gateway");
+  const [mainTab, setMainTab] = useState<"gateway" | "mcp" | "antigravityRules" | "orchestrator" | "autoConverge" | "settings">("gateway");
   const [settingsTab, setSettingsTab] = useState<"general" | "claudeDesktop" | "antigravity" | "orchestrator">("general");
   const { managedRunning, loading: proxyLoading, error: proxyError, diag: proxyDiag, successMessage, start, stop, clearDiag } = useProxyToggle();
   const { data: health, error: healthError, loading: healthLoading, refresh: healthRefresh } = useHealthCheck(managedRunning);
@@ -237,7 +238,7 @@ function AppContent() {
     [refreshConfig],
   );
 
-  const handleMainTabChange = useCallback((tab: "gateway" | "mcp" | "antigravityRules" | "orchestrator" | "settings") => {
+  const handleMainTabChange = useCallback((tab: "gateway" | "mcp" | "antigravityRules" | "orchestrator" | "autoConverge" | "settings") => {
     setMainTab(tab);
   }, []);
 
@@ -258,7 +259,7 @@ function AppContent() {
         onTabChange={handleMainTabChange}
       />
       <Header
-        activeTab={mainTab}
+        activeTab={mainTab === "autoConverge" ? "orchestrator" : mainTab}
         proxyStatus={proxyStatus}
         managedRunning={health?.managed_child_running ?? false}
         proxyLoading={proxyLoading}
@@ -355,6 +356,8 @@ function AppContent() {
         <McpPanel config={config} refreshConfig={refreshConfig} />
       ) : mainTab === "antigravityRules" ? (
         <AntigravityRulesPanel />
+      ) : mainTab === "autoConverge" ? (
+        <AutoConvergePanel />
       ) : (
         <OrchestratorPanel />
       )}

@@ -28,6 +28,8 @@ export const translations: TranslationMap = {
   "settings.nav.claudeDesktop": "Claude Desktop",
   "settings.nav.antigravity": "Antigravity",
   "settings.nav.orchestrator": "Orchestrateur",
+  "tab.autoConverge": "Auto-Converge",
+  "autoConverge.unavailable": "Auto-Converge n’est pas disponible dans cette version de bureau. L’isolation du système d’exploitation du réviseur n’est pas disponible ; les exécutions sont donc bloquées avant le lancement de tout processus agent.",
 
   // MCP Panel
   "mcp.statusHeader": "État du serveur MCP",
@@ -462,8 +464,8 @@ export const translations: TranslationMap = {
   "modelPricing.deepseekPeakNote": "peak-valley pricing(×2): 3AM–6AM & 8AM–12PM (CEST, UTC+2).",
   "modelPricing.notes.deepseekPeakValley": "Tous les éléments facturés sont tarifés au double pendant les heures de pointe : 10 h–13 h et 15 h–19 h JST (UTC+09:00).",
   "modelPricing.notes.deepseekPeakValleyPrefix": "Tous les éléments facturés sont tarifés au double pendant les heures de pointe :",
-  "modelPricing.notes.deepseekV4ProTransition": "Tarif de transition de DeepSeek V4 Pro pendant le déploiement de DeepSeek V4.1.",
-  "modelPricing.notes.deepseekV4ProGoingAway": "Retrait prévu le 14 septembre 2026.",
+  "modelPricing.notes.deepseekV4ProTransition": "La page officielle des tarifs actuelle publie ces tarifs V4 Pro et indique que le service API a continué après le 14 septembre 2026. Une annonce du 10 septembre indiquait que les requêtes Pro seraient temporairement acheminées vers V4.1 Flash au tarif Flash jusqu'au lancement de V4.1-Pro. Poverello ne peut pas vérifier le routage ni la facturation de chaque requête ; il s'agit des tarifs publiés, et non d'une facture ou d'une garantie.",
+  "modelPricing.notes.deepseekV4ProGoingAway": "Le projet d'arrêt annoncé le 10 septembre 2026 a été remplacé par une annonce officielle confirmant la poursuite du service API V4 Pro ; le routage et la facturation par requête ne sont pas vérifiés.",
     "modelPricing.notes.mimoV26ProUltraSpeed": "Version ultrarapide de MiMo-V2.6-Pro. Tarif environ 10 fois supérieur au tarif standard. Le quota d'API fait l'objet d'une demande individuelle.",
     "modelPricing.notes.mimoV25ProUltraSpeed": "Version ultrarapide de MiMo-V2.5-Pro. Tarif environ trois fois supérieur au tarif standard. Accès soumis à demande et approbation, avec disponibilité limitée.",
   "modelPricing.notes.minimaxLongCtx": "Le tarif affiché s'applique aux entrées jusqu'à 512K. Au-delà de 512K : 0,60 $ en entrée et 2,40 $ en sortie.",

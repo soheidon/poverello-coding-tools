@@ -21,7 +21,7 @@ describe("TitleBar Component", () => {
     vi.clearAllMocks();
   });
 
-  it("renders branding, all 3 top navigation tabs, and version info", () => {
+  it("renders branding, supported top navigation tabs, and version info", () => {
     render(
       <TitleBar
         activeTab="gateway"
@@ -38,6 +38,7 @@ describe("TitleBar Component", () => {
     expect(screen.getByRole("button", { name: /Antigravity Rules/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Orchestrator/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /header\.settings/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Auto-Converge/i })).not.toBeInTheDocument();
 
     // Version
     expect(screen.getByText(`v${version}`)).toBeInTheDocument();
@@ -73,7 +74,18 @@ describe("TitleBar Component", () => {
     expect(onTabChange).toHaveBeenCalledWith("gateway");
   });
 
-  it("applies active class to the active tab while keeping all tabs visible", () => {
+  it("keeps the Auto-Converge tab hidden even when its retained route is active", () => {
+    render(
+      <TitleBar
+        activeTab="autoConverge"
+        onTabChange={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: /Auto-Converge/i })).not.toBeInTheDocument();
+  });
+
+  it("applies active class to supported tabs while keeping them visible", () => {
     const { rerender } = render(
       <TitleBar
         activeTab="gateway"

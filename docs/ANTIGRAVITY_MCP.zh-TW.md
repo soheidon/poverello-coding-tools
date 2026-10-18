@@ -114,7 +114,7 @@ anthro-bridge
 Poverello 明確劃分了規劃器選擇與詳細參數管理的職責：
 
 1. **頂層 `MCP` 標籤頁 (`MCP for Antigravity`)**：
-   - 顯示可用提供者（DeepSeek、OpenRouter、MiniMax、MiMo (V2.6)、Kimi）與設定檔的卡片清單。
+   - 顯示可用提供者（DeepSeek、OpenRouter、MiniMax、MiMo (V2.6)、Kimi、GLM）與設定檔的卡片清單。
    - 點擊卡片即可立即切換生效的規劃器目標。
 2. **`設定` > `Antigravity`**：
    - **MCP Plan 詳細設定** 卡片：按提供者/設定檔詳細設定所選模型、思考模式 (Thinking Mode) 及推論強度 (Reasoning Effort)。
@@ -125,7 +125,7 @@ Poverello 明確劃分了規劃器選擇與詳細參數管理的職責：
 
 ---
 
-## 6. 使用 Antigravity Commands (`/pov-plan` & `/pov-revise`)（推薦）
+## 6. 使用 Antigravity Commands (`/pov-plan`、`/pov-revise` 與 `/pov-review`)（推薦）
 
 在 **設定 > Antigravity** 的 **Google Antigravity 整合** 卡片中安裝全域技能後，可在所有 Antigravity 工作區中使用斜線指令：
 
@@ -156,7 +156,7 @@ Poverello 明確劃分了規劃器選擇與詳細參數管理的職責：
 
 ## 7. 透過 Workspace Rule 自動化計畫流程
 
-可以在專案中放置如 [`.agents/rules/deepseek-planner.md`](../.agents/rules/deepseek-planner.md) 的 Workspace Rule，在複雜編碼任務時自動化呼叫外部規劃器：
+您可以參考以下範例，視需要建立專案專用的 Workspace Rule。Poverello 不隨附或安裝 DeepSeek 專用規劃規則；要使用的 MCP 提供者與模型可在 Poverello 設定中選擇：
 
 ```markdown
 ---
@@ -164,7 +164,7 @@ trigger: model_decision
 description: Use for implementation, debugging, architectural changes, or multi-file code changes where an external implementation plan would be useful. Do not use for trivial text-only edits.
 ---
 
-# DeepSeek Planner Rule
+# Poverello Planner Rule（範例）
 
 For non-trivial implementation tasks in this repository:
 
@@ -176,7 +176,7 @@ For non-trivial implementation tasks in this repository:
    - the relevant repository context;
    - important constraints.
    Note: "Exactly once" means duplicate planner calls are prohibited once a successful usable result is obtained. If the tool call itself fails or returns an unusable response (e.g. transport or decoding error), exactly 1 recovery retry is permitted.
-5. Use the returned DeepSeek plan as the basis for implementation.
+5. Use the returned plan as the basis for implementation.
 6. Perform file edits, builds, and tests yourself.
 7. Do not call `poverello/plan` again unless the implementation encounters a major unresolved problem.
 8. Do not ask the user to repeat this workflow.

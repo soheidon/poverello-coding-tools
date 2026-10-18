@@ -158,7 +158,7 @@ From **Settings > Antigravity > Antigravity Integration**, you can install Globa
 
 ## 7. Automating Planning via Workspace Rules
 
-Place a workspace rule like [`.agents/rules/deepseek-planner.md`](../.agents/rules/deepseek-planner.md) in your project to automate external planner invocation for complex tasks:
+You may create an optional project-specific workspace rule based on the example below. Poverello does not bundle or install a DeepSeek-specific planner rule; the configured MCP provider/model is selected in Poverello settings.
 
 ```markdown
 ---
@@ -166,7 +166,7 @@ trigger: model_decision
 description: Use for implementation, debugging, architectural changes, or multi-file code changes where an external implementation plan would be useful. Do not use for trivial text-only edits.
 ---
 
-# DeepSeek Planner Rule
+# Poverello Planner Rule (Example)
 
 For non-trivial implementation tasks in this repository:
 
@@ -178,7 +178,7 @@ For non-trivial implementation tasks in this repository:
    - the relevant repository context;
    - important constraints.
    Note: "Exactly once" means duplicate planner calls are prohibited once a successful usable result is obtained. If the tool call itself fails or returns an unusable response (e.g. transport or decoding error), exactly 1 recovery retry is permitted.
-5. Use the returned DeepSeek plan as the basis for implementation.
+5. Use the returned plan as the basis for implementation.
 6. Perform file edits, builds, and tests yourself.
 7. Do not call `poverello/plan` (or `anthro-bridge/plan`) again unless the implementation encounters a major unresolved problem.
 8. Do not ask the user to repeat this workflow.

@@ -1,6 +1,6 @@
 {
   "productName": "Poverello Coding Tools",
-  "version": "0.24.5",
+  "version": "0.24.6",
   "identifier": "com.soheidon.anthro-bridge",
   "build": {
     "frontendDist": "../dist",

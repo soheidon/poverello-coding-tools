@@ -31,7 +31,7 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
       "modelPricing.notes.deepseekPeakValley",
       "modelPricing.notes.deepseekV4ProTransition",
     ],
-    verifiedAt: "2026-08-14",
+    verifiedAt: "2026-10-19",
     sourceUrl: "https://api-docs.deepseek.com/quick_start/pricing",
   },
   "deepseek-v4-flash": {

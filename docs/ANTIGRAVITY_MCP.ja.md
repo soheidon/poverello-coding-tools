@@ -126,7 +126,7 @@ Poverello では、プランナーの選択と詳細設定の役割が明確に�
 
 ---
 
-## 6. Antigravity Commands (`/pov-plan` & `/pov-revise`) の利用（推奨）
+## 6. Antigravity Commands (`/pov-plan`、`/pov-revise`、`/pov-review`) の利用（推奨）
 
 **設定 > Antigravity** の **Google Antigravity 連携設定** カードから Antigravity Commands をインストールすると、すべてのワークスペースからスラッシュコマンドを利用できます:
 
@@ -157,7 +157,7 @@ Poverello では、プランナーの選択と詳細設定の役割が明確に�
 
 ## 7. Workspace Rule による計画作成の自動化
 
-プロジェクトに [`.agents/rules/deepseek-planner.md`](../.agents/rules/deepseek-planner.md) のような Workspace Rule を配置することで、複雑なコーディングタスク時に外部プランナーを自動呼び出しできます:
+以下の例を参考に、プロジェクト固有の Workspace Rule を任意で作成できます。Poverello は DeepSeek 専用のプランナールールを同梱・インストールしません。利用する MCP プロバイダーとモデルは Poverello の設定で選択します。
 
 ```markdown
 ---
@@ -165,7 +165,7 @@ trigger: model_decision
 description: Use for implementation, debugging, architectural changes, or multi-file code changes where an external implementation plan would be useful. Do not use for trivial text-only edits.
 ---
 
-# DeepSeek Planner Rule
+# Poverello Planner Rule（例）
 
 For non-trivial implementation tasks in this repository:
 
@@ -177,7 +177,7 @@ For non-trivial implementation tasks in this repository:
    - the relevant repository context;
    - important constraints.
    Note: "Exactly once" means duplicate planner calls are prohibited once a successful usable result is obtained. If the tool call itself fails or returns an unusable response (e.g. transport or decoding error), exactly 1 recovery retry is permitted.
-5. Use the returned DeepSeek plan as the basis for implementation.
+5. Use the returned plan as the basis for implementation.
 6. Perform file edits, builds, and tests yourself.
 7. Do not call `poverello/plan` again unless the implementation encounters a major unresolved problem.
 8. Do not ask the user to repeat this workflow.

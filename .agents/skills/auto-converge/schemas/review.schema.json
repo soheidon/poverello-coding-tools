@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CodexReviewVerdict",
+  "type": "object",
+  "required": ["verdict", "summary", "findings", "approval_binding"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["APPROVE", "REQUEST_CHANGES", "BLOCKED"]
+    },
+    "summary": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["finding_key", "location", "failure_condition", "acceptance_condition", "blocking"],
+        "properties": {
+          "finding_key": {
+            "type": "object",
+            "required": ["category", "file", "symbol", "failure_code"],
+            "properties": {
+              "category": { "type": "string", "enum": ["correctness", "security", "contract", "performance", "scope", "maintainability"] },
+              "file": { "type": "string" },
+              "symbol": { "type": "string" },
+              "failure_code": {
+                "type": "string",
+                "enum": [
+                  "missing_requirement",
+                  "scope_violation",
+                  "regression",
+                  "type_or_compile_error",
+                  "test_failure",
+                  "missing_test_coverage",
+                  "state_transition_violation",
+                  "binding_mismatch",
+                  "permission_bypass",
+                  "isolation_violation",
+                  "race_or_concurrency_bug",
+                  "error_handling_defect",
+                  "release_metadata_mismatch",
+                  "documentation_drift"
+                ]
+              }
+            }
+          },
+          "location": { "type": "string" },
+          "failure_condition": { "type": "string" },
+          "acceptance_condition": { "type": "string" },
+          "blocking": { "type": "boolean" }
+        }
+      }
+    },
+    "approval_binding": {
+      "type": "object",
+      "required": ["target_type", "root_plan_digest", "active_plan_digest", "candidate_plan_digest", "allowlist_digest", "policy_profile_digest"],
+      "properties": {
+        "target_type": { "type": "string", "enum": ["plan", "corrective_plan", "implementation_diff", "release_candidate"] },
+        "root_plan_digest": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+        "active_plan_digest": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+        "candidate_plan_digest": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+        "allowlist_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "policy_profile_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "baseline_workspace_digest": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+        "diff_digest": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+        "evidence_manifest_digest": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+        "release_manifest_digest": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "architectural_defect": {
+      "type": "boolean",
+      "default": false,
+      "description": "Explicit machine-evaluable flag indicating deep architectural defect triggering Sol escalation"
+    },
+    "escalation_recommended": {
+      "type": "boolean",
+      "default": false,
+      "description": "Machine-evaluable recommendation for Sol model promotion"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "approval_binding": { "properties": { "target_type": { "const": "plan" } } } } },
+      "then": {
+        "properties": {
+          "approval_binding": {
+            "required": ["candidate_plan_digest", "baseline_workspace_digest"],
+            "properties": {
+              "root_plan_digest": { "type": "null" },
+              "active_plan_digest": { "type": "null" },
+              "candidate_plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "baseline_workspace_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "approval_binding": { "properties": { "target_type": { "const": "corrective_plan" } } } } },
+      "then": {
+        "properties": {
+          "approval_binding": {
+            "required": ["root_plan_digest", "active_plan_digest", "candidate_plan_digest", "baseline_workspace_digest", "diff_digest"],
+            "properties": {
+              "root_plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "active_plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "candidate_plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "baseline_workspace_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "diff_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "approval_binding": { "properties": { "target_type": { "const": "implementation_diff" } } } } },
+      "then": {
+        "properties": {
+          "approval_binding": {
+            "required": ["root_plan_digest", "active_plan_digest", "diff_digest", "evidence_manifest_digest"],
+            "properties": {
+              "root_plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "active_plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "candidate_plan_digest": { "type": "null" },
+              "diff_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "evidence_manifest_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "approval_binding": { "properties": { "target_type": { "const": "release_candidate" } } } } },
+      "then": {
+        "properties": {
+          "approval_binding": {
+            "required": ["root_plan_digest", "active_plan_digest", "diff_digest", "evidence_manifest_digest", "release_manifest_digest"],
+            "properties": {
+              "root_plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "active_plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "candidate_plan_digest": { "type": "null" },
+              "diff_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "evidence_manifest_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "release_manifest_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

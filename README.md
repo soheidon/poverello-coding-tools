@@ -2,18 +2,18 @@
 
 # Poverello Coding Tools
 
-**Use Claude Code / Claude Desktop as the coding harness, route inference to third-party LLM APIs, orchestrate multi-agent planner–reviewer convergence with cost-estimate tracking, and manage external models and rules for Google Antigravity.**
+**Use Claude Code / Claude Desktop as the coding harness, route inference to third-party LLM APIs, orchestrate bounded multi-agent workflows with cost-estimate tracking, and manage external models and rules for Google Antigravity.**
 
 Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companion application for AI-assisted software development. It supports five core workflows:
 
 1. **3P Gateway for Claude Code / Claude Desktop** — Keep Claude's repository exploration, tool use, file editing, and test execution while routing inference to third-party cloud providers.
 2. **Dedicated Local LLMs for Claude Code (Ollama)** — Run Claude Code completely offline with zero API costs using local Ollama models.
 3. **MCP Planner & Reviewer for Google Antigravity** — Delegate implementation planning and post-implementation review to external models via the canonical `poverello/plan`, `poverello/revise`, and `poverello/review` MCP tools (with `anthro-bridge/*` maintained for backward compatibility).
-4. **Multi-Agent Development Orchestrator** — Execute bounded Planner–Reviewer convergence workflows across CLI and API agents, track normalized token usage and rate-verified cost estimates (in nano-dollars), and maintain auditable dispatch journals.
+4. **Multi-Agent Development Orchestrator** — Run supported bounded Planner–Reviewer plan/review workflows across CLI and API agents, track normalized token usage and rate-verified cost estimates (in nano-dollars), and maintain auditable dispatch journals. These workflows do not automatically implement code; the separate full Auto-Converge lifecycle is unavailable in v0.24.6.
 5. **Antigravity Rules Management** — Configure, preview, and safely synchronize lightweight Poverello Direct Coding rules (`pov-direct.md`) for Antigravity.
 
 > [!TIP]
-> **What's New / 新実装の詳細はこちら**: For detailed specifications and changelogs of new implementations, see [NEWS.md (Release Notes)](NEWS.md). バージョンごとの新機能や詳細な実装仕様については [NEWS.md](NEWS.md) をご覧ください。
+> **What's New:** For version-by-version feature updates, implementation details, and changelogs, see [NEWS.md (Release Notes)](NEWS.md).
 
 ---
 
@@ -67,7 +67,7 @@ using subscription-backed capacity
 - **Planning vs. Execution Split**: External models generate the high-level plan or review verdict; Antigravity subscription capacity executes token-intensive code edits.
 - **Live GUI Configuration**: Switching the planner or reviewer provider, model, or reasoning effort takes effect immediately on the next invocation.
 - **Setup Guide**: [Google Antigravity + Poverello MCP Setup](docs/ANTIGRAVITY_MCP.md)
-- **Orchestrator Integration**: Can be paired with the Multi-Agent Orchestrator (Workflow 4) for autonomous convergence, normalized usage tracking, and rate-based cost estimates.
+- **Orchestrator Integration**: Can be paired with the Multi-Agent Orchestrator (Workflow 4) for supported bounded tasks, normalized usage tracking, and rate-based cost estimates. The separate full Auto-Converge workflow is hidden and unavailable in v0.24.6.
 
 The executable retains the `anthro-bridge.exe` name, and the legacy `anthro-bridge`
 MCP server key and `/anthro-*` skills remain supported for backward compatibility.
@@ -84,7 +84,7 @@ MCP server key and `/anthro-*` skills remain supported for backward compatibilit
 /pov-plan → Implementation & Tests → /pov-review → Commit
 ```
 
-### 4. Multi-Agent Development Orchestrator (Convergence & Cost Engine)
+### 4. Multi-Agent Development Orchestrator (Bounded Workflows & Cost Estimates)
 
 ```text
 Task / Requirement
@@ -95,7 +95,7 @@ Task / Requirement
 |  [Planner Profile]  ⇄  [Reviewer Profile]                   |
 |  (Generate / Revise)     (Verify / Audit Verdicts)          |
 |                                                             |
-|  • Bounded convergence loop (configurable turn limit)        |
+|  • Bounded plan/review loop (configurable turn limit)         |
 |  • Full dispatch journals (%APPDATA%\Poverello\runs\*.json) |
 |  • Integer nano-dollar cost estimates & provenance checks    |
 |  • Fail-closed status badges (Complete / Partial / N/A)     |
@@ -103,11 +103,11 @@ Task / Requirement
         ↓
 Approved Plan / Audit Log
         ↓
-Execution via Antigravity / Claude Code Harness
+Separate, user-controlled implementation via your coding harness
 ```
 
-- **Autonomous Planner–Reviewer Convergence**: Configure independent LLM profiles for planning and reviewing (e.g. Claude Opus 5.5 / Sonnet 5.5, DeepSeek V4.1, GLM-5.3, or local Ollama). The Orchestrator automates iterative generation, review, and revision loops with strict criteria enforcement until convergence or maximum turn limits.
-- **Safety Invariants & Human-in-the-Loop**: Approved in-scope additions can auto-converge; proposing a new primary plan always requires explicit human confirmation.
+- **Bounded Orchestrator Workflows**: Configure agent profiles and iteration limits for the supported Orchestrator workflows. The separate full Auto-Converge lifecycle is hidden and unavailable in v0.24.6; it is deferred to a later release and must not be treated as an operational feature in this version.
+- **Safety Invariants & Human-in-the-Loop**: Actions requiring approval remain subject to the workflow's explicit approval gates; proposing a new primary plan always requires explicit human confirmation.
 - **Auditable Run Journals**: `%APPDATA%\Poverello\runs\<run_id>.json` records run configuration, an optional task prompt, dispatch metadata and payload digests, available normalized usage and cost estimates, and Planner–Reviewer convergence audit metadata. Full adapter prompt envelopes and model responses are not stored in the run journal.
 - **Normalized Usage & Rate-Verified Cost Estimates**:
   - When an adapter returns supported, parseable usage, the journal records normalized token metrics (`input_tokens`, `output_tokens`, `raw_total_tokens`, `cache_read_tokens`, `cache_write_tokens`; serialized as `cacheWriteTokens`). Missing or unsupported usage remains unknown, not zero. Provider-native cache-creation usage maps to `cache_write_tokens`.
@@ -139,7 +139,7 @@ without expanding autonomous scope
 | Provider | Connection | Supported Families | Reasoning Controls |
 |---|---|---|---|
 | **Anthropic** | Direct API | Claude Opus 5.5, Sonnet 5.5, Haiku 4.5, 3.7 Sonnet | Adaptive thinking / effort |
-| **DeepSeek** | Direct API | DeepSeek V4.1 Flash, V4 Pro 0813 | Normal / Low / High / Max |
+| **DeepSeek** | Direct API | `deepseek-flash` (V4.1 Flash 1017), `deepseek-v4-pro` (V4 Pro 0813) | Normal / Thinking · Low / High / Max |
 | **Kimi Code** | Direct API | kimi-for-coding, kimi-for-coding-highspeed | Thinking mode |
 | **MiniMax** | Direct API | MiniMax M3, M2.7 | Model-specific |
 | **Kimi / Moonshot** | Direct API | Kimi K2.x, Kimi K3 | Thinking / Reasoning effort |
@@ -160,10 +160,11 @@ Direct official access via `https://api.anthropic.com` using `ANTHROPIC_API_KEY`
 
 ### DeepSeek (Direct)
 
-Built-in **Direct DeepSeek** preset routes Opus 5 → V4.1 Flash / Max · Sonnet 5 → V4.1 Flash / High · Haiku 4.5 → V4.1 Flash / Low.
+Built-in **Direct DeepSeek** preset uses the official stable API ID `deepseek-flash` (currently DeepSeek-V4.1-Flash-1017): Opus 5 → Max · Sonnet 5 → High · Haiku 4.5 → Low. The current official pricing page lists `deepseek-v4-pro` as DeepSeek-V4-Pro-0813. Both IDs are available through DeepSeek's Anthropic-compatible endpoint; Flash supports vision, while Pro does not. The official catalog lists a 1M-token context window and up to 384K output tokens.
 
-- `deepseek-v4.1-flash` — Current flagship reasoner ($0.27 / 1M input · $1.10 / 1M output).
-- `deepseek-v4-pro-0813` — High-quality baseline without extended reasoning ($0.27 / 1M input · $1.10 / 1M output).
+DeepSeek's official materials differ on Pro routing: the current pricing page lists V4-Pro-0813 and separate Pro rates and says API service continued after September 14, 2026, while the September 10 announcement described temporary routing to V4.1 Flash at Flash rates until V4.1-Pro launches. Poverello cannot verify routing or billing for an individual request; its displayed Pro prices are the published schedule, not an invoice or guarantee. See the [current pricing page](https://api-docs.deepseek.com/quick_start/pricing/) and [September 10 announcement](https://api-docs.deepseek.com/news/news260910/).
+
+DeepSeek's retired IDs `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` remain accepted upstream and route to the current Flash model at Flash rates. New Poverello configurations should use the canonical IDs above.
 
 ### GLM / Z.ai (Direct)
 
@@ -209,10 +210,16 @@ Dedicated local inference backend for **Claude Code CLI**:
 
 ### OpenRouter
 
-Supports multiple named profiles. Full OpenAI model catalog (single dropdown):
+Supports multiple named profiles. Current OpenAI model catalog in the single dropdown (15 models):
 
 | Model ID | Display Name |
 |---|---|
+| `openai/gpt-6.1-sol` | GPT-6.1 Sol |
+| `openai/gpt-6.1-sol-pro` | GPT-6.1 Sol Pro |
+| `openai/gpt-6-sol` | GPT-6 Sol |
+| `openai/gpt-6-sol-pro` | GPT-6 Sol Pro |
+| `openai/gpt-6-luna` | GPT-6 Luna |
+| `openai/gpt-6-luna-pro` | GPT-6 Luna Pro |
 | `openai/gpt-6-astra` | GPT-6 Astra |
 | `openai/gpt-6-astra-pro` | GPT-6 Astra Pro |
 | `openai/gpt-astra-latest` | GPT Astra Latest |
@@ -233,19 +240,16 @@ Also available: **OpenRouter: Gemini** (Gemini 3.8 Flash · reasoning effort `lo
 
 ---
 
-## Model Pricing (as of v0.23.0)
+## DeepSeek API Pricing Reference
 
-| Model | Input | Output |
-|---|---|---|
-| DeepSeek V4.1 Flash | \$0.27 / 1M | \$1.10 / 1M |
-| DeepSeek V4 Pro 0813 | \$0.27 / 1M | \$1.10 / 1M |
-| GPT-6 Astra / Astra Pro / Astra Latest | \$10 / 1M | \$50 / 1M |
-| GPT-5.6 Sol / Terra / Luna | \$5 / 1M | \$25 / 1M |
-| GPT-5.6 Sol Pro / Terra Pro / Luna Pro | \$5 / 1M | \$25 / 1M |
-| Gemini 3.8 Flash (OpenRouter) | \$0.75 / 1M | \$3.75 / 1M |
-| MiMo-V2.6-Flash | \$0.14 / 1M | \$0.28 / 1M |
-| MiMo-V2.6-Pro | \$0.435 / 1M | \$0.87 / 1M |
-| MiMo-V2.6-Pro-UltraSpeed | \$4.35 / 1M | \$8.70 / 1M |
+Official Direct API prices in USD per 1M tokens (checked 2026-10-19). Input shows cache-miss rates; cache-hit rates are in parentheses. The V4 Pro row reflects the current published pricing table; see the routing and billing caveat above.
+
+| Model ID | Peak input (miss / hit) | Off-peak input (miss / hit) | Peak output | Off-peak output |
+|---|---:|---:|---:|---:|
+| `deepseek-flash` | $0.30 ($0.006) | $0.15 ($0.003) | $1.20 | $0.60 |
+| `deepseek-v4-pro` | $1.32 ($0.044) | $0.66 ($0.022) | $3.96 | $1.98 |
+
+Peak periods are 01:00–04:00 and 06:00–10:00 UTC on weekdays, excluding Chinese public holidays; weekends and holidays are off-peak all day. Poverello includes verified 2026 holiday and make-up-workday dates and indicates when the following year's calendar is missing. Other provider prices are shown in the app's pricing view and may change; check the provider for current billing terms. Orchestrator cost estimates currently cover only eligible Anthropic Direct dispatches with explicit zero cache usage—DeepSeek rates are not presented as an Orchestrator cost estimate. [Official DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing/)
 
 ---
 
@@ -253,7 +257,7 @@ Also available: **OpenRouter: Gemini** (Gemini 3.8 Flash · reasoning effort `lo
 
 Download the latest currently published Windows installer from the [Releases](https://github.com/soheidon/poverello-coding-tools/releases) page and run it.
 
-The Windows installer supports 8 languages. Poverello v0.24.1 keeps the existing application identity and includes an in-place upgrade path from Anthro Bridge. On first launch, it is designed to copy settings and run data from `%APPDATA%\Anthro Bridge` (or `%APPDATA%\Anthro Bridge Dev` for development builds) to the corresponding Poverello data folder while retaining the original folder as a recovery copy. Real Windows installation, migration, upgrade, reinstall, cancellation, and uninstall flows have not been verified; back up important data before upgrading.
+The Windows installer supports 8 languages. Poverello keeps the existing application identity and includes an in-place upgrade path from Anthro Bridge. On first launch, it is designed to copy settings and run data from `%APPDATA%\Anthro Bridge` (or `%APPDATA%\Anthro Bridge Dev` for development builds) to the corresponding Poverello data folder while retaining the original folder as a recovery copy. Real Windows installation, migration, upgrade, reinstall, cancellation, and uninstall flows have not been verified; back up important data before upgrading.
 
 ---
 
@@ -287,8 +291,8 @@ The Windows installer supports 8 languages. Poverello v0.24.1 keeps the existing
 
 1. Open Poverello and switch to the **Orchestrator** tab in the top navigation bar.
 2. Select or customize agent profiles for the **Planner** and **Reviewer** roles (or choose a built-in preset in Orchestrator Settings).
-3. Set the convergence goal and iteration bounds.
-4. Launch convergence: monitor live dispatch progress, audit verdicts, and cost-estimate coverage badges.
+3. Set the task goal and iteration bounds for the selected Orchestrator workflow.
+4. Run the supported workflow and monitor dispatch progress, audit verdicts, and cost-estimate coverage badges. The separate full Auto-Converge workflow is unavailable in v0.24.6.
 5. Review completed runs and dispatch logs stored under `%APPDATA%\Poverello\runs\`.
 
 ### Workflow 5: Antigravity Rules Management (Poverello Direct Coding)
@@ -317,7 +321,7 @@ The Windows installer supports 8 languages. Poverello v0.24.1 keeps the existing
 
 ## Documentation
 
-- [Release Notes (NEWS.md)](NEWS.md) — Detailed changelog and newly implemented features（新実装の詳細はこちら）
+- [Release Notes (NEWS.md)](NEWS.md) — Version-by-version feature updates and implementation details.
 - [Claude Desktop / Cowork 3P Gateway Setup](docs/THIRD_PARTY_INFERENCE.md)
 - [Ollama Local Setup & CLI Configuration](docs/OLLAMA_LOCAL.md)
 - [Google Antigravity + Poverello MCP Setup](docs/ANTIGRAVITY_MCP.md)
