@@ -9,7 +9,7 @@ Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companio
 1. **3P Gateway for Claude Code / Claude Desktop** — Keep Claude's repository exploration, tool use, file editing, and test execution while routing inference to third-party cloud providers.
 2. **Dedicated Local LLMs for Claude Code (Ollama)** — Run Claude Code completely offline with zero API costs using local Ollama models.
 3. **MCP Planner & Reviewer for Google Antigravity** — Delegate implementation planning and post-implementation review to external models via the canonical `poverello/plan`, `poverello/revise`, and `poverello/review` MCP tools (with `anthro-bridge/*` maintained for backward compatibility).
-4. **Multi-Agent Development Orchestrator** — Run supported bounded Planner–Reviewer plan/review workflows across CLI and API agents, track normalized token usage and rate-verified cost estimates (in nano-dollars), and maintain auditable dispatch journals. These workflows do not automatically implement code; the separate full Auto-Converge lifecycle is unavailable in v0.24.6.
+4. **Multi-Agent Development Orchestrator** — Run supported bounded Planner–Reviewer plan/review workflows across CLI and API agents, track normalized token usage and rate-verified cost estimates (in nano-dollars), and maintain auditable dispatch journals.
 5. **Antigravity Rules Management** — Configure, preview, and safely synchronize lightweight Poverello Direct Coding rules (`pov-direct.md`) for Antigravity.
 
 > [!TIP]
@@ -67,7 +67,7 @@ using subscription-backed capacity
 - **Planning vs. Execution Split**: External models generate the high-level plan or review verdict; Antigravity subscription capacity executes token-intensive code edits.
 - **Live GUI Configuration**: Switching the planner or reviewer provider, model, or reasoning effort takes effect immediately on the next invocation.
 - **Setup Guide**: [Google Antigravity + Poverello MCP Setup](docs/ANTIGRAVITY_MCP.md)
-- **Orchestrator Integration**: Can be paired with the Multi-Agent Orchestrator (Workflow 4) for supported bounded tasks, normalized usage tracking, and rate-based cost estimates. The separate full Auto-Converge workflow is hidden and unavailable in v0.24.6.
+- **Orchestrator Integration**: Can be paired with the Multi-Agent Orchestrator (Workflow 4) for supported bounded tasks, normalized usage tracking, and rate-based cost estimates.
 
 The executable retains the `anthro-bridge.exe` name, and the legacy `anthro-bridge`
 MCP server key and `/anthro-*` skills remain supported for backward compatibility.
@@ -106,7 +106,7 @@ Approved Plan / Audit Log
 Separate, user-controlled implementation via your coding harness
 ```
 
-- **Bounded Orchestrator Workflows**: Configure agent profiles and iteration limits for the supported Orchestrator workflows. The separate full Auto-Converge lifecycle is hidden and unavailable in v0.24.6; it is deferred to a later release and must not be treated as an operational feature in this version.
+- **Bounded Orchestrator Workflows**: Configure agent profiles and iteration limits for the supported Orchestrator workflows.
 - **Safety Invariants & Human-in-the-Loop**: Actions requiring approval remain subject to the workflow's explicit approval gates; proposing a new primary plan always requires explicit human confirmation.
 - **Auditable Run Journals**: `%APPDATA%\Poverello\runs\<run_id>.json` records run configuration, an optional task prompt, dispatch metadata and payload digests, available normalized usage and cost estimates, and Planner–Reviewer convergence audit metadata. Full adapter prompt envelopes and model responses are not stored in the run journal.
 - **Normalized Usage & Rate-Verified Cost Estimates**:
@@ -120,7 +120,7 @@ Separate, user-controlled implementation via your coding harness
 ### 5. Antigravity Rules Management (Poverello Direct Coding)
 
 ```text
-Poverello GUI ("Antigravity Rules" Tab)
+Poverello GUI (Settings > Antigravity Rules)
           ↓ (Verified Apply / Rollback)
 %USERPROFILE%\.gemini\config\rules\pov-direct.md
           ↓
@@ -292,12 +292,12 @@ The Windows installer supports 8 languages. Poverello keeps the existing applica
 1. Open Poverello and switch to the **Orchestrator** tab in the top navigation bar.
 2. Select or customize agent profiles for the **Planner** and **Reviewer** roles (or choose a built-in preset in Orchestrator Settings).
 3. Set the task goal and iteration bounds for the selected Orchestrator workflow.
-4. Run the supported workflow and monitor dispatch progress, audit verdicts, and cost-estimate coverage badges. The separate full Auto-Converge workflow is unavailable in v0.24.6.
+4. Run the supported workflow and monitor dispatch progress, audit verdicts, and cost-estimate coverage badges.
 5. Review completed runs and dispatch logs stored under `%APPDATA%\Poverello\runs\`.
 
 ### Workflow 5: Antigravity Rules Management (Poverello Direct Coding)
 
-1. Open Poverello and switch to the **Antigravity Rules** tab in the top navigation bar.
+1. Open **Settings** and select **Antigravity Rules** from the settings navigation.
 2. Select the desired rule mode and inspect the generated rule preview.
 3. Click **Apply Settings** to safely write the rule to `%USERPROFILE%\.gemini\config\rules\pov-direct.md`.
 4. Existing custom comments, frontmatter fields, and backups are safely preserved.

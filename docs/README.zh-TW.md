@@ -66,7 +66,6 @@ Antigravity 使用訂閱容量
 - **規劃與執行分工**：外部模型負責生成高階計畫或審查結論；Antigravity 訂閱容量負責執行耗費大量 Token 的程式碼編輯。
 - **即時 GUI 設定**：切換規劃器或審查器的供應商、模型或推論強度，下次呼叫時立即生效。
 - **設定指南**：[Google Antigravity + Poverello MCP 設定](ANTIGRAVITY_MCP.zh-TW.md)
-- **Auto-Converge 說明**：獨立的完整 Auto-Converge 工作流程在 v0.24.6 中已隱藏且不可使用。本文所述目前支援的 Orchestrator 工作流程與其不同；Auto-Converge 已延期至後續版本。
 
 為維持相容性，可執行檔與 MCP 工具識別名稱仍保留 `anthro-bridge`。
 
@@ -88,7 +87,7 @@ Antigravity 的正式指令為 `/pov-plan`、`/pov-revise` 和 `/pov-review`；�
 
 ### 4. 多代理開發 Orchestrator（有界工作流程與成本）
 
-Orchestrator 使用可設定的角色設定檔與迭代上限執行目前支援的 Planner–Reviewer 工作流程。獨立的完整 Auto-Converge 工作流程在 v0.24.6 中不可使用。建立新的主要計畫一律需要使用者明確確認。`%APPDATA%\Poverello\runs\` 中的執行記錄會保存可取得的標準化用量、稽核中繼資料與依已核驗費率計算的成本估算。估算不是供應商帳單；不支援的路由不會計算成本。
+Orchestrator 使用可設定的角色設定檔與迭代上限執行目前支援的 Planner–Reviewer 工作流程。建立新的主要計畫一律需要使用者明確確認。`%APPDATA%\Poverello\runs\` 中的執行記錄會保存可取得的標準化用量、稽核中繼資料與依已核驗費率計算的成本估算。估算不是供應商帳單；不支援的路由不會計算成本。
 
 ### 5. Antigravity 規則管理（Poverello Direct Coding）
 
@@ -178,7 +177,7 @@ Orchestrator 使用可設定的角色設定檔與迭代上限執行目前支援�
 
 ---
 
-## DeepSeek API 價格（核驗於 2026-10-18）
+## DeepSeek API 價格（核驗於 2026-10-19）
 
 | 模型 ID | 尖峰輸入（快取未命中 / 命中） | 離峰輸入（快取未命中 / 命中） | 尖峰輸出 | 離峰輸出 |
 |---|---:|---:|---:|---:|
@@ -232,7 +231,7 @@ Windows 安裝程式支援 8 種語言。Poverello 保留既有應用程式識�
 
 ### 工作流程 5：Antigravity 規則管理
 
-1. 開啟上方導覽列中的 **Antigravity Rules** 分頁。
+1. 開啟**設定**，再從設定導覽中選取 **Antigravity Rules**。
 2. 選擇規則模式並檢查預覽。
 3. 點擊 **Apply Settings**，安全套用 `pov-direct.md`。
 4. 自訂註解、frontmatter 欄位與備份都會保留。

@@ -66,7 +66,6 @@ en utilisant la capacité d'abonnement
 - **Séparation planification / exécution** : Les modèles externes génèrent le plan de haut niveau ou le verdict de révision ; la capacité d'abonnement Antigravity exécute les modifications de code gourmandes en tokens.
 - **Configuration GUI en temps réel** : Le changement de fournisseur, de modèle ou d'effort de raisonnement du planificateur ou du réviseur prend effet immédiatement à la prochaine invocation.
 - **Guide de configuration** : [Configuration de Google Antigravity + Poverello MCP](ANTIGRAVITY_MCP.fr.md)
-- **À propos d’Auto-Converge** : Le workflow complet Auto-Converge, distinct, est masqué et indisponible dans la version 0.24.6. Les workflows Orchestrator pris en charge décrits ici sont distincts ; Auto-Converge est reporté à une version ultérieure.
 
 L’exécutable et les identifiants des outils MCP conservent le nom `anthro-bridge` pour assurer la compatibilité.
 
@@ -178,7 +177,7 @@ Préréglage intégré **OpenRouter: chatGPT** : Opus 5 → GPT-6 Astra / max ·
 
 ---
 
-## Tarifs de l’API DeepSeek (vérifiés le 18-10-2026)
+## Tarifs de l’API DeepSeek (vérifiés le 19-10-2026)
 
 | ID du modèle | Entrée pointe (cache miss / hit) | Entrée heures creuses (cache miss / hit) | Sortie pointe | Sortie heures creuses |
 |---|---:|---:|---:|---:|
@@ -232,7 +231,7 @@ L’installateur Windows prend en charge 8 langues. Poverello conserve l’ident
 
 ### Flux de travail 5 : Gestion des règles Antigravity
 
-1. Ouvrez l'onglet **Antigravity Rules**.
+1. Ouvrez **Paramètres**, puis sélectionnez **Antigravity Rules** dans la navigation des paramètres.
 2. Choisissez le mode de règles et examinez l'aperçu.
 3. Cliquez sur **Apply Settings** pour appliquer `pov-direct.md` en toute sécurité.
 4. Les commentaires personnalisés, les champs frontmatter et les sauvegardes sont préservés.

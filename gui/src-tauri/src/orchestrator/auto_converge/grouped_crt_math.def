@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-crt-math-l1-1-0.dll
+EXPORTS
+    fmod
+    pow
+    ceil
+    __setusermatherr
+    floor

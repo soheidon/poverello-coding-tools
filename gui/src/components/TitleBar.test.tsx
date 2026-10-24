@@ -35,7 +35,7 @@ describe("TitleBar Component", () => {
     // Tabs
     expect(screen.getByRole("button", { name: /Gateway for Claude Desktop/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /MCP for Antigravity/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Antigravity Rules/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Antigravity Rules/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Orchestrator/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /header\.settings/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Auto-Converge/i })).not.toBeInTheDocument();
@@ -60,10 +60,6 @@ describe("TitleBar Component", () => {
     const mcpTab = screen.getByRole("button", { name: /MCP for Antigravity/i });
     await user.click(mcpTab);
     expect(onTabChange).toHaveBeenCalledWith("mcp");
-
-    const rulesTab = screen.getByRole("button", { name: /Antigravity Rules/i });
-    await user.click(rulesTab);
-    expect(onTabChange).toHaveBeenCalledWith("antigravityRules");
 
     const settingsTab = screen.getByRole("button", { name: /header\.settings/i });
     await user.click(settingsTab);

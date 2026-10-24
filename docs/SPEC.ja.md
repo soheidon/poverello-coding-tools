@@ -85,9 +85,8 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
 - **共有モデルルーティングモジュール**: `model_routing.rs` は、ルートから upstream への解決を `proxy.rs` とコンテキストリゾルバーが共有する純粋関数に抽出し、コンテキストウィンドウがプロキシが実際に転送する upstream モデルと同一のモデルを解決することを保証する。
 - **コンテキスト容量レジストリ**: `model_catalog.json` は、既知のコンテキスト容量の静的レジストリ。組み込みの直接プロバイダーモデル（DeepSeek、MiniMax、Kimi、MiMo V2.6 および V2.5）と組み込みの OpenRouter モデル（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-6.1、GPT-6、GPT Astra Latest、GPT-5.6、Google Gemini）をカバーする。不明なカスタム OpenRouter モデルは有効なルートターゲットのままであるが、メタデータが追加されるか手動モードが設定されるまで、コンテキスト管理は Incomplete として報告される。
 - **Google Gemini モデル対応**: OpenRouter プロファイルで Gemini 3.1 Pro Preview と Gemini 3.7 Flash を組み込みモデルとして利用でき、料金・機能データも収録。Gemini 3.7 Flash はプロモーション価格と、取り消し線付きの通常価格を併記する。
-- **v0.24.6 の Auto-Converge 境界**: 全自動 Auto-Converge ワークフローと専用タブは非表示・利用不可。実装コードは保持されるが、このリリースでサポートされる運用機能ではない。既存の上限付き Orchestrator プラン・レビューは利用可能だが、コード実装を自動実行しない。
 - **GLM (Z.ai) ダイレクトプロバイダー対応**: 設定された `ZAI_API_KEY`（または Poverello に入力したキー）を使って Z.ai の Anthropic 互換エンドポイントへリクエストを送信。Poverello はキー種別、Coding Plan の購入履歴、アカウントの許可状態、課金資格を判定しないため、利用前に[Z.ai の現行セットアップガイド](https://zcode.z.ai/en/docs/configuration)でアカウントおよびエンドポイント要件を確認してください。4モデル構成（`glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx`、`glm-5.2`）。GLM-5.3 系列は推論強度（`low`, `high`, `max`）を選択可能な常時思考、GLM-5.2 は Normal/Thinking トグル。厳格な出力検証により、思考ブロックのみで最終テキストが空の場合（思考中の `max_tokens` 到達等）は Orchestrator・MCP の双方で明示的なプロバイダーエラーとしてフェイルクローズする。
-- **Antigravity ルール管理（「Antigravity Rules」タブ）**: Google Antigravity 向けの軽量 Direct Coding ルール（`pov-direct.md`）を設定・同期。YAML の `trigger` スカラーと管理ブロック（`<!-- pov-direct:managed:begin -->` ... `<!-- pov-direct:managed:end -->`）のみを操作する単一ファイルステートマシンを採用し、ユーザー独自の frontmatter、コメント、Skill インクルードを保持する。衝突耐性のある保持バックアップ、置換直前の SHA-256 および外部削除競合の検出、読み戻し検証ロールバック、旧 sidecar フォルダ存在時の保存拒否、24,000 UTF-8 バイト上限ガードを備える。8言語完全ローカライズ。
+- **Antigravity ルール管理（設定 > Antigravity Rules）**: Google Antigravity 向けの軽量 Direct Coding ルール（`pov-direct.md`）を設定・同期。YAML の `trigger` スカラーと管理ブロック（`<!-- pov-direct:managed:begin -->` ... `<!-- pov-direct:managed:end -->`）のみを操作する単一ファイルステートマシンを採用し、ユーザー独自の frontmatter、コメント、Skill インクルードを保持する。衝突耐性のある保持バックアップ、置換直前の SHA-256 および外部削除競合の検出、読み戻し検証ロールバック、旧 sidecar フォルダ存在時の保存拒否、24,000 UTF-8 バイト上限ガードを備える。8言語完全ローカライズ。
 - **Anthropic 公式 Direct プロバイダー対応**: `https://api.anthropic.com` を `ANTHROPIC_API_KEY` 経由で直接利用。ネイティブの Messages プロトコルをプロトコル変換なしで透過転送。検証済みモデルカタログ（`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5` 等）、ストリーミングおよび非ストリーミングのトークン上限障害診断（思考ブロックのみで最終テキストが生成されないまま `stop_reason: "max_tokens"` となった場合に明示的エラーでフェイルクローズ）、およびサンプリングパラメータ検証。
 - **マルチプロバイダーゲートウェイプロファイル（`gateway_profile`）**: 3つの標準 Claude ルート（`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`）それぞれに独立して異なるプロバイダーとモデルを割り当て可能。`active_provider: "gateway_profile"` および `active_gateway_profile_id` で制御され、`gateway_profiles` 配下の指定プロファイルを参照する。ルートごとの機能チェックおよび Claude Code 自動圧縮のためのコンテキスト容量計算に統合される。
 - **正本 Poverello スキル & MCP 名前空間の移行**: 正本 MCP ツール（`poverello/plan`, `poverello/revise`, `poverello/review`）およびスラッシュコマンド（`/pov-plan`, `/pov-revise`, `/pov-review`）。Poverello は Antigravity の `mcp_config.json` に `poverello` サーバーキーを加法的に登録し、既存の `anthro-bridge` キーや旧 `/anthro-*` スキルを完全な後方互換性のために保持する。親ディレクトリを削除しない堅牢な単一ファイルライフサイクル管理。
@@ -101,7 +100,7 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
 
 ### GUI 管理ツール
 
-Tauri v2 + React 19 + TypeScript。上部ナビゲーションタブ: Gateway（ダッシュボード）、MCP、Antigravity Rules、Orchestrator、Settings。
+Tauri v2 + React 19 + TypeScript。上部ナビゲーション: Gateway（ダッシュボード）、MCP、Orchestrator、Settings。設定内の項目: General、Claude Desktop、Antigravity、Antigravity Rules、Orchestrator。
 
 ```
 +------------------------------------------+

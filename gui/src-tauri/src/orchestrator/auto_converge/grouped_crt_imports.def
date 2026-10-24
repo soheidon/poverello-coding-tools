@@ -1,0 +1,11 @@
+LIBRARY VCRUNTIME140.dll
+EXPORTS
+    __current_exception_context
+    memcpy
+    memset
+    memmove
+    memcmp
+    _CxxThrowException
+    __C_specific_handler
+    __current_exception
+    __CxxFrameHandler3

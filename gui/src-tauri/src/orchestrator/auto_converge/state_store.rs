@@ -92,18 +92,31 @@ impl From<serde_json::Error> for StateStoreError {
     }
 }
 
-/// Resolves the dedicated engine authority directory under AppData, outside any workspace.
-pub fn get_engine_authority_dir() -> Result<PathBuf, StateStoreError> {
-    let base = if let Ok(appdata) = std::env::var("APPDATA") {
-        PathBuf::from(appdata)
-    } else if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
-        PathBuf::from(home).join(".poverello")
+/// Pure resolver that computes the dedicated engine authority directory path
+/// without creating directories or accessing the filesystem (§62.4.3).
+pub fn resolve_engine_authority_dir_path(
+    appdata: Option<&Path>,
+    user_profile_or_home: Option<&Path>,
+) -> Result<PathBuf, StateStoreError> {
+    let base = if let Some(appdata) = appdata {
+        appdata.to_path_buf()
+    } else if let Some(home) = user_profile_or_home {
+        home.join(".poverello")
     } else {
         return Err(StateStoreError::Crypto(
             "Unable to resolve persistent user profile directory for engine authority".into(),
         ));
     };
-    let dir = base.join("poverello").join("engine_authority");
+    Ok(base.join("poverello").join("engine_authority"))
+}
+
+/// Resolves the dedicated engine authority directory under AppData, outside any workspace.
+pub fn get_engine_authority_dir() -> Result<PathBuf, StateStoreError> {
+    let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from);
+    let dir = resolve_engine_authority_dir_path(appdata.as_deref(), home.as_deref())?;
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }

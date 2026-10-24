@@ -71,6 +71,30 @@ describe("Settings Sub-Navigation Integration", () => {
       if (cmd === "get_antigravity_mcp_status") {
         return { status: "not_configured" };
       }
+      if (cmd === "get_pov_direct_status") {
+        return {
+          rule_path: "C:\\Users\\Sohei\\.gemini\\config\\rules\\pov-direct.md",
+          skill_path: "C:\\Users\\Sohei\\.gemini\\config\\skills\\pov-direct\\SKILL.md",
+          skill_present: true,
+          state: "managed_synced",
+          settings_state: "embedded_valid",
+          settings: {
+            auto_activation: false,
+            web_research: "requested_only",
+            response_verbosity: "detailed",
+            repository_exploration: "detailed",
+            verification: "broad",
+          },
+          preview_text: "Automatic activation: Disabled (manual only: activated via @pov-direct mention; /pov-direct invokes canonical Skill only)\nWeb research: When requested only\nResponse verbosity: detailed\nRepository exploration: detailed\nVerification: broad",
+          expanded_byte_size: 3820,
+          byte_limit: 24000,
+          can_apply: true,
+          available_operations: ["apply"],
+          block_reason: null,
+          content_hash: "abc123hash",
+          legacy_sidecar_present: false,
+        };
+      }
       if (cmd === "get_antigravity_commands_status") {
         return { skills_dir: "", plan_command: { name: "anthro-plan", status: "not_installed" }, revise_command: { name: "anthro-revise", status: "not_installed" } };
       }
@@ -85,7 +109,7 @@ describe("Settings Sub-Navigation Integration", () => {
     });
   });
 
-  it("navigates to Settings and switches between General, Claude Desktop, Antigravity, and Orchestrator", async () => {
+  it("navigates to Settings and switches between General, Claude Desktop, Antigravity, Antigravity Rules, and Orchestrator", async () => {
     const user = userEvent.setup();
     render(
       <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
@@ -101,11 +125,13 @@ describe("Settings Sub-Navigation Integration", () => {
     const generalNav = await screen.findByRole("button", { name: /settings\.nav\.general/i });
     const claudeNav = screen.getByRole("button", { name: /settings\.nav\.claudeDesktop/i });
     const antigravityNav = screen.getByRole("button", { name: /settings\.nav\.antigravity/i });
+    const rulesNav = screen.getByRole("button", { name: /Antigravity Rules/i });
     const orchestratorNav = screen.getByRole("button", { name: "Orchestrator" });
 
     expect(generalNav).toBeInTheDocument();
     expect(claudeNav).toBeInTheDocument();
     expect(antigravityNav).toBeInTheDocument();
+    expect(rulesNav).toBeInTheDocument();
     expect(orchestratorNav).toBeInTheDocument();
 
     // 1. Initial sub-tab: General
@@ -115,6 +141,7 @@ describe("Settings Sub-Navigation Integration", () => {
     expect(screen.queryByText(/apiKeyPanel\.header/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/claudeConfig\.header/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/antigravity\.header/i)).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("heading", { name: /Poverello Direct Coding/i })).toHaveLength(0);
 
     // 2. Click Claude Desktop
     await user.click(claudeNav);
@@ -124,6 +151,7 @@ describe("Settings Sub-Navigation Integration", () => {
     expect(screen.getByText(/claudeConfig\.header/i)).toBeInTheDocument();
     expect(screen.queryByText(/language\.header/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/antigravity\.header/i)).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("heading", { name: /Poverello Direct Coding/i })).toHaveLength(0);
 
     // 3. Click Antigravity
     await user.click(antigravityNav);
@@ -133,18 +161,53 @@ describe("Settings Sub-Navigation Integration", () => {
     expect(screen.queryByText(/claudeConfig\.header/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/apiKeyPanel\.header/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/language\.header/i)).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("heading", { name: /Poverello Direct Coding/i })).toHaveLength(0);
 
+    // 4. Click Antigravity Rules
+    await user.click(rulesNav);
+    expect(rulesNav).toHaveClass("active");
+    expect(antigravityNav).not.toHaveClass("active");
+    expect((await screen.findAllByRole("heading", { name: /Poverello Direct Coding/i })).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/claudeConfig\.header/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/apiKeyPanel\.header/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/language\.header/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/antigravity\.header/i)).not.toBeInTheDocument();
+
+    // Verify non-default persisted values from backend are loaded rather than component defaults (§47)
+    const autoActivationCheckbox = screen.getByRole("checkbox");
+    expect(autoActivationCheckbox).not.toBeChecked();
+
+    const requestedOnlyRadio = screen.getAllByRole("radio").find((r) => (r as HTMLInputElement).value === "requested_only");
+    expect(requestedOnlyRadio).toBeChecked();
+
+    expect(screen.getByText(/Automatic activation: Disabled/i)).toBeInTheDocument();
+    expect(screen.getByText(/Web research: When requested only/i)).toBeInTheDocument();
+    expect(screen.getByText(/Response verbosity: detailed/i)).toBeInTheDocument();
+    expect(screen.getByText(/Repository exploration: detailed/i)).toBeInTheDocument();
+    expect(screen.getByText(/Verification: broad/i)).toBeInTheDocument();
+
+    expect(screen.queryByText(/Automatic activation: Enabled/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Web research: When requested or necessary/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Response verbosity: concise/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Repository exploration: minimal/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Verification: focused/i)).not.toBeInTheDocument();
+
+    // 5. Click Orchestrator
     await user.click(orchestratorNav);
     expect(orchestratorNav).toHaveClass("active");
+    expect(rulesNav).not.toHaveClass("active");
     expect(await screen.findByRole("heading", { name: "orchestrator.settings.profiles" })).toBeInTheDocument();
+    expect(screen.queryAllByRole("heading", { name: /Poverello Direct Coding/i })).toHaveLength(0);
 
-    // 4. Return to General
+    // 6. Return to General
     await user.click(generalNav);
     expect(generalNav).toHaveClass("active");
-    expect(antigravityNav).not.toHaveClass("active");
+    expect(orchestratorNav).not.toHaveClass("active");
+    expect(rulesNav).not.toHaveClass("active");
     expect(screen.getByText(/language\.header/i)).toBeInTheDocument();
     expect(screen.queryByText(/apiKeyPanel\.header/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/antigravity\.header/i)).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("heading", { name: /Poverello Direct Coding/i })).toHaveLength(0);
     expect(screen.queryByText("orchestrator.settings.title")).not.toBeInTheDocument();
   });
 });

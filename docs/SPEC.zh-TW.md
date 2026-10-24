@@ -85,9 +85,8 @@
 - **共享模型路由模組**：`model_routing.rs` 將路由到上游的解析抽取為純函式，由 `proxy.rs` 與上下文解析器共享，確保上下文視窗解析出的上游模型與代理實際轉發的模型相同。
 - **上下文容量登錄**：`model_catalog.json` 是已知上下文容量的靜態登錄，涵蓋內建的直接提供者模型（DeepSeek、MiniMax、Kimi、MiMo V2.6 與 V2.5）與內建的 OpenRouter 模型（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-6.1、GPT-6、GPT Astra Latest、GPT-5.6 與 Google Gemini）。未知的自訂 OpenRouter 模型仍可作為有效的路由目標，但在加入元資料或設定手動模式之前，會將上下文管理回報為 Incomplete。
 - **Google Gemini 模型支援**：OpenRouter 設定支援內建的 Gemini 3.1 Pro Preview 與 Gemini 3.7 Flash，並附有價格與能力資料。Gemini 3.7 Flash 會同時顯示促銷價格與刪除線標示的標準價格。
-- **v0.24.6 Auto-Converge 範圍**：完整 Auto-Converge 工作流程及其專屬分頁已隱藏且無法使用。實作程式碼會保留，但本版本不支援將其作為可運作功能。既有受限的 Orchestrator 計畫／審查工作流程仍可使用，但不會自動實作程式碼。
 - **GLM（Z.ai）直接提供者支援**：使用設定的 `ZAI_API_KEY`（或 Poverello 儲存的金鑰）向 Z.ai 的 Anthropic 相容端點送出請求。Poverello 不判斷金鑰類型、Coding Plan 購買紀錄、帳戶允許名單或計費資格；使用前請參閱 [Z.ai 最新設定指南](https://zcode.z.ai/en/docs/configuration)。目錄包含 `glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx` 與 `glm-5.2`。GLM-5.3 系列一律啟用思考並可選推理強度（`low`、`high`、`max`）；GLM-5.2 提供一般/思考切換。空白或僅有思考內容的回應會在 Orchestrator 與 MCP 中以明確提供者錯誤 fail-closed。
-- **Antigravity 規則管理**：「Antigravity Rules」分頁以狀態機管理 `pov-direct.md`，只修改 YAML `trigger` 純量與有界管理區塊，同時保留使用者的 frontmatter、註解及 Skill 引用。安全措施包括防衝突且不自動清理的備份、替換前 SHA-256 與外部刪除衝突檢查、驗證後回復、舊 sidecar 資料夾保護，以及 24,000 UTF-8 位元組限制；提供八種語言在地化。
+- **Antigravity 規則管理（設定 > Antigravity Rules）**：設定區段以狀態機管理 `pov-direct.md`，只修改 YAML `trigger` 純量與有界管理區塊，同時保留使用者的 frontmatter、註解及 Skill 引用。安全措施包括防衝突且不自動清理的備份、替換前 SHA-256 與外部刪除衝突檢查、驗證後回復、舊 sidecar 資料夾保護，以及 24,000 UTF-8 位元組限制；提供八種語言在地化。
 - **Anthropic 官方直接提供者**：透過 `ANTHROPIC_API_KEY` 直接連線 `https://api.anthropic.com`，不做協定轉換而轉送原生 Messages 請求；包含已驗證模型目錄、串流與非串流 token 上限故障診斷，以及原生取樣參數驗證。
 - **多提供者閘道設定檔（`gateway_profile`）**：可為三個標準 Claude 路由（`claude-opus-5`、`claude-sonnet-5`、`claude-haiku-4-5`）分別指定提供者與模型。透過 `active_provider` 和 `active_gateway_profile_id` 啟用，設定存於 `gateway_profiles`，並整合能力檢查及 Claude Code 自動壓縮的上下文計算。
 - **Poverello Skills 與 MCP 正式命名空間**：正式工具為 `poverello/plan`、`poverello/revise`、`poverello/review`，斜線命令為 `/pov-plan`、`/pov-revise`、`/pov-review`。Poverello 會在 Antigravity 中以新增方式註冊 `poverello` 伺服器鍵，同時保留 `anthro-bridge` 與舊 `/anthro-*` Skills 以維持相容性，並安全管理單一檔案生命週期。

@@ -66,7 +66,6 @@ usando capacidad respaldada por suscripción
 - **División Planificación / Ejecución**: Los modelos externos generan el plan de alto nivel o el veredicto de revisión; la capacidad de suscripción de Antigravity ejecuta las ediciones de código intensivas en tokens.
 - **Configuración en Vivo desde la GUI**: Cambiar el proveedor, el modelo o el nivel de razonamiento del planificador o revisor tiene efecto inmediato en la siguiente invocación.
 - **Guía de Configuración**: [Configuración de Google Antigravity + Poverello MCP](ANTIGRAVITY_MCP.es.md)
-- **Aviso sobre Auto-Converge**: El flujo completo e independiente de Auto-Converge está oculto y no disponible en v0.24.6. Los flujos compatibles de Orchestrator descritos aquí son distintos; Auto-Converge queda aplazado a una versión futura.
 
 El ejecutable y los identificadores de herramientas MCP conservan el nombre `anthro-bridge` por compatibilidad.
 
@@ -178,7 +177,7 @@ También disponibles: **OpenRouter: Gemini** (Gemini 3.8 Flash · nivel de razon
 
 ---
 
-## Precios de la API de DeepSeek (verificados el 18-10-2026)
+## Precios de la API de DeepSeek (verificados el 19-10-2026)
 
 | ID del modelo | Entrada pico (fallo / acierto de caché) | Entrada valle (fallo / acierto de caché) | Salida pico | Salida valle |
 |---|---:|---:|---:|---:|
@@ -232,7 +231,7 @@ El instalador de Windows admite 8 idiomas. Poverello conserva la identidad de ap
 
 ### Flujo de Trabajo 5: Gestión de reglas de Antigravity
 
-1. Abre la pestaña **Antigravity Rules**.
+1. Abre **Configuración** y selecciona **Antigravity Rules** en la navegación de ajustes.
 2. Selecciona el modo de reglas y revisa la vista previa.
 3. Pulsa **Apply Settings** para aplicar de forma segura `pov-direct.md`.
 4. Se conservan los comentarios personalizados, los campos frontmatter y las copias de seguridad.

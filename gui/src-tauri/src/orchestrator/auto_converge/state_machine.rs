@@ -185,6 +185,8 @@ pub fn initialize_run(
                 .to_string(),
         }],
         configured_agent_cli: config.agent_cli_path,
+        candidate_binding: None,
+        promotion_journal: None,
         engine_auth_tag: String::new(),
     };
     state.engine_auth_tag = super::guards::compute_engine_state_auth_tag(&state)?;

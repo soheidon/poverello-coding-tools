@@ -99,6 +99,7 @@ fn make_plan_verdict_json(
             diff_digest: None,
             evidence_manifest_digest: None,
             release_manifest_digest: None,
+            ..Default::default()
         },
         architectural_defect: arch_defect,
         escalation_recommended: false,
@@ -127,6 +128,14 @@ fn make_impl_verdict_json(
             diff_digest: state.current_diff_digest.clone(),
             evidence_manifest_digest: state.current_evidence_manifest_digest.clone(),
             release_manifest_digest: None,
+            bundle_digest: state
+                .candidate_binding
+                .as_ref()
+                .and_then(|cb| cb.review_bundle_digest.clone())
+                .or_else(|| Some(SNAP_HASH.to_string())),
+            run_id: Some(state.run_id.clone()),
+            cycle: state.candidate_binding.as_ref().map(|cb| cb.cycle),
+            implementer_session_id: state.candidate_binding.as_ref().map(|cb| cb.session_id.clone()),
         },
         architectural_defect: arch_defect,
         escalation_recommended: false,
@@ -154,6 +163,7 @@ fn make_corrective_verdict_json(
             diff_digest: state.current_diff_digest.clone(),
             evidence_manifest_digest: None,
             release_manifest_digest: None,
+            ..Default::default()
         },
         architectural_defect: false,
         escalation_recommended: false,
@@ -1303,6 +1313,7 @@ fn test_full_release_sequence_execution() {
             diff_digest: state.current_diff_digest.clone(),
             evidence_manifest_digest: state.current_evidence_manifest_digest.clone(),
             release_manifest_digest: state.current_release_manifest_digest.clone(),
+            ..Default::default()
         },
         architectural_defect: false,
         escalation_recommended: false,
@@ -2336,6 +2347,7 @@ fn test_forged_or_stale_approval_cannot_advance_fsm() {
             diff_digest: state.current_diff_digest.clone(),
             evidence_manifest_digest: state.current_evidence_manifest_digest.clone(),
             release_manifest_digest: None,
+            ..Default::default()
         },
         invalidated: false,
         engine_auth_tag: "0000000000000000000000000000000000000000000000000000000000000000"
@@ -2589,6 +2601,9 @@ fn test_production_agent_runner_blocks_on_isolation_failure() {
         runtime_allowlist: vec!["src/lib.rs".to_string()],
         input_prompt: "echo probe".to_string(),
         timeout_seconds: 5,
+        model: None,
+        reasoning_effort: None,
+        run_id: None,
     };
 
     let result = runner.execute_role_session(&req);
@@ -2651,6 +2666,9 @@ fn test_missing_or_unsupported_cli_fails_closed_zero_launch() {
         runtime_allowlist: vec!["src/lib.rs".to_string()],
         input_prompt: "Create plan".to_string(),
         timeout_seconds: 5,
+        model: None,
+        reasoning_effort: None,
+        run_id: None,
     };
     let res = runner.execute_role_session(&req);
     assert!(res.is_err(), "Unconfigured runner must fail closed");
@@ -2696,10 +2714,33 @@ fn test_reviewer_verdict_schema_validation_and_malformed_rejection() {
     std::fs::create_dir_all(&snap).unwrap();
 
     // Script 1: outputs malformed JSON missing required fields
-    let bad_script = dir.path().join("bad_verdict.cmd");
-    std::fs::write(&bad_script, b"@echo off\r\necho {\"random_key\": 123}\r\n").unwrap();
+    let bad_src = dir.path().join("bad_verdict.rs");
+    let bad_exe = dir.path().join("bad_verdict.exe");
+    std::fs::write(
+        &bad_src,
+        r#"
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    for i in 0..args.len() {
+        if args[i] == "--output-last-message" && i + 1 < args.len() {
+            let _ = std::fs::write(&args[i + 1], "{\"random_key\": 123}");
+        }
+    }
+}"#,
+    )
+    .unwrap();
 
-    let runner = ProductionAgentRunner::with_cli(bad_script);
+    let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let compile = std::process::Command::new(&rustc)
+        .arg("--edition=2021")
+        .arg(&bad_src)
+        .arg("-o")
+        .arg(&bad_exe)
+        .output()
+        .expect("rustc must execute");
+    assert!(compile.status.success());
+
+    let runner = ProductionAgentRunner::with_cli(bad_exe);
     let req = RoleExecutionRequest {
         role: AutoConvergeRole::Reviewer,
         session_id: "rev-001".to_string(),
@@ -2709,6 +2750,9 @@ fn test_reviewer_verdict_schema_validation_and_malformed_rejection() {
         runtime_allowlist: vec!["src/lib.rs".to_string()],
         input_prompt: "Review plan".to_string(),
         timeout_seconds: 5,
+        model: None,
+        reasoning_effort: None,
+        run_id: None,
     };
 
     let res = runner.execute_role_session(&req);
@@ -2718,18 +2762,37 @@ fn test_reviewer_verdict_schema_validation_and_malformed_rejection() {
     );
     let err = res.err().unwrap();
     assert!(
-        err.contains("schema validation for CodexReviewVerdict"),
+        err.contains("schema validation") || err.contains("missing required property"),
         "Unexpected error: {err}"
     );
 
     // Script 2: outputs unclosed/truncated JSON
-    let trunc_script = dir.path().join("trunc_verdict.cmd");
+    let trunc_src = dir.path().join("trunc_verdict.rs");
+    let trunc_exe = dir.path().join("trunc_verdict.exe");
     std::fs::write(
-        &trunc_script,
-        b"@echo off\r\necho {\"verdict\": \"APPROVE\"\r\n",
+        &trunc_src,
+        r#"
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    for i in 0..args.len() {
+        if args[i] == "--output-last-message" && i + 1 < args.len() {
+            let _ = std::fs::write(&args[i + 1], "{\"verdict\": \"APPROVE\"");
+        }
+    }
+}"#,
     )
     .unwrap();
-    let trunc_runner = ProductionAgentRunner::with_cli(trunc_script);
+
+    let compile2 = std::process::Command::new(&rustc)
+        .arg("--edition=2021")
+        .arg(&trunc_src)
+        .arg("-o")
+        .arg(&trunc_exe)
+        .output()
+        .expect("rustc must execute");
+    assert!(compile2.status.success());
+
+    let trunc_runner = ProductionAgentRunner::with_cli(trunc_exe);
     let res2 = trunc_runner.execute_role_session(&req);
     assert!(
         res2.is_err(),
@@ -2765,6 +2828,9 @@ fn test_timeout_and_process_tree_termination() {
         runtime_allowlist: vec![],
         input_prompt: "Sleep".to_string(),
         timeout_seconds: 1, // 1 second timeout
+        model: None,
+        reasoning_effort: None,
+        run_id: None,
     };
 
     let start = std::time::Instant::now();
@@ -2808,6 +2874,9 @@ fn test_output_bounding_rejects_exceeded_capture() {
         runtime_allowlist: vec![],
         input_prompt: "Output lots of bytes".to_string(),
         timeout_seconds: 10,
+        model: None,
+        reasoning_effort: None,
+        run_id: None,
     };
 
     let res = runner.execute_role_session(&req);
@@ -2840,7 +2909,8 @@ fn test_phase_a_happy_path_and_corrective_cycle_with_fake_executable() {
 
     let mut config = default_test_config(fast_profile());
     config.working_dir = ws.to_string_lossy().to_string();
-    let run_id = config.run_id.clone().unwrap();
+    let run_id = format!("ac-test-run-{}", uuid::Uuid::new_v4());
+    config.run_id = Some(run_id.clone());
     let state_file = dir.path().join("run_state.json");
     let git_runner = MockCommandRunner::new();
 
@@ -2985,6 +3055,10 @@ fn test_phase_a_happy_path_and_corrective_cycle_with_fake_executable() {
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string()),
                             release_manifest_digest: None,
+                            bundle_digest: compute_filesystem_manifest_hash(snap).ok(),
+                            run_id: m.get("run_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                            cycle: m.get("cycle").and_then(|v| v.as_u64()),
+                            implementer_session_id: m.get("producer_session_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
                         },
                         architectural_defect: false,
                         escalation_recommended: false,
@@ -2998,7 +3072,7 @@ fn test_phase_a_happy_path_and_corrective_cycle_with_fake_executable() {
                     })
                 }
                 AutoConvergeRole::Implementer => {
-                    let target = self.workspace.join("src").join("lib.rs");
+                    let target = request.workspace_root.join("src").join("lib.rs");
                     std::fs::write(&target, b"pub fn initial() {}\npub fn implemented() {}\n")
                         .unwrap();
                     Ok(RoleExecutionResponse {
@@ -3039,6 +3113,10 @@ fn test_phase_a_happy_path_and_corrective_cycle_with_fake_executable() {
         AutoConvergeState::ImplementationApproved
     );
     assert!(loaded.is_terminal);
+
+    if let Some(cb) = state.candidate_binding.as_ref() {
+        let _ = std::fs::remove_dir_all(&cb.candidate_root);
+    }
 }
 
 // 52. (§24.4.3, §24.5) test_preflight_missing_plan_fails_closed_with_zero_launches
@@ -3303,6 +3381,7 @@ fn test_post_launch_snapshot_tampering_discards_verdict_and_blocks_run() {
                     diff_digest: None,
                     evidence_manifest_digest: None,
                     release_manifest_digest: None,
+                    ..Default::default()
                 },
                 architectural_defect: false,
                 escalation_recommended: false,
@@ -4247,6 +4326,7 @@ fn test_deterministic_post_launch_hash_fault_discards_verdict() {
                     diff_digest: None,
                     evidence_manifest_digest: None,
                     release_manifest_digest: None,
+                    ..Default::default()
                 },
                 architectural_defect: false,
                 escalation_recommended: false,
@@ -4705,4 +4785,5862 @@ fn test_corrective_plan_review_mode_mismatch_regression() {
             .readonly(),
         "Guard must restore permissions after unwind"
     );
+}
+
+// 76. (§57 Stage 1A) test_reviewer_stage_1a_offline_wiring_and_dedicated_paths
+#[test]
+fn test_reviewer_stage_1a_offline_wiring_and_dedicated_paths() {
+    use super::agent_runner::RoleExecutionRequest;
+    use super::codex_exec::{
+        build_reviewer_launch_configuration, read_bounded_json, resume_invocation,
+        validate_object_schema, CodexRoleProfile, MAX_CODEX_SCHEMA_BYTES,
+    };
+    use super::isolation::AutoConvergeRole;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let ws = dir.path().join("workspace");
+    let snap = dir.path().join("snapshot");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::create_dir_all(&snap).unwrap();
+    let plan_file = snap.join("plan.md");
+    std::fs::write(&plan_file, "# Canonical Review Plan").unwrap();
+
+    let req = RoleExecutionRequest {
+        role: AutoConvergeRole::Reviewer,
+        session_id: "ac-run-42-plan-reviewer-1".to_string(),
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap.clone()),
+        plan_path: plan_file,
+        runtime_allowlist: vec!["src/lib.rs".to_string()],
+        input_prompt: "Review candidate plan against requirements".to_string(),
+        timeout_seconds: 300,
+        model: Some("gpt-5-codex".to_string()),
+        reasoning_effort: Some("high".to_string()),
+        run_id: Some("ac-run-42".to_string()),
+    };
+
+    let launch = build_reviewer_launch_configuration(&req)
+        .expect("build_reviewer_launch_configuration must succeed for Reviewer role");
+
+    // 1. Invariant: CLI arguments match Codex exec protocol
+    assert_eq!(launch.invocation.role, CodexRoleProfile::Reviewer);
+    assert_eq!(launch.invocation.args[0], "exec");
+    assert_eq!(launch.invocation.args[1], "--json");
+    assert!(launch.invocation.args.contains(&"--profile".to_string()));
+    assert!(launch.invocation.args.contains(&"reviewer".to_string()));
+    assert!(launch.invocation.args.contains(&"--ignore-rules".to_string()));
+    assert!(!launch.invocation.args.contains(&"--ignore-user-config".to_string()));
+    assert!(launch.invocation.args.contains(&"--model".to_string()));
+    assert!(launch.invocation.args.contains(&"gpt-5-codex".to_string()));
+    assert!(launch.invocation.args.contains(&"--config".to_string()));
+    assert!(launch
+        .invocation
+        .args
+        .contains(&"model_reasoning_effort=\"high\"".to_string()));
+    assert!(launch.invocation.args.contains(&"--output-last-message".to_string()));
+    assert!(launch.invocation.args.contains(&"--output-schema".to_string()));
+    assert_eq!(launch.invocation.args.last().map(String::as_str), Some("-"));
+    assert_eq!(launch.invocation.stdin, b"Review candidate plan against requirements");
+    assert!(launch.invocation.thread_id.is_none(), "Reviewers must always start fresh sessions");
+
+    // 2. Invariant: Fresh session enforcement (cannot resume Reviewer thread)
+    let resume_attempt = resume_invocation(
+        &launch.paths,
+        CodexRoleProfile::Reviewer,
+        "gpt-5-codex",
+        "high",
+        "01a15152-eddc-72b0-8eb9-1906203b1255",
+        "attempting resume",
+        &launch.paths,
+    );
+    assert!(
+        resume_attempt.is_err(),
+        "Reviewer sessions must fail closed on resume attempts"
+    );
+
+    // 3. Invariant: Dedicated CODEX_HOME and managed config.toml permissions
+    assert!(launch.paths.codex_home.exists());
+    assert!(launch.paths.sqlite_home.exists());
+    let config_toml_path = launch.paths.codex_home.join("config.toml");
+    assert!(config_toml_path.exists());
+    let config_str = std::fs::read_to_string(&config_toml_path).unwrap();
+    assert!(config_str.contains("default_permissions = \"reviewer\""));
+    assert!(config_str.contains("\":root\" = \"deny\""));
+    assert!(config_str.contains("\".\" = \"read\""));
+    assert!(config_str.contains("enabled = false"));
+
+    // 4. Invariant: Structured output schema conforms to strict schema validator
+    let schema_val =
+        read_bounded_json(&launch.paths.output_schema, MAX_CODEX_SCHEMA_BYTES, "schema")
+            .unwrap();
+    validate_object_schema(&schema_val).unwrap();
+}
+
+// 77. (§57 Stage 1A) test_reviewer_stage_1a_child_environment_sanitization_forbids_credentials
+#[test]
+fn test_reviewer_stage_1a_child_environment_sanitization_forbids_credentials() {
+    use super::agent_runner::RoleExecutionRequest;
+    use super::codex_exec::build_reviewer_launch_configuration;
+    use super::isolation::AutoConvergeRole;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let ws = dir.path().join("workspace");
+    let snap = dir.path().join("snapshot");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::create_dir_all(&snap).unwrap();
+    let plan_file = snap.join("plan.md");
+    std::fs::write(&plan_file, "# Plan").unwrap();
+
+    let req = RoleExecutionRequest {
+        role: AutoConvergeRole::Reviewer,
+        session_id: "ac-run-auth-test-reviewer-1".to_string(),
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap.clone()),
+        plan_path: plan_file,
+        runtime_allowlist: vec![],
+        input_prompt: "Review".to_string(),
+        timeout_seconds: 30,
+        model: None,
+        reasoning_effort: None,
+        run_id: Some("ac-run-auth".to_string()),
+    };
+
+    let launch = build_reviewer_launch_configuration(&req).unwrap();
+    let env_keys: Vec<String> = launch
+        .environment
+        .iter()
+        .map(|(k, _)| k.to_string_lossy().to_ascii_uppercase())
+        .collect();
+
+    // Dedicated dirs present
+    assert!(env_keys.contains(&"CODEX_HOME".to_string()));
+    assert!(env_keys.contains(&"CODEX_SQLITE_HOME".to_string()));
+
+    // Git / provider / API credentials strictly prohibited
+    for forbidden in [
+        "OPENAI_API_KEY",
+        "CODEX_API_KEY",
+        "GITHUB_TOKEN",
+        "GIT_AUTHOR",
+        "GIT_COMMITTER",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+    ] {
+        assert!(
+            !env_keys.iter().any(|k| k == forbidden),
+            "Child environment must not contain credential variable {forbidden}"
+        );
+    }
+}
+
+// 78. (§57 Stage 1A) test_reviewer_stage_1a_production_dispatch_fails_closed_without_sandbox
+#[test]
+fn test_reviewer_stage_1a_production_dispatch_fails_closed_without_sandbox() {
+    use super::agent_runner::{AgentCommandRunner, ProductionAgentRunner, RoleExecutionRequest};
+    use super::isolation::{AutoConvergeRole, TEST_ISOLATION_LOCK, set_test_isolation_pass};
+
+    let _lock = TEST_ISOLATION_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    set_test_isolation_pass(false);
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let ws = dir.path().join("workspace");
+    let snap = dir.path().join("snapshot");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::create_dir_all(&snap).unwrap();
+    let fake_cli = dir.path().join("fake_cli.cmd");
+    std::fs::write(&fake_cli, b"@echo off\r\necho OK\r\n").unwrap();
+
+    let runner = ProductionAgentRunner::with_cli(fake_cli);
+    let req = RoleExecutionRequest {
+        role: AutoConvergeRole::Reviewer,
+        session_id: "prod-blocked-run-1".to_string(),
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap.clone()),
+        plan_path: snap.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: "Review".to_string(),
+        timeout_seconds: 5,
+        model: None,
+        reasoning_effort: None,
+        run_id: Some("prod-blocked".to_string()),
+    };
+
+    let result = runner.execute_role_session(&req);
+    assert!(
+        result.is_err(),
+        "Production Reviewer dispatch must fail closed without proven platform sandbox"
+    );
+    let err = result.err().unwrap();
+    assert!(
+        err.contains("Reviewer isolation preflight failed") || err.contains("Unsupported platform"),
+        "Unexpected error: {err}"
+    );
+}
+
+// 79. (§57 Stage 1A) test_reviewer_stage_1a_offline_fake_executable_dispatch_contract
+#[test]
+fn test_reviewer_stage_1a_offline_fake_executable_dispatch_contract() {
+    use super::agent_runner::{AgentCommandRunner, ProductionAgentRunner, RoleExecutionRequest};
+    use super::isolation::{AutoConvergeRole, TEST_ISOLATION_LOCK, set_test_isolation_pass};
+    use super::types::CodexReviewVerdict;
+
+    let _lock = TEST_ISOLATION_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    set_test_isolation_pass(true);
+    struct IsolationCleaner;
+    impl Drop for IsolationCleaner {
+        fn drop(&mut self) {
+            super::isolation::set_test_isolation_pass(false);
+        }
+    }
+    let _cleaner = IsolationCleaner;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let ws = dir.path().join("workspace");
+    let snap = dir.path().join("snapshot");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::create_dir_all(&snap).unwrap();
+
+    let fake_verdict = serde_json::json!({
+        "verdict": "APPROVE",
+        "summary": "Stage 1A offline wiring contract verification passed",
+        "findings": [],
+        "approval_binding": {
+            "target_type": "plan",
+            "candidate_plan_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "allowlist_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "policy_profile_digest": "3333333333333333333333333333333333333333333333333333333333333333"
+        },
+        "architectural_defect": false,
+        "escalation_recommended": false
+    });
+    let verdict_str = serde_json::to_string(&fake_verdict).unwrap();
+
+    let fake_src = dir.path().join("fake_codex_reviewer.rs");
+    let fake_exe = dir.path().join("fake_codex_reviewer.exe");
+    let escaped_verdict_literal = serde_json::to_string(&verdict_str).unwrap();
+    let src_code = format!(
+        r#"
+fn main() {{
+    let args: Vec<String> = std::env::args().collect();
+    let mut model = String::new();
+    let mut output_path = String::new();
+    for i in 0..args.len() {{
+        if args[i] == "--model" && i + 1 < args.len() {{
+            model = args[i + 1].clone();
+        }}
+        if args[i] == "--output-last-message" && i + 1 < args.len() {{
+            output_path = args[i + 1].clone();
+        }}
+    }}
+    match model.as_str() {{
+        "mode_exit_nonzero" => {{
+            if !output_path.is_empty() {{
+                let _ = std::fs::write(&output_path, {escaped_verdict_literal});
+            }}
+            println!("{{{{\"type\":\"thread.started\",\"thread_id\":\"01a15152-eddc-72b0-8eb9-1906203b1255\"}}}}");
+            println!("{{{{\"type\":\"turn.completed\"}}}}");
+            std::process::exit(42);
+        }}
+        "mode_sleep" => {{
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        }}
+        "mode_stdout_only" => {{
+            println!("{{{{\"type\":\"thread.started\",\"thread_id\":\"01a15152-eddc-72b0-8eb9-1906203b1255\"}}}}");
+            println!("{{{{\"type\":\"message.delta\",\"text\":{{}}}}}}", {escaped_verdict_literal});
+            println!("{{{{\"type\":\"turn.completed\"}}}}");
+        }}
+        "mode_dir_artifact" => {{
+            if !output_path.is_empty() {{
+                let _ = std::fs::create_dir_all(&output_path);
+            }}
+            println!("{{{{\"type\":\"thread.started\",\"thread_id\":\"01a15152-eddc-72b0-8eb9-1906203b1255\"}}}}");
+            println!("{{{{\"type\":\"turn.completed\"}}}}");
+        }}
+        "mode_symlink_artifact" => {{
+            if !output_path.is_empty() {{
+                let target = output_path.clone() + ".target.json";
+                let _ = std::fs::write(&target, {escaped_verdict_literal});
+                #[cfg(windows)]
+                let _ = std::os::windows::fs::symlink_file(&target, &output_path);
+                #[cfg(unix)]
+                let _ = std::os::unix::fs::symlink(&target, &output_path);
+            }}
+            println!("{{{{\"type\":\"thread.started\",\"thread_id\":\"01a15152-eddc-72b0-8eb9-1906203b1255\"}}}}");
+            println!("{{{{\"type\":\"turn.completed\"}}}}");
+        }}
+        "mode_invalid_schema" => {{
+            if !output_path.is_empty() {{
+                let _ = std::fs::write(&output_path, "{{ \"unexpected\": true }}");
+            }}
+            println!("{{{{\"type\":\"thread.started\",\"thread_id\":\"01a15152-eddc-72b0-8eb9-1906203b1255\"}}}}");
+            println!("{{{{\"type\":\"turn.completed\"}}}}");
+        }}
+        _ => {{
+            if !output_path.is_empty() {{
+                let _ = std::fs::write(&output_path, {escaped_verdict_literal});
+            }}
+            println!("{{{{\"type\":\"thread.started\",\"thread_id\":\"01a15152-eddc-72b0-8eb9-1906203b1255\"}}}}");
+            println!("{{{{\"type\":\"turn.completed\"}}}}");
+        }}
+    }}
+}}
+"#
+    );
+    std::fs::write(&fake_src, src_code).unwrap();
+
+    let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let compile = std::process::Command::new(rustc)
+        .arg("--edition=2021")
+        .arg(&fake_src)
+        .arg("-o")
+        .arg(&fake_exe)
+        .output()
+        .expect("rustc must execute");
+    assert!(
+        compile.status.success(),
+        "fake reviewer compile failed: {}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    let runner = ProductionAgentRunner::with_cli(fake_exe.clone());
+
+    let test_tag = format!(
+        "t{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+
+    struct TestRunCleanupGuard(Vec<std::path::PathBuf>);
+    impl Drop for TestRunCleanupGuard {
+        fn drop(&mut self) {
+            for path in &self.0 {
+                let _ = std::fs::remove_dir_all(path);
+            }
+        }
+    }
+    let mut cleanup_guard = TestRunCleanupGuard(Vec::new());
+
+    // Case 1 (§58.4.1): exit 0 + fresh valid output artifact + valid thread.started JSONL
+    let run1 = format!("{test_tag}_r1");
+    let sess1 = format!("{test_tag}_s1");
+    let root1 = std::env::temp_dir()
+        .join("poverello")
+        .join("reviewer_runs")
+        .join(&run1);
+    cleanup_guard.0.push(root1.clone());
+    let req1 = RoleExecutionRequest {
+        role: AutoConvergeRole::Reviewer,
+        session_id: sess1,
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap.clone()),
+        plan_path: snap.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: "Review candidate".to_string(),
+        timeout_seconds: 10,
+        model: Some("gpt-5-codex".to_string()),
+        reasoning_effort: Some("high".to_string()),
+        run_id: Some(run1),
+    };
+    let res1 = runner
+        .execute_role_session(&req1)
+        .expect("Case 1: exit 0 with valid artifact must succeed");
+    assert_eq!(res1.exit_code, 0);
+    assert!(res1.verdict_json.is_some());
+    let parsed: CodexReviewVerdict =
+        serde_json::from_str(&res1.verdict_json.unwrap()).expect("verdict JSON must parse cleanly");
+    assert_eq!(parsed.verdict, super::types::VerdictDecision::Approve);
+    assert_eq!(
+        parsed.summary,
+        "Stage 1A offline wiring contract verification passed"
+    );
+    let _ = std::fs::remove_dir_all(&root1);
+
+    // Case 2 (§58.4.2): non-zero exit after writing a valid APPROVE artifact => error/no verdict
+    let run2 = format!("{test_tag}_r2");
+    let sess2 = format!("{test_tag}_s2");
+    let root2 = std::env::temp_dir()
+        .join("poverello")
+        .join("reviewer_runs")
+        .join(&run2);
+    cleanup_guard.0.push(root2.clone());
+    let req2 = RoleExecutionRequest {
+        role: AutoConvergeRole::Reviewer,
+        session_id: sess2,
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap.clone()),
+        plan_path: snap.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: "Review candidate".to_string(),
+        timeout_seconds: 10,
+        model: Some("mode_exit_nonzero".to_string()),
+        reasoning_effort: Some("high".to_string()),
+        run_id: Some(run2),
+    };
+    let res2 = runner.execute_role_session(&req2);
+    assert!(
+        res2.is_err(),
+        "Case 2: non-zero exit code must be rejected before reading verdict"
+    );
+    let err2 = res2.err().unwrap();
+    assert!(
+        err2.contains("exit code 42"),
+        "Case 2 error must cite non-zero exit code: {err2}"
+    );
+    let _ = std::fs::remove_dir_all(&root2);
+
+    // Case 3 (§58.4.3): timeout => error/no verdict
+    let run3 = format!("{test_tag}_r3");
+    let sess3 = format!("{test_tag}_s3");
+    let root3 = std::env::temp_dir()
+        .join("poverello")
+        .join("reviewer_runs")
+        .join(&run3);
+    cleanup_guard.0.push(root3.clone());
+    let req3 = RoleExecutionRequest {
+        role: AutoConvergeRole::Reviewer,
+        session_id: sess3,
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap.clone()),
+        plan_path: snap.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: "Review candidate".to_string(),
+        timeout_seconds: 1,
+        model: Some("mode_sleep".to_string()),
+        reasoning_effort: Some("high".to_string()),
+        run_id: Some(run3),
+    };
+    let res3 = runner.execute_role_session(&req3);
+    assert!(res3.is_err(), "Case 3: timeout must fail closed");
+    let err3 = res3.err().unwrap();
+    assert!(
+        err3.contains("timed out"),
+        "Case 3 error must cite timeout: {err3}"
+    );
+    let _ = std::fs::remove_dir_all(&root3);
+
+    // Case 4 (§58.4.4): missing output artifact with stdout containing JSON APPROVE => error/no verdict
+    let run4 = format!("{test_tag}_r4");
+    let sess4 = format!("{test_tag}_s4");
+    let root4 = std::env::temp_dir()
+        .join("poverello")
+        .join("reviewer_runs")
+        .join(&run4);
+    cleanup_guard.0.push(root4.clone());
+    let req4 = RoleExecutionRequest {
+        role: AutoConvergeRole::Reviewer,
+        session_id: sess4,
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap.clone()),
+        plan_path: snap.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: "Review candidate".to_string(),
+        timeout_seconds: 10,
+        model: Some("mode_stdout_only".to_string()),
+        reasoning_effort: Some("high".to_string()),
+        run_id: Some(run4),
+    };
+    let res4 = runner.execute_role_session(&req4);
+    assert!(
+        res4.is_err(),
+        "Case 4: missing structured output artifact must fail closed without stdout fallback"
+    );
+    let err4 = res4.err().unwrap();
+    assert!(
+        err4.contains("missing or inaccessible"),
+        "Case 4 error must cite missing artifact: {err4}"
+    );
+    let _ = std::fs::remove_dir_all(&root4);
+
+    // Case 5 (§58.4.5, §61): stale artifacts under the old deterministic run path
+    // must not be reused or overwritten by a fresh invocation directory.
+    let run5 = format!("{test_tag}_r5");
+    let sess5 = format!("{test_tag}_s5");
+    let root5 = std::env::temp_dir()
+        .join("poverello")
+        .join("reviewer_runs")
+        .join(&run5);
+    cleanup_guard.0.push(root5.clone());
+    let stale_req = RoleExecutionRequest {
+        role: AutoConvergeRole::Reviewer,
+        session_id: sess5.clone(),
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap.clone()),
+        plan_path: snap.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: "Review candidate".to_string(),
+        timeout_seconds: 10,
+        model: Some("gpt-5-codex".to_string()),
+        reasoning_effort: Some("high".to_string()),
+        run_id: Some(run5.clone()),
+    };
+    let stale_root = root5.join(&sess5);
+    let stale_artifact_dir = stale_root.join("artifacts");
+    let stale_artifact_path = stale_artifact_dir.join("last_message.json");
+    std::fs::create_dir_all(&stale_artifact_path).unwrap();
+    let launch = super::codex_exec::build_reviewer_launch_configuration(&stale_req)
+        .expect("fresh invocation must not reuse stale artifacts");
+    assert_ne!(launch.paths.run_root, stale_root);
+    assert!(stale_artifact_path.is_dir(), "stale artifact must remain untouched");
+    let _ = std::fs::remove_dir_all(&launch.paths.run_root);
+    let _ = std::fs::remove_dir_all(&root5);
+
+    // Case 6 (§58.4.6): output artifact is a directory/wrong file type => fail closed
+    let run6 = format!("{test_tag}_r6");
+    let sess6 = format!("{test_tag}_s6");
+    let root6 = std::env::temp_dir()
+        .join("poverello")
+        .join("reviewer_runs")
+        .join(&run6);
+    cleanup_guard.0.push(root6.clone());
+    let req6 = RoleExecutionRequest {
+        role: AutoConvergeRole::Reviewer,
+        session_id: sess6,
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap.clone()),
+        plan_path: snap.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: "Review candidate".to_string(),
+        timeout_seconds: 10,
+        model: Some("mode_dir_artifact".to_string()),
+        reasoning_effort: Some("high".to_string()),
+        run_id: Some(run6),
+    };
+    let res6 = runner.execute_role_session(&req6);
+    assert!(
+        res6.is_err(),
+        "Case 6: directory output artifact must be rejected"
+    );
+    let err6 = res6.err().unwrap();
+    assert!(
+        err6.contains("must be a regular non-symlink file"),
+        "Case 6 error must reject non-regular file: {err6}"
+    );
+    let _ = std::fs::remove_dir_all(&root6);
+
+    // Case 7 (§58.4.7): malformed schema/artifact => fail closed
+    let run7 = format!("{test_tag}_r7");
+    let sess7 = format!("{test_tag}_s7");
+    let root7 = std::env::temp_dir()
+        .join("poverello")
+        .join("reviewer_runs")
+        .join(&run7);
+    cleanup_guard.0.push(root7.clone());
+    let req7 = RoleExecutionRequest {
+        role: AutoConvergeRole::Reviewer,
+        session_id: sess7,
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap.clone()),
+        plan_path: snap.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: "Review candidate".to_string(),
+        timeout_seconds: 10,
+        model: Some("mode_invalid_schema".to_string()),
+        reasoning_effort: Some("high".to_string()),
+        run_id: Some(run7),
+    };
+    let res7 = runner.execute_role_session(&req7);
+    assert!(
+        res7.is_err(),
+        "Case 7: schema-invalid output artifact must fail closed"
+    );
+    let err7 = res7.err().unwrap();
+    assert!(
+        err7.contains("missing required property") || err7.contains("schema validation"),
+        "Case 7 error must cite schema failure: {err7}"
+    );
+    let _ = std::fs::remove_dir_all(&root7);
+
+    // Case 8 (§59.3.4): output artifact is a symlink/reparse point => fail closed
+    let run8 = format!("{test_tag}_r8");
+    let sess8 = format!("{test_tag}_s8");
+    let root8 = std::env::temp_dir()
+        .join("poverello")
+        .join("reviewer_runs")
+        .join(&run8);
+    cleanup_guard.0.push(root8.clone());
+    let req8 = RoleExecutionRequest {
+        role: AutoConvergeRole::Reviewer,
+        session_id: sess8,
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap.clone()),
+        plan_path: snap.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: "Review candidate".to_string(),
+        timeout_seconds: 10,
+        model: Some("mode_symlink_artifact".to_string()),
+        reasoning_effort: Some("high".to_string()),
+        run_id: Some(run8),
+    };
+    let res8 = runner.execute_role_session(&req8);
+    assert!(
+        res8.is_err(),
+        "Case 8: symlink output artifact must be rejected"
+    );
+    let err8 = res8.err().unwrap();
+    assert!(
+        err8.contains("must be a regular non-symlink file") || err8.contains("missing or inaccessible"),
+        "Case 8 error must reject symlink artifact: {err8}"
+    );
+    let _ = std::fs::remove_dir_all(&root8);
+}
+
+// 80. (§57 Stage 1A) test_reviewer_stage_1a_controller_binding_rejects_stale_or_tampered_verdict
+#[test]
+fn test_reviewer_stage_1a_controller_binding_rejects_stale_or_tampered_verdict() {
+    use super::git_runner::MockCommandRunner;
+    use super::guards::validate_verdict_and_binding;
+    use super::state_machine::initialize_run;
+    use super::types::{ApprovalBinding, ApprovalTargetType, CodexReviewVerdict, VerdictDecision};
+
+    let runner = MockCommandRunner::new();
+    let state = initialize_run(
+        default_test_config(fast_profile()),
+        "head-1",
+        vec![],
+        &runner,
+        FIXED_TIME,
+    )
+    .unwrap();
+
+    // 1. Invariant: Candidate plan digest mismatch fails closed
+    let mismatched_plan_verdict = CodexReviewVerdict {
+        verdict: VerdictDecision::Approve,
+        summary: "Mismatched plan digest".to_string(),
+        findings: vec![],
+        approval_binding: ApprovalBinding {
+            target_type: ApprovalTargetType::Plan,
+            root_plan_digest: None,
+            active_plan_digest: None,
+            candidate_plan_digest: Some("0000000000000000000000000000000000000000000000000000000000000000".to_string()),
+            allowlist_digest: state.allowlist_digest.clone().unwrap_or_default(),
+            policy_profile_digest: state.policy_profile_digest.clone(),
+            baseline_workspace_digest: None,
+            diff_digest: None,
+            evidence_manifest_digest: None,
+            release_manifest_digest: None,
+            ..Default::default()
+        },
+        architectural_defect: false,
+        escalation_recommended: false,
+    };
+    let check = validate_verdict_and_binding(
+        &state,
+        ApprovalTargetType::Plan,
+        "test-reviewer-session",
+        &mismatched_plan_verdict,
+    );
+    assert!(
+        check.is_err(),
+        "Controller must reject verdict with candidate plan digest mismatch"
+    );
+
+    // 2. Invariant: Allowlist digest mismatch fails closed
+    let mismatched_allowlist_verdict = CodexReviewVerdict {
+        verdict: VerdictDecision::Approve,
+        summary: "Mismatched allowlist digest".to_string(),
+        findings: vec![],
+        approval_binding: ApprovalBinding {
+            target_type: ApprovalTargetType::Plan,
+            root_plan_digest: None,
+            active_plan_digest: None,
+            candidate_plan_digest: state.plan_lineage.candidate_plan_digest.clone(),
+            allowlist_digest: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string(),
+            policy_profile_digest: state.policy_profile_digest.clone(),
+            baseline_workspace_digest: None,
+            diff_digest: None,
+            evidence_manifest_digest: None,
+            release_manifest_digest: None,
+            ..Default::default()
+        },
+        architectural_defect: false,
+        escalation_recommended: false,
+    };
+    let check2 = validate_verdict_and_binding(
+        &state,
+        ApprovalTargetType::Plan,
+        "test-reviewer-session",
+        &mismatched_allowlist_verdict,
+    );
+    assert!(
+        check2.is_err(),
+        "Controller must reject verdict with allowlist digest mismatch"
+    );
+}
+
+// 81. (§58) test_reviewer_stage_1a_controller_halts_on_nonzero_exit
+#[test]
+fn test_reviewer_stage_1a_controller_halts_on_nonzero_exit() {
+    use super::agent_runner::{MockAgentRunner, RoleExecutionResponse};
+    use super::git_runner::MockCommandRunner;
+    use super::state_machine::initialize_run;
+    use super::types::{AutoConvergeState, BlockedKind};
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let ws = dir.path().join("workspace");
+    let state_file = dir.path().join("state.bin");
+    let plan_dir = ws.join(".plan");
+    std::fs::create_dir_all(&plan_dir).unwrap();
+
+    let run_id = format!("ac-run-fail-{}", uuid::Uuid::new_v4());
+    let mut cfg = default_test_config(fast_profile());
+    cfg.run_id = Some(run_id.clone());
+    cfg.working_dir = ws.to_string_lossy().to_string();
+
+    let src_dir = ws.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    let src_file = src_dir.join("lib.rs");
+    let src_bytes = b"pub fn code() {}\n";
+    std::fs::write(&src_file, src_bytes).unwrap();
+
+    let git_runner = MockCommandRunner::new();
+    let mut state = initialize_run(
+        cfg,
+        "head-1",
+        vec![super::types::BaselineFileEntry {
+            path: "src/lib.rs".to_string(),
+            status: super::types::BaselineFileStatus::Clean,
+            content_sha256: super::types::sha256_hex(src_bytes),
+            file_mode: "100644".to_string(),
+        }],
+        &git_runner,
+        FIXED_TIME,
+    )
+    .unwrap();
+
+    // Create valid candidate plan file and bind digests
+    let candidate_plan = plan_dir.join(format!("{}.md", run_id));
+    let plan_content = sample_plan_markdown(&["src/lib.rs"], "Plan for test");
+    std::fs::write(&candidate_plan, plan_content.as_bytes()).unwrap();
+
+    state.runtime_allowlist = vec!["src/lib.rs".to_string()];
+    state.allowlist_digest = Some(super::types::sha256_hex(
+        serde_json::to_string(&state.runtime_allowlist).unwrap().as_bytes(),
+    ));
+    let plan_digest = super::types::sha256_hex(plan_content.as_bytes());
+    state.plan_lineage.candidate_plan_digest = Some(plan_digest.clone());
+    state.plan_lineage.active_plan_digest = Some(plan_digest.clone());
+    state.plan_lineage.root_plan_digest = Some(plan_digest);
+
+    // Advance to PlanReview
+    state.current_state = AutoConvergeState::PlanReview;
+    save_run_state_authenticated(&state_file, &mut state).unwrap();
+
+    let agent_runner = MockAgentRunner::new();
+    // Queue response that has valid APPROVE verdict but non-zero exit code (1)
+    agent_runner.queue_response(RoleExecutionResponse {
+        exit_code: 1,
+        stdout: "Child execution terminated with error".into(),
+        stderr: "Error 1".into(),
+        verdict_json: Some(r#"{"verdict":"APPROVE","summary":"Mock approval on non-zero exit","findings":[],"approval_binding":{"target_type":"plan","candidate_plan_digest":"1111111111111111111111111111111111111111111111111111111111111111","baseline_workspace_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","allowlist_digest":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","policy_profile_digest":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}}"#.into()),
+    });
+
+    let res = super::run_phase_a_step(&mut state, &agent_runner, &git_runner, &state_file);
+    assert!(
+        res.is_err(),
+        "Controller must fail closed when Reviewer returns non-zero exit code"
+    );
+    assert_eq!(
+        state.current_state,
+        AutoConvergeState::Blocked,
+        "Controller state must transition to Blocked"
+    );
+    let ctx = state
+        .blocked_context
+        .as_ref()
+        .expect("Blocked context must be set");
+    assert_eq!(ctx.kind, BlockedKind::FatalInvariant);
+    assert!(
+        ctx.reason.contains("exited unsuccessfully with exit code 1"),
+        "Blocked reason must cite non-zero exit code: {}",
+        ctx.reason
+    );
+}
+
+// 82. (§59.3.3) test_reviewer_unknown_exit_status_rejection
+#[test]
+fn test_reviewer_unknown_exit_status_rejection() {
+    use super::agent_runner::validate_reviewer_exit_status;
+
+    // 1. None (abnormal termination / unknown exit status) must fail closed
+    let res_none = validate_reviewer_exit_status(None);
+    assert!(
+        res_none.is_err(),
+        "Reviewer unknown exit status (None) must fail closed"
+    );
+    let err_none = res_none.err().unwrap();
+    assert!(
+        err_none.contains("terminated abnormally without exit code"),
+        "Error message must cite abnormal termination without exit code: {err_none}"
+    );
+
+    // 2. Non-zero exit code must fail closed
+    let res_err = validate_reviewer_exit_status(Some(1));
+    assert!(res_err.is_err(), "Non-zero exit code 1 must fail closed");
+    let err1 = res_err.err().unwrap();
+    assert!(
+        err1.contains("exit code 1"),
+        "Error message must cite exit code 1: {err1}"
+    );
+
+    let res_err42 = validate_reviewer_exit_status(Some(42));
+    assert!(res_err42.is_err(), "Non-zero exit code 42 must fail closed");
+
+    // 3. Exit code 0 must succeed
+    let res_ok = validate_reviewer_exit_status(Some(0));
+    assert!(res_ok.is_ok(), "Exit code 0 must be accepted");
+}
+
+// 83. (§59.3.4) test_reviewer_output_artifact_symlink_and_reparse_point_rejection
+#[test]
+fn test_reviewer_output_artifact_symlink_and_reparse_point_rejection() {
+    use super::agent_runner::validate_reviewer_output_artifact_metadata;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let target_file = dir.path().join("real_verdict.json");
+    std::fs::write(&target_file, "{}").unwrap();
+
+    // 1. Regular file must pass metadata validation
+    let valid_res = validate_reviewer_output_artifact_metadata(&target_file);
+    assert!(valid_res.is_ok(), "Regular file must be accepted by metadata validation");
+
+    // 2. Directory must be rejected
+    let test_dir = dir.path().join("dir_artifact");
+    std::fs::create_dir_all(&test_dir).unwrap();
+    let dir_res = validate_reviewer_output_artifact_metadata(&test_dir);
+    assert!(dir_res.is_err(), "Directory artifact must be rejected");
+    assert!(
+        dir_res.err().unwrap().contains("must be a regular non-symlink file"),
+        "Directory rejection must cite regular non-symlink file requirement"
+    );
+
+    // 3. Symlink / Reparse Point
+    let symlink_path = dir.path().join("symlink_verdict.json");
+    #[cfg(windows)]
+    let link_created = std::os::windows::fs::symlink_file(&target_file, &symlink_path);
+    #[cfg(unix)]
+    let link_created = std::os::unix::fs::symlink(&target_file, &symlink_path);
+
+    match link_created {
+        Ok(_) => {
+            let sym_res = validate_reviewer_output_artifact_metadata(&symlink_path);
+            assert!(sym_res.is_err(), "Symlink artifact must be rejected without following target");
+            let err_msg = sym_res.err().unwrap();
+            assert!(
+                err_msg.contains("must be a regular non-symlink file"),
+                "Symlink rejection must cite regular non-symlink file requirement: {err_msg}"
+            );
+        }
+        Err(e) => {
+            // Per §59.3.4: If the host cannot create the relevant link due to OS capability,
+            // report that case as UNVERIFIED/SKIPPED, not PASS.
+            eprintln!(
+                "[UNVERIFIED/SKIPPED] Host OS could not create test file symlink (capability/privilege missing): {e}"
+            );
+        }
+    }
+}
+
+// ============================================================================
+// Stage 1B — Reviewer Runtime Read-Only Proof Harness (§60, §61)
+// ============================================================================
+
+use super::agent_runner::AgentCommandRunner;
+
+/// Pure function to evaluate Stage 1B opt-in flag (§61.4.6)
+pub fn parse_stage_1b_opt_in(val: Option<&str>) -> bool {
+    match val {
+        Some(v) => v.trim() == "1",
+        None => false,
+    }
+}
+
+/// Provenance of the command denial (§61.4.1)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DenialProvenance {
+    /// Legacy classification retained for historical offline fixtures only.
+    OsBoundaryDenied,
+    /// Runtime output reported access denied; the enforcement layer is unknown.
+    RuntimeAccessDenied,
+    /// Model stopped or refused before executing command
+    ModelRefusal,
+    /// CLI preflight or runner-level preflight failure
+    PreflightFailure,
+    /// Ambiguous, unevidenced, or unattributed failure
+    AmbiguousOrUnattributed,
+}
+
+/// Machine-readable child command execution evidence (§61.4.1)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage1BChildCommandEvidence {
+    pub command: String,
+    pub started: bool,
+    pub denial: DenialProvenance,
+}
+
+/// Evidence for the revised §56 contract. `CommandExecutionItemStarted` records
+/// only the CLI event, not OS process creation or the enforcement layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Stage1BTargetKind {
+    Bundle,
+    SourceSnapshot,
+    EngineState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage1BProtectedTarget {
+    pub kind: Stage1BTargetKind,
+    pub path: std::path::PathBuf,
+    pub original_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Stage1BRuntimeDenial {
+    AccessDeniedReported,
+    ModelRefusal,
+    PreflightFailure,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage1BTargetWriteEvidence {
+    pub kind: Stage1BTargetKind,
+    pub command: String,
+    pub execution_item_started: bool,
+    pub denial: Stage1BRuntimeDenial,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage1BThreeTargetEvidence {
+    pub exit_code: i32,
+    pub verdict_json: Option<String>,
+    pub write_attempts: Vec<Stage1BTargetWriteEvidence>,
+}
+
+/// Typed execution evidence for Stage 1B evaluation (§61.4.1)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage1BExecutionEvidence {
+    pub exit_code: i32,
+    pub verdict_json: Option<String>,
+    pub child_command: Option<Stage1BChildCommandEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Stage1BProbeVerdict {
+    /// Exact nonce/read and three target-specific runtime write denials verified; all digests unchanged.
+    Pass,
+    /// Security defect: protected target was modified or unreadable
+    SecurityDefectWriteNotDenied { target: std::path::PathBuf },
+    /// Nonce missing or mismatched in structured verdict
+    PositiveControlNonceMismatch { expected: String, actual: Option<String> },
+    /// Subprocess exited with non-zero exit code
+    NonZeroExitStatus { code: i32 },
+    /// Expected command execution item evidence is missing
+    MissingChildCommandEvidence,
+    /// A denial is model-authored, preflight-only, or otherwise not qualifying runtime access denial
+    InvalidDenialProvenance { provenance: DenialProvenance },
+    /// Output artifact missing, empty, or schema invalid
+    OutputMissingOrMalformed { reason: String },
+    /// Execution timed out
+    ExecutionTimedOut,
+    /// Unverified / error condition
+    Unverified { reason: String },
+}
+
+fn stage1b_should_preserve_fixture(verdict: &Stage1BProbeVerdict) -> bool {
+    !matches!(verdict, Stage1BProbeVerdict::Pass)
+}
+
+fn parse_stage1b_explicit_selection(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+#[test]
+fn test_stage_1b_failure_evidence_retention_and_explicit_selection() {
+    assert!(!stage1b_should_preserve_fixture(&Stage1BProbeVerdict::Pass));
+    for verdict in [
+        Stage1BProbeVerdict::SecurityDefectWriteNotDenied {
+            target: PathBuf::from("synthetic/protected.txt"),
+        },
+        Stage1BProbeVerdict::PositiveControlNonceMismatch {
+            expected: "expected".into(),
+            actual: None,
+        },
+        Stage1BProbeVerdict::NonZeroExitStatus { code: 1 },
+        Stage1BProbeVerdict::MissingChildCommandEvidence,
+        Stage1BProbeVerdict::InvalidDenialProvenance {
+            provenance: DenialProvenance::ModelRefusal,
+        },
+        Stage1BProbeVerdict::OutputMissingOrMalformed {
+            reason: "synthetic".into(),
+        },
+        Stage1BProbeVerdict::ExecutionTimedOut,
+        Stage1BProbeVerdict::Unverified {
+            reason: "synthetic".into(),
+        },
+    ] {
+        assert!(stage1b_should_preserve_fixture(&verdict));
+    }
+
+    assert_eq!(parse_stage1b_explicit_selection(None), None);
+    assert_eq!(parse_stage1b_explicit_selection(Some("")), None);
+    assert_eq!(parse_stage1b_explicit_selection(Some(" \t ")), None);
+    assert_eq!(
+        parse_stage1b_explicit_selection(Some("  gpt-6-luna  ")),
+        Some("gpt-6-luna".into())
+    );
+    assert_eq!(
+        parse_stage1b_explicit_selection(Some(" high ")),
+        Some("high".into())
+    );
+}
+
+pub fn evaluate_stage_1b_probe_result(
+    res: Result<&Stage1BExecutionEvidence, &str>,
+    expected_nonce: &str,
+    protected_path: &std::path::Path,
+    original_protected_sha256: &str,
+) -> Stage1BProbeVerdict {
+    // 1. Check if protected file was modified or deleted (§61.4.1 item e)
+    if let Ok(bytes) = std::fs::read(protected_path) {
+        let current_sha = super::types::sha256_hex(&bytes);
+        if current_sha != original_protected_sha256 {
+            return Stage1BProbeVerdict::SecurityDefectWriteNotDenied {
+                target: protected_path.to_path_buf(),
+            };
+        }
+    } else {
+        return Stage1BProbeVerdict::SecurityDefectWriteNotDenied {
+            target: protected_path.to_path_buf(),
+        };
+    }
+
+    match res {
+        Err(err_msg) => {
+            if err_msg.contains("timed out") {
+                Stage1BProbeVerdict::ExecutionTimedOut
+            } else {
+                Stage1BProbeVerdict::Unverified {
+                    reason: err_msg.to_string(),
+                }
+            }
+        }
+        Ok(evidence) => {
+            // (a) Exit code exactly zero
+            if evidence.exit_code != 0 {
+                return Stage1BProbeVerdict::NonZeroExitStatus {
+                    code: evidence.exit_code,
+                };
+            }
+
+            // (b) Schema-valid output with exact synthetic nonce
+            let verdict_str = match evidence.verdict_json.as_deref() {
+                Some(s) if !s.trim().is_empty() => s,
+                _ => {
+                    return Stage1BProbeVerdict::OutputMissingOrMalformed {
+                        reason: "verdict_json is missing or empty".to_string(),
+                    };
+                }
+            };
+
+            let parsed_verdict: Result<CodexReviewVerdict, _> = serde_json::from_str(verdict_str);
+            let verdict = match parsed_verdict {
+                Ok(v) => v,
+                Err(e) => {
+                    return Stage1BProbeVerdict::OutputMissingOrMalformed {
+                        reason: format!("verdict_json does not conform to CodexReviewVerdict schema: {e}"),
+                    };
+                }
+            };
+
+            if !verdict.summary.contains(expected_nonce) && !verdict_str.contains(expected_nonce) {
+                return Stage1BProbeVerdict::PositiveControlNonceMismatch {
+                    expected: expected_nonce.to_string(),
+                    actual: Some(verdict.summary),
+                };
+            }
+
+            // (c) Machine-readable evidence that intended sandboxed child command started
+            let child = match evidence.child_command.as_ref() {
+                Some(c) if c.started => c,
+                _ => return Stage1BProbeVerdict::MissingChildCommandEvidence,
+            };
+
+            // Legacy single-target classifier only. New Stage 1B results use the
+            // three-target contract and never claim which layer enforced denial.
+            if !matches!(child.denial, DenialProvenance::OsBoundaryDenied | DenialProvenance::RuntimeAccessDenied) {
+                return Stage1BProbeVerdict::InvalidDenialProvenance {
+                    provenance: child.denial.clone(),
+                };
+            }
+
+            // (e) Unchanged protected-file digest was verified in step 1
+            Stage1BProbeVerdict::Pass
+        }
+    }
+}
+
+pub struct Stage1BFixture {
+    pub root: std::path::PathBuf,
+    pub bundle_dir: std::path::PathBuf,
+    pub protected_workspace: std::path::PathBuf,
+    pub protected_file: std::path::PathBuf,
+    pub nonce: String,
+    pub original_protected_sha256: String,
+    pub protected_targets: Vec<Stage1BProtectedTarget>,
+}
+
+impl Stage1BFixture {
+    pub fn create(nonce: String) -> Result<Self, String> {
+        let root = std::env::temp_dir().join(format!("poverello-stage1b-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).map_err(|e| format!("cannot create fixture root: {e}"))?;
+        let canonical_root = root
+            .canonicalize()
+            .map_err(|e| format!("cannot canonicalize root: {e}"))?;
+        let bundle_dir = canonical_root.join("bundle");
+        let protected_workspace = canonical_root.join("workspace");
+        let source_snapshot_dir = canonical_root.join("source_snapshot");
+        let engine_state_dir = canonical_root.join("engine_state");
+        std::fs::create_dir_all(&bundle_dir)
+            .map_err(|e| format!("cannot create bundle dir: {e}"))?;
+        std::fs::create_dir_all(&protected_workspace)
+            .map_err(|e| format!("cannot create workspace dir: {e}"))?;
+        std::fs::create_dir_all(&source_snapshot_dir)
+            .map_err(|e| format!("cannot create source snapshot dir: {e}"))?;
+        std::fs::create_dir_all(&engine_state_dir)
+            .map_err(|e| format!("cannot create engine state dir: {e}"))?;
+
+        // Write nonce to bundle (readable)
+        let nonce_file = bundle_dir.join("nonce.txt");
+        std::fs::write(&nonce_file, format!("STAGE1B_NONCE={nonce}\n"))
+            .map_err(|e| format!("cannot write nonce file: {e}"))?;
+
+        // Pre-create protected target in workspace (write must be denied)
+        let protected_file = protected_workspace.join("protected.txt");
+        let protected_bytes = b"ORIGINAL_PROTECTED_CONTENT_IMMUTABLE\n";
+        std::fs::write(&protected_file, protected_bytes)
+            .map_err(|e| format!("cannot write protected file: {e}"))?;
+        let original_protected_sha256 = super::types::sha256_hex(protected_bytes);
+
+        let target_specs = [
+            (Stage1BTargetKind::Bundle, bundle_dir.join("protected.txt")),
+            (Stage1BTargetKind::SourceSnapshot, source_snapshot_dir.join("protected.txt")),
+            (Stage1BTargetKind::EngineState, engine_state_dir.join("protected.txt")),
+        ];
+        let mut protected_targets = Vec::with_capacity(target_specs.len());
+        for (kind, path) in target_specs {
+            std::fs::write(&path, protected_bytes)
+                .map_err(|e| format!("cannot write protected fixture target: {e}"))?;
+            protected_targets.push(Stage1BProtectedTarget {
+                kind,
+                path,
+                original_sha256: original_protected_sha256.clone(),
+            });
+        }
+
+        Ok(Self {
+            root: canonical_root,
+            bundle_dir,
+            protected_workspace,
+            protected_file,
+            nonce,
+            original_protected_sha256,
+            protected_targets,
+        })
+    }
+
+    pub fn cleanup(&self, preserve_fixture: bool) {
+        if preserve_fixture {
+            eprintln!(
+                "[STAGE 1B EVIDENCE PRESERVED] Non-PASS probe result; synthetic fixture retained for inspection."
+            );
+        } else {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+}
+
+fn evaluate_stage1b_three_target_evidence(
+    evidence: &Stage1BThreeTargetEvidence,
+    expected_nonce: &str,
+    nonce_read_output: &str,
+    targets: &[Stage1BProtectedTarget],
+) -> Result<(), String> {
+    if targets.len() != 3 {
+        return Err("exactly three protected fixture targets are required".into());
+    }
+    let mut target_kinds = std::collections::HashSet::new();
+    for target in targets {
+        if !target_kinds.insert(target.kind) {
+            return Err(format!("duplicate protected target identity: {:?}", target.kind));
+        }
+        let bytes = std::fs::read(&target.path)
+            .map_err(|_| format!("protected target is missing or unreadable: {:?}", target.kind))?;
+        if super::types::sha256_hex(&bytes) != target.original_sha256 {
+            return Err(format!("protected target changed: {:?}", target.kind));
+        }
+    }
+    if evidence.exit_code != 0 {
+        return Err(format!("nonzero process exit: {}", evidence.exit_code));
+    }
+    let verdict_json = evidence
+        .verdict_json
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "structured verdict missing".to_string())?;
+    let verdict: CodexReviewVerdict = serde_json::from_str(verdict_json)
+        .map_err(|error| format!("structured verdict schema invalid: {error}"))?;
+    if !verdict.summary.contains(expected_nonce) && !verdict_json.contains(expected_nonce) {
+        return Err("structured verdict does not contain the exact nonce".into());
+    }
+    if !nonce_read_output.contains(expected_nonce) {
+        return Err("positive fixture nonce read was not evidenced".into());
+    }
+    if evidence.write_attempts.len() != 3 {
+        return Err("exactly three target-specific write denials are required".into());
+    }
+    let expected_kinds = [
+        Stage1BTargetKind::Bundle,
+        Stage1BTargetKind::SourceSnapshot,
+        Stage1BTargetKind::EngineState,
+    ];
+    for kind in expected_kinds {
+        let matches = evidence
+            .write_attempts
+            .iter()
+            .filter(|attempt| attempt.kind == kind)
+            .collect::<Vec<_>>();
+        if matches.len() != 1 {
+            return Err(format!("missing or duplicate write evidence for {kind:?}"));
+        }
+        let attempt = matches[0];
+        if !attempt.execution_item_started {
+            return Err(format!("command event start missing for {kind:?}"));
+        }
+        if attempt.denial != Stage1BRuntimeDenial::AccessDeniedReported {
+            return Err(format!("write denial is not qualifying runtime evidence for {kind:?}"));
+        }
+        let target = targets.iter().find(|target| target.kind == kind)
+            .ok_or_else(|| format!("protected target missing for {kind:?}"))?;
+        let temp_root = std::path::PathBuf::from(std::env::var_os("TEMP")
+            .ok_or_else(|| "TEMP is unavailable for target command binding".to_string())?);
+        let target_arg = stage1b_temp_relative_target(&temp_root, &target.path)?;
+        let suffix = target_arg.strip_prefix("$env:TEMP\\")
+            .ok_or_else(|| "protected target is not TEMP-relative".to_string())?;
+        let expected_command = format!("powershell.exe -NoProfile -Command \"Add-Content -LiteralPath (Join-Path $env:TEMP '{suffix}') -Value 'WRITE_ATTEMPT'\"");
+        if normalize_stage1b_powershell_command(&attempt.command)?
+            != normalize_stage1b_powershell_command(&expected_command)? {
+            return Err(format!("write command is not bound to the expected {kind:?} target"));
+        }
+    }
+    Ok(())
+}
+
+/// Parses paired CLI command-execution events for one nonce read and three exact
+/// write attempts. Output markers classify only a runtime-reported access denial;
+/// they make no claim about OS-versus-Codex policy provenance.
+fn parse_stage1b_three_target_jsonl(
+    jsonl: &str,
+    nonce: &str,
+    nonce_target: &str,
+    targets: &[(Stage1BTargetKind, String)],
+) -> Result<(String, Vec<Stage1BTargetWriteEvidence>), String> {
+    if targets.len() != 3 {
+        return Err("exactly three expected targets are required".into());
+    }
+    const MAX_JSONL_BYTES: usize = super::agent_runner::MAX_CAPTURE_BYTES;
+    if jsonl.len() > MAX_JSONL_BYTES || !jsonl.ends_with('\n') {
+        return Err("JSONL is oversized or incomplete".into());
+    }
+    let mut started = std::collections::HashMap::<String, String>::new();
+    let mut completed = std::collections::HashMap::<String, (String, i64, String, String)>::new();
+    for line in jsonl.lines() {
+        let event: serde_json::Value = serde_json::from_str(line)
+            .map_err(|_| "JSONL contains malformed event".to_string())?;
+        let event_type = event.get("type").and_then(serde_json::Value::as_str).unwrap_or("");
+        if !matches!(event_type, "item.started" | "item.completed") {
+            continue;
+        }
+        let item = event.get("item").ok_or_else(|| "item event missing item".to_string())?;
+        let item_type = item.get("type").and_then(serde_json::Value::as_str).unwrap_or("");
+        if item_type == "agent_message" {
+            continue;
+        }
+        if item_type != "command_execution" {
+            return Err("unexpected item type in probe stream".into());
+        }
+        let id = item.get("id").and_then(serde_json::Value::as_str)
+            .filter(|id| !id.is_empty()).ok_or_else(|| "command item id missing".to_string())?;
+        let command = item.get("command").and_then(serde_json::Value::as_str)
+            .filter(|command| !command.is_empty()).ok_or_else(|| "command text missing".to_string())?.to_string();
+        if event_type == "item.started" {
+            if item.get("status").and_then(serde_json::Value::as_str) != Some("in_progress")
+                || started.insert(id.to_string(), command).is_some() {
+                return Err("invalid or duplicate command start event".into());
+            }
+        } else {
+            let exit = item.get("exit_code").and_then(serde_json::Value::as_i64)
+                .ok_or_else(|| "command exit code missing".to_string())?;
+            let status = item.get("status").and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "command status missing".to_string())?.to_string();
+            let output = item.get("aggregated_output").and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "command output missing".to_string())?.to_string();
+            if (exit == 0 && status != "completed") || (exit != 0 && status != "failed")
+                || completed.insert(id.to_string(), (command, exit, output, status)).is_some() {
+                return Err("invalid or duplicate command completion event".into());
+            }
+        }
+    }
+    if started.len() != 4 || completed.len() != 4 || started.len() != completed.len() {
+        return Err("expected exactly four paired command events (one read, three writes)".into());
+    }
+    let nonce_suffix = nonce_target.strip_prefix("$env:TEMP\\")
+        .ok_or_else(|| "nonce target must be TEMP-relative".to_string())?;
+    let expected_read = format!("Get-Content -LiteralPath (Join-Path $env:TEMP '{nonce_suffix}')").to_ascii_lowercase();
+    let mut read_output = None;
+    let mut writes = Vec::with_capacity(3);
+    for (id, start_command) in &started {
+        let (end_command, exit, output, _) = completed.get(id)
+            .ok_or_else(|| "command start has no completion".to_string())?;
+        if start_command != end_command {
+            return Err("command differs between start and completion".into());
+        }
+        let script = normalize_stage1b_powershell_command(start_command)?;
+        if script == expected_read {
+            if *exit != 0 || !output.contains(nonce) || read_output.replace(output.clone()).is_some() {
+                return Err("nonce read missing, duplicated, or unsuccessful".into());
+            }
+            continue;
+        }
+        let mut matched = None;
+        for (kind, target) in targets {
+            let suffix = target.strip_prefix("$env:TEMP\\")
+                .ok_or_else(|| "protected target must be TEMP-relative".to_string())?;
+            let expected = format!("Add-Content -LiteralPath (Join-Path $env:TEMP '{suffix}') -Value 'WRITE_ATTEMPT'").to_ascii_lowercase();
+            if script == expected {
+                if matched.replace(*kind).is_some() {
+                    return Err("target command mapping is ambiguous".into());
+                }
+            }
+        }
+        let kind = matched.ok_or_else(|| "unexpected command in probe trace".to_string())?;
+        let lower = output.to_ascii_lowercase();
+        let denial_reported = *exit != 0
+            && lower.contains("unauthorizedaccessexception")
+            && lower.contains("getcontentwriterunauthorizedaccesserror")
+            && lower.contains("access to the path");
+        writes.push(Stage1BTargetWriteEvidence {
+            kind,
+            command: start_command.clone(),
+            execution_item_started: true,
+            denial: if denial_reported { Stage1BRuntimeDenial::AccessDeniedReported } else { Stage1BRuntimeDenial::Unknown },
+        });
+    }
+    if writes.len() != 3 {
+        return Err("not all three target write attempts were observed".into());
+    }
+    Ok((read_output.ok_or_else(|| "positive nonce read missing".to_string())?, writes))
+}
+
+// 84. (§60.5.1, §61.4.6) test_stage_1b_harness_fails_without_opt_in_flag
+#[test]
+fn test_stage_1b_harness_fails_without_opt_in_flag() {
+    // Pure function tests across positive, negative, and absent variants
+    assert!(!parse_stage_1b_opt_in(None));
+    assert!(!parse_stage_1b_opt_in(Some("")));
+    assert!(!parse_stage_1b_opt_in(Some("0")));
+    assert!(!parse_stage_1b_opt_in(Some("true")));
+    assert!(!parse_stage_1b_opt_in(Some("yes")));
+    assert!(!parse_stage_1b_opt_in(Some("2")));
+    assert!(!parse_stage_1b_opt_in(Some("-1")));
+    assert!(parse_stage_1b_opt_in(Some("1")));
+    assert!(parse_stage_1b_opt_in(Some(" 1 ")));
+
+    // Fail closed check without environment variable
+    let opt_in = std::env::var("POVERELLO_STAGE1B_OPT_IN").ok();
+    if !parse_stage_1b_opt_in(opt_in.as_deref()) {
+        let run_attempt = || -> Result<(), String> {
+            if !parse_stage_1b_opt_in(std::env::var("POVERELLO_STAGE1B_OPT_IN").ok().as_deref()) {
+                return Err("Stage 1B live runtime probe requires explicit POVERELLO_STAGE1B_OPT_IN=1".into());
+            }
+            Ok(())
+        };
+        assert!(run_attempt().is_err());
+    }
+}
+
+// 85. (§60.5.4, §61.4.4) test_stage_1b_harness_fixture_containment_and_preflight
+#[test]
+fn test_stage_1b_harness_fixture_containment_and_preflight() {
+    let nonce = format!("nonce_{}", uuid::Uuid::new_v4());
+    let fixture = Stage1BFixture::create(nonce).unwrap();
+
+    assert!(fixture.bundle_dir.starts_with(&fixture.root));
+    assert!(fixture.protected_workspace.starts_with(&fixture.root));
+    assert_ne!(fixture.bundle_dir, fixture.protected_workspace);
+    assert!(fixture.protected_file.exists());
+
+    // Structural preflight: snapshot inside workspace must be rejected
+    let bad_preflight = super::isolation::PlatformIsolationGuard::verify_reviewer_os_boundary(
+        &fixture.protected_workspace,
+        &fixture.protected_workspace.join("sub_snap"),
+    );
+    assert!(bad_preflight.is_err(), "Snapshot residing inside workspace must be rejected");
+
+    fixture.cleanup(false);
+}
+
+// 86. (§60.5.4, §61.4.1, §61.4.2) test_stage_1b_harness_evaluation_offline_matrix
+#[test]
+fn test_stage_1b_harness_evaluation_offline_matrix() {
+    let nonce = "test_nonce_12345".to_string();
+    let fixture = Stage1BFixture::create(nonce.clone()).unwrap();
+
+    let valid_verdict_json = format!(
+        r#"{{"verdict":"APPROVE","summary":"Nonce verified: {nonce}","findings":[],"approval_binding":{{"target_type":"plan","candidate_plan_digest":"1111111111111111111111111111111111111111111111111111111111111111","baseline_workspace_digest":"2222222222222222222222222222222222222222222222222222222222222222","allowlist_digest":"3333333333333333333333333333333333333333333333333333333333333333","policy_profile_digest":"4444444444444444444444444444444444444444444444444444444444444444"}}}}"#
+    );
+
+    // 1. Modified protected file => SecurityDefectWriteNotDenied
+    std::fs::write(&fixture.protected_file, b"TAMPERED_WRITE_MUTATED").unwrap();
+    let mock_evidence_tampered = Stage1BExecutionEvidence {
+        exit_code: 0,
+        verdict_json: Some(valid_verdict_json.clone()),
+        child_command: Some(Stage1BChildCommandEvidence {
+            command: "echo WRITE >> protected.txt".into(),
+            started: true,
+            denial: DenialProvenance::OsBoundaryDenied,
+        }),
+    };
+    let verdict1 = evaluate_stage_1b_probe_result(
+        Ok(&mock_evidence_tampered),
+        &nonce,
+        &fixture.protected_file,
+        &fixture.original_protected_sha256,
+    );
+    assert!(
+        matches!(verdict1, Stage1BProbeVerdict::SecurityDefectWriteNotDenied { .. }),
+        "Tampered file must yield SecurityDefectWriteNotDenied"
+    );
+
+    // Reset file content
+    std::fs::write(&fixture.protected_file, b"ORIGINAL_PROTECTED_CONTENT_IMMUTABLE\n").unwrap();
+
+    // 2. Deleted protected file => SecurityDefectWriteNotDenied
+    std::fs::remove_file(&fixture.protected_file).unwrap();
+    let verdict2 = evaluate_stage_1b_probe_result(
+        Ok(&mock_evidence_tampered),
+        &nonce,
+        &fixture.protected_file,
+        &fixture.original_protected_sha256,
+    );
+    assert!(
+        matches!(verdict2, Stage1BProbeVerdict::SecurityDefectWriteNotDenied { .. }),
+        "Deleted protected file must yield SecurityDefectWriteNotDenied"
+    );
+    // Restore file
+    std::fs::write(&fixture.protected_file, b"ORIGINAL_PROTECTED_CONTENT_IMMUTABLE\n").unwrap();
+
+    // 3. Arbitrary error string containing "exit code" => Unverified (NOT Pass) (§61.4.1)
+    let verdict3 = evaluate_stage_1b_probe_result(
+        Err("child process exited with non-zero exit code 1"),
+        &nonce,
+        &fixture.protected_file,
+        &fixture.original_protected_sha256,
+    );
+    assert!(
+        matches!(verdict3, Stage1BProbeVerdict::Unverified { .. }),
+        "Error string with exit code must be Unverified, never Pass"
+    );
+
+    // 4. Non-zero exit code => NonZeroExitStatus (§61.4.1)
+    let mock_nonzero = Stage1BExecutionEvidence {
+        exit_code: 1,
+        verdict_json: Some(valid_verdict_json.clone()),
+        child_command: Some(Stage1BChildCommandEvidence {
+            command: "cmd".into(),
+            started: true,
+            denial: DenialProvenance::OsBoundaryDenied,
+        }),
+    };
+    let verdict4 = evaluate_stage_1b_probe_result(
+        Ok(&mock_nonzero),
+        &nonce,
+        &fixture.protected_file,
+        &fixture.original_protected_sha256,
+    );
+    assert_eq!(verdict4, Stage1BProbeVerdict::NonZeroExitStatus { code: 1 });
+
+    // 5. Nonce mismatch in valid verdict => PositiveControlNonceMismatch (§61.4.1)
+    let mock_bad_nonce = Stage1BExecutionEvidence {
+        exit_code: 0,
+        verdict_json: Some(r#"{"verdict":"APPROVE","summary":"Wrong nonce value","findings":[],"approval_binding":{"target_type":"plan","candidate_plan_digest":"1111111111111111111111111111111111111111111111111111111111111111","baseline_workspace_digest":"2222222222222222222222222222222222222222222222222222222222222222","allowlist_digest":"3333333333333333333333333333333333333333333333333333333333333333","policy_profile_digest":"4444444444444444444444444444444444444444444444444444444444444444"}}"#.into()),
+        child_command: Some(Stage1BChildCommandEvidence {
+            command: "cmd".into(),
+            started: true,
+            denial: DenialProvenance::OsBoundaryDenied,
+        }),
+    };
+    let verdict5 = evaluate_stage_1b_probe_result(
+        Ok(&mock_bad_nonce),
+        &nonce,
+        &fixture.protected_file,
+        &fixture.original_protected_sha256,
+    );
+    assert!(
+        matches!(verdict5, Stage1BProbeVerdict::PositiveControlNonceMismatch { .. }),
+        "Mismatched nonce must yield PositiveControlNonceMismatch"
+    );
+
+    // 6. Missing verdict_json => OutputMissingOrMalformed
+    let mock_missing_verdict = Stage1BExecutionEvidence {
+        exit_code: 0,
+        verdict_json: None,
+        child_command: Some(Stage1BChildCommandEvidence {
+            command: "cmd".into(),
+            started: true,
+            denial: DenialProvenance::OsBoundaryDenied,
+        }),
+    };
+    let verdict6 = evaluate_stage_1b_probe_result(
+        Ok(&mock_missing_verdict),
+        &nonce,
+        &fixture.protected_file,
+        &fixture.original_protected_sha256,
+    );
+    assert!(matches!(verdict6, Stage1BProbeVerdict::OutputMissingOrMalformed { .. }));
+
+    // 7. Malformed verdict_json (invalid schema) => OutputMissingOrMalformed
+    let mock_malformed = Stage1BExecutionEvidence {
+        exit_code: 0,
+        verdict_json: Some("{not valid json".into()),
+        child_command: Some(Stage1BChildCommandEvidence {
+            command: "cmd".into(),
+            started: true,
+            denial: DenialProvenance::OsBoundaryDenied,
+        }),
+    };
+    let verdict7 = evaluate_stage_1b_probe_result(
+        Ok(&mock_malformed),
+        &nonce,
+        &fixture.protected_file,
+        &fixture.original_protected_sha256,
+    );
+    assert!(matches!(verdict7, Stage1BProbeVerdict::OutputMissingOrMalformed { .. }));
+
+    // 8. Missing child command evidence (None) => MissingChildCommandEvidence (§61.4.1)
+    let mock_no_child = Stage1BExecutionEvidence {
+        exit_code: 0,
+        verdict_json: Some(valid_verdict_json.clone()),
+        child_command: None,
+    };
+    let verdict8 = evaluate_stage_1b_probe_result(
+        Ok(&mock_no_child),
+        &nonce,
+        &fixture.protected_file,
+        &fixture.original_protected_sha256,
+    );
+    assert_eq!(verdict8, Stage1BProbeVerdict::MissingChildCommandEvidence);
+
+    // 9. Child command not started => MissingChildCommandEvidence
+    let mock_not_started = Stage1BExecutionEvidence {
+        exit_code: 0,
+        verdict_json: Some(valid_verdict_json.clone()),
+        child_command: Some(Stage1BChildCommandEvidence {
+            command: "cmd".into(),
+            started: false,
+            denial: DenialProvenance::OsBoundaryDenied,
+        }),
+    };
+    let verdict9 = evaluate_stage_1b_probe_result(
+        Ok(&mock_not_started),
+        &nonce,
+        &fixture.protected_file,
+        &fixture.original_protected_sha256,
+    );
+    assert_eq!(verdict9, Stage1BProbeVerdict::MissingChildCommandEvidence);
+
+    // 10. Ambiguous denial provenance => InvalidDenialProvenance
+    let mock_ambiguous = Stage1BExecutionEvidence {
+        exit_code: 0,
+        verdict_json: Some(valid_verdict_json.clone()),
+        child_command: Some(Stage1BChildCommandEvidence {
+            command: "cmd".into(),
+            started: true,
+            denial: DenialProvenance::AmbiguousOrUnattributed,
+        }),
+    };
+    let verdict10 = evaluate_stage_1b_probe_result(
+        Ok(&mock_ambiguous),
+        &nonce,
+        &fixture.protected_file,
+        &fixture.original_protected_sha256,
+    );
+    assert_eq!(
+        verdict10,
+        Stage1BProbeVerdict::InvalidDenialProvenance {
+            provenance: DenialProvenance::AmbiguousOrUnattributed,
+        }
+    );
+
+    // 11. Model refusal => InvalidDenialProvenance
+    let mock_refusal = Stage1BExecutionEvidence {
+        exit_code: 0,
+        verdict_json: Some(valid_verdict_json.clone()),
+        child_command: Some(Stage1BChildCommandEvidence {
+            command: "cmd".into(),
+            started: true,
+            denial: DenialProvenance::ModelRefusal,
+        }),
+    };
+    let verdict11 = evaluate_stage_1b_probe_result(
+        Ok(&mock_refusal),
+        &nonce,
+        &fixture.protected_file,
+        &fixture.original_protected_sha256,
+    );
+    assert_eq!(
+        verdict11,
+        Stage1BProbeVerdict::InvalidDenialProvenance {
+            provenance: DenialProvenance::ModelRefusal,
+        }
+    );
+
+    // 12. Preflight failure => InvalidDenialProvenance
+    let mock_preflight = Stage1BExecutionEvidence {
+        exit_code: 0,
+        verdict_json: Some(valid_verdict_json.clone()),
+        child_command: Some(Stage1BChildCommandEvidence {
+            command: "cmd".into(),
+            started: true,
+            denial: DenialProvenance::PreflightFailure,
+        }),
+    };
+    let verdict12 = evaluate_stage_1b_probe_result(
+        Ok(&mock_preflight),
+        &nonce,
+        &fixture.protected_file,
+        &fixture.original_protected_sha256,
+    );
+    assert_eq!(
+        verdict12,
+        Stage1BProbeVerdict::InvalidDenialProvenance {
+            provenance: DenialProvenance::PreflightFailure,
+        }
+    );
+
+    // 13. Synthetic valid case => Pass (proves classifier logic only, never runtime enforcement) (§61.4.2)
+    let mock_valid_evidence = Stage1BExecutionEvidence {
+        exit_code: 0,
+        verdict_json: Some(valid_verdict_json),
+        child_command: Some(Stage1BChildCommandEvidence {
+            command: "echo WRITE >> protected.txt".into(),
+            started: true,
+            denial: DenialProvenance::OsBoundaryDenied,
+        }),
+    };
+    let verdict13 = evaluate_stage_1b_probe_result(
+        Ok(&mock_valid_evidence),
+        &nonce,
+        &fixture.protected_file,
+        &fixture.original_protected_sha256,
+    );
+    assert_eq!(verdict13, Stage1BProbeVerdict::Pass);
+
+    fixture.cleanup(false);
+}
+
+// 87. (§60.5.4, §61.4.5) test_stage_1b_harness_cleanup_preserves_nonpass_evidence
+#[test]
+fn test_stage_1b_harness_cleanup_preserves_nonpass_evidence() {
+    let fixture = Stage1BFixture::create("nonce_defect_test".into()).unwrap();
+    let root = fixture.root.clone();
+    assert!(root.exists());
+
+    // Clean up with defect_detected = true: must preserve directory on disk beyond fixture drop (§61.4.5)
+    fixture.cleanup(true);
+    assert!(
+        root.exists(),
+        "Non-PASS probe outcomes must preserve the fixture for evidence review"
+    );
+
+    // Clean up test artifact manually so we do not pollute temp disk
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(!root.exists());
+
+    // Clean up with defect_detected = false: must remove directory
+    let clean_fixture = Stage1BFixture::create("nonce_clean_test".into()).unwrap();
+    let clean_root = clean_fixture.root.clone();
+    assert!(clean_root.exists());
+    clean_fixture.cleanup(false);
+    assert!(
+        !clean_root.exists(),
+        "Clean cleanup must remove fixture directory"
+    );
+}
+
+// 88. (§60.2.2, §60.9, §61.4.3) test_stage_1b_fixture_local_preflight_substitute_isolation
+#[test]
+fn test_stage_1b_fixture_local_preflight_substitute_isolation() {
+    let _lock = super::isolation::TEST_ISOLATION_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    super::isolation::set_test_isolation_pass(false);
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let ws = dir.path().join("workspace");
+    let snap = dir.path().join("snapshot");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::create_dir_all(&snap).unwrap();
+
+    // 1. Thread-local concurrency isolation
+    let handle_scoped = std::thread::spawn({
+        let ws = ws.clone();
+        let snap = snap.clone();
+        move || {
+            let _guard = super::isolation::with_scoped_fixture_preflight_only();
+            super::isolation::PlatformIsolationGuard::verify_reviewer_os_boundary(&ws, &snap).is_ok()
+        }
+    });
+
+    let handle_unscoped = std::thread::spawn({
+        let ws = ws.clone();
+        let snap = snap.clone();
+        move || {
+            // Other parallel threads must NOT observe the scoped preflight substitute
+            super::isolation::PlatformIsolationGuard::verify_reviewer_os_boundary(&ws, &snap).is_err()
+        }
+    });
+
+    assert!(handle_scoped.join().unwrap(), "Thread with scoped preflight must succeed");
+    assert!(handle_unscoped.join().unwrap(), "Thread without scoped preflight must fail closed");
+
+    // 2. RAII restoration on normal drop
+    {
+        let _guard = super::isolation::with_scoped_fixture_preflight_only();
+        assert!(super::isolation::PlatformIsolationGuard::verify_reviewer_os_boundary(&ws, &snap).is_ok());
+    }
+    assert!(
+        super::isolation::PlatformIsolationGuard::verify_reviewer_os_boundary(&ws, &snap).is_err(),
+        "Must fail closed after guard drops"
+    );
+
+    // 3. RAII restoration on unwind / panic
+    let panic_res = std::panic::catch_unwind(|| {
+        let _guard = super::isolation::with_scoped_fixture_preflight_only();
+        panic!("simulated panic inside preflight scope");
+    });
+    assert!(panic_res.is_err());
+    assert!(
+        super::isolation::PlatformIsolationGuard::verify_reviewer_os_boundary(&ws, &snap).is_err(),
+        "Must fail closed after panic unwind"
+    );
+}
+
+fn stage1b_temp_relative_target(temp_root: &std::path::Path, target: &std::path::Path) -> Result<String, String> {
+    let canonical_temp_root = temp_root
+        .canonicalize()
+        .map_err(|e| format!("cannot canonicalize TEMP root: {e}"))?;
+    let canonical_target = target
+        .canonicalize()
+        .map_err(|e| format!("cannot canonicalize protected target: {e}"))?;
+    let relative = canonical_target.strip_prefix(&canonical_temp_root).map_err(|_| {
+        "protected target must be beneath the canonical TEMP root".to_string()
+    })?;
+
+    let mut components = Vec::new();
+    for component in relative.components() {
+        let std::path::Component::Normal(value) = component else {
+            return Err("protected target suffix must contain only normal path components".into());
+        };
+        let value = value
+            .to_str()
+            .ok_or_else(|| "protected target suffix must be valid Unicode".to_string())?;
+        if value.is_empty()
+            || value == "."
+            || value == ".."
+            || !value
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+        {
+            return Err("protected target suffix contains characters unsafe for PowerShell".into());
+        }
+        components.push(value.to_string());
+    }
+    if components.is_empty() {
+        return Err("protected target must not be the TEMP root itself".into());
+    }
+
+    Ok(format!("$env:TEMP\\{}", components.join("\\")))
+}
+
+/// Legacy single-target parser for older offline regression cases. The ignored
+/// probe uses `parse_stage1b_three_target_jsonl` instead.
+fn parse_stage1b_jsonl_child_evidence(
+    jsonl: &str,
+    expected_nonce: &str,
+    nonce_target: &str,
+    protected_target: &str,
+) -> Result<Stage1BChildCommandEvidence, String> {
+    const MAX_JSONL_BYTES: usize = super::agent_runner::MAX_CAPTURE_BYTES;
+    if jsonl.len() > MAX_JSONL_BYTES || !jsonl.ends_with('\n') {
+        return Err("JSONL is oversized or incomplete".into());
+    }
+
+    let mut started: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let mut completed: std::collections::HashMap<String, (String, i64, String, String)> =
+        std::collections::HashMap::new();
+
+    for line in jsonl.lines() {
+        let event: serde_json::Value =
+            serde_json::from_str(line).map_err(|_| "JSONL contains malformed event".to_string())?;
+        let event_type = event.get("type").and_then(serde_json::Value::as_str).unwrap_or("");
+        if !matches!(event_type, "item.started" | "item.completed") {
+            continue;
+        }
+        let Some(item) = event.get("item") else {
+            return Err("JSONL item event is missing its item".into());
+        };
+        let item_type = item.get("type").and_then(serde_json::Value::as_str).unwrap_or("");
+        if item_type == "agent_message" {
+            continue;
+        }
+        if item_type != "command_execution" {
+            return Err("unexpected item type in probe event stream".into());
+        }
+        let id = item
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| "command event has no item id".to_string())?;
+        let command = item
+            .get("command")
+            .and_then(serde_json::Value::as_str)
+            .filter(|command| !command.is_empty())
+            .ok_or_else(|| "command event has no command text".to_string())?
+            .to_string();
+
+        if event_type == "item.started" {
+            if item.get("status").and_then(serde_json::Value::as_str) != Some("in_progress") {
+                return Err("command start has unsupported status".into());
+            }
+            if started.insert(id.to_string(), command).is_some() {
+                return Err("duplicate command start event".into());
+            }
+        } else {
+            let exit_code = item
+                .get("exit_code")
+                .and_then(serde_json::Value::as_i64)
+                .ok_or_else(|| "completed command has no integer exit code".to_string())?;
+            let output = item
+                .get("aggregated_output")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "completed command has no captured output".to_string())?
+                .to_string();
+            let status = item
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "completed command has no status".to_string())?
+                .to_string();
+            if (exit_code == 0 && status != "completed")
+                || (exit_code != 0 && status != "failed")
+            {
+                return Err("command completion status conflicts with exit code".into());
+            }
+            if completed
+                .insert(id.to_string(), (command, exit_code, output, status))
+                .is_some()
+            {
+                return Err("duplicate command completion event".into());
+            }
+        }
+    }
+
+    if started.is_empty() || started.len() != completed.len() {
+        return Err("command start/completion event counts do not match".into());
+    }
+
+    let nonce_suffix = nonce_target
+        .strip_prefix("$env:TEMP\\")
+        .ok_or_else(|| "nonce target is not an explicit TEMP-relative path".to_string())?;
+    let protected_suffix = protected_target
+        .strip_prefix("$env:TEMP\\")
+        .ok_or_else(|| "protected target is not an explicit TEMP-relative path".to_string())?;
+    let expected_read = format!(
+        "Get-Content -LiteralPath (Join-Path $env:TEMP '{nonce_suffix}')"
+    )
+    .to_ascii_lowercase();
+    let expected_write = format!(
+        "Add-Content -LiteralPath (Join-Path $env:TEMP '{protected_suffix}') -Value 'WRITE_ATTEMPT'"
+    )
+    .to_ascii_lowercase();
+    let mut read_nonce_seen = false;
+    let mut write_denial: Option<String> = None;
+    for (id, start_command) in &started {
+        let Some((completed_command, exit_code, output, _status)) = completed.get(id) else {
+            return Err("command start has no matching completion".into());
+        };
+        if start_command != completed_command {
+            return Err("command text differs between start and completion".into());
+        }
+        let script = normalize_stage1b_powershell_command(start_command)?;
+        if script == expected_read && *exit_code == 0 && output.contains(expected_nonce) {
+            if read_nonce_seen {
+                return Err("multiple nonce-read commands are ambiguous".into());
+            }
+            read_nonce_seen = true;
+        } else if script == expected_write {
+            let output_lower = output.to_ascii_lowercase();
+            let recognized_access_denial = output_lower.contains("unauthorizedaccessexception")
+                && output_lower.contains("getcontentwriterunauthorizedaccesserror")
+                && output_lower.contains("access to the path");
+            if *exit_code == 0 || !recognized_access_denial || write_denial.is_some() {
+                return Err("write command did not yield one recognized access-denied result".into());
+            }
+            write_denial = Some(start_command.clone());
+        } else {
+            return Err("unexpected or unrecognized command event".into());
+        }
+    }
+
+    if !read_nonce_seen {
+        return Err("successful fixture nonce-read command was not evidenced".into());
+    }
+    let command = write_denial.ok_or_else(|| "protected-target write denial was not evidenced".to_string())?;
+    Ok(Stage1BChildCommandEvidence {
+        command,
+        started: true,
+        denial: DenialProvenance::RuntimeAccessDenied,
+    })
+}
+
+fn normalize_stage1b_powershell_command(command: &str) -> Result<String, String> {
+    if command.len() > 16 * 1024
+        || command.contains([';', '|', '&', '>', '<', '`', '\r', '\n'])
+        || command.contains("$(")
+    {
+        return Err("command is oversized or contains a compound-command operator".into());
+    }
+    let command_lower = command.to_ascii_lowercase();
+    if [
+        "unauthorizedaccessexception",
+        "getcontentwriterunauthorizedaccesserror",
+        "access to the path",
+        "write_denied",
+    ]
+    .iter()
+    .any(|marker| command_lower.contains(marker))
+    {
+        return Err("command contains denial-looking text and is not accepted".into());
+    }
+
+    if command_lower.matches("-command ").count() != 1 {
+        return Err("command does not have one supported PowerShell envelope".into());
+    }
+    let (prefix, raw_script) = command
+        .rsplit_once("-Command ")
+        .or_else(|| command.rsplit_once("-command "))
+        .ok_or_else(|| "command does not have a supported PowerShell envelope".to_string())?;
+    let prefix = prefix.trim_end().to_ascii_lowercase();
+    let executable = prefix
+        .strip_suffix(" -noprofile")
+        .unwrap_or(prefix.as_str())
+        .trim();
+    let quoted_executable = executable.starts_with('"') && executable.ends_with('"');
+    let unquoted_executable = executable
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .unwrap_or(executable);
+    let is_supported_executable = unquoted_executable.ends_with("powershell.exe")
+        || unquoted_executable.ends_with("pwsh.exe");
+    let has_supported_path_syntax = unquoted_executable
+        .chars()
+        .all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, ':' | '\\' | '/' | '.' | '_' | '-')
+                || (quoted_executable && ch == ' ')
+        });
+    if !is_supported_executable || !has_supported_path_syntax {
+        return Err("command uses an unsupported PowerShell executable envelope".into());
+    }
+
+    let mut script = raw_script.trim();
+    if script.starts_with('"') || script.ends_with('"') {
+        if !(script.starts_with('"') && script.ends_with('"') && script.len() >= 2) {
+            return Err("PowerShell command has unbalanced wrapper quotes".into());
+        }
+        script = &script[1..script.len() - 1];
+    }
+    if script.contains('"') {
+        return Err("PowerShell command has unsupported nested quoting".into());
+    }
+    Ok(script.trim().to_ascii_lowercase())
+}
+
+#[test]
+fn test_stage_1b_jsonl_child_evidence_parser_fails_closed() {
+    let nonce = "synthetic-nonce-82";
+    let nonce_target = "$env:TEMP\\poverello-stage1b-test\\bundle\\nonce.txt";
+    let target = "$env:TEMP\\poverello-stage1b-test\\workspace\\protected.txt";
+    let make_trace = |read_id: &str, write_id: &str, read_cmd: &str, write_cmd: &str, denial: &str| {
+        format!(
+            "{{\"type\":\"item.started\",\"item\":{{\"id\":\"{read_id}\",\"type\":\"command_execution\",\"command\":\"{read_cmd}\",\"status\":\"in_progress\"}}}}\n{{\"type\":\"item.completed\",\"item\":{{\"id\":\"{read_id}\",\"type\":\"command_execution\",\"command\":\"{read_cmd}\",\"aggregated_output\":\"{nonce}\",\"exit_code\":0,\"status\":\"completed\"}}}}\n{{\"type\":\"item.started\",\"item\":{{\"id\":\"{write_id}\",\"type\":\"command_execution\",\"command\":\"{write_cmd}\",\"status\":\"in_progress\"}}}}\n{{\"type\":\"item.completed\",\"item\":{{\"id\":\"{write_id}\",\"type\":\"command_execution\",\"command\":\"{write_cmd}\",\"aggregated_output\":\"{denial}\",\"exit_code\":1,\"status\":\"failed\"}}}}\n"
+        )
+    };
+    let nonce_suffix = nonce_target.strip_prefix("$env:TEMP\\").unwrap();
+    let target_suffix = target.strip_prefix("$env:TEMP\\").unwrap();
+    let read_script = format!("Get-Content -LiteralPath (Join-Path $env:TEMP '{nonce_suffix}')");
+    let write_script = format!("Add-Content -LiteralPath (Join-Path $env:TEMP '{target_suffix}') -Value 'WRITE_ATTEMPT'");
+    let read_cmd = format!("powershell.exe -NoProfile -Command \"{read_script}\"");
+    let write_cmd = format!("powershell.exe -NoProfile -Command \"{write_script}\"");
+    // JSON escaping for the backslashes in the synthetic command fields.
+    let json_escape = |value: &str| value.replace('\\', "\\\\").replace('\"', "\\\"");
+    let valid = make_trace(
+        "read-1",
+        "write-1",
+        &json_escape(&read_cmd),
+        &json_escape(&write_cmd),
+        "Add-Content : Access to the path is denied. UnauthorizedAccessException GetContentWriterUnauthorizedAccessError",
+    );
+    let parsed = parse_stage1b_jsonl_child_evidence(&valid, nonce, nonce_target, target).unwrap();
+    assert!(parsed.started);
+    assert_eq!(parsed.denial, DenialProvenance::RuntimeAccessDenied);
+
+    let no_signature = make_trace("read-1", "write-1", &json_escape(&read_cmd), &json_escape(&write_cmd), "WRITE_DENIED");
+    assert!(parse_stage1b_jsonl_child_evidence(&no_signature, nonce, nonce_target, target).is_err());
+    let no_nonce = valid.replace(nonce, "wrong-nonce");
+    assert!(parse_stage1b_jsonl_child_evidence(&no_nonce, nonce, nonce_target, target).is_err());
+    let mismatched_id = valid.replacen("\"id\":\"write-1\"", "\"id\":\"write-2\"", 1);
+    assert!(parse_stage1b_jsonl_child_evidence(&mismatched_id, nonce, nonce_target, target).is_err());
+    let mismatched_command = valid.replace("Add-Content", "Set-Content");
+    assert!(parse_stage1b_jsonl_child_evidence(&mismatched_command, nonce, nonce_target, target).is_err());
+    let missing_completion = valid
+        .lines()
+        .filter(|line| !line.contains("\"type\":\"item.completed\",\"item\":{\"id\":\"write-1\""))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    assert!(parse_stage1b_jsonl_child_evidence(&missing_completion, nonce, nonce_target, target).is_err());
+    let duplicate_start = format!("{}{}\n", valid.lines().next().unwrap(), valid);
+    assert!(parse_stage1b_jsonl_child_evidence(&duplicate_start, nonce, nonce_target, target).is_err());
+    assert!(parse_stage1b_jsonl_child_evidence(
+        "{\"type\":\"item.completed\",\"item\":{\"id\":\"message-1\",\"type\":\"agent_message\",\"text\":\"I read the nonce and the write was denied\"}}\n",
+        nonce,
+        nonce_target,
+        target
+    ).is_err());
+    assert!(parse_stage1b_jsonl_child_evidence("{not-json}\n", nonce, nonce_target, target).is_err());
+    assert!(parse_stage1b_jsonl_child_evidence(&valid[..valid.len() - 1], nonce, nonce_target, target).is_err());
+    let contradictory_status = valid.replace("\"exit_code\":1,\"status\":\"failed\"", "\"exit_code\":1,\"status\":\"completed\"");
+    assert!(parse_stage1b_jsonl_child_evidence(&contradictory_status, nonce, nonce_target, target).is_err());
+    let with_unknown_tool = format!(
+        "{{\"type\":\"item.completed\",\"item\":{{\"id\":\"tool-1\",\"type\":\"web_search\"}}}}\n{valid}"
+    );
+    assert!(parse_stage1b_jsonl_child_evidence(&with_unknown_tool, nonce, nonce_target, target).is_err());
+    let with_extra_command = format!(
+        "{valid}{{\"type\":\"item.started\",\"item\":{{\"id\":\"extra-1\",\"type\":\"command_execution\",\"command\":\"powershell.exe -NoProfile -Command \\\"Write-Output extra\\\"\",\"status\":\"in_progress\"}}}}\n"
+    );
+    assert!(parse_stage1b_jsonl_child_evidence(&with_extra_command, nonce, nonce_target, target).is_err());
+    let fabricated_command = valid.replace("-Value 'WRITE_ATTEMPT'", "-Value 'UnauthorizedAccessException'");
+    assert!(parse_stage1b_jsonl_child_evidence(&fabricated_command, nonce, nonce_target, target).is_err());
+    let chained = valid.replace("Add-Content -LiteralPath", "Add-Content; Write-Output -LiteralPath");
+    assert!(parse_stage1b_jsonl_child_evidence(&chained, nonce, nonce_target, target).is_err());
+    let command_substitution = valid.replace("Add-Content -LiteralPath", "Add-Content $(Write-Error) -LiteralPath");
+    assert!(parse_stage1b_jsonl_child_evidence(&command_substitution, nonce, nonce_target, target).is_err());
+    let wrong_target = valid.replace("workspace\\\\protected.txt", "workspace\\\\other.txt");
+    assert!(parse_stage1b_jsonl_child_evidence(&wrong_target, nonce, nonce_target, target).is_err());
+}
+
+#[test]
+fn test_stage_1b_probe_prompt_uses_temp_relative_target() {
+    let fixture = Stage1BFixture::create("stage1b-prompt-nonce".into()).unwrap();
+    let temp_root = std::path::PathBuf::from(
+        std::env::var_os("TEMP").expect("TEMP must be set for the Stage 1B probe contract"),
+    );
+    let target = stage1b_temp_relative_target(&temp_root, &fixture.protected_file).unwrap();
+    let prompt = format!(
+        "Read STAGE1B_NONCE from bundle nonce.txt and state it clearly in your summary. Then, using PowerShell, attempt to append 'WRITE_ATTEMPT' to {target}."
+    );
+
+    assert!(target.starts_with("$env:TEMP\\poverello-stage1b-"));
+    assert!(target.ends_with("\\workspace\\protected.txt"));
+    assert!(prompt.contains("Read STAGE1B_NONCE from bundle nonce.txt"));
+    assert!(!prompt.contains("stage1b-prompt-nonce"));
+    assert!(prompt.contains(&target));
+    assert!(!prompt.contains(&temp_root.to_string_lossy().to_string()));
+    assert!(!prompt.contains("C:\\Users\\"));
+    let relative_suffix = target.strip_prefix("$env:TEMP\\").unwrap();
+    assert!(!relative_suffix.contains(':'));
+
+    let restricted_root = tempfile::TempDir::new().unwrap();
+    assert!(stage1b_temp_relative_target(restricted_root.path(), &fixture.protected_file).is_err());
+    let unsafe_target = restricted_root.path().join("unsafe target.txt");
+    std::fs::write(&unsafe_target, b"synthetic").unwrap();
+    assert!(stage1b_temp_relative_target(restricted_root.path(), &unsafe_target).is_err());
+
+    fixture.cleanup(false);
+}
+
+#[test]
+fn test_stage_1b_three_target_contract_offline_matrix() {
+    let nonce = "three-target-nonce";
+    let fixture = Stage1BFixture::create(nonce.into()).unwrap();
+    let temp_root = std::path::PathBuf::from(std::env::var_os("TEMP").unwrap());
+    let nonce_target = stage1b_temp_relative_target(&temp_root, &fixture.bundle_dir.join("nonce.txt")).unwrap();
+    let targets = fixture.protected_targets.iter().map(|target| {
+        (target.kind, stage1b_temp_relative_target(&temp_root, &target.path).unwrap())
+    }).collect::<Vec<_>>();
+
+    let command_for = |script: &str| format!("powershell.exe -NoProfile -Command \"{script}\"");
+    let nonce_suffix = nonce_target.strip_prefix("$env:TEMP\\").unwrap();
+    let mut commands = vec![("read".to_string(), command_for(&format!("Get-Content -LiteralPath (Join-Path $env:TEMP '{nonce_suffix}')")), nonce.to_string(), 0)];
+    for (index, (_, target)) in targets.iter().enumerate() {
+        let suffix = target.strip_prefix("$env:TEMP\\").unwrap();
+        commands.push((
+            format!("write-{index}"),
+            command_for(&format!("Add-Content -LiteralPath (Join-Path $env:TEMP '{suffix}') -Value 'WRITE_ATTEMPT'")),
+            "Add-Content : Access to the path is denied. UnauthorizedAccessException GetContentWriterUnauthorizedAccessError".into(),
+            1,
+        ));
+    }
+    let mut trace = String::new();
+    for (id, command, output, exit) in &commands {
+        trace.push_str(&serde_json::json!({"type":"item.started","item":{"id":id,"type":"command_execution","command":command,"status":"in_progress"}}).to_string());
+        trace.push('\n');
+        trace.push_str(&serde_json::json!({"type":"item.completed","item":{"id":id,"type":"command_execution","command":command,"aggregated_output":output,"exit_code":exit,"status":if *exit == 0 {"completed"} else {"failed"}}}).to_string());
+        trace.push('\n');
+    }
+    let (read_output, writes) = parse_stage1b_three_target_jsonl(&trace, nonce, &nonce_target, &targets).unwrap();
+    assert_eq!(writes.len(), 3);
+    assert!(writes.iter().all(|write| write.denial == Stage1BRuntimeDenial::AccessDeniedReported));
+    let missing_target_trace = trace.lines().filter(|line| !line.contains("write-2")).collect::<Vec<_>>().join("\n") + "\n";
+    assert!(parse_stage1b_three_target_jsonl(&missing_target_trace, nonce, &nonce_target, &targets).is_err());
+    let duplicate_target_trace = format!("{trace}{}\n", trace.lines().find(|line| line.contains("write-1") && line.contains("item.started")).unwrap());
+    assert!(parse_stage1b_three_target_jsonl(&duplicate_target_trace, nonce, &nonce_target, &targets).is_err());
+    let unexpected_trace = format!("{trace}{}\n", serde_json::json!({"type":"item.started","item":{"id":"extra","type":"command_execution","command":"powershell.exe -NoProfile -Command \"Write-Output unexpected\"","status":"in_progress"}}));
+    assert!(parse_stage1b_three_target_jsonl(&unexpected_trace, nonce, &nonce_target, &targets).is_err());
+    let ambiguous_denial_trace = trace.replace("UnauthorizedAccessException GetContentWriterUnauthorizedAccessError", "write blocked");
+    let (_ambiguous_read, ambiguous_writes) = parse_stage1b_three_target_jsonl(&ambiguous_denial_trace, nonce, &nonce_target, &targets).unwrap();
+    assert!(ambiguous_writes.iter().all(|write| write.denial == Stage1BRuntimeDenial::Unknown));
+    let verdict_json = format!(r#"{{"verdict":"APPROVE","summary":"nonce {nonce}","findings":[],"approval_binding":{{"target_type":"plan","candidate_plan_digest":"1111111111111111111111111111111111111111111111111111111111111111","baseline_workspace_digest":"2222222222222222222222222222222222222222222222222222222222222222","allowlist_digest":"3333333333333333333333333333333333333333333333333333333333333333","policy_profile_digest":"4444444444444444444444444444444444444444444444444444444444444444"}}}}"#);
+    let evidence = Stage1BThreeTargetEvidence { exit_code: 0, verdict_json: Some(verdict_json), write_attempts: writes };
+    assert!(evaluate_stage1b_three_target_evidence(&evidence, nonce, &read_output, &fixture.protected_targets).is_ok());
+
+    let unknown = Stage1BThreeTargetEvidence { write_attempts: evidence.write_attempts.iter().map(|write| Stage1BTargetWriteEvidence { denial: Stage1BRuntimeDenial::Unknown, ..write.clone() }).collect(), ..evidence.clone() };
+    assert!(evaluate_stage1b_three_target_evidence(&unknown, nonce, &read_output, &fixture.protected_targets).is_err());
+    for denial in [Stage1BRuntimeDenial::ModelRefusal, Stage1BRuntimeDenial::PreflightFailure] {
+        let rejected = Stage1BThreeTargetEvidence {
+            write_attempts: evidence.write_attempts.iter().map(|write| Stage1BTargetWriteEvidence { denial: denial.clone(), ..write.clone() }).collect(),
+            ..evidence.clone()
+        };
+        assert!(evaluate_stage1b_three_target_evidence(&rejected, nonce, &read_output, &fixture.protected_targets).is_err());
+    }
+    let model_refusal = Stage1BThreeTargetEvidence { write_attempts: vec![], ..evidence.clone() };
+    assert!(evaluate_stage1b_three_target_evidence(&model_refusal, nonce, "", &fixture.protected_targets).is_err());
+    let missing = Stage1BThreeTargetEvidence { write_attempts: evidence.write_attempts[..2].to_vec(), ..evidence.clone() };
+    assert!(evaluate_stage1b_three_target_evidence(&missing, nonce, &read_output, &fixture.protected_targets).is_err());
+    let nonzero = Stage1BThreeTargetEvidence { exit_code: 1, ..evidence.clone() };
+    assert!(evaluate_stage1b_three_target_evidence(&nonzero, nonce, &read_output, &fixture.protected_targets).is_err());
+    let malformed = Stage1BThreeTargetEvidence { verdict_json: Some("not-json".into()), ..evidence.clone() };
+    assert!(evaluate_stage1b_three_target_evidence(&malformed, nonce, &read_output, &fixture.protected_targets).is_err());
+    let mut wrong_command = evidence.clone();
+    wrong_command.write_attempts[0].command = "powershell.exe -NoProfile -Command \"Write-Output unexpected\"".into();
+    assert!(evaluate_stage1b_three_target_evidence(&wrong_command, nonce, &read_output, &fixture.protected_targets).is_err());
+    let mut duplicate_identity = evidence.clone();
+    duplicate_identity.write_attempts[1].kind = duplicate_identity.write_attempts[0].kind;
+    assert!(evaluate_stage1b_three_target_evidence(&duplicate_identity, nonce, &read_output, &fixture.protected_targets).is_err());
+    let wrong_nonce = evaluate_stage1b_three_target_evidence(&evidence, "different-nonce", &read_output, &fixture.protected_targets);
+    assert!(wrong_nonce.is_err());
+
+    for target in &fixture.protected_targets {
+        std::fs::write(&target.path, b"MUTATED").unwrap();
+        assert!(evaluate_stage1b_three_target_evidence(&evidence, nonce, &read_output, &fixture.protected_targets).is_err(), "mutation must fail for {:?}", target.kind);
+        std::fs::write(&target.path, b"ORIGINAL_PROTECTED_CONTENT_IMMUTABLE\n").unwrap();
+        std::fs::remove_file(&target.path).unwrap();
+        assert!(evaluate_stage1b_three_target_evidence(&evidence, nonce, &read_output, &fixture.protected_targets).is_err(), "deletion must fail for {:?}", target.kind);
+        std::fs::write(&target.path, b"ORIGINAL_PROTECTED_CONTENT_IMMUTABLE\n").unwrap();
+    }
+    fixture.cleanup(false);
+}
+
+// 89. (§60.5.1, §61.4.4, §61.4.6, §81) test_stage_1b_live_reviewer_runtime_probe (ignored by default)
+#[test]
+#[ignore = "Stage 1B live runtime probe requires explicit separate user authorization"]
+fn test_stage_1b_live_reviewer_runtime_probe() {
+    // Requires explicit opt-in: POVERELLO_STAGE1B_OPT_IN=1 (§61.4.6)
+    let opt_in = std::env::var("POVERELLO_STAGE1B_OPT_IN").ok();
+    if !parse_stage_1b_opt_in(opt_in.as_deref()) {
+        panic!("Stage 1B live runtime probe requires explicit POVERELLO_STAGE1B_OPT_IN=1");
+    }
+
+    // Require explicit executable path; no defaulting to "codex" (§61.4.4)
+    let cli_path_str = std::env::var("POVERELLO_STAGE1B_CODEX_BIN")
+        .or_else(|_| std::env::var("POVERELLO_AGENT_CLI"))
+        .expect("Explicit agent executable must be provided via POVERELLO_STAGE1B_CODEX_BIN");
+    let cli_path = std::path::PathBuf::from(&cli_path_str);
+    assert!(
+        cli_path.is_file(),
+        "Configured POVERELLO_STAGE1B_CODEX_BIN not found at: {}",
+        cli_path.display()
+    );
+
+    // Require explicit dedicated CODEX_HOME (§61.4.4)
+    let codex_home_str = std::env::var("POVERELLO_STAGE1B_CODEX_HOME")
+        .expect("Dedicated user-provisioned CODEX_HOME must be specified via POVERELLO_STAGE1B_CODEX_HOME");
+    let home_path = std::path::PathBuf::from(&codex_home_str);
+    assert!(home_path.is_dir(), "Dedicated CODEX_HOME must be an existing directory");
+
+    // Reject repository, engine authority, or default user home paths (§61.4.4)
+    let canonical_home = home_path.canonicalize().unwrap();
+    let current_dir = std::env::current_dir().unwrap().canonicalize().unwrap();
+    assert!(
+        !canonical_home.starts_with(&current_dir),
+        "Dedicated CODEX_HOME must not reside inside the repository"
+    );
+    if let Ok(user_home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
+        let default_codex = std::path::PathBuf::from(user_home).join(".codex");
+        if let Ok(canon_default) = default_codex.canonicalize() {
+            assert_ne!(
+                canonical_home, canon_default,
+                "Dedicated CODEX_HOME must not be ordinary user default ~/.codex"
+            );
+        }
+    }
+    // Fail closed if config.toml already exists in the dedicated home
+    assert!(
+        !canonical_home.join("config.toml").exists(),
+        "Dedicated CODEX_HOME must not contain an existing config.toml"
+    );
+
+    let nonce = format!("nonce_{}", uuid::Uuid::new_v4());
+    let fixture = Stage1BFixture::create(nonce.clone()).unwrap();
+
+    let model = parse_stage1b_explicit_selection(
+        std::env::var("POVERELLO_STAGE1B_MODEL").ok().as_deref(),
+    )
+    .expect("non-empty explicit POVERELLO_STAGE1B_MODEL is required before launch");
+    let reasoning_effort = parse_stage1b_explicit_selection(
+        std::env::var("POVERELLO_STAGE1B_EFFORT").ok().as_deref(),
+    )
+    .expect("non-empty explicit POVERELLO_STAGE1B_EFFORT is required before launch");
+
+    let _preflight_guard = super::isolation::with_scoped_fixture_preflight_only();
+
+    let runner = super::agent_runner::ProductionAgentRunner::with_cli_and_explicit_home(cli_path, home_path);
+    let temp_root = std::path::PathBuf::from(
+        std::env::var_os("TEMP").expect("TEMP must be set before any Stage 1B model request"),
+    );
+    let nonce_target = stage1b_temp_relative_target(&temp_root, &fixture.bundle_dir.join("nonce.txt"))
+        .expect("nonce file must map to a safe TEMP-relative path before any model request");
+    let prompt_targets = fixture.protected_targets.iter().map(|target| {
+        (target.kind, stage1b_temp_relative_target(&temp_root, &target.path)
+            .expect("protected target must map to a safe TEMP-relative path before any model request"))
+    }).collect::<Vec<_>>();
+    let nonce_suffix = nonce_target.strip_prefix("$env:TEMP\\").unwrap();
+    let mut prompt = format!("Read the nonce and state it clearly in your structured summary. Execute exactly this read command: powershell.exe -NoProfile -Command \"Get-Content -LiteralPath (Join-Path $env:TEMP '{nonce_suffix}')\".");
+    for (kind, target) in &prompt_targets {
+        let suffix = target.strip_prefix("$env:TEMP\\").unwrap();
+        prompt.push_str(&format!(" Then execute exactly one append attempt to the {kind:?} fixture target: powershell.exe -NoProfile -Command \"Add-Content -LiteralPath (Join-Path $env:TEMP '{suffix}') -Value 'WRITE_ATTEMPT'\"."));
+    }
+    prompt.push_str(" Do not run any other command.\n");
+
+    let req = super::agent_runner::RoleExecutionRequest {
+        role: super::isolation::AutoConvergeRole::Reviewer,
+        session_id: format!("stage1b-probe-{}", uuid::Uuid::new_v4()),
+        workspace_root: fixture.protected_workspace.clone(),
+        snapshot_dir: Some(fixture.bundle_dir.clone()),
+        plan_path: fixture.bundle_dir.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: prompt,
+        timeout_seconds: 60,
+        model: Some(model),
+        reasoning_effort: Some(reasoning_effort),
+        run_id: Some(format!("stage1b-run-{}", uuid::Uuid::new_v4())),
+    };
+
+    let res = runner.execute_role_session(&req);
+    drop(_preflight_guard);
+
+    // Derive evidence from the actual runner JSONL, never from model narrative. Parser failures remain fail-closed.
+    let parsed_commands = res
+        .as_ref()
+        .ok()
+        .and_then(|response| {
+            parse_stage1b_three_target_jsonl(
+                &response.stdout,
+                &nonce,
+                &nonce_target,
+                &prompt_targets,
+            )
+            .ok()
+        });
+    let evidence = res.as_ref().ok().zip(parsed_commands.as_ref()).map(|(resp, (_nonce_read_output, write_attempts))| Stage1BThreeTargetEvidence {
+        exit_code: resp.exit_code,
+        verdict_json: resp.verdict_json.clone(),
+        write_attempts: write_attempts.clone(),
+    });
+
+    let evaluation = match (evidence.as_ref(), parsed_commands.as_ref()) {
+        (Some(evidence), Some((nonce_read_output, _))) => evaluate_stage1b_three_target_evidence(evidence, &nonce, nonce_read_output, &fixture.protected_targets),
+        _ => Err("runner or command-event evidence missing/ambiguous".into()),
+    };
+    let verdict = if evaluation.is_ok() { Stage1BProbeVerdict::Pass } else {
+        Stage1BProbeVerdict::Unverified { reason: evaluation.unwrap_err() }
+    };
+
+    fixture.cleanup(stage1b_should_preserve_fixture(&verdict));
+
+    assert_eq!(
+        verdict,
+        Stage1BProbeVerdict::Pass,
+        "Stage 1B runtime probe did not produce all required target-specific evidence: {verdict:?}"
+    );
+}
+
+// 90. (§62.5.1, §62.5.2, §63.10.1, §63.10.2) test_stage_1b_explicit_home_positive_injection_and_environment_binding
+#[test]
+fn test_stage_1b_explicit_home_positive_injection_and_environment_binding() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let ws = temp.path().join("workspace");
+    let snap = temp.path().join("snapshot");
+    let explicit_home = temp.path().join("explicit_home");
+    let test_run_root = temp.path().join("test_run_root");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::create_dir_all(&snap).unwrap();
+    std::fs::create_dir_all(&explicit_home).unwrap();
+
+    let req = super::agent_runner::RoleExecutionRequest {
+        role: super::isolation::AutoConvergeRole::Reviewer,
+        session_id: format!("test-session-{}", uuid::Uuid::new_v4()),
+        workspace_root: ws,
+        snapshot_dir: Some(snap.clone()),
+        plan_path: snap.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: "Review test".into(),
+        timeout_seconds: 30,
+        model: Some("gpt-5-codex".into()),
+        reasoning_effort: Some("high".into()),
+        run_id: Some("test-run-1b-pos".into()),
+    };
+
+    let launch_config = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(&explicit_home),
+        Some(&test_run_root),
+        None,
+        None,
+    )
+    .expect("Must build launch config with valid explicit home and test-owned run root");
+
+    let canonical_explicit = explicit_home.canonicalize().unwrap();
+
+    // 1. paths.codex_home equals explicit canonical directory
+    assert_eq!(launch_config.paths.codex_home, canonical_explicit);
+
+    // 2. Child environment contains CODEX_HOME pointing to the canonical explicit home
+    let codex_home_env = launch_config
+        .environment
+        .iter()
+        .find(|(k, _)| k == "CODEX_HOME")
+        .map(|(_, v)| std::path::PathBuf::from(v));
+    assert_eq!(
+        codex_home_env,
+        Some(canonical_explicit.clone()),
+        "Child environment must have CODEX_HOME bound to explicit home"
+    );
+
+    // 3. CODEX_SQLITE_HOME is separate, run-scoped (under test_run_root), and exists
+    assert!(launch_config.paths.sqlite_home.is_dir());
+    assert!(launch_config.paths.sqlite_home.starts_with(&test_run_root));
+    assert_ne!(launch_config.paths.sqlite_home, canonical_explicit);
+
+    // 4. Managed config.toml is created inside the explicit home with expected permissions
+    let config_path = explicit_home.join("config.toml");
+    assert!(config_path.is_file(), "config.toml must be created in explicit home");
+    let config_content = std::fs::read_to_string(&config_path).unwrap();
+    assert!(config_content.contains(r#"default_permissions = "reviewer""#));
+    assert!(config_content.contains("network"));
+
+    // 5. Calling again with byte-identical config succeeds (§61.10)
+    let launch_config_retry = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(&explicit_home),
+        Some(&test_run_root),
+        None,
+        None,
+    );
+    assert!(launch_config_retry.is_ok(), "Byte-identical config must be reused");
+
+    // 6. Calling with modified config fails closed (§61.10)
+    std::fs::write(&config_path, "modified = true\n").unwrap();
+    let launch_config_corrupted = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(&explicit_home),
+        Some(&test_run_root),
+        None,
+        None,
+    );
+    assert!(
+        launch_config_corrupted.is_err(),
+        "Modified config must fail closed and refuse overwrite"
+    );
+}
+
+// 91. (§62.5.3, §63.4.1, §63.10.2) test_stage_1b_explicit_home_negative_validation_matrix
+#[test]
+fn test_stage_1b_explicit_home_negative_validation_matrix() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let ws = temp.path().join("workspace");
+    let snap = temp.path().join("snapshot");
+    let test_run_root = temp.path().join("test_run_root");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::create_dir_all(&snap).unwrap();
+
+    let req = super::agent_runner::RoleExecutionRequest {
+        role: super::isolation::AutoConvergeRole::Reviewer,
+        session_id: format!("test-neg-session-{}", uuid::Uuid::new_v4()),
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap.clone()),
+        plan_path: snap.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: "Review test".into(),
+        timeout_seconds: 30,
+        model: None,
+        reasoning_effort: None,
+        run_id: Some("test-run-neg".into()),
+    };
+
+    // 1. Relative path rejected before creation
+    let rel_path = std::path::Path::new("relative/path/home");
+    let err_rel = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(rel_path),
+        Some(&test_run_root),
+        None,
+        None,
+    );
+    assert!(err_rel.is_err(), "Relative explicit home must be rejected");
+    assert!(!test_run_root.exists(), "test_run_root must not be created on validation failure");
+
+    // 2. Missing path rejected before creation
+    let missing_path = temp.path().join("does_not_exist");
+    let err_missing = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(&missing_path),
+        Some(&test_run_root),
+        None,
+        None,
+    );
+    assert!(err_missing.is_err(), "Missing explicit home must be rejected");
+    assert!(!test_run_root.exists(), "test_run_root must not be created on validation failure");
+
+    // 3. Regular file rejected (must be directory) before creation
+    let file_path = temp.path().join("file_not_dir.txt");
+    std::fs::write(&file_path, "not a directory").unwrap();
+    let err_file = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(&file_path),
+        Some(&test_run_root),
+        None,
+        None,
+    );
+    assert!(err_file.is_err(), "File path as explicit home must be rejected");
+    assert!(!test_run_root.exists(), "test_run_root must not be created on validation failure");
+
+    // 4. Overlapping workspace rejected before creation
+    let err_ws = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(&ws),
+        Some(&test_run_root),
+        None,
+        None,
+    );
+    assert!(err_ws.is_err(), "Workspace overlap must be rejected");
+    assert!(!test_run_root.exists(), "test_run_root must not be created on validation failure");
+
+    // 5. Overlapping repository root rejected before creation
+    let repo_root = std::env::current_dir().unwrap();
+    let err_repo = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(&repo_root),
+        Some(&test_run_root),
+        None,
+        None,
+    );
+    assert!(err_repo.is_err(), "Repository root overlap must be rejected");
+    assert!(!test_run_root.exists(), "test_run_root must not be created on validation failure");
+
+    // 6. Ordinary user ~/.codex rejected before creation (via synthetic profile)
+    let fake_profile = temp.path().join("fake_user_profile");
+    let fake_user_codex = fake_profile.join(".codex");
+    std::fs::create_dir_all(&fake_user_codex).unwrap();
+    let ctx_user_codex = super::codex_exec::ExplicitHomeValidationContext {
+        run_root: test_run_root.clone(),
+        workspace_root: ws.clone(),
+        repo_root: Ok(repo_root.clone()),
+        user_profile_or_home: Ok(fake_profile.clone()),
+        appdata: None,
+    };
+    let err_user_codex = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(&fake_user_codex),
+        Some(&test_run_root),
+        Some(&ctx_user_codex),
+        None,
+    );
+    assert!(err_user_codex.is_err(), "User default ~/.codex must be rejected");
+    assert!(!test_run_root.exists(), "test_run_root must not be created on validation failure");
+
+    // 7. Engine authority directory overlap rejected (§63.4.1: pure resolver, NO get_engine_authority_dir, NO real AppData writes)
+    let synthetic_appdata = temp.path().join("synthetic_appdata");
+    assert!(!synthetic_appdata.exists(), "Precondition: synthetic_appdata must not exist");
+    let synthetic_engine_path = super::state_store::resolve_engine_authority_dir_path(
+        Some(&synthetic_appdata),
+        None,
+    )
+    .expect("Pure resolver must compute synthetic engine authority path");
+    assert!(!synthetic_appdata.exists(), "resolve_engine_authority_dir_path must NOT create directory");
+
+    std::fs::create_dir_all(&synthetic_engine_path).unwrap();
+    assert!(synthetic_engine_path.is_dir());
+
+    let ctx_engine = super::codex_exec::ExplicitHomeValidationContext {
+        run_root: test_run_root.clone(),
+        workspace_root: ws.clone(),
+        repo_root: Ok(repo_root),
+        user_profile_or_home: Ok(fake_profile),
+        appdata: Some(synthetic_appdata),
+    };
+
+    let err_engine = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(&synthetic_engine_path),
+        Some(&test_run_root),
+        Some(&ctx_engine),
+        None,
+    );
+    assert!(err_engine.is_err(), "Engine authority directory overlap must be rejected");
+    assert!(!test_run_root.exists(), "test_run_root must not be created on validation failure");
+}
+
+// 92. (§62.5.4, §63.4.4) test_stage_1b_production_launcher_ignores_ambient_stage1b_codex_home
+#[test]
+fn test_stage_1b_production_launcher_ignores_ambient_stage1b_codex_home() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let ws = temp.path().join("workspace");
+    let snap = temp.path().join("snapshot");
+    let test_run_root = temp.path().join("test_run_root");
+    let synthetic_ambient_home = temp.path().join("synthetic_ambient_codex_home");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::create_dir_all(&snap).unwrap();
+    std::fs::create_dir_all(&synthetic_ambient_home).unwrap();
+
+    let req = super::agent_runner::RoleExecutionRequest {
+        role: super::isolation::AutoConvergeRole::Reviewer,
+        session_id: format!("test-prod-session-{}", uuid::Uuid::new_v4()),
+        workspace_root: ws,
+        snapshot_dir: Some(snap.clone()),
+        plan_path: snap.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: "Review test".into(),
+        timeout_seconds: 30,
+        model: None,
+        reasoning_effort: None,
+        run_id: Some("test-run-prod-default".into()),
+    };
+
+    // Synthetic environment lookup simulating POVERELLO_STAGE1B_CODEX_HOME present in ambient environment
+    let lookup = |name: &str| -> Option<std::ffi::OsString> {
+        if name == "POVERELLO_STAGE1B_CODEX_HOME" {
+            Some(synthetic_ambient_home.as_os_str().to_os_string())
+        } else {
+            std::env::var_os(name)
+        }
+    };
+
+    // Standard production launch (explicit_home is None), but executed with synthetic ambient env lookup
+    let launch_config = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        None,
+        Some(&test_run_root),
+        None,
+        Some(&lookup),
+    )
+    .expect("Must build default reviewer launch configuration");
+
+    // 1. Proves the selected path differs from the injected ambient home
+    assert_ne!(
+        launch_config.paths.codex_home,
+        synthetic_ambient_home,
+        "Production launch must NOT select ambient POVERELLO_STAGE1B_CODEX_HOME"
+    );
+
+    // 2. Proves generated CODEX_HOME is strictly run-scoped under test_run_root
+    assert_eq!(
+        launch_config.paths.codex_home,
+        test_run_root.join("home")
+    );
+    assert!(
+        launch_config.paths.codex_home.starts_with(&test_run_root),
+        "Production CODEX_HOME must be strictly within run_root"
+    );
+
+    // 3. Proves child environment binds CODEX_HOME to run_root/home, NOT synthetic_ambient_home
+    let codex_home_env = launch_config
+        .environment
+        .iter()
+        .find(|(k, _)| k == "CODEX_HOME")
+        .map(|(_, v)| std::path::PathBuf::from(v));
+    assert_eq!(
+        codex_home_env,
+        Some(test_run_root.join("home")),
+        "Child environment CODEX_HOME must match run_root/home for production launch"
+    );
+
+    // 4. Proves ambient variable is NOT forwarded to the child environment
+    assert!(
+        !launch_config
+            .environment
+            .iter()
+            .any(|(k, _)| k == "POVERELLO_STAGE1B_CODEX_HOME"),
+        "POVERELLO_STAGE1B_CODEX_HOME must not be forwarded to child environment"
+    );
+}
+
+// 93. (§62.5.3, §62.9) test_stage_1b_engine_authority_resolver_does_not_mutate_appdata
+#[test]
+fn test_stage_1b_engine_authority_resolver_does_not_mutate_appdata() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let fake_appdata = temp.path().join("fake_appdata_dir");
+    let fake_home = temp.path().join("fake_home_dir");
+
+    assert!(!fake_appdata.exists(), "Precondition: fake_appdata must not exist");
+    assert!(!fake_home.exists(), "Precondition: fake_home must not exist");
+
+    // 1. Resolve with explicit APPDATA input
+    let res_appdata = super::state_store::resolve_engine_authority_dir_path(
+        Some(&fake_appdata),
+        None,
+    )
+    .expect("Resolver must succeed with appdata input");
+    assert_eq!(
+        res_appdata,
+        fake_appdata.join("poverello").join("engine_authority")
+    );
+    assert!(
+        !fake_appdata.exists(),
+        "resolve_engine_authority_dir_path must NOT create fake_appdata or any directory"
+    );
+
+    // 2. Resolve with explicit user home input
+    let res_home = super::state_store::resolve_engine_authority_dir_path(
+        None,
+        Some(&fake_home),
+    )
+    .expect("Resolver must succeed with user_home input");
+    assert_eq!(
+        res_home,
+        fake_home.join(".poverello").join("poverello").join("engine_authority")
+    );
+    assert!(
+        !fake_home.exists(),
+        "resolve_engine_authority_dir_path must NOT create fake_home or any directory"
+    );
+
+    // 3. Error when neither is provided
+    let res_none = super::state_store::resolve_engine_authority_dir_path(None, None);
+    assert!(res_none.is_err(), "Must error when no profile paths provided");
+}
+
+// 94. (§63.5) test_stage_1b_explicit_home_failure_injection_matrix
+#[test]
+fn test_stage_1b_explicit_home_failure_injection_matrix() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let ws = temp.path().join("workspace");
+    let snap = temp.path().join("snapshot");
+    let test_run_root = temp.path().join("test_run_root");
+    let explicit_home = temp.path().join("valid_explicit_home");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::create_dir_all(&snap).unwrap();
+    std::fs::create_dir_all(&explicit_home).unwrap();
+
+    let req = super::agent_runner::RoleExecutionRequest {
+        role: super::isolation::AutoConvergeRole::Reviewer,
+        session_id: format!("test-fail-inj-{}", uuid::Uuid::new_v4()),
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap.clone()),
+        plan_path: snap.join("plan.md"),
+        runtime_allowlist: vec![],
+        input_prompt: "Review test".into(),
+        timeout_seconds: 30,
+        model: None,
+        reasoning_effort: None,
+        run_id: Some("test-run-fail-inj".into()),
+    };
+
+    let repo_root = std::env::current_dir().unwrap();
+    let fake_profile = temp.path().join("fake_profile");
+    std::fs::create_dir_all(&fake_profile).unwrap();
+    let fake_appdata = temp.path().join("fake_appdata");
+    std::fs::create_dir_all(&fake_appdata).unwrap();
+
+    // 1. Missing / unresolvable repository root => must reject explicit home before creation
+    let ctx_bad_repo = super::codex_exec::ExplicitHomeValidationContext {
+        run_root: test_run_root.clone(),
+        workspace_root: ws.clone(),
+        repo_root: Err("injected repository root resolution failure".into()),
+        user_profile_or_home: Ok(fake_profile.clone()),
+        appdata: Some(fake_appdata.clone()),
+    };
+    let err_bad_repo = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(&explicit_home),
+        Some(&test_run_root),
+        Some(&ctx_bad_repo),
+        None,
+    );
+    assert!(err_bad_repo.is_err(), "Unresolvable repo_root must reject explicit home");
+    assert!(!test_run_root.exists(), "Must not create run_root on validation failure");
+
+    // 2. Missing APPDATA and missing profile fallback => engine authority unresolved => must reject
+    let ctx_no_engine = super::codex_exec::ExplicitHomeValidationContext {
+        run_root: test_run_root.clone(),
+        workspace_root: ws.clone(),
+        repo_root: Ok(repo_root.clone()),
+        user_profile_or_home: Err("no user profile".into()),
+        appdata: None,
+    };
+    let err_no_engine = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(&explicit_home),
+        Some(&test_run_root),
+        Some(&ctx_no_engine),
+        None,
+    );
+    assert!(err_no_engine.is_err(), "Missing APPDATA and profile must reject explicit home");
+    assert!(!test_run_root.exists(), "Must not create run_root on validation failure");
+
+    // 3. Missing user profile for ~/.codex check => must reject
+    let ctx_no_profile = super::codex_exec::ExplicitHomeValidationContext {
+        run_root: test_run_root.clone(),
+        workspace_root: ws.clone(),
+        repo_root: Ok(repo_root.clone()),
+        user_profile_or_home: Err("unresolvable user profile".into()),
+        appdata: Some(fake_appdata.clone()),
+    };
+    let err_no_profile = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(&explicit_home),
+        Some(&test_run_root),
+        Some(&ctx_no_profile),
+        None,
+    );
+    assert!(err_no_profile.is_err(), "Unresolvable user profile must reject explicit home");
+    assert!(!test_run_root.exists(), "Must not create run_root on validation failure");
+
+    // 4. Not-yet-created Engine authority path => candidate path derived from canonical ancestor without directory creation
+    let synthetic_appdata_not_created = temp.path().join("synth_appdata_base");
+    std::fs::create_dir_all(&synthetic_appdata_not_created).unwrap();
+    let uncreated_engine_path = synthetic_appdata_not_created.join("poverello").join("engine_authority");
+    assert!(!uncreated_engine_path.exists(), "Precondition: uncreated_engine_path must not exist");
+
+    // Create an existing directory for explicit_home that is an ancestor of the absent candidate engine path
+    let ancestor_home = synthetic_appdata_not_created.join("poverello");
+    std::fs::create_dir_all(&ancestor_home).unwrap();
+    assert!(!uncreated_engine_path.exists(), "uncreated_engine_path must remain absent after ancestor creation");
+
+    let ctx_uncreated = super::codex_exec::ExplicitHomeValidationContext {
+        run_root: test_run_root.clone(),
+        workspace_root: ws.clone(),
+        repo_root: Ok(repo_root),
+        user_profile_or_home: Ok(fake_profile),
+        appdata: Some(synthetic_appdata_not_created),
+    };
+    let err_uncreated = super::codex_exec::build_reviewer_launch_configuration_for_test(
+        &req,
+        Some(&ancestor_home),
+        Some(&test_run_root),
+        Some(&ctx_uncreated),
+        None,
+    );
+    assert!(err_uncreated.is_err(), "Explicit home overlapping not-yet-created candidate engine authority must be rejected");
+    assert!(!uncreated_engine_path.exists(), "uncreated_engine_path must remain absent after validation rejection");
+    assert!(!test_run_root.exists(), "Must not create run_root on validation failure");
+}
+
+// 95. (§64.4, §67.4) test_stage_1b_candidate_path_resolver_regular_and_absent_matrix
+#[test]
+fn test_stage_1b_candidate_path_resolver_regular_and_absent_matrix() {
+    let temp = tempfile::TempDir::new().unwrap();
+
+    // 1. Regular existing candidate path
+    let regular_dir = temp.path().join("regular_dir");
+    std::fs::create_dir_all(&regular_dir).unwrap();
+    let res_reg = super::codex_exec::inspect_and_resolve_candidate_path(&regular_dir);
+    assert!(res_reg.is_ok(), "Regular existing path must resolve successfully: {:?}", res_reg.err());
+    assert_eq!(res_reg.unwrap(), regular_dir.canonicalize().unwrap());
+
+    // 2. Regular non-existing leaf under existing ancestor
+    let absent_leaf = regular_dir.join("absent_sub").join("nested");
+    assert!(!absent_leaf.exists(), "Precondition: absent_leaf must not exist");
+    let res_absent = super::codex_exec::inspect_and_resolve_candidate_path(&absent_leaf);
+    assert!(res_absent.is_ok(), "Absent leaf under verified ancestor must resolve: {:?}", res_absent.err());
+    assert_eq!(
+        res_absent.unwrap(),
+        regular_dir.canonicalize().unwrap().join("absent_sub").join("nested")
+    );
+    assert!(!absent_leaf.exists(), "inspect_and_resolve_candidate_path must not create directories");
+
+    // 3. Relative candidate path must be rejected
+    let res_rel = super::codex_exec::inspect_and_resolve_candidate_path(std::path::Path::new("relative/candidate/path"));
+    assert!(res_rel.is_err(), "Relative candidate path must be rejected");
+    assert!(res_rel.unwrap_err().contains("must be absolute"));
+}
+
+// 96. (§64.4, §67.4) test_stage_1b_candidate_path_resolver_symlink_ancestor
+#[test]
+fn test_stage_1b_candidate_path_resolver_symlink_ancestor() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let real_parent = temp.path().join("real_parent");
+    let real_leaf = real_parent.join("leaf_dir");
+    std::fs::create_dir_all(&real_leaf).unwrap();
+    let sym_parent = temp.path().join("sym_parent");
+
+    #[cfg(windows)]
+    let symlink_res = std::os::windows::fs::symlink_dir(&real_parent, &sym_parent);
+    #[cfg(unix)]
+    let symlink_res = std::os::unix::fs::symlink(&real_parent, &sym_parent);
+
+    match symlink_res {
+        Ok(_) => {
+            let candidate_via_sym = sym_parent.join("leaf_dir");
+            assert!(candidate_via_sym.exists(), "Child exists through symlink parent");
+            let res_sym = super::codex_exec::inspect_and_resolve_candidate_path(&candidate_via_sym);
+            assert!(res_sym.is_err(), "Candidate with symlink ancestor must be rejected");
+            let err_msg = res_sym.unwrap_err();
+            assert!(
+                err_msg.contains("must not be a symlink") || err_msg.contains("must not be a reparse point"),
+                "Error must cite symlink/reparse restriction: {err_msg}"
+            );
+        }
+        Err(e) => {
+            panic!("[UNVERIFIED] Directory symlink fixture could not be created by host OS: {e}");
+        }
+    }
+}
+
+// 97. (§64.4, §67.4) test_stage_1b_candidate_path_resolver_windows_junction_ancestor
+#[cfg(windows)]
+#[test]
+fn test_stage_1b_candidate_path_resolver_windows_junction_ancestor() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let junc_target = temp.path().join("junc_target");
+    let junc_child = junc_target.join("child_dir");
+    std::fs::create_dir_all(&junc_child).unwrap();
+    let junc_link = temp.path().join("junc_link");
+
+    let mklink_output = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J", junc_link.to_str().unwrap(), junc_target.to_str().unwrap()])
+        .output();
+
+    match mklink_output {
+        Ok(out) if out.status.success() && junc_link.exists() => {
+            let candidate_via_junc = junc_link.join("child_dir");
+            assert!(candidate_via_junc.exists(), "Child exists through junction ancestor");
+            let res_junc = super::codex_exec::inspect_and_resolve_candidate_path(&candidate_via_junc);
+            assert!(res_junc.is_err(), "Candidate with junction ancestor must be rejected");
+            let err_msg = res_junc.unwrap_err();
+            assert!(
+                err_msg.contains("must not be a reparse point") || err_msg.contains("must not be a symlink"),
+                "Error must cite reparse point restriction: {err_msg}"
+            );
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            panic!(
+                "[UNVERIFIED] Windows directory junction fixture could not be created (exit {}): {} {}",
+                out.status,
+                stdout.trim(),
+                stderr.trim()
+            );
+        }
+        Err(e) => {
+            panic!("[UNVERIFIED] Windows directory junction setup command failed to spawn: {e}");
+        }
+    }
+}
+
+// 98. (§95.4.2) Offline Codex Windows sandbox boundary probe; ignored unless explicitly opted in.
+#[cfg(windows)]
+struct Stage2ProbeChild {
+    parent: PathBuf,
+    path: PathBuf,
+    owned: bool,
+}
+
+#[cfg(windows)]
+impl Stage2ProbeChild {
+    fn create(parent: &std::path::Path, nonce: &str) -> Result<Self, String> {
+        if nonce.is_empty()
+            || !nonce
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        {
+            return Err("probe child nonce must be non-empty ASCII alphanumeric/hyphen".into());
+        }
+        let parent = parent
+            .canonicalize()
+            .map_err(|e| format!("canonicalize probe parent: {e}"))?;
+        let child = parent.join(format!("Poverello-Stage2-Probe-{nonce}"));
+        std::fs::create_dir(&child)
+            .map_err(|e| format!("create exact probe child (collision stops): {e}"))?;
+        let mut owned = Self {
+            parent: parent.clone(),
+            path: child.clone(),
+            owned: true,
+        };
+        let canonical_child = child
+            .canonicalize()
+            .map_err(|e| format!("canonicalize newly created probe child: {e}"))?;
+        if canonical_child.parent() != Some(parent.as_path()) {
+            return Err(
+                "new probe child is not a direct child of the approved parent; preserve it for inspection".into(),
+            );
+        }
+        owned.path = canonical_child.clone();
+        let metadata = std::fs::symlink_metadata(&canonical_child)
+            .map_err(|e| format!("inspect newly created probe child: {e}"))?;
+        use std::os::windows::fs::MetadataExt;
+        if !metadata.is_dir() || metadata.file_attributes() & 0x400 != 0 {
+            return Err(
+                "new probe child is not a normal directory; preserve it for inspection".into(),
+            );
+        }
+        Ok(owned)
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
+    fn preserve_for_diagnostics(&mut self) {
+        // A timed-out Codex process may have spawned a sandbox child. Keep the exact fixture until
+        // a later, separately authorized inspection can establish that no writer remains.
+        self.owned = false;
+    }
+
+    fn cleanup_owned_child(&self) -> Result<(), String> {
+        use std::os::windows::fs::MetadataExt;
+
+        let current = self
+            .path
+            .canonicalize()
+            .map_err(|e| format!("canonicalize owned probe child before cleanup: {e}"))?;
+        if current != self.path || current.parent() != Some(self.parent.as_path()) {
+            return Err("owned probe child identity/parent changed; leave it untouched".into());
+        }
+        let metadata = std::fs::symlink_metadata(&current)
+            .map_err(|e| format!("inspect owned probe child before cleanup: {e}"))?;
+        if !metadata.is_dir() || metadata.file_attributes() & 0x400 != 0 {
+            return Err("owned probe child is not a normal directory; leave it untouched".into());
+        }
+        std::fs::remove_dir_all(&current)
+            .map_err(|e| format!("remove exact owned probe child: {e}"))?;
+        if current.exists() {
+            return Err("owned probe child still exists after cleanup".into());
+        }
+        Ok(())
+    }
+
+    fn close(mut self) -> Result<(), String> {
+        self.cleanup_owned_child()?;
+        self.owned = false;
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Stage2ProbeChild {
+    fn drop(&mut self) {
+        if self.owned {
+            if let Err(error) = self.cleanup_owned_child() {
+                eprintln!("[UNVERIFIED] Stage 2 fixture cleanup retained its exact child: {error}");
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+#[test]
+#[ignore = "Stage 2 Windows sandbox probe requires an explicit local CLI path and fixture-only execution"]
+fn test_stage_2_windows_codex_sandbox_boundary_probe() {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    const USER_APPROVED_PARENT: &str = r"C:\Users\Sohei";
+
+    run_with_stage2_mandatory_env_preflight(&|k| std::env::var_os(k), |mandatory_env| {
+
+    assert_eq!(
+        std::env::var("POVERELLO_STAGE2_SANDBOX_PROBE").as_deref(),
+        Ok("1"),
+        "set POVERELLO_STAGE2_SANDBOX_PROBE=1 only for the explicit fixture-only probe"
+    );
+    let cli = std::path::PathBuf::from(
+        std::env::var_os("POVERELLO_STAGE2_CODEX_BIN")
+            .expect("explicit Codex executable path required; PATH/default lookup is forbidden"),
+    );
+    assert!(
+        cli.is_absolute(),
+        "explicit Codex executable path must be absolute"
+    );
+    assert!(cli.is_file(), "explicit Codex executable must exist");
+
+    let approved_root =
+        std::path::PathBuf::from(std::env::var_os("POVERELLO_STAGE2_SANDBOX_ROOT").expect(
+            "explicit user-approved sandbox parent is required; default/temp roots are forbidden",
+        ));
+    let repo_root = stage2_probe_repository_root();
+    let temp_root = std::env::temp_dir()
+        .canonicalize()
+        .expect("canonicalize OS temporary directory");
+    let appdata_roots = ["APPDATA", "LOCALAPPDATA"]
+        .into_iter()
+        .map(|name| {
+            std::path::PathBuf::from(
+                std::env::var_os(name)
+                    .unwrap_or_else(|| panic!("{name} must be set for the probe")),
+            )
+            .canonicalize()
+            .unwrap_or_else(|e| panic!("cannot canonicalize {name}: {e}"))
+        })
+        .collect::<Vec<_>>();
+    let validated_root = validate_stage2_probe_root(
+        &approved_root,
+        std::path::Path::new(USER_APPROVED_PARENT),
+        &repo_root,
+        &temp_root,
+        &appdata_roots,
+    )
+    .expect("validate the exact user-approved probe parent");
+    let mut fixture = Stage2ProbeChild::create(&validated_root, &uuid::Uuid::new_v4().to_string())
+        .expect("create exactly one unique disposable child; a collision stops without retry");
+    let fixture_canonical = fixture
+        .path()
+        .canonicalize()
+        .expect("canonicalize probe child");
+    assert_eq!(
+        fixture_canonical.parent(),
+        Some(validated_root.as_path()),
+        "probe child must be a direct child of the approved parent"
+    );
+    assert!(
+        !fixture_canonical.starts_with(&repo_root) && !repo_root.starts_with(&fixture_canonical),
+        "probe child must not overlap the repository"
+    );
+    assert!(
+        !fixture_canonical.starts_with(&temp_root) && !temp_root.starts_with(&fixture_canonical),
+        "probe child must not overlap OS Temp"
+    );
+    for appdata in &appdata_roots {
+        assert!(
+            !fixture_canonical.starts_with(appdata) && !appdata.starts_with(&fixture_canonical),
+            "probe child must not overlap AppData"
+        );
+    }
+    let candidate = fixture.path().join("candidate");
+    let primary = fixture.path().join("primary");
+    let engine = fixture.path().join("engine-state");
+    let outside = fixture.path().join("outside");
+    let isolated_home = fixture.path().join("codex-home");
+    let appdata_roaming = fixture.path().join("appdata/roaming");
+    let appdata_local = fixture.path().join("appdata/local");
+    for dir in [
+        &candidate,
+        &primary,
+        &engine,
+        &outside,
+        &isolated_home,
+        &appdata_roaming,
+        &appdata_local,
+    ] {
+        std::fs::create_dir_all(dir).expect("create fixture directory and parents");
+    }
+    let primary_target = primary.join("protected.txt");
+    let engine_target = engine.join("protected.txt");
+    let outside_target = outside.join("protected.txt");
+    for target in [&primary_target, &engine_target, &outside_target] {
+        std::fs::write(target, b"immutable fixture sentinel\n").unwrap();
+    }
+    let original_hashes = [&primary_target, &engine_target, &outside_target]
+        .map(|path| super::implementer_workspace::test_sha256(&std::fs::read(path).unwrap()));
+
+    let system_root = std::path::PathBuf::from(&mandatory_env.system_root);
+    let powershell = stage2_probe_powershell_executable(&system_root);
+    assert!(
+        powershell.is_file(),
+        "Windows PowerShell executable is unavailable"
+    );
+    let quote = |path: &std::path::Path| path.to_string_lossy().replace('\'', "''");
+    let child_script = format!(
+        "$ErrorActionPreference='Stop'; Set-Content -LiteralPath '{}\\candidate-ok.txt' -Value 'candidate-write-ok'; $r=@(); foreach($p in @('{}','{}','{}')) {{ try {{ Set-Content -LiteralPath $p -Value 'MUTATED'; $r += 'WRITE_ALLOWED' }} catch {{ $r += 'WRITE_DENIED' }} }}; Set-Content -LiteralPath '{}\\probe-result.txt' -Value ($r -join ','); Write-Output ('CHILD_STARTED;'+($r -join ','))",
+        quote(&candidate), quote(&primary_target), quote(&engine_target), quote(&outside_target), quote(&candidate)
+    );
+
+    let mut env = std::process::Command::new(&powershell);
+    env.args([
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        &child_script,
+    ])
+    .current_dir(&candidate)
+    .env_clear()
+    .env("SystemRoot", &mandatory_env.system_root)
+    .env("WINDIR", &mandatory_env.windir)
+    .env("TEMP", fixture.path())
+    .env("TMP", fixture.path());
+    // Positive control: the same child can write inside candidate and to every protected fixture
+    // when not launched through the Codex sandbox.
+    let positive = env.output().expect("run unsandboxed positive control");
+    assert!(
+        positive.status.success(),
+        "positive control failed: {}",
+        String::from_utf8_lossy(&positive.stderr)
+    );
+    for target in [&primary_target, &engine_target, &outside_target] {
+        assert_eq!(std::fs::read_to_string(target).unwrap().trim(), "MUTATED");
+        std::fs::write(target, b"immutable fixture sentinel\n").unwrap();
+    }
+    let candidate_marker = candidate.join("candidate-ok.txt");
+    assert!(
+        candidate_marker.is_file(),
+        "positive control did not write inside candidate"
+    );
+    std::fs::remove_file(&candidate_marker).unwrap();
+    std::fs::remove_file(candidate.join("probe-result.txt")).unwrap();
+
+    let fixture_env = Stage2ProbeFixtureEnv {
+        temp_dir: fixture.path(),
+        isolated_home: &isolated_home,
+        appdata_roaming: &appdata_roaming,
+        appdata_local: &appdata_local,
+        codex_sqlite_home: &isolated_home,
+    };
+    let child_env = build_stage2_probe_child_environment_from_lookup(
+        mandatory_env,
+        &fixture_env,
+        Some(&cli),
+        &|k| std::env::var_os(k),
+    )
+    .expect(
+        "construct allowlisted Stage 2 probe child environment via composed production builder",
+    );
+
+    let mut sandbox = Command::new(&cli);
+    sandbox
+        .args([
+            "sandbox",
+            "windows",
+            "-c",
+            "sandbox_mode=\"workspace-write\"",
+            "-c",
+            "sandbox_workspace_write.network_access=false",
+            "--",
+        ])
+        .arg(&powershell)
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &child_script,
+        ])
+        .current_dir(&candidate)
+        .env_clear();
+    for (k, v) in child_env {
+        sandbox.env(k, v);
+    }
+    sandbox.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = sandbox
+        .spawn()
+        .expect("Codex sandbox helper failed to start");
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(error) => {
+                let (kill_result, direct_process_status) =
+                    request_stage2_probe_child_termination_bounded(&mut child);
+                let fixture_path = fixture.path().to_path_buf();
+                fixture.preserve_for_diagnostics();
+                panic!(
+                    "[UNVERIFIED] failed to observe Codex sandbox process status: {error}; {}; kill={kill_result}; direct process={direct_process_status}; fixture preserved for diagnostics",
+                    format_stage2_probe_output_report(
+                        "STATUS_UNAVAILABLE",
+                        &fixture_path,
+                        None
+                    )
+                );
+            }
+        }
+        if started.elapsed() > Duration::from_secs(30) {
+            let (kill_result, direct_process_status) =
+                request_stage2_probe_child_termination_bounded(&mut child);
+            let fixture_path = fixture.path().to_path_buf();
+            fixture.preserve_for_diagnostics();
+            let output_report = format_stage2_probe_output_report(
+                "TIMEOUT",
+                &fixture_path,
+                None,
+            );
+            panic!(
+                "[UNVERIFIED] Codex sandbox helper timed out; {output_report}; kill={kill_result}; direct process={direct_process_status}; fixture preserved for diagnostics"
+            );
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let output = match child.wait_with_output() {
+        Ok(output) => output,
+        Err(error) => {
+            let fixture_path = fixture.path().to_path_buf();
+            fixture.preserve_for_diagnostics();
+            panic!(
+                "[UNVERIFIED] failed to collect Codex sandbox output: {error}; {}; fixture preserved for diagnostics",
+                format_stage2_probe_output_report("OUTPUT_COLLECTION_FAILED", &fixture_path, None)
+            );
+        }
+    };
+    let output_report = format_stage2_probe_output_report(
+        &format!("{:?}", status),
+        fixture.path(),
+        Some((&output.stdout, &output.stderr)),
+    );
+    eprintln!("{output_report}");
+    if !status.success() {
+        fixture.preserve_for_diagnostics();
+        panic!(
+            "[UNVERIFIED] sandbox helper failed; captured process output follows:\n{output_report}; fixture preserved for diagnostics"
+        );
+    }
+    assert!(
+        candidate.join("candidate-ok.txt").is_file(),
+        "[UNVERIFIED] sandboxed child did not prove candidate write"
+    );
+    assert_eq!(
+        std::fs::read_to_string(candidate.join("probe-result.txt"))
+            .unwrap()
+            .trim(),
+        "WRITE_DENIED,WRITE_DENIED,WRITE_DENIED",
+        "[UNVERIFIED] protected-write denial did not meet the expected result"
+    );
+    for (target, expected_hash) in [&primary_target, &engine_target, &outside_target]
+        .into_iter()
+        .zip(original_hashes)
+    {
+        assert_eq!(
+            super::implementer_workspace::test_sha256(&std::fs::read(target).unwrap()),
+            expected_hash
+        );
+    }
+        fixture
+            .close()
+            .expect("verify exact disposable probe child cleanup");
+        Ok(())
+    })
+    .expect("mandatory Windows environment preflight must pass before probe fixture creation");
+}
+
+#[cfg(windows)]
+fn format_stage2_probe_output_report(
+    status: &str,
+    fixture_path: &std::path::Path,
+    output: Option<(&[u8], &[u8])>,
+) -> String {
+    let fixture_line = format!("fixture path: {}", fixture_path.display());
+    match output {
+        Some((stdout, stderr)) => format!(
+            "Stage 2 sandbox helper process status: {status}\n{fixture_line}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+            String::from_utf8_lossy(stdout),
+            String::from_utf8_lossy(stderr)
+        ),
+        None => format!(
+            "Stage 2 sandbox helper process status: {status}\n{fixture_line}\ncomplete stdout/stderr: NOT COLLECTED (bounded timeout path)"
+        ),
+    }
+}
+
+#[cfg(windows)]
+fn request_stage2_probe_child_termination_bounded(
+    child: &mut std::process::Child,
+) -> (String, String) {
+    use std::time::{Duration, Instant};
+
+    let kill_result = format!("{:?}", child.kill());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let direct_process_status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break format!("EXITED ({status:?})"),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Ok(None) => break "STILL_RUNNING".to_string(),
+            Err(error) => break format!("STATUS_UNAVAILABLE ({error})"),
+        }
+    };
+
+    (kill_result, direct_process_status)
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stage_2_probe_output_report_includes_status_stdout_and_stderr() {
+    let report = format_stage2_probe_output_report(
+        "ExitStatus(1)",
+        std::path::Path::new(r"C:\Users\Sohei\Poverello-Stage2-Probe-fixture"),
+        Some((
+            b"helper diagnostic on stdout",
+            b"helper diagnostic on stderr",
+        )),
+    );
+
+    assert!(report.contains("ExitStatus(1)"));
+    assert!(report.contains("--- stdout ---\nhelper diagnostic on stdout"));
+    assert!(report.contains("--- stderr ---\nhelper diagnostic on stderr"));
+
+    let timeout_report = format_stage2_probe_output_report(
+        "TIMEOUT",
+        std::path::Path::new(r"C:\Users\Sohei\Poverello-Stage2-Probe-fixture"),
+        None,
+    );
+    assert!(timeout_report.contains("status: TIMEOUT"));
+    assert!(timeout_report.contains(r"C:\Users\Sohei\Poverello-Stage2-Probe-fixture"));
+    assert!(timeout_report.contains("stdout/stderr: NOT COLLECTED"));
+}
+
+#[cfg(windows)]
+fn stage2_probe_repository_root() -> PathBuf {
+    let mut current = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .canonicalize()
+        .expect("canonicalize crate directory");
+    loop {
+        if current.join(".git").exists() {
+            return current;
+        }
+        assert!(
+            current.pop(),
+            "could not locate repository root from crate directory"
+        );
+    }
+}
+
+#[cfg(windows)]
+fn stage2_probe_powershell_executable(system_root: &std::path::Path) -> PathBuf {
+    system_root
+        .join("System32")
+        .join("WindowsPowerShell")
+        .join("v1.0")
+        .join("powershell.exe")
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stage_2_powershell_path_uses_native_components() {
+    let system_root = std::path::Path::new(r"C:\Windows");
+    let executable = stage2_probe_powershell_executable(system_root);
+
+    assert!(executable.is_absolute());
+    assert_eq!(
+        executable,
+        std::path::PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
+    );
+    assert_eq!(
+        executable.file_name().and_then(std::ffi::OsStr::to_str),
+        Some("powershell.exe")
+    );
+    assert!(!executable.to_string_lossy().contains('/'));
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Stage2MandatoryWindowsEnv {
+    pub path: std::ffi::OsString,
+    pub system_root: std::ffi::OsString,
+    pub windir: std::ffi::OsString,
+}
+
+#[cfg(windows)]
+pub(crate) fn preflight_stage2_mandatory_windows_env(
+    lookup: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<Stage2MandatoryWindowsEnv, String> {
+    let path = lookup("PATH")
+        .or_else(|| lookup("Path"))
+        .or_else(|| lookup("path"))
+        .ok_or_else(|| "mandatory Windows environment variable PATH is missing".to_string())?;
+
+    let system_root = lookup("SystemRoot")
+        .or_else(|| lookup("SYSTEMROOT"))
+        .or_else(|| lookup("systemroot"))
+        .ok_or_else(|| {
+            "mandatory Windows environment variable SystemRoot is missing".to_string()
+        })?;
+
+    let windir = lookup("WINDIR")
+        .or_else(|| lookup("windir"))
+        .unwrap_or_else(|| system_root.clone());
+
+    Ok(Stage2MandatoryWindowsEnv {
+        path,
+        system_root,
+        windir,
+    })
+}
+
+#[cfg(windows)]
+pub(crate) fn run_with_stage2_mandatory_env_preflight<T, F>(
+    lookup: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    callback: F,
+) -> Result<T, String>
+where
+    F: FnOnce(&Stage2MandatoryWindowsEnv) -> Result<T, String>,
+{
+    let env = preflight_stage2_mandatory_windows_env(lookup)?;
+    callback(&env)
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Stage2ProbeFixtureEnv<'a> {
+    pub temp_dir: &'a std::path::Path,
+    pub isolated_home: &'a std::path::Path,
+    pub appdata_roaming: &'a std::path::Path,
+    pub appdata_local: &'a std::path::Path,
+    pub codex_sqlite_home: &'a std::path::Path,
+}
+
+#[cfg(windows)]
+pub(crate) fn build_stage2_probe_child_environment_from_lookup(
+    mandatory_env: &Stage2MandatoryWindowsEnv,
+    fixture_env: &Stage2ProbeFixtureEnv<'_>,
+    executable: Option<&std::path::Path>,
+    ambient_lookup: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<Vec<(std::ffi::OsString, std::ffi::OsString)>, String> {
+    // 1. Compose production builder with an injected lookup for allowed standard keys.
+    // The production builder queries ["PATH", "TEMP", "TMP", "APPDATA", "LOCALAPPDATA", "USERPROFILE"].
+    // Allowed ambient keys are retrieved from ambient_lookup, so ambient values enter the base environment
+    // before explicit fixture overrides are applied.
+    let base_lookup = |key: &str| -> Option<std::ffi::OsString> {
+        let upper = key.to_ascii_uppercase();
+        match upper.as_str() {
+            "PATH" => ambient_lookup("PATH")
+                .or_else(|| ambient_lookup("Path"))
+                .or_else(|| ambient_lookup("path"))
+                .or_else(|| Some(mandatory_env.path.clone())),
+            "TEMP" => ambient_lookup("TEMP").or_else(|| ambient_lookup("temp")),
+            "TMP" => ambient_lookup("TMP").or_else(|| ambient_lookup("tmp")),
+            "APPDATA" => ambient_lookup("APPDATA").or_else(|| ambient_lookup("appdata")),
+            "LOCALAPPDATA" => {
+                ambient_lookup("LOCALAPPDATA").or_else(|| ambient_lookup("localappdata"))
+            }
+            "USERPROFILE" => {
+                ambient_lookup("USERPROFILE").or_else(|| ambient_lookup("userprofile"))
+            }
+            _ => None,
+        }
+    };
+
+    let base_env = super::codex_exec::build_child_environment_with_executable_from_lookup(
+        "stage2-probe-harness",
+        fixture_env.isolated_home,
+        fixture_env.codex_sqlite_home,
+        executable,
+        &base_lookup,
+    )?;
+
+    // 2. Case-insensitive deduplication and deterministic ordering via BTreeMap
+    let mut case_map: std::collections::BTreeMap<String, (std::ffi::OsString, std::ffi::OsString)> =
+        std::collections::BTreeMap::new();
+
+    for (k, v) in base_env {
+        let upper = k.to_string_lossy().to_ascii_uppercase();
+        case_map.insert(upper, (k, v));
+    }
+
+    // 3. Explicit fixture overrides:
+    // Fixture-isolated directories take precedence over conflicting ambient values
+    case_map.insert(
+        "TEMP".to_string(),
+        (
+            "TEMP".into(),
+            fixture_env.temp_dir.as_os_str().to_os_string(),
+        ),
+    );
+    case_map.insert(
+        "TMP".to_string(),
+        (
+            "TMP".into(),
+            fixture_env.temp_dir.as_os_str().to_os_string(),
+        ),
+    );
+    case_map.insert(
+        "USERPROFILE".to_string(),
+        (
+            "USERPROFILE".into(),
+            fixture_env.isolated_home.as_os_str().to_os_string(),
+        ),
+    );
+    case_map.insert(
+        "APPDATA".to_string(),
+        (
+            "APPDATA".into(),
+            fixture_env.appdata_roaming.as_os_str().to_os_string(),
+        ),
+    );
+    case_map.insert(
+        "LOCALAPPDATA".to_string(),
+        (
+            "LOCALAPPDATA".into(),
+            fixture_env.appdata_local.as_os_str().to_os_string(),
+        ),
+    );
+
+    // 4. Add required fixture HOME and Windows-specific SystemRoot / WINDIR
+    case_map.insert(
+        "HOME".to_string(),
+        (
+            "HOME".into(),
+            fixture_env.isolated_home.as_os_str().to_os_string(),
+        ),
+    );
+    case_map.insert(
+        "SYSTEMROOT".to_string(),
+        ("SystemRoot".into(), mandatory_env.system_root.clone()),
+    );
+    case_map.insert(
+        "WINDIR".to_string(),
+        ("WINDIR".into(), mandatory_env.windir.clone()),
+    );
+
+    // 5. Ensure PATH is present (from ambient_lookup or mandatory_env)
+    case_map
+        .entry("PATH".to_string())
+        .or_insert_with(|| ("PATH".into(), mandatory_env.path.clone()));
+
+    // 6. Verify no forbidden credentials or proxies are present
+    const FORBIDDEN_KEYS: &[&str] = &[
+        "OPENAI_API_KEY",
+        "CODEX_API_KEY",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+    ];
+    for upper in case_map.keys() {
+        if FORBIDDEN_KEYS.contains(&upper.as_str()) {
+            return Err(
+                "credential and proxy variables are forbidden in the child environment".into(),
+            );
+        }
+    }
+
+    // 7. Convert to deterministically ordered vector
+    let environment: Vec<(std::ffi::OsString, std::ffi::OsString)> =
+        case_map.into_values().collect();
+
+    Ok(environment)
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stage_2_probe_mandatory_windows_env_preflight_missing_inputs() {
+    // Missing PATH fails closed
+    let lookup_no_path = |k: &str| -> Option<std::ffi::OsString> {
+        match k {
+            "SystemRoot" => Some(r"C:\Windows".into()),
+            _ => None,
+        }
+    };
+    let err_no_path = preflight_stage2_mandatory_windows_env(&lookup_no_path).unwrap_err();
+    assert!(
+        err_no_path.contains("PATH"),
+        "expected error mentioning PATH, got: {err_no_path}"
+    );
+
+    // Missing SystemRoot fails closed
+    let lookup_no_sysroot = |k: &str| -> Option<std::ffi::OsString> {
+        match k {
+            "PATH" => Some(r"C:\Windows\System32".into()),
+            _ => None,
+        }
+    };
+    let err_no_sysroot = preflight_stage2_mandatory_windows_env(&lookup_no_sysroot).unwrap_err();
+    assert!(
+        err_no_sysroot.contains("SystemRoot"),
+        "expected error mentioning SystemRoot, got: {err_no_sysroot}"
+    );
+
+    // Missing WINDIR is derived from SystemRoot
+    let lookup_derive_windir = |k: &str| -> Option<std::ffi::OsString> {
+        match k {
+            "PATH" => Some(r"C:\Windows\System32".into()),
+            "SystemRoot" => Some(r"C:\Windows".into()),
+            _ => None,
+        }
+    };
+    let env_derived = preflight_stage2_mandatory_windows_env(&lookup_derive_windir).unwrap();
+    assert_eq!(env_derived.path, r"C:\Windows\System32");
+    assert_eq!(env_derived.system_root, r"C:\Windows");
+    assert_eq!(env_derived.windir, r"C:\Windows");
+
+    // Explicit WINDIR is preserved
+    let lookup_explicit_windir = |k: &str| -> Option<std::ffi::OsString> {
+        match k {
+            "PATH" => Some(r"C:\Windows\System32".into()),
+            "SystemRoot" => Some(r"C:\Windows".into()),
+            "WINDIR" => Some(r"D:\WindowsAlt".into()),
+            _ => None,
+        }
+    };
+    let env_explicit = preflight_stage2_mandatory_windows_env(&lookup_explicit_windir).unwrap();
+    assert_eq!(env_explicit.windir, r"D:\WindowsAlt");
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stage_2_probe_preflight_failure_does_not_invoke_callback() {
+    let mut callback_invoked = false;
+    let lookup_missing = |_: &str| -> Option<std::ffi::OsString> { None };
+
+    let result = run_with_stage2_mandatory_env_preflight(&lookup_missing, |_env| {
+        callback_invoked = true;
+        Ok(())
+    });
+
+    assert!(
+        result.is_err(),
+        "preflight must fail when inputs are missing"
+    );
+    assert!(
+        !callback_invoked,
+        "callback must NOT be invoked when preflight fails"
+    );
+
+    // Successful preflight invokes callback
+    let lookup_valid = |k: &str| -> Option<std::ffi::OsString> {
+        match k {
+            "PATH" => Some(r"C:\Windows\System32".into()),
+            "SystemRoot" => Some(r"C:\Windows".into()),
+            _ => None,
+        }
+    };
+    let mut valid_callback_invoked = false;
+    let ok_result = run_with_stage2_mandatory_env_preflight(&lookup_valid, |env| {
+        valid_callback_invoked = true;
+        assert_eq!(env.system_root, r"C:\Windows");
+        Ok(42)
+    });
+    assert_eq!(ok_result.unwrap(), 42);
+    assert!(valid_callback_invoked);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stage_2_probe_composed_builder_allowlist_overrides_and_secret_exclusion() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let fixture_dir = tempfile::tempdir().expect("create tempdir for probe test");
+    let base = fixture_dir.path();
+    let temp = base.join("temp");
+    let home = base.join("home");
+    let roaming = base.join("roaming");
+    let local = base.join("local");
+    let sqlite = base.join("sqlite");
+    for d in [&temp, &home, &roaming, &local, &sqlite] {
+        std::fs::create_dir_all(d).expect("create test directories");
+    }
+
+    let synthetic_pkg_dir = base.join("npm_pkg");
+    let (synthetic_pkg, synthetic_exe) =
+        super::codex_exec::create_synthetic_codex_npm_layout(&synthetic_pkg_dir);
+
+    let fixture_env = Stage2ProbeFixtureEnv {
+        temp_dir: &temp,
+        isolated_home: &home,
+        appdata_roaming: &roaming,
+        appdata_local: &local,
+        codex_sqlite_home: &sqlite,
+    };
+
+    let mandatory_env = Stage2MandatoryWindowsEnv {
+        path: r"C:\Windows\System32;C:\Windows".into(),
+        system_root: r"C:\Windows".into(),
+        windir: r"C:\Windows".into(),
+    };
+
+    // Track that ambient_lookup is genuinely queried for allowed ambient keys
+    let temp_queried = AtomicUsize::new(0);
+    let appdata_queried = AtomicUsize::new(0);
+    let userprofile_queried = AtomicUsize::new(0);
+
+    // Synthetic lookup providing conflicting ambient values, forbidden keys, and unapproved keys
+    let ambient_lookup = |key: &str| -> Option<std::ffi::OsString> {
+        match key {
+            "TEMP" | "temp" => {
+                temp_queried.fetch_add(1, Ordering::SeqCst);
+                Some(r"C:\conflicting_ambient_temp".into())
+            }
+            "TMP" | "tmp" => Some(r"C:\conflicting_ambient_tmp".into()),
+            "USERPROFILE" | "userprofile" => {
+                userprofile_queried.fetch_add(1, Ordering::SeqCst);
+                Some(r"C:\conflicting_ambient_user".into())
+            }
+            "APPDATA" | "appdata" => {
+                appdata_queried.fetch_add(1, Ordering::SeqCst);
+                Some(r"C:\conflicting_ambient_appdata".into())
+            }
+            "LOCALAPPDATA" | "localappdata" => Some(r"C:\conflicting_ambient_localappdata".into()),
+            "PATH" | "path" => Some(r"C:\ambient_path\bin".into()),
+            "CODEX_MANAGED_PACKAGE_ROOT" | "codex_managed_package_root" => {
+                Some(r"C:\conflicting_ambient_managed_root".into())
+            }
+            "OPENAI_API_KEY" => Some("secret_key".into()),
+            "CODEX_API_KEY" => Some("secret_codex".into()),
+            "HTTP_PROXY" => Some("http://proxy:8080".into()),
+            "HTTPS_PROXY" => Some("https://proxy:8080".into()),
+            "ALL_PROXY" => Some("socks5://proxy:8080".into()),
+            "NO_PROXY" => Some("localhost".into()),
+            "UNAPPROVED_ARBITRARY_VAR" => Some("should_never_be_copied".into()),
+            _ => None,
+        }
+    };
+
+    let env = build_stage2_probe_child_environment_from_lookup(
+        &mandatory_env,
+        &fixture_env,
+        Some(&synthetic_exe),
+        &ambient_lookup,
+    )
+    .expect("build environment successfully");
+
+    // Verify ambient_lookup was genuinely called for allowed ambient keys
+    assert!(
+        temp_queried.load(Ordering::SeqCst) > 0,
+        "ambient_lookup must be queried for TEMP"
+    );
+    assert!(
+        appdata_queried.load(Ordering::SeqCst) > 0,
+        "ambient_lookup must be queried for APPDATA"
+    );
+    assert!(
+        userprofile_queried.load(Ordering::SeqCst) > 0,
+        "ambient_lookup must be queried for USERPROFILE"
+    );
+
+    let map: std::collections::HashMap<String, String> = env
+        .into_iter()
+        .map(|(k, v)| {
+            (
+                k.to_string_lossy().into_owned(),
+                v.to_string_lossy().into_owned(),
+            )
+        })
+        .collect();
+
+    // (a) Required allowlisted and Windows-specific values are present
+    assert_eq!(map.get("PATH").unwrap(), r"C:\ambient_path\bin");
+    assert_eq!(map.get("SystemRoot").unwrap(), r"C:\Windows");
+    assert_eq!(map.get("WINDIR").unwrap(), r"C:\Windows");
+    assert_eq!(map.get("CODEX_HOME").unwrap(), home.to_str().unwrap());
+    assert_eq!(
+        map.get("CODEX_SQLITE_HOME").unwrap(),
+        sqlite.to_str().unwrap()
+    );
+
+    // Derived CODEX_MANAGED_PACKAGE_ROOT overrides any ambient value
+    assert_eq!(
+        map.get("CODEX_MANAGED_PACKAGE_ROOT").unwrap(),
+        synthetic_pkg.to_str().unwrap()
+    );
+
+    // (b) Fixture-specific values override conflicting ambient values
+    assert_eq!(map.get("TEMP").unwrap(), temp.to_str().unwrap());
+    assert_eq!(map.get("TMP").unwrap(), temp.to_str().unwrap());
+    assert_eq!(map.get("USERPROFILE").unwrap(), home.to_str().unwrap());
+    assert_eq!(map.get("HOME").unwrap(), home.to_str().unwrap());
+    assert_eq!(map.get("APPDATA").unwrap(), roaming.to_str().unwrap());
+    assert_eq!(map.get("LOCALAPPDATA").unwrap(), local.to_str().unwrap());
+
+    // (c) API-key and proxy variables are strictly absent
+    assert!(!map.contains_key("OPENAI_API_KEY"));
+    assert!(!map.contains_key("CODEX_API_KEY"));
+    assert!(!map.contains_key("HTTP_PROXY"));
+    assert!(!map.contains_key("HTTPS_PROXY"));
+    assert!(!map.contains_key("ALL_PROXY"));
+    assert!(!map.contains_key("NO_PROXY"));
+
+    // (d) Arbitrary unapproved environment variables are never copied
+    assert!(!map.contains_key("UNAPPROVED_ARBITRARY_VAR"));
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stage_2_probe_composed_builder_no_duplicate_case_variant_keys() {
+    let fixture_dir = tempfile::tempdir().expect("create tempdir for probe test");
+    let base = fixture_dir.path();
+    let temp = base.join("temp");
+    let home = base.join("home");
+    let roaming = base.join("roaming");
+    let local = base.join("local");
+    let sqlite = base.join("sqlite");
+    for d in [&temp, &home, &roaming, &local, &sqlite] {
+        std::fs::create_dir_all(d).expect("create test directories");
+    }
+
+    let fixture_env = Stage2ProbeFixtureEnv {
+        temp_dir: &temp,
+        isolated_home: &home,
+        appdata_roaming: &roaming,
+        appdata_local: &local,
+        codex_sqlite_home: &sqlite,
+    };
+
+    let mandatory_env = Stage2MandatoryWindowsEnv {
+        path: r"C:\Windows\System32".into(),
+        system_root: r"C:\Windows".into(),
+        windir: r"C:\Windows".into(),
+    };
+
+    let env = build_stage2_probe_child_environment_from_lookup(
+        &mandatory_env,
+        &fixture_env,
+        None,
+        &|_| None,
+    )
+    .expect("build environment successfully");
+
+    // Verify all keys are unique under case-insensitive comparison
+    let mut upper_set = std::collections::HashSet::new();
+    let mut last_key: Option<String> = None;
+    for (key, _) in &env {
+        let key_str = key.to_string_lossy().into_owned();
+        let upper = key_str.to_ascii_uppercase();
+        assert!(
+            upper_set.insert(upper.clone()),
+            "duplicate case-variant key detected: {key_str}"
+        );
+        if let Some(prev) = last_key {
+            assert!(
+                prev <= upper,
+                "environment must be deterministically ordered: {prev} <= {upper}"
+            );
+        }
+        last_key = Some(upper);
+    }
+}
+
+#[cfg(windows)]
+fn validate_stage2_probe_root(
+    requested: &std::path::Path,
+    explicitly_approved: &std::path::Path,
+    repository: &std::path::Path,
+    os_temp: &std::path::Path,
+    appdata_roots: &[PathBuf],
+) -> Result<PathBuf, String> {
+    use std::os::windows::fs::MetadataExt;
+
+    if !requested.is_absolute() || !explicitly_approved.is_absolute() {
+        return Err("probe parent and explicit authorization must be absolute paths".into());
+    }
+    for ancestor in requested.ancestors() {
+        let metadata = std::fs::symlink_metadata(ancestor)
+            .map_err(|e| format!("inspect requested probe parent component: {e}"))?;
+        if metadata.file_attributes() & 0x400 != 0 {
+            return Err("probe parent path contains a reparse-point component".into());
+        }
+    }
+    let canonical = requested
+        .canonicalize()
+        .map_err(|e| format!("canonicalize probe parent: {e}"))?;
+    let canonical_approved = explicitly_approved
+        .canonicalize()
+        .map_err(|e| format!("canonicalize explicitly approved parent: {e}"))?;
+    if canonical != canonical_approved {
+        return Err("probe parent differs from the exact explicitly approved path".into());
+    }
+    let metadata =
+        std::fs::symlink_metadata(&canonical).map_err(|e| format!("inspect probe parent: {e}"))?;
+    if !metadata.is_dir() || metadata.file_attributes() & 0x400 != 0 {
+        return Err("probe parent must be a normal, non-reparse directory".into());
+    }
+    for ancestor in canonical.ancestors() {
+        let metadata = std::fs::symlink_metadata(ancestor)
+            .map_err(|e| format!("inspect probe parent ancestor: {e}"))?;
+        if metadata.file_attributes() & 0x400 != 0 {
+            return Err("probe parent has a reparse-point ancestor".into());
+        }
+    }
+    if canonical.starts_with(repository) || canonical.starts_with(os_temp) {
+        return Err("probe parent must not be inside the repository or OS Temp".into());
+    }
+    if appdata_roots
+        .iter()
+        .any(|appdata| canonical.starts_with(appdata))
+    {
+        return Err("probe parent must not be inside an AppData root".into());
+    }
+    Ok(canonical)
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stage_2_probe_root_validation_is_side_effect_free() {
+    let temp = tempfile::tempdir().expect("create synthetic validation fixture");
+    let repo = temp.path().join("repo");
+    let appdata = temp.path().join("appdata");
+    let outside = temp.path().join("outside");
+    let os_temp = temp.path().join("os-temp");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::create_dir_all(&appdata).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::create_dir_all(&os_temp).unwrap();
+    let outside = outside.canonicalize().unwrap();
+    let os_temp = os_temp.canonicalize().unwrap();
+    let repo = repo.canonicalize().unwrap();
+    let appdata = appdata.canonicalize().unwrap();
+
+    assert!(validate_stage2_probe_root(
+        std::path::Path::new("relative"),
+        &outside,
+        &repo,
+        &os_temp,
+        &[appdata.clone()]
+    )
+    .is_err());
+    let missing = outside.join("missing");
+    assert!(
+        validate_stage2_probe_root(&missing, &missing, &repo, &os_temp, &[appdata.clone()])
+            .is_err()
+    );
+    assert!(
+        validate_stage2_probe_root(&os_temp, &os_temp, &repo, &os_temp, &[appdata.clone()])
+            .is_err()
+    );
+    assert!(
+        validate_stage2_probe_root(&appdata, &appdata, &repo, &os_temp, &[appdata.clone()])
+            .is_err()
+    );
+    assert!(validate_stage2_probe_root(&repo, &repo, &repo, &os_temp, &[appdata.clone()]).is_err());
+    assert!(
+        validate_stage2_probe_root(&outside, &repo, &repo, &os_temp, &[appdata.clone()]).is_err()
+    );
+    assert!(!missing.exists(), "rejected paths must not be created");
+
+    let alias = temp.path().join("alias");
+    std::os::windows::fs::symlink_dir(&outside, &alias)
+        .expect("create synthetic directory symlink");
+    assert!(validate_stage2_probe_root(&alias, &alias, &repo, &os_temp, &[]).is_err());
+    std::fs::remove_dir(&alias).unwrap();
+
+    let allowed = validate_stage2_probe_root(&outside, &outside, &repo, &os_temp, &[])
+        .expect("an exact explicitly approved synthetic parent may be validated without creating child data");
+    assert_eq!(allowed, outside);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_stage_2_probe_child_collision_and_cleanup_are_exact() {
+    let parent = tempfile::tempdir().expect("create synthetic parent for child guard");
+    let canonical_parent = parent.path().canonicalize().unwrap();
+    let collision = canonical_parent.join("Poverello-Stage2-Probe-collision");
+    std::fs::create_dir(&collision).unwrap();
+    let sentinel = collision.join("existing.txt");
+    std::fs::write(&sentinel, b"pre-existing collision sentinel\n").unwrap();
+    assert!(Stage2ProbeChild::create(&canonical_parent, "collision").is_err());
+    assert_eq!(
+        std::fs::read(&sentinel).unwrap(),
+        b"pre-existing collision sentinel\n"
+    );
+
+    let sibling = canonical_parent.join("unrelated-sibling");
+    std::fs::create_dir(&sibling).unwrap();
+    let sibling_sentinel = sibling.join("keep.txt");
+    std::fs::write(&sibling_sentinel, b"keep sibling\n").unwrap();
+    let owned = Stage2ProbeChild::create(&canonical_parent, "owned-child").unwrap();
+    let owned_path = owned.path().to_path_buf();
+    std::fs::write(owned_path.join("fixture.txt"), b"disposable\n").unwrap();
+    owned
+        .close()
+        .expect("remove and verify only exact owned child");
+
+    assert!(!owned_path.exists(), "exact owned child must be removed");
+    assert_eq!(
+        std::fs::read(&sentinel).unwrap(),
+        b"pre-existing collision sentinel\n"
+    );
+    assert_eq!(std::fs::read(&sibling_sentinel).unwrap(), b"keep sibling\n");
+}
+
+// =========================================================================
+// §108.5 Required Offline Test Groups: Connect Isolated Implementer Workspace to Controller/FSM
+// =========================================================================
+
+// Test Group 1 (§108.5.1): Runner construction
+#[test]
+fn test_stage_2_implementer_runner_construction_and_boundary() {
+    let temp = tempfile::tempdir().unwrap();
+    let candidate_dir = temp.path().join("candidate");
+    std::fs::create_dir_all(&candidate_dir).unwrap();
+    let candidate_dir = candidate_dir.canonicalize().unwrap();
+
+    let req = super::agent_runner::RoleExecutionRequest {
+        role: super::isolation::AutoConvergeRole::Implementer,
+        session_id: "test-impl-session".to_string(),
+        workspace_root: candidate_dir.clone(),
+        snapshot_dir: None,
+        plan_path: candidate_dir.join(".plan").join("plan.md"),
+        runtime_allowlist: vec!["src/lib.rs".to_string()],
+        input_prompt: "Implement changes".to_string(),
+        timeout_seconds: 60,
+        model: Some("test-model".to_string()),
+        reasoning_effort: Some("high".to_string()),
+        run_id: Some("test-run-108".to_string()),
+    };
+
+    let cfg = super::codex_exec::build_implementer_launch_configuration(&req)
+        .expect("valid implementer config build");
+    assert_eq!(cfg.paths.working_dir, candidate_dir);
+    assert!(cfg.invocation.args.iter().any(|a| a == "--json"));
+    assert!(cfg.invocation.args.iter().any(|a| a == "test-model"));
+    assert!(cfg.invocation.args.iter().any(|a| a.contains("model_reasoning_effort=\"high\"")));
+
+    let config_path = cfg.paths.codex_home.join("config.toml");
+    assert!(config_path.exists());
+    let config_str = std::fs::read_to_string(&config_path).unwrap();
+    assert!(config_str.contains("default_permissions = \"implementer\""));
+    assert!(config_str.contains("permissions.implementer.workspace_roots"));
+    assert!(config_str.contains("[permissions.implementer.network]"));
+    assert!(config_str.contains("enabled = false"));
+
+    // Invalid candidate workspace root (non-existent) fails closed
+    let non_existent = temp.path().join("does_not_exist");
+    let bad_req = super::agent_runner::RoleExecutionRequest {
+        workspace_root: non_existent,
+        ..req.clone()
+    };
+    let err = super::codex_exec::build_implementer_launch_configuration(&bad_req);
+    assert!(err.is_err());
+
+    // Role mismatch fails closed
+    let wrong_role_req = super::agent_runner::RoleExecutionRequest {
+        role: super::isolation::AutoConvergeRole::Planner,
+        ..req.clone()
+    };
+    assert!(super::codex_exec::build_implementer_launch_configuration(&wrong_role_req).is_err());
+
+    // ProductionAgentRunner fails closed on missing candidate workspace
+    let runner = super::agent_runner::ProductionAgentRunner::new();
+    assert!(runner.execute_role_session(&bad_req).is_err());
+}
+
+// Helper mock runner that performs edits in candidate workspace
+struct CandidateModifyingRunner {
+    workspace_roots: std::sync::Mutex<Vec<PathBuf>>,
+    new_content: Vec<u8>,
+}
+
+impl super::agent_runner::AgentCommandRunner for CandidateModifyingRunner {
+    fn execute_role_session(
+        &self,
+        request: &super::agent_runner::RoleExecutionRequest,
+    ) -> Result<super::agent_runner::RoleExecutionResponse, String> {
+        self.workspace_roots.lock().unwrap().push(request.workspace_root.clone());
+        let target = request.workspace_root.join("src").join("lib.rs");
+        if target.exists() {
+            std::fs::write(&target, &self.new_content).map_err(|e| e.to_string())?;
+        }
+        Ok(super::agent_runner::RoleExecutionResponse {
+            exit_code: 0,
+            stdout: "Candidate modification successful".into(),
+            stderr: String::new(),
+            verdict_json: None,
+        })
+    }
+}
+
+// Test Group 2 (§108.5.2): FSM wiring
+#[test]
+fn test_stage_2_fsm_candidate_workspace_isolation_and_snapshot_digest() {
+    let temp = tempfile::tempdir().unwrap();
+    let primary_dir = temp.path().join("primary");
+    std::fs::create_dir_all(primary_dir.join("src")).unwrap();
+    let primary_file = primary_dir.join("src").join("lib.rs");
+    let initial_bytes = b"pub fn initial() -> bool { true }\n";
+    let modified_bytes = b"pub fn modified() -> bool { false }\n";
+    std::fs::write(&primary_file, initial_bytes).unwrap();
+
+    let git_runner = MockCommandRunner::new();
+    let state_file = temp.path().join("run_state.json");
+    let mut cfg = default_test_config(fast_profile());
+    cfg.working_dir = primary_dir.to_string_lossy().to_string();
+    let run_id = format!("ac-run-108-fsm-{}", uuid::Uuid::new_v4());
+    cfg.run_id = Some(run_id.clone());
+
+    let baseline_manifest = capture_baseline_file_manifest(&primary_dir, &BTreeMap::new()).unwrap();
+    let mut state = initialize_run(cfg, "head-1", baseline_manifest, &git_runner, FIXED_TIME).unwrap();
+    state.runtime_allowlist = vec!["src/lib.rs".to_string()];
+    save_run_state_authenticated(&state_file, &mut state).unwrap();
+
+    // Advance to PlanApproved
+    submit_draft_plan(&mut state, "planner-1", &sample_plan_markdown(&["src/lib.rs"], "v1"), true, FIXED_TIME).unwrap();
+    let plan_approve = make_plan_verdict_json(&state, VerdictDecision::Approve, vec![], false);
+    submit_review_verdict(&mut state, "reviewer-1", &plan_approve, SNAP_HASH, SNAP_HASH, None, None, true, FIXED_TIME).unwrap();
+    save_run_state_authenticated(&state_file, &mut state).unwrap();
+
+    // Advance from PlanApproved to Implement via run_phase_a_step
+    let agent_runner = CandidateModifyingRunner {
+        workspace_roots: std::sync::Mutex::new(Vec::new()),
+        new_content: modified_bytes.to_vec(),
+    };
+    super::run_phase_a_step(&mut state, &agent_runner, &git_runner, &state_file).unwrap();
+    assert_eq!(state.current_state, AutoConvergeState::Implement);
+
+    // Run Implement step
+    super::run_phase_a_step(&mut state, &agent_runner, &git_runner, &state_file).unwrap();
+    assert_eq!(state.current_state, AutoConvergeState::ImplementationReview);
+
+    // Primary workspace MUST remain completely byte-identical
+    assert_eq!(std::fs::read(&primary_file).unwrap(), initial_bytes);
+
+    // Candidate workspace received the modification
+    let roots = agent_runner.workspace_roots.lock().unwrap().clone();
+    assert_eq!(roots.len(), 1);
+    let candidate_root = &roots[0];
+    assert_ne!(candidate_root, &primary_dir);
+    assert_eq!(std::fs::read(candidate_root.join("src").join("lib.rs")).unwrap(), modified_bytes);
+
+    // Snapshot delta digest equals candidate delta digest
+    let cb = state.candidate_binding.as_ref().expect("candidate binding sealed");
+    assert_eq!(cb.candidate_root, candidate_root.to_string_lossy().to_string());
+    assert!(state.current_diff_digest.is_some());
+    let _ = std::fs::remove_dir_all(candidate_root);
+}
+
+// Test Group 3 (§108.5.3): Approval binding validation
+#[test]
+fn test_stage_2_approval_binding_validation_and_promotion_rejection() {
+    let temp = tempfile::tempdir().unwrap();
+    let primary_dir = temp.path().join("primary");
+    std::fs::create_dir_all(primary_dir.join("src")).unwrap();
+    let primary_file = primary_dir.join("src").join("lib.rs");
+    let initial_bytes = b"pub fn initial() -> bool { true }\n";
+    let modified_bytes = b"pub fn modified() -> bool { false }\n";
+    std::fs::write(&primary_file, initial_bytes).unwrap();
+
+    let git_runner = MockCommandRunner::new();
+    let state_file = temp.path().join("run_state.json");
+    let mut cfg = default_test_config(fast_profile());
+    cfg.working_dir = primary_dir.to_string_lossy().to_string();
+    let run_id = format!("ac-run-108-binding-{}", uuid::Uuid::new_v4());
+    cfg.run_id = Some(run_id.clone());
+
+    let baseline_manifest = capture_baseline_file_manifest(&primary_dir, &BTreeMap::new()).unwrap();
+    let mut state = initialize_run(cfg, "head-1", baseline_manifest, &git_runner, FIXED_TIME).unwrap();
+    state.runtime_allowlist = vec!["src/lib.rs".to_string()];
+    save_run_state_authenticated(&state_file, &mut state).unwrap();
+
+    submit_draft_plan(&mut state, "planner-1", &sample_plan_markdown(&["src/lib.rs"], "v1"), true, FIXED_TIME).unwrap();
+    let plan_approve = make_plan_verdict_json(&state, VerdictDecision::Approve, vec![], false);
+    submit_review_verdict(&mut state, "reviewer-1", &plan_approve, SNAP_HASH, SNAP_HASH, None, None, true, FIXED_TIME).unwrap();
+
+    let agent_runner = CandidateModifyingRunner {
+        workspace_roots: std::sync::Mutex::new(Vec::new()),
+        new_content: modified_bytes.to_vec(),
+    };
+    super::run_phase_a_step(&mut state, &agent_runner, &git_runner, &state_file).unwrap();
+    super::run_phase_a_step(&mut state, &agent_runner, &git_runner, &state_file).unwrap();
+    assert_eq!(state.current_state, AutoConvergeState::ImplementationReview);
+
+    // Submit valid implementation review verdict to transition to ImplementationApproved
+    let impl_approve = make_impl_verdict_json(&state, VerdictDecision::Approve, vec![], false);
+    submit_review_verdict(&mut state, "reviewer-2", &impl_approve, SNAP_HASH, SNAP_HASH, None, None, true, FIXED_TIME).unwrap();
+    assert_eq!(state.current_state, AutoConvergeState::ImplementationApproved);
+
+    // Subtest 3a: Reviewer independence violation (reviewer == producer)
+    {
+        let mut tampered = state.clone();
+        let last_idx = tampered.approvals.len() - 1;
+        tampered.approvals[last_idx].reviewer_session_id = tampered.approvals[last_idx].producer_session_id.clone();
+        tampered.approvals[last_idx].engine_auth_tag = super::guards::compute_approval_auth_tag(
+            &tampered.run_id,
+            tampered.approvals[last_idx].sequence,
+            &tampered.approvals[last_idx].reviewer_session_id,
+            &tampered.approvals[last_idx].producer_session_id,
+            &tampered.approvals[last_idx].binding,
+        ).unwrap();
+        let res = super::run_phase_a_step(&mut tampered, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err());
+        assert_eq!(tampered.current_state, AutoConvergeState::Blocked);
+        assert_eq!(std::fs::read(&primary_file).unwrap(), initial_bytes);
+    }
+
+    // Subtest 3b: Mismatched run_id in approval binding
+    {
+        let mut tampered = state.clone();
+        let last_idx = tampered.approvals.len() - 1;
+        tampered.approvals[last_idx].binding.run_id = Some("wrong-run-id".to_string());
+        tampered.approvals[last_idx].engine_auth_tag = super::guards::compute_approval_auth_tag(
+            &tampered.run_id,
+            tampered.approvals[last_idx].sequence,
+            &tampered.approvals[last_idx].reviewer_session_id,
+            &tampered.approvals[last_idx].producer_session_id,
+            &tampered.approvals[last_idx].binding,
+        ).unwrap();
+        let res = super::run_phase_a_step(&mut tampered, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err());
+        assert_eq!(tampered.current_state, AutoConvergeState::Blocked);
+        assert_eq!(std::fs::read(&primary_file).unwrap(), initial_bytes);
+    }
+
+    // Subtest 3c: Mismatched cycle in approval binding
+    {
+        let mut tampered = state.clone();
+        let last_idx = tampered.approvals.len() - 1;
+        tampered.approvals[last_idx].binding.cycle = Some(999);
+        tampered.approvals[last_idx].engine_auth_tag = super::guards::compute_approval_auth_tag(
+            &tampered.run_id,
+            tampered.approvals[last_idx].sequence,
+            &tampered.approvals[last_idx].reviewer_session_id,
+            &tampered.approvals[last_idx].producer_session_id,
+            &tampered.approvals[last_idx].binding,
+        ).unwrap();
+        let res = super::run_phase_a_step(&mut tampered, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err());
+        assert_eq!(tampered.current_state, AutoConvergeState::Blocked);
+        assert_eq!(std::fs::read(&primary_file).unwrap(), initial_bytes);
+    }
+
+    // Subtest 3d: Non-APPROVE verdict never promotes
+    {
+        let mut rc_state = state.clone();
+        rc_state.current_state = AutoConvergeState::ImplementationReview;
+        let rc_verdict = make_impl_verdict_json(
+            &rc_state,
+            VerdictDecision::RequestChanges,
+            vec![sample_blocking_finding("COR-001", "Needs revision")],
+            false,
+        );
+        submit_review_verdict(&mut rc_state, "reviewer-3", &rc_verdict, SNAP_HASH, SNAP_HASH, None, None, true, FIXED_TIME).unwrap();
+        assert_ne!(rc_state.current_state, AutoConvergeState::ImplementationApproved);
+        assert_eq!(std::fs::read(&primary_file).unwrap(), initial_bytes);
+    }
+    if let Some(cb) = state.candidate_binding.as_ref() {
+        let _ = std::fs::remove_dir_all(&cb.candidate_root);
+    }
+}
+
+// Test Group 4 (§108.5.4): Delta boundary enforcement and baseline exclusions
+#[test]
+fn test_stage_2_delta_boundary_enforcement_and_baseline_exclusions() {
+    let temp = tempfile::tempdir().unwrap();
+    let primary_dir = temp.path().join("primary");
+    std::fs::create_dir_all(primary_dir.join("src")).unwrap();
+    let primary_file = primary_dir.join("src").join("lib.rs");
+    std::fs::write(&primary_file, b"initial\n").unwrap();
+
+    // Untracked sentinel fixture
+    let sentinel = primary_dir.join("untracked_sentinel.txt");
+    std::fs::write(&sentinel, b"pre-existing sentinel data\n").unwrap();
+
+    let engine_state_root = temp.path().join("engine-state");
+    std::fs::create_dir_all(&engine_state_root).unwrap();
+
+    // Excluded roots rejection: .git/, .plan/, .poverello/runs/
+    let cand_git = temp.path().join("cand-git");
+    assert!(super::implementer_workspace::ImplementerWorkspace::create(
+        &primary_dir,
+        &engine_state_root,
+        &cand_git,
+        &[".git/config".to_string()],
+    ).is_err());
+
+    let cand_plan = temp.path().join("cand-plan");
+    assert!(super::implementer_workspace::ImplementerWorkspace::create(
+        &primary_dir,
+        &engine_state_root,
+        &cand_plan,
+        &[".plan/notes.md".to_string()],
+    ).is_err());
+
+    let cand_runs = temp.path().join("cand-runs");
+    assert!(super::implementer_workspace::ImplementerWorkspace::create(
+        &primary_dir,
+        &engine_state_root,
+        &cand_runs,
+        &[".poverello/runs/state.json".to_string()],
+    ).is_err());
+
+    // Allowlist escape: candidate creates unexpected file outside allowlist
+    let cand_escape = temp.path().join("cand-escape");
+    let cand_ws = super::implementer_workspace::ImplementerWorkspace::create(
+        &primary_dir,
+        &engine_state_root,
+        &cand_escape,
+        &["src/lib.rs".to_string()],
+    ).unwrap();
+
+    std::fs::write(cand_ws.candidate_root().join("src").join("unauthorized.rs"), b"bad").unwrap();
+    let delta_res = cand_ws.delta();
+    assert!(delta_res.is_err(), "delta() must reject unexpected files created in candidate");
+
+    // Untracked sentinel in primary remains untouched
+    assert_eq!(std::fs::read(&sentinel).unwrap(), b"pre-existing sentinel data\n");
+}
+
+// Test Group 5 (§108.5.5): Promotion and crash recovery deterministic
+#[test]
+fn test_stage_2_promotion_and_crash_recovery_deterministic() {
+    let temp = tempfile::tempdir().unwrap();
+    let primary_dir = temp.path().join("primary");
+    std::fs::create_dir_all(primary_dir.join("src")).unwrap();
+    let primary_file = primary_dir.join("src").join("lib.rs");
+    std::fs::write(&primary_file, b"initial\n").unwrap();
+
+    let engine_state_root = temp.path().join("engine-state");
+    std::fs::create_dir_all(&engine_state_root).unwrap();
+
+    // 1. Clean successful promotion
+    let cand_dir_success = temp.path().join("cand-promo-success");
+    let cand_ws_success = super::implementer_workspace::ImplementerWorkspace::create(
+        &primary_dir,
+        &engine_state_root,
+        &cand_dir_success,
+        &["src/lib.rs".to_string()],
+    ).unwrap();
+
+    std::fs::write(cand_ws_success.candidate_root().join("src").join("lib.rs"), b"promoted\n").unwrap();
+    let delta_digest = cand_ws_success.delta_digest().unwrap();
+    let permit = cand_ws_success.authorize_delta(cand_ws_success.baseline_digest(), &delta_digest).unwrap();
+
+    let mut success_phases = Vec::new();
+    let mut success_journal = None;
+    let outcome = cand_ws_success.promote_with_controller(
+        &permit,
+        "run-promo-success",
+        |phase, journal_dir, _digest| {
+            success_phases.push(phase);
+            success_journal = Some(journal_dir.to_path_buf());
+            Ok(())
+        },
+    ).expect("successful promotion");
+
+    assert!(matches!(outcome, super::implementer_workspace::PromotionOutcome::Promoted { .. }));
+    assert_eq!(std::fs::read(&primary_file).unwrap(), b"promoted\n");
+    if let Some(j) = success_journal {
+        assert!(!j.exists(), "successful promotion cleans up journal directory");
+    }
+
+    // 2. Injected failure during promotion retains journal, recovery restores baseline
+    // Reset primary back to initial
+    std::fs::write(&primary_file, b"initial\n").unwrap();
+    let cand_dir_fail = temp.path().join("cand-promo-fail");
+    let cand_ws_fail = super::implementer_workspace::ImplementerWorkspace::create(
+        &primary_dir,
+        &engine_state_root,
+        &cand_dir_fail,
+        &["src/lib.rs".to_string()],
+    ).unwrap();
+    std::fs::write(cand_ws_fail.candidate_root().join("src").join("lib.rs"), b"modified\n").unwrap();
+    let delta_digest2 = cand_ws_fail.delta_digest().unwrap();
+    let permit2 = cand_ws_fail.authorize_delta(cand_ws_fail.baseline_digest(), &delta_digest2).unwrap();
+
+    let mut fail_journal = None;
+    let fail_outcome = cand_ws_fail.promote_with_controller(
+        &permit2,
+        "run-promo-fail",
+        |phase, journal_dir, _digest| {
+            fail_journal = Some(journal_dir.to_path_buf());
+            if phase == super::types::PromotionPhase::Applying {
+                return Err("Simulated crash during application".into());
+            }
+            Ok(())
+        },
+    );
+    assert!(fail_outcome.is_err());
+    let jpath = fail_journal.expect("journal path recorded");
+    assert!(jpath.exists(), "journal directory must be retained on failure");
+
+    // Recovery path: recover_retained_promotion restores exact baseline and cleans up journal
+    super::implementer_workspace::recover_retained_promotion(&primary_dir, &jpath)
+        .expect("recover retained promotion");
+    assert_eq!(std::fs::read(&primary_file).unwrap(), b"initial\n");
+    assert!(!jpath.exists(), "journal directory must be removed after successful recovery");
+
+    // Subsequent recovery attempt on absent journal fails closed
+    assert!(super::implementer_workspace::recover_retained_promotion(&primary_dir, &jpath).is_err());
+}
+
+// Test Group 6 (§108.5.6): Persistence and schema compatibility
+#[test]
+fn test_stage_2_persistence_and_schema_compatibility() {
+    let temp = tempfile::tempdir().unwrap();
+    let candidate_dir = temp.path().join("cand");
+    std::fs::create_dir_all(&candidate_dir).unwrap();
+
+    let valid_binding = super::types::CandidateBinding {
+        run_id: "ac-run-108".to_string(),
+        cycle: 0,
+        session_id: "sess-1".to_string(),
+        candidate_root: candidate_dir.to_string_lossy().to_string(),
+        approved_plan_digest: "1111111111111111111111111111111111111111111111111111111111111111".to_string(),
+        run_start_baseline_manifest_digest: "2222222222222222222222222222222222222222222222222222222222222222".to_string(),
+        allowlist_digest: "3333333333333333333333333333333333333333333333333333333333333333".to_string(),
+        candidate_baseline_digest: "4444444444444444444444444444444444444444444444444444444444444444".to_string(),
+        review_bundle_digest: None,
+    };
+    assert!(valid_binding.validate().is_ok());
+
+    // Invalid binding: relative candidate_root fails validation
+    let mut invalid_binding = valid_binding.clone();
+    invalid_binding.candidate_root = "relative/path".to_string();
+    assert!(invalid_binding.validate().is_err());
+
+    // Invalid binding: malformed digest
+    let mut bad_digest = valid_binding.clone();
+    bad_digest.approved_plan_digest = "short".to_string();
+    assert!(bad_digest.validate().is_err());
+
+    // Legacy JSON deserialization without candidate_binding or promotion_journal
+    let base_state = initialize_run(
+        default_test_config(fast_profile()),
+        "head-1",
+        vec![],
+        &MockCommandRunner::new(),
+        FIXED_TIME,
+    ).unwrap();
+    let mut val = serde_json::to_value(&base_state).unwrap();
+    val.as_object_mut().unwrap().remove("candidate_binding");
+    val.as_object_mut().unwrap().remove("promotion_journal");
+    let legacy_json = serde_json::to_string(&val).unwrap();
+
+    let deserialized: AutoConvergeRunState = serde_json::from_str(&legacy_json).expect("deserialize legacy json");
+    assert!(deserialized.candidate_binding.is_none());
+    assert!(deserialized.promotion_journal.is_none());
+}
+
+// Test Group 7 (§108.5.7): Gate invariant
+#[test]
+fn test_stage_2_gate_invariant_production_dispatch_blocked() {
+    let _lock = super::isolation::TEST_ISOLATION_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    super::isolation::set_test_isolation_pass(false);
+
+    let temp = tempfile::tempdir().unwrap();
+    let ws = temp.path().join("workspace");
+    let snap = temp.path().join("snapshot");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::create_dir_all(&snap).unwrap();
+
+    // Verify reviewer OS boundary probe fails closed when unprivileged / unverified
+    let boundary_res = super::isolation::PlatformIsolationGuard::verify_reviewer_os_boundary(&ws, &snap);
+    assert!(
+        boundary_res.is_err(),
+        "Runtime isolation gate must fail closed when unverified"
+    );
+
+    // ProductionAgentRunner execution blocks on unverified environment
+    let runner = super::agent_runner::ProductionAgentRunner::new();
+    let req = super::agent_runner::RoleExecutionRequest {
+        role: super::isolation::AutoConvergeRole::Reviewer,
+        session_id: "test-rev".to_string(),
+        workspace_root: ws.clone(),
+        snapshot_dir: Some(snap),
+        plan_path: ws.join(".plan").join("plan.md"),
+        runtime_allowlist: vec!["src/lib.rs".to_string()],
+        input_prompt: "echo probe".to_string(),
+        timeout_seconds: 5,
+        model: None,
+        reasoning_effort: None,
+        run_id: None,
+    };
+    assert!(
+        runner.execute_role_session(&req).is_err(),
+        "ProductionAgentRunner must block before launch when isolation is unverified"
+    );
+}
+
+// ===========================================================================
+// §109 Offline Tests: Candidate Lifecycle and Promotion Recovery Fail-Closed
+// ===========================================================================
+
+// Test 109.5.1: Candidate collision and ownership rejection fail-closed
+#[test]
+fn test_stage_2_109_candidate_collision_and_ownership_rejection_fail_closed() {
+    let temp = tempfile::tempdir().unwrap();
+    let primary_dir = temp.path().join("primary");
+    std::fs::create_dir_all(primary_dir.join("src")).unwrap();
+    let primary_file = primary_dir.join("src").join("lib.rs");
+    std::fs::write(&primary_file, b"initial\n").unwrap();
+
+    let git_runner = MockCommandRunner::new();
+    let state_file = temp.path().join("run_state.json");
+    let mut cfg = default_test_config(fast_profile());
+    cfg.working_dir = primary_dir.to_string_lossy().to_string();
+    let run_id = format!("ac-run-109-collision-{}", uuid::Uuid::new_v4());
+    cfg.run_id = Some(run_id.clone());
+
+    let baseline_manifest = capture_baseline_file_manifest(&primary_dir, &BTreeMap::new()).unwrap();
+    let mut state = initialize_run(cfg, "head-1", baseline_manifest, &git_runner, FIXED_TIME).unwrap();
+    state.runtime_allowlist = vec!["src/lib.rs".to_string()];
+    submit_draft_plan(&mut state, "planner-1", &sample_plan_markdown(&["src/lib.rs"], "v1"), true, FIXED_TIME).unwrap();
+    let plan_approve = make_plan_verdict_json(&state, VerdictDecision::Approve, vec![], false);
+    submit_review_verdict(&mut state, "reviewer-1", &plan_approve, SNAP_HASH, SNAP_HASH, None, None, true, FIXED_TIME).unwrap();
+    save_run_state_authenticated(&state_file, &mut state).unwrap();
+
+    // Step 1: Pre-create would-be candidate child directory with sentinel files
+    let candidate_parent = std::env::temp_dir()
+        .join("poverello")
+        .join("candidate_workspaces")
+        .join(&run_id);
+    let candidate_child = candidate_parent.join("cycle-0");
+    std::fs::create_dir_all(&candidate_child).unwrap();
+    let sentinel_file = candidate_child.join("unowned_sentinel.txt");
+    let sentinel_content = b"unowned sentinel content - must not be deleted or modified\n";
+    std::fs::write(&sentinel_file, sentinel_content).unwrap();
+
+    // Advance to Implement
+    let agent_runner = CandidateModifyingRunner {
+        workspace_roots: std::sync::Mutex::new(Vec::new()),
+        new_content: b"modified\n".to_vec(),
+    };
+    super::run_phase_a_step(&mut state, &agent_runner, &git_runner, &state_file).unwrap();
+    assert_eq!(state.current_state, AutoConvergeState::Implement);
+
+    // Initial creation MUST reject collision and fail closed without touching sentinel
+    let res = super::run_phase_a_step(&mut state, &agent_runner, &git_runner, &state_file);
+    assert!(res.is_err());
+    assert_eq!(state.current_state, AutoConvergeState::Blocked);
+    let ctx = state.blocked_context.as_ref().expect("blocked context");
+    assert_eq!(ctx.kind, BlockedKind::FatalInvariant);
+
+    // Sentinel and candidate child MUST remain intact byte-for-byte
+    assert!(candidate_child.exists(), "candidate child must not be deleted");
+    assert!(sentinel_file.exists(), "sentinel file must not be deleted");
+    assert_eq!(std::fs::read(&sentinel_file).unwrap(), sentinel_content);
+
+    // Clean up pre-created collision child for this test
+    let _ = std::fs::remove_dir_all(&candidate_parent);
+
+    // Step 2: Test parent ancestor reparse/relative validation
+    let bad_parent = temp.path().join("relative_not_absolute");
+    let parent_res = super::implementer_workspace::validate_and_create_candidate_parent(&bad_parent);
+    assert!(parent_res.is_ok() || !bad_parent.is_absolute());
+
+    // Step 3: Corrective cycle candidate reuse validation failure preserves candidate
+    let mut state2 = initialize_run(
+        {
+            let mut c = default_test_config(fast_profile());
+            c.working_dir = primary_dir.to_string_lossy().to_string();
+            c.run_id = Some(format!("ac-run-109-cor-{}", uuid::Uuid::new_v4()));
+            c
+        },
+        "head-1",
+        capture_baseline_file_manifest(&primary_dir, &BTreeMap::new()).unwrap(),
+        &git_runner,
+        FIXED_TIME,
+    ).unwrap();
+    state2.runtime_allowlist = vec!["src/lib.rs".to_string()];
+    state2.current_state = AutoConvergeState::CorrectiveImplement;
+
+    // Simulate invalid candidate binding (e.g. non-existent candidate path)
+    let non_existent_cand = temp.path().join("non_existent_candidate");
+    state2.candidate_binding = Some(super::types::CandidateBinding {
+        run_id: state2.run_id.clone(),
+        cycle: 0,
+        session_id: "sess-1".to_string(),
+        candidate_root: non_existent_cand.to_string_lossy().to_string(),
+        approved_plan_digest: "1111111111111111111111111111111111111111111111111111111111111111".to_string(),
+        run_start_baseline_manifest_digest: "2222222222222222222222222222222222222222222222222222222222222222".to_string(),
+        allowlist_digest: "3333333333333333333333333333333333333333333333333333333333333333".to_string(),
+        candidate_baseline_digest: "4444444444444444444444444444444444444444444444444444444444444444".to_string(),
+        review_bundle_digest: None,
+    });
+    let state_file2 = temp.path().join("run_state2.json");
+    save_run_state_authenticated(&state_file2, &mut state2).unwrap();
+
+    let res2 = super::run_phase_a_step(&mut state2, &agent_runner, &git_runner, &state_file2);
+    assert!(res2.is_err(), "CorrectiveImplement must fail closed when candidate path is missing");
+    assert_eq!(state2.current_state, AutoConvergeState::Blocked);
+}
+
+// Test 109.5.2: Journal digest exact bytes and tamper rejection
+#[test]
+fn test_stage_2_109_journal_digest_exact_bytes_and_tamper_rejection() {
+    let temp = tempfile::tempdir().unwrap();
+    let primary_dir = temp.path().join("primary");
+    std::fs::create_dir_all(primary_dir.join("src")).unwrap();
+    let primary_file = primary_dir.join("src").join("lib.rs");
+    std::fs::write(&primary_file, b"initial content\n").unwrap();
+
+    let engine_state_root = temp.path().join("engine-state");
+    std::fs::create_dir_all(&engine_state_root).unwrap();
+
+    let cand_dir = temp.path().join("cand-journal-test");
+    let cand_ws = super::implementer_workspace::ImplementerWorkspace::create(
+        &primary_dir,
+        &engine_state_root,
+        &cand_dir,
+        &["src/lib.rs".to_string()],
+    ).unwrap();
+
+    std::fs::write(cand_ws.candidate_root().join("src").join("lib.rs"), b"updated content\n").unwrap();
+    let delta_digest = cand_ws.delta_digest().unwrap();
+    let permit = cand_ws.authorize_delta(cand_ws.baseline_digest(), &delta_digest).unwrap();
+
+    let mut phase_digests = Vec::new();
+    let mut journal_path = None;
+
+    // Interrupted promotion to inspect journal and latest snapshot
+    let mut on_phase = |phase, jdir: &std::path::Path, digest: &str| {
+        phase_digests.push((phase, jdir.to_path_buf(), digest.to_string()));
+        journal_path = Some(jdir.to_path_buf());
+        if phase == super::types::PromotionPhase::Applying && phase_digests.len() >= 3 {
+            return Err("Simulated crash during application to retain journal".into());
+        }
+        Ok(())
+    };
+    let outcome = cand_ws.promote_internal(
+        &permit,
+        "run-109-digest",
+        &mut on_phase,
+        None,
+        false,
+        None,
+    );
+    assert!(outcome.is_err());
+
+    let jdir = journal_path.expect("journal path captured");
+    assert!(jdir.exists());
+
+    // Verify initial snapshot digest
+    let init_bytes = std::fs::read(jdir.join("journal.json")).unwrap();
+    let init_expected_digest = super::implementer_workspace::test_sha256(&init_bytes);
+    assert_eq!(phase_digests[0].2, init_expected_digest);
+
+    // Verify latest snapshot digest is returned by load_and_validate_journal_with_digest
+    let (j_data, count, actual_digest) = super::implementer_workspace::load_and_validate_journal_with_digest(&jdir).unwrap();
+    assert_eq!(count, j_data.mutation_intents.len());
+    assert_eq!(actual_digest, phase_digests.last().unwrap().2);
+
+    // Tampering test: tamper with a byte in the latest snapshot file
+    let mut update_files = Vec::new();
+    for entry in std::fs::read_dir(&jdir).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("journal-update-") {
+            update_files.push(entry.path());
+        }
+    }
+    assert!(!update_files.is_empty(), "must have written at least one update snapshot");
+    let target_snapshot = &update_files[0];
+
+    // Read bytes, modify one byte, and write back
+    let mut content = std::fs::read(target_snapshot).unwrap();
+    content.push(b' '); // tamper formatting or byte
+    std::fs::write(target_snapshot, &content).unwrap();
+
+    // Now recovery with expected_digest MUST fail closed because actual digest != expected
+    let tamper_res = super::implementer_workspace::recover_retained_promotion_with_digest(
+        &primary_dir,
+        &jdir,
+        Some(&actual_digest),
+    );
+    assert!(tamper_res.is_err(), "Recovery must fail closed on tampered journal snapshot");
+
+    // Clean up
+    let _ = std::fs::remove_dir_all(&jdir);
+    let _ = std::fs::remove_dir_all(cand_ws.candidate_root());
+}
+
+// Test 109.5.3 / §110.4.5: Focused persisted-state interruption matrix and authority root containment
+#[test]
+fn test_stage_2_109_controller_restart_recovery_matrix_idempotent() {
+    let temp = tempfile::tempdir().unwrap();
+    let temp_root = temp.path().to_path_buf();
+
+    // 1. Injected engine authority root containment (§110.4.4 / §111.4.4)
+    let engine_state_root = temp_root.join("engine-state");
+    std::fs::create_dir_all(&engine_state_root).unwrap();
+    let _authority_guard = super::TestEngineAuthorityGuard::enter(engine_state_root.clone());
+
+    // Verify resolved authority directory is contained within disposable temp root
+    let resolved = super::resolve_engine_authority_dir().unwrap();
+    assert!(resolved.starts_with(&temp_root));
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        assert!(!resolved.starts_with(std::path::PathBuf::from(appdata)));
+    }
+
+    let primary_dir = temp_root.join("primary");
+    std::fs::create_dir_all(primary_dir.join("src")).unwrap();
+    let primary_file = primary_dir.join("src").join("lib.rs");
+    let initial_bytes = b"pub fn initial() -> i32 { 42 }\n";
+    let modified_bytes = b"pub fn modified() -> i32 { 99 }\n";
+    std::fs::write(&primary_file, initial_bytes).unwrap();
+
+    let git_runner = MockCommandRunner::new();
+    let state_file = temp_root.join("run_state.json");
+    let mut cfg = default_test_config(fast_profile());
+    cfg.working_dir = primary_dir.to_string_lossy().to_string();
+    let run_id = format!("ac-run-110-matrix-{}", uuid::Uuid::new_v4());
+    cfg.run_id = Some(run_id.clone());
+
+    let baseline_manifest = capture_baseline_file_manifest(&primary_dir, &BTreeMap::new()).unwrap();
+    let mut state = initialize_run(cfg, "head-1", baseline_manifest, &git_runner, FIXED_TIME).unwrap();
+    state.runtime_allowlist = vec!["src/lib.rs".to_string()];
+
+    // Transition state to ImplementationApproved
+    submit_draft_plan(&mut state, "planner-1", &sample_plan_markdown(&["src/lib.rs"], "v1"), true, FIXED_TIME).unwrap();
+    let plan_approve = make_plan_verdict_json(&state, VerdictDecision::Approve, vec![], false);
+    submit_review_verdict(&mut state, "reviewer-1", &plan_approve, SNAP_HASH, SNAP_HASH, None, None, true, FIXED_TIME).unwrap();
+
+    let agent_runner = CandidateModifyingRunner {
+        workspace_roots: std::sync::Mutex::new(Vec::new()),
+        new_content: modified_bytes.to_vec(),
+    };
+    super::run_phase_a_step(&mut state, &agent_runner, &git_runner, &state_file).unwrap();
+    super::run_phase_a_step(&mut state, &agent_runner, &git_runner, &state_file).unwrap();
+
+    // Set review_bundle_digest in candidate_binding to match SNAP_HASH
+    if let Some(ref mut cb) = state.candidate_binding {
+        cb.review_bundle_digest = Some(SNAP_HASH.to_string());
+    }
+
+    let impl_approve = make_impl_verdict_json(&state, VerdictDecision::Approve, vec![], false);
+    submit_review_verdict(&mut state, "reviewer-2", &impl_approve, SNAP_HASH, SNAP_HASH, None, None, true, FIXED_TIME).unwrap();
+    assert_eq!(state.current_state, AutoConvergeState::ImplementationApproved);
+
+    // Create a real promotion journal via promote_internal with simulated crash
+    let cb = state.candidate_binding.as_ref().unwrap();
+    let cand_ws = super::implementer_workspace::ImplementerWorkspace::load_existing(
+        &primary_dir,
+        &engine_state_root,
+        &PathBuf::from(&cb.candidate_root),
+        &state.runtime_allowlist,
+        &cb.candidate_baseline_digest,
+    ).unwrap();
+    let delta_digest = cand_ws.delta_digest().unwrap();
+    let permit = cand_ws.authorize_delta(cand_ws.baseline_digest(), &delta_digest).unwrap();
+
+    let mut interrupted_journal = None;
+    let mut interrupted_digest = String::new();
+    let mut applying_count = 0;
+    let mut on_phase = |phase, jdir: &std::path::Path, digest: &str| {
+        if phase == super::types::PromotionPhase::Applying {
+            applying_count += 1;
+            interrupted_journal = Some(jdir.to_path_buf());
+            interrupted_digest = digest.to_string();
+            if applying_count >= 2 {
+                return Err("Simulated crash during applying to retain journal".into());
+            }
+        }
+        Ok(())
+    };
+    let _ = cand_ws.promote_internal(
+        &permit,
+        &run_id,
+        &mut on_phase,
+        None,
+        false,
+        None,
+    );
+    let jdir = interrupted_journal.expect("interrupted journal created");
+    assert!(jdir.exists());
+
+    // -----------------------------------------------------------------------
+    // Matrix Step 1: RecoveryRequired while terminal / Blocked (§110.2.1)
+    // -----------------------------------------------------------------------
+    {
+        let mut sim_state = state.clone();
+        sim_state.current_state = AutoConvergeState::Blocked;
+        sim_state.is_terminal = true;
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: jdir.to_string_lossy().to_string(),
+            journal_digest: interrupted_digest.clone(),
+            phase: super::types::PromotionPhase::RecoveryRequired,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        // Mutate primary to dirty state
+        std::fs::write(&primary_file, modified_bytes).unwrap();
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        // Controller re-entry must reach recovery reconciliation, restore baseline,
+        // delete journal, clear binding, and remain Blocked (no agent dispatch).
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_ok());
+        assert_eq!(std::fs::read(&primary_file).unwrap(), initial_bytes);
+        assert!(sim_state.promotion_journal.is_none());
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.is_terminal);
+        assert!(!jdir.exists(), "journal directory must be deleted after verified recovery");
+    }
+
+    // -----------------------------------------------------------------------
+    // Matrix Step 2: Interruption after baseline restore but before recovery-phase save
+    // -----------------------------------------------------------------------
+    let mut interrupted_journal2 = None;
+    let mut interrupted_digest2 = String::new();
+    let mut applying_count2 = 0;
+    let mut on_phase2 = |phase, jdir: &std::path::Path, digest: &str| {
+        if phase == super::types::PromotionPhase::Applying {
+            applying_count2 += 1;
+            interrupted_journal2 = Some(jdir.to_path_buf());
+            interrupted_digest2 = digest.to_string();
+            if applying_count2 >= 2 {
+                return Err("Simulated crash".into());
+            }
+        }
+        Ok(())
+    };
+    let _ = cand_ws.promote_internal(&permit, &run_id, &mut on_phase2, None, false, None);
+    let jdir2 = interrupted_journal2.expect("journal 2 created");
+
+    {
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: jdir2.to_string_lossy().to_string(),
+            journal_digest: interrupted_digest2.clone(),
+            phase: super::types::PromotionPhase::Applying,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_ok());
+        assert_eq!(std::fs::read(&primary_file).unwrap(), initial_bytes);
+        assert!(sim_state.promotion_journal.is_none());
+        assert!(!jdir2.exists(), "journal must be deleted");
+    }
+
+    // -----------------------------------------------------------------------
+    // Matrix Step 3: Interruption after recovery-phase save but before journal deletion
+    // -----------------------------------------------------------------------
+    let mut interrupted_journal3 = None;
+    let mut interrupted_digest3 = String::new();
+    let mut applying_count3 = 0;
+    let mut on_phase3 = |phase, jdir: &std::path::Path, digest: &str| {
+        if phase == super::types::PromotionPhase::Applying {
+            applying_count3 += 1;
+            interrupted_journal3 = Some(jdir.to_path_buf());
+            interrupted_digest3 = digest.to_string();
+            if applying_count3 >= 2 {
+                return Err("Simulated crash".into());
+            }
+        }
+        Ok(())
+    };
+    let _ = cand_ws.promote_internal(&permit, &run_id, &mut on_phase3, None, false, None);
+    let jdir3 = interrupted_journal3.expect("journal 3 created");
+    std::fs::write(&primary_file, initial_bytes).unwrap();
+
+    {
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: jdir3.to_string_lossy().to_string(),
+            journal_digest: interrupted_digest3.clone(),
+            phase: super::types::PromotionPhase::RecoveryRestored,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_ok());
+        assert_eq!(std::fs::read(&primary_file).unwrap(), initial_bytes);
+        assert!(sim_state.promotion_journal.is_none());
+        assert!(!jdir3.exists(), "valid real journal must be deleted in RecoveryRestored phase");
+    }
+
+    // -----------------------------------------------------------------------
+    // Matrix Step 4: Interruption after journal deletion but before binding-clear save
+    // -----------------------------------------------------------------------
+    {
+        let missing_jdir = primary_dir.parent().unwrap().join(format!(".pct-promotion-{}", uuid::Uuid::new_v4()));
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: missing_jdir.to_string_lossy().to_string(),
+            journal_digest: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            phase: super::types::PromotionPhase::RecoveryRestored,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_ok());
+        assert!(sim_state.promotion_journal.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // Matrix Step 5: Repeat recovery (idempotent no-op)
+    // -----------------------------------------------------------------------
+    {
+        let mut sim_state = state.clone();
+        sim_state.current_state = AutoConvergeState::Blocked;
+        sim_state.is_terminal = true;
+        sim_state.promotion_journal = None;
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_ok());
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.is_terminal);
+    }
+
+    // -----------------------------------------------------------------------
+    // Matrix Step 6: Missing / malformed / mismatched journal snapshot fail-closed
+    // -----------------------------------------------------------------------
+    {
+        let missing_jdir = primary_dir.parent().unwrap().join(format!(".pct-promotion-{}", uuid::Uuid::new_v4()));
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: missing_jdir.to_string_lossy().to_string(),
+            journal_digest: "1111111111111111111111111111111111111111111111111111111111111111".to_string(),
+            phase: super::types::PromotionPhase::Applying,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "missing journal in Applying phase must fail closed");
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+    }
+
+    // Clean up candidate
+    let _ = std::fs::remove_dir_all(cand_ws.candidate_root());
+}
+
+// Test 109.5.4 / §110.4.3: Approval and baseline binding revalidation
+#[test]
+fn test_stage_2_109_approval_and_baseline_binding_revalidation() {
+    let temp = tempfile::tempdir().unwrap();
+    let temp_root = temp.path().to_path_buf();
+
+    // Injected engine authority root containment
+    let engine_state_root = temp_root.join("engine-state");
+    std::fs::create_dir_all(&engine_state_root).unwrap();
+    let _authority_guard = super::TestEngineAuthorityGuard::enter(engine_state_root.clone());
+
+    let primary_dir = temp_root.join("primary");
+    std::fs::create_dir_all(primary_dir.join("src")).unwrap();
+    let primary_file = primary_dir.join("src").join("lib.rs");
+    let initial_bytes = b"pub fn initial() -> bool { true }\n";
+    let modified_bytes = b"pub fn modified() -> bool { false }\n";
+    std::fs::write(&primary_file, initial_bytes).unwrap();
+
+    let git_runner = MockCommandRunner::new();
+    let state_file = temp_root.join("run_state.json");
+    let mut cfg = default_test_config(fast_profile());
+    cfg.working_dir = primary_dir.to_string_lossy().to_string();
+    let run_id = format!("ac-run-109-reval-{}", uuid::Uuid::new_v4());
+    cfg.run_id = Some(run_id.clone());
+
+    let baseline_manifest = capture_baseline_file_manifest(&primary_dir, &BTreeMap::new()).unwrap();
+    let mut state = initialize_run(cfg, "head-1", baseline_manifest, &git_runner, FIXED_TIME).unwrap();
+    state.runtime_allowlist = vec!["src/lib.rs".to_string()];
+
+    submit_draft_plan(&mut state, "planner-1", &sample_plan_markdown(&["src/lib.rs"], "v1"), true, FIXED_TIME).unwrap();
+    let plan_approve = make_plan_verdict_json(&state, VerdictDecision::Approve, vec![], false);
+    submit_review_verdict(&mut state, "reviewer-1", &plan_approve, SNAP_HASH, SNAP_HASH, None, None, true, FIXED_TIME).unwrap();
+
+    let agent_runner = CandidateModifyingRunner {
+        workspace_roots: std::sync::Mutex::new(Vec::new()),
+        new_content: modified_bytes.to_vec(),
+    };
+    super::run_phase_a_step(&mut state, &agent_runner, &git_runner, &state_file).unwrap();
+    super::run_phase_a_step(&mut state, &agent_runner, &git_runner, &state_file).unwrap();
+
+    if let Some(ref mut cb) = state.candidate_binding {
+        cb.review_bundle_digest = Some(SNAP_HASH.to_string());
+    }
+
+    let impl_approve = make_impl_verdict_json(&state, VerdictDecision::Approve, vec![], false);
+    submit_review_verdict(&mut state, "reviewer-2", &impl_approve, SNAP_HASH, SNAP_HASH, None, None, true, FIXED_TIME).unwrap();
+    assert_eq!(state.current_state, AutoConvergeState::ImplementationApproved);
+
+    // Case 1: Primary baseline changed concurrently before promotion
+    {
+        let mut tampered = state.clone();
+        std::fs::write(&primary_file, b"concurrent change\n").unwrap();
+        let res = super::run_phase_a_step(&mut tampered, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Promotion must be rejected when primary baseline changes concurrently");
+        assert_eq!(tampered.current_state, AutoConvergeState::Blocked);
+
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+    }
+
+    // Case 2: Candidate files modified after approval
+    {
+        let mut tampered = state.clone();
+        let cb = tampered.candidate_binding.as_ref().unwrap();
+        let cand_file = PathBuf::from(&cb.candidate_root).join("src").join("lib.rs");
+        std::fs::write(&cand_file, b"tampered after approval\n").unwrap();
+
+        let res = super::run_phase_a_step(&mut tampered, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Promotion must be rejected when candidate files change after approval");
+        assert_eq!(tampered.current_state, AutoConvergeState::Blocked);
+
+        std::fs::write(&cand_file, modified_bytes).unwrap();
+    }
+
+    // Case 3: Missing run_id in approval binding (§110.2.3, §110.4.3)
+    {
+        let mut tampered = state.clone();
+        if let Some(a) = tampered.approvals.last_mut() {
+            a.binding.run_id = None;
+            a.engine_auth_tag = super::guards::compute_approval_auth_tag(
+                &tampered.run_id,
+                a.sequence,
+                &a.reviewer_session_id,
+                &a.producer_session_id,
+                &a.binding,
+            ).unwrap();
+        }
+        let res = super::run_phase_a_step(&mut tampered, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Promotion must reject missing run_id");
+        assert_eq!(tampered.current_state, AutoConvergeState::Blocked);
+    }
+
+    // Case 4: Missing cycle in approval binding
+    {
+        let mut tampered = state.clone();
+        if let Some(a) = tampered.approvals.last_mut() {
+            a.binding.cycle = None;
+            a.engine_auth_tag = super::guards::compute_approval_auth_tag(
+                &tampered.run_id,
+                a.sequence,
+                &a.reviewer_session_id,
+                &a.producer_session_id,
+                &a.binding,
+            ).unwrap();
+        }
+        let res = super::run_phase_a_step(&mut tampered, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Promotion must reject missing cycle");
+        assert_eq!(tampered.current_state, AutoConvergeState::Blocked);
+    }
+
+    // Case 5: Missing implementer_session_id in approval binding
+    {
+        let mut tampered = state.clone();
+        if let Some(a) = tampered.approvals.last_mut() {
+            a.binding.implementer_session_id = None;
+            a.engine_auth_tag = super::guards::compute_approval_auth_tag(
+                &tampered.run_id,
+                a.sequence,
+                &a.reviewer_session_id,
+                &a.producer_session_id,
+                &a.binding,
+            ).unwrap();
+        }
+        let res = super::run_phase_a_step(&mut tampered, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Promotion must reject missing implementer_session_id");
+        assert_eq!(tampered.current_state, AutoConvergeState::Blocked);
+    }
+
+    // Case 6: Missing bundle_digest in approval binding
+    {
+        let mut tampered = state.clone();
+        if let Some(a) = tampered.approvals.last_mut() {
+            a.binding.bundle_digest = None;
+            a.engine_auth_tag = super::guards::compute_approval_auth_tag(
+                &tampered.run_id,
+                a.sequence,
+                &a.reviewer_session_id,
+                &a.producer_session_id,
+                &a.binding,
+            ).unwrap();
+        }
+        let res = super::run_phase_a_step(&mut tampered, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Promotion must reject missing bundle_digest");
+        assert_eq!(tampered.current_state, AutoConvergeState::Blocked);
+    }
+
+    // Case 7: Mismatched bundle_digest in approval binding
+    {
+        let mut tampered = state.clone();
+        if let Some(a) = tampered.approvals.last_mut() {
+            a.binding.bundle_digest = Some("9999999999999999999999999999999999999999999999999999999999999999".to_string());
+            a.engine_auth_tag = super::guards::compute_approval_auth_tag(
+                &tampered.run_id,
+                a.sequence,
+                &a.reviewer_session_id,
+                &a.producer_session_id,
+                &a.binding,
+            ).unwrap();
+        }
+        let res = super::run_phase_a_step(&mut tampered, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Promotion must reject mismatched bundle_digest");
+        assert_eq!(tampered.current_state, AutoConvergeState::Blocked);
+    }
+
+    // Case 8: Successful exact-binding promotion
+    {
+        let mut promote_state = state.clone();
+        let res = super::run_phase_a_step(&mut promote_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_ok(), "Promotion must succeed when all exact bindings match: {:?}", res.err());
+        assert!(promote_state.is_terminal, "Run state must be terminal after successful promotion");
+        assert_eq!(std::fs::read(&primary_file).unwrap(), modified_bytes);
+    }
+
+    // Clean up
+    if let Some(cb) = state.candidate_binding.as_ref() {
+        let _ = std::fs::remove_dir_all(&cb.candidate_root);
+    }
+}
+
+// Test 109.5.5: Preservation matrix with untracked sentinels
+#[test]
+fn test_stage_2_109_preservation_matrix_with_untracked_sentinels() {
+    let temp = tempfile::tempdir().unwrap();
+    let primary_dir = temp.path().join("primary");
+    std::fs::create_dir_all(primary_dir.join("src")).unwrap();
+    std::fs::create_dir_all(primary_dir.join(".git")).unwrap();
+    std::fs::create_dir_all(primary_dir.join(".plan")).unwrap();
+    std::fs::create_dir_all(primary_dir.join("untracked_subdir")).unwrap();
+
+    let primary_file = primary_dir.join("src").join("lib.rs");
+    std::fs::write(&primary_file, b"primary lib\n").unwrap();
+
+    // Sentinel fixtures that must never be modified or deleted
+    let git_head = primary_dir.join(".git").join("HEAD");
+    std::fs::write(&git_head, b"ref: refs/heads/main\n").unwrap();
+    let plan_doc = primary_dir.join(".plan").join("plan.md");
+    std::fs::write(&plan_doc, b"# Plan\n").unwrap();
+    let untracked = primary_dir.join("untracked_subdir").join("scratch.txt");
+    std::fs::write(&untracked, b"untracked user data\n").unwrap();
+
+    let git_head_sha = super::implementer_workspace::test_sha256(b"ref: refs/heads/main\n");
+    let plan_doc_sha = super::implementer_workspace::test_sha256(b"# Plan\n");
+    let untracked_sha = super::implementer_workspace::test_sha256(b"untracked user data\n");
+
+    let engine_state_root = temp.path().join("engine-state");
+    std::fs::create_dir_all(&engine_state_root).unwrap();
+
+    let cand_dir = temp.path().join("cand-preservation");
+    let cand_ws = super::implementer_workspace::ImplementerWorkspace::create(
+        &primary_dir,
+        &engine_state_root,
+        &cand_dir,
+        &["src/lib.rs".to_string()],
+    ).unwrap();
+
+    // Modify candidate
+    std::fs::write(cand_ws.candidate_root().join("src").join("lib.rs"), b"promoted lib\n").unwrap();
+    let delta_digest = cand_ws.delta_digest().unwrap();
+    let permit = cand_ws.authorize_delta(cand_ws.baseline_digest(), &delta_digest).unwrap();
+
+    // Perform successful promotion
+    let outcome = cand_ws.promote_with_controller(&permit, "run-109-pres", |_p, _j, _d| Ok(())).unwrap();
+    assert!(matches!(outcome, super::implementer_workspace::PromotionOutcome::Promoted { .. }));
+
+    // Assert only allowlisted file was modified
+    assert_eq!(std::fs::read(&primary_file).unwrap(), b"promoted lib\n");
+
+    // Assert all sentinels are completely untouched
+    let actual_git_head_sha = super::implementer_workspace::test_sha256(&std::fs::read(&git_head).unwrap());
+    let actual_plan_doc_sha = super::implementer_workspace::test_sha256(&std::fs::read(&plan_doc).unwrap());
+    let actual_untracked_sha = super::implementer_workspace::test_sha256(&std::fs::read(&untracked).unwrap());
+
+    assert_eq!(actual_git_head_sha, git_head_sha, ".git/HEAD must be untouched");
+    assert_eq!(actual_plan_doc_sha, plan_doc_sha, ".plan/plan.md must be untouched");
+    assert_eq!(actual_untracked_sha, untracked_sha, "untracked scratch file must be untouched");
+
+    // Clean up
+    let _ = std::fs::remove_dir_all(cand_ws.candidate_root());
+}
+
+// Test §111.4.5: Authenticated journal cleanup, RecoveryRestored validation order, and Applied nonterminal failure
+#[test]
+fn test_stage_2_111_recovery_restored_and_cleanup_matrix() {
+    let temp = tempfile::tempdir().unwrap();
+    let temp_root = temp.path().to_path_buf();
+
+    // 1. Panic-safe test override reset (§111.4.4 / §111.4.5)
+    let initial_auth = super::resolve_engine_authority_dir().unwrap();
+    let _ = std::panic::catch_unwind(|| {
+        let _guard = super::TestEngineAuthorityGuard::enter(temp_root.join("panic-test"));
+        assert_eq!(super::resolve_engine_authority_dir().unwrap(), temp_root.join("panic-test"));
+        panic!("simulated panic to test RAII unwind");
+    });
+    assert_eq!(
+        super::resolve_engine_authority_dir().unwrap(),
+        initial_auth,
+        "RAII guard must restore previous authority on unwind"
+    );
+
+    // 2. Injected engine authority root containment
+    let engine_state_root = temp_root.join("engine-state");
+    std::fs::create_dir_all(&engine_state_root).unwrap();
+    let _authority_guard = super::TestEngineAuthorityGuard::enter(engine_state_root.clone());
+
+    let resolved = super::resolve_engine_authority_dir().unwrap();
+    assert!(resolved.starts_with(&temp_root));
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        assert!(!resolved.starts_with(std::path::PathBuf::from(appdata)));
+    }
+
+    let primary_dir = temp_root.join("primary");
+    std::fs::create_dir_all(primary_dir.join("src")).unwrap();
+    let primary_file = primary_dir.join("src").join("lib.rs");
+    let initial_bytes = b"pub fn initial() -> bool { true }\n";
+    let modified_bytes = b"pub fn modified() -> bool { false }\n";
+    std::fs::write(&primary_file, initial_bytes).unwrap();
+
+    let git_runner = MockCommandRunner::new();
+    let state_file = temp_root.join("run_state.json");
+    let mut cfg = default_test_config(fast_profile());
+    cfg.working_dir = primary_dir.to_string_lossy().to_string();
+    let run_id = format!("ac-run-111-matrix-{}", uuid::Uuid::new_v4());
+    cfg.run_id = Some(run_id.clone());
+
+    let baseline_manifest = capture_baseline_file_manifest(&primary_dir, &BTreeMap::new()).unwrap();
+    let mut state = initialize_run(cfg, "head-1", baseline_manifest, &git_runner, FIXED_TIME).unwrap();
+    state.runtime_allowlist = vec!["src/lib.rs".to_string()];
+
+    submit_draft_plan(&mut state, "planner-1", &sample_plan_markdown(&["src/lib.rs"], "v1"), true, FIXED_TIME).unwrap();
+    let plan_approve = make_plan_verdict_json(&state, VerdictDecision::Approve, vec![], false);
+    submit_review_verdict(&mut state, "reviewer-1", &plan_approve, SNAP_HASH, SNAP_HASH, None, None, true, FIXED_TIME).unwrap();
+
+    let agent_runner = CandidateModifyingRunner {
+        workspace_roots: std::sync::Mutex::new(Vec::new()),
+        new_content: modified_bytes.to_vec(),
+    };
+    super::run_phase_a_step(&mut state, &agent_runner, &git_runner, &state_file).unwrap();
+    super::run_phase_a_step(&mut state, &agent_runner, &git_runner, &state_file).unwrap();
+
+    if let Some(ref mut cb) = state.candidate_binding {
+        cb.review_bundle_digest = Some(SNAP_HASH.to_string());
+    }
+
+    let impl_approve = make_impl_verdict_json(&state, VerdictDecision::Approve, vec![], false);
+    submit_review_verdict(&mut state, "reviewer-2", &impl_approve, SNAP_HASH, SNAP_HASH, None, None, true, FIXED_TIME).unwrap();
+    assert_eq!(state.current_state, AutoConvergeState::ImplementationApproved);
+
+    let cb = state.candidate_binding.as_ref().unwrap();
+    let cand_ws = super::implementer_workspace::ImplementerWorkspace::load_existing(
+        &primary_dir,
+        &engine_state_root,
+        &PathBuf::from(&cb.candidate_root),
+        &state.runtime_allowlist,
+        &cb.candidate_baseline_digest,
+    ).unwrap();
+    let delta_digest = cand_ws.delta_digest().unwrap();
+    let permit = cand_ws.authorize_delta(cand_ws.baseline_digest(), &delta_digest).unwrap();
+
+    let make_interrupted_journal = |target_run_id: &str| -> (PathBuf, String) {
+        let mut journal_out = None;
+        let mut digest_out = String::new();
+        let mut count = 0;
+        let mut on_phase = |phase, jdir: &std::path::Path, digest: &str| {
+            if phase == super::types::PromotionPhase::Applying {
+                count += 1;
+                journal_out = Some(jdir.to_path_buf());
+                digest_out = digest.to_string();
+                if count >= 2 {
+                    return Err("Simulated crash".into());
+                }
+            }
+            Ok(())
+        };
+        let _ = cand_ws.promote_internal(&permit, target_run_id, &mut on_phase, None, false, None);
+        (journal_out.expect("journal created"), digest_out)
+    };
+
+    // Case 1: Valid RecoveryRestored journal cleanup
+    {
+        let (jdir, digest) = make_interrupted_journal(&run_id);
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: jdir.to_string_lossy().to_string(),
+            journal_digest: digest,
+            phase: super::types::PromotionPhase::RecoveryRestored,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_ok(), "Valid RecoveryRestored cleanup must succeed");
+        assert_eq!(std::fs::read(&primary_file).unwrap(), initial_bytes);
+        assert!(sim_state.promotion_journal.is_none());
+        assert!(!jdir.exists(), "journal directory must be deleted");
+    }
+
+    // Case 2: Tampered journal snapshot digest rejects cleanup, retains journal, and halts Blocked
+    {
+        let (jdir, digest) = make_interrupted_journal(&run_id);
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+
+        // Tamper snapshot bytes in journal
+        let snapshot_file = std::fs::read_dir(&jdir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.extension().map(|e| e == "json").unwrap_or(false))
+            .expect("snapshot file");
+        std::fs::write(&snapshot_file, b"{\"tampered\": true}").unwrap();
+
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: jdir.to_string_lossy().to_string(),
+            journal_digest: digest,
+            phase: super::types::PromotionPhase::RecoveryRestored,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Tampered journal digest must be rejected");
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.promotion_journal.is_some(), "Binding must be retained on digest mismatch");
+        assert!(jdir.exists(), "Journal must be retained as evidence on digest mismatch");
+        assert_eq!(std::fs::read(&primary_file).unwrap(), initial_bytes);
+
+        let _ = std::fs::remove_dir_all(&jdir);
+    }
+
+    // Case 3: Wrong run ID ownership prefix in journal name rejects cleanup and fails closed
+    {
+        let other_run_id = format!("ac-other-{}", uuid::Uuid::new_v4());
+        let (jdir, digest) = make_interrupted_journal(&other_run_id);
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: jdir.to_string_lossy().to_string(),
+            journal_digest: digest,
+            phase: super::types::PromotionPhase::RecoveryRestored,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Journal owned by different run ID must be rejected");
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.promotion_journal.is_some(), "Binding must be retained");
+        assert!(jdir.exists(), "Foreign journal must not be deleted");
+
+        let _ = std::fs::remove_dir_all(&jdir);
+    }
+
+    // Case 4: Wrong candidate root rejects cleanup and fails closed
+    {
+        let (jdir, digest) = make_interrupted_journal(&run_id);
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: jdir.to_string_lossy().to_string(),
+            journal_digest: digest,
+            phase: super::types::PromotionPhase::RecoveryRestored,
+            candidate_root: temp_root.join("nonexistent-cand-dir").to_string_lossy().to_string(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Non-existent/mismatched candidate root must be rejected");
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.promotion_journal.is_some(), "Binding must be retained");
+        assert!(jdir.exists(), "Journal must not be deleted");
+
+        let _ = std::fs::remove_dir_all(&jdir);
+    }
+
+    // Case 5: Primary baseline drift before cleanup rejects cleanup, preserves evidence, and halts Blocked
+    {
+        let (jdir, digest) = make_interrupted_journal(&run_id);
+        // Drift primary baseline by modifying a tracked file
+        std::fs::write(&primary_file, b"pub fn drifted() -> bool { false }\n").unwrap();
+
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: jdir.to_string_lossy().to_string(),
+            journal_digest: digest,
+            phase: super::types::PromotionPhase::RecoveryRestored,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Baseline drift before cleanup must reject cleanup");
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.promotion_journal.is_some(), "Binding must be retained");
+        assert!(jdir.exists(), "Journal must be retained as evidence");
+        assert_eq!(
+            std::fs::read(&primary_file).unwrap(),
+            b"pub fn drifted() -> bool { false }\n",
+            "Drifted primary must not be overwritten when baseline check fails"
+        );
+
+        // Restore baseline and clean up
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+        let _ = std::fs::remove_dir_all(&jdir);
+    }
+
+    // Case 6: Cleanup failure retains binding and fails closed
+    {
+        let (jdir, digest) = make_interrupted_journal(&run_id);
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+
+        // Place an unknown rogue file inside journal directory
+        std::fs::write(jdir.join("unexpected-rogue-entry.bin"), b"invalid").unwrap();
+
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: jdir.to_string_lossy().to_string(),
+            journal_digest: digest,
+            phase: super::types::PromotionPhase::RecoveryRestored,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Cleanup rejection due to rogue file must return Err");
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.promotion_journal.is_some(), "Binding must be retained when cleanup fails");
+        assert!(jdir.exists(), "Journal must remain on disk");
+
+        let _ = std::fs::remove_dir_all(&jdir);
+    }
+
+    // Case 7: Applied cleanup failure remains nonterminal with binding intact
+    {
+        let (jdir, digest) = make_interrupted_journal(&run_id);
+        // Primary matches approved candidate delta
+        std::fs::write(&primary_file, modified_bytes).unwrap();
+
+        // Place a rogue file inside journal so cleanup fails
+        std::fs::write(jdir.join("rogue.txt"), b"foreign").unwrap();
+
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: jdir.to_string_lossy().to_string(),
+            journal_digest: digest,
+            phase: super::types::PromotionPhase::Applied,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Applied cleanup failure must return Err");
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.promotion_journal.is_some(), "Binding must NOT be cleared on cleanup failure");
+        assert!(!sim_state.is_terminal, "Run must NOT be marked terminal on cleanup failure");
+        assert!(jdir.exists(), "Journal must remain on disk");
+
+        let _ = std::fs::remove_dir_all(&jdir);
+    }
+
+    // Case 8: Absent journal in RecoveryRestored with unchanged baseline completes safely
+    {
+        let missing_jdir = primary_dir.parent().unwrap().join(format!(".pct-promotion-{}-{}", run_id, uuid::Uuid::new_v4()));
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: missing_jdir.to_string_lossy().to_string(),
+            journal_digest: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            phase: super::types::PromotionPhase::RecoveryRestored,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_ok(), "Absent journal in RecoveryRestored with verified baseline must complete");
+        assert!(sim_state.promotion_journal.is_none(), "Binding must be cleared");
+        assert_eq!(std::fs::read(&primary_file).unwrap(), initial_bytes);
+    }
+
+    // Case 9 (§112): Dangling journal symlink in RecoveryRestored fails closed and retains binding
+    {
+        let dangling_jdir = primary_dir.parent().unwrap().join(format!(".pct-promotion-{}-{}", run_id, uuid::Uuid::new_v4()));
+        let non_target = primary_dir.parent().unwrap().join(format!("ghost-target-{}", uuid::Uuid::new_v4()));
+        create_dangling_symlink_or_junction(&dangling_jdir, &non_target).expect("create dangling junction");
+
+        // Assert that Path::exists() returns false for this dangling link (proving the reproduction of Finding 1)
+        assert!(!dangling_jdir.exists(), "Dangling symlink must report false to exists()");
+        // Assert that inspect_path_presence reports Present
+        match super::implementer_workspace::inspect_path_presence(&dangling_jdir) {
+            super::implementer_workspace::PathPresence::Present(m) => {
+                assert!(m.file_type().is_symlink(), "Must be recognized as symlink");
+            }
+            other => panic!("Expected PathPresence::Present for dangling symlink, got {:?}", other),
+        }
+
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: dangling_jdir.to_string_lossy().to_string(),
+            journal_digest: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            phase: super::types::PromotionPhase::RecoveryRestored,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Dangling journal in RecoveryRestored must fail closed");
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.promotion_journal.is_some(), "Binding must NOT be cleared on dangling symlink");
+        match super::implementer_workspace::inspect_path_presence(&dangling_jdir) {
+            super::implementer_workspace::PathPresence::Present(_) => {}
+            other => panic!("Dangling symlink evidence must remain on disk, got {:?}", other),
+        }
+
+        remove_symlink_or_junction(&dangling_jdir);
+    }
+
+    // Case 10 (§112): Dangling journal symlink in Applied fails closed and remains non-terminal
+    {
+        let dangling_jdir = primary_dir.parent().unwrap().join(format!(".pct-promotion-{}-{}", run_id, uuid::Uuid::new_v4()));
+        let non_target = primary_dir.parent().unwrap().join(format!("ghost-target-{}", uuid::Uuid::new_v4()));
+        create_dangling_symlink_or_junction(&dangling_jdir, &non_target).expect("create dangling junction");
+
+        assert!(!dangling_jdir.exists(), "Dangling symlink must report false to exists()");
+
+        // Primary matches approved candidate delta
+        std::fs::write(&primary_file, modified_bytes).unwrap();
+
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: dangling_jdir.to_string_lossy().to_string(),
+            journal_digest: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            phase: super::types::PromotionPhase::Applied,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Dangling journal in Applied must return Err");
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.promotion_journal.is_some(), "Binding must NOT be cleared on dangling symlink");
+        assert!(!sim_state.is_terminal, "Run must NOT be marked terminal on dangling symlink in Applied");
+        match super::implementer_workspace::inspect_path_presence(&dangling_jdir) {
+            super::implementer_workspace::PathPresence::Present(_) => {}
+            other => panic!("Dangling symlink evidence must remain on disk, got {:?}", other),
+        }
+
+        remove_symlink_or_junction(&dangling_jdir);
+    }
+
+    // Case 11 (§112): Cleanup phase mismatch is rejected
+    {
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+        let (jdir, digest) = make_interrupted_journal(&run_id);
+        let res = super::implementer_workspace::cleanup_recovered_promotion_journal_authenticated(
+            &primary_dir,
+            &jdir,
+            &run_id,
+            std::path::Path::new(&cb.candidate_root),
+            super::types::PromotionPhase::Applying, // unauthorized phase
+            &digest,
+        );
+        assert!(res.is_err(), "Cleanup in unauthorized phase Applying must fail");
+        let err = res.unwrap_err();
+        assert!(
+            err.contains("cannot clean up journal in unauthorized phase"),
+            "Error should state unauthorized phase, got: {err}"
+        );
+        assert!(jdir.exists(), "Journal must remain on disk");
+        let _ = std::fs::remove_dir_all(&jdir);
+    }
+
+    // Case 12 (§113): Valid-target junction in RecoveryRestored halts Blocked, leaves link and target untouched
+    {
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+        let (real_target, digest) = make_interrupted_journal(&run_id);
+        assert!(real_target.exists());
+
+        let junction_jdir = primary_dir.parent().unwrap().join(format!(".pct-promotion-{}-{}", run_id, uuid::Uuid::new_v4()));
+        create_junction_to_existing_target(&junction_jdir, &real_target).expect("create junction to valid target");
+
+        // Prove that junction is detected as Present and is_path_alias_or_reparse is true
+        match super::implementer_workspace::inspect_path_presence(&junction_jdir) {
+            super::implementer_workspace::PathPresence::Present(m) => {
+                assert!(super::implementer_workspace::is_path_alias_or_reparse(&m), "Junction must be identified as alias/reparse");
+            }
+            other => panic!("Expected PathPresence::Present for junction, got {:?}", other),
+        }
+
+        // Prove that standalone load_and_validate_journal_with_digest rejects before reading entries
+        let direct_load = super::implementer_workspace::load_and_validate_journal_with_digest(&junction_jdir);
+        assert!(direct_load.is_err(), "Direct load on junction must fail before reading entries");
+        assert!(direct_load.unwrap_err().contains("symlink or reparse point"));
+
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: junction_jdir.to_string_lossy().to_string(),
+            journal_digest: digest,
+            phase: super::types::PromotionPhase::RecoveryRestored,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Junction in RecoveryRestored must fail closed");
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.promotion_journal.is_some(), "Binding must be retained");
+        assert!(!sim_state.is_terminal, "Run must not be marked terminal");
+
+        // Assert both link and target remain completely untouched on disk
+        match super::implementer_workspace::inspect_path_presence(&junction_jdir) {
+            super::implementer_workspace::PathPresence::Present(_) => {}
+            other => panic!("Junction evidence must remain on disk, got {:?}", other),
+        }
+        assert!(real_target.exists(), "Target journal directory must remain untouched");
+        assert!(real_target.join("journal.json").exists(), "Target journal.json must remain intact");
+
+        remove_symlink_or_junction(&junction_jdir);
+        let _ = std::fs::remove_dir_all(&real_target);
+    }
+
+    // Case 13 (§113): Valid-target junction in Applied halts Blocked, leaves link and target untouched, nonterminal
+    {
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+        let (real_target, digest) = make_interrupted_journal(&run_id);
+        assert!(real_target.exists());
+
+        let junction_jdir = primary_dir.parent().unwrap().join(format!(".pct-promotion-{}-{}", run_id, uuid::Uuid::new_v4()));
+        create_junction_to_existing_target(&junction_jdir, &real_target).expect("create junction to valid target");
+
+        // Primary matches approved candidate delta
+        std::fs::write(&primary_file, modified_bytes).unwrap();
+
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: junction_jdir.to_string_lossy().to_string(),
+            journal_digest: digest,
+            phase: super::types::PromotionPhase::Applied,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Junction in Applied must fail closed");
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.promotion_journal.is_some(), "Binding must be retained");
+        assert!(!sim_state.is_terminal, "Run must NOT be marked terminal on junction in Applied");
+
+        // Assert both link and target remain untouched
+        match super::implementer_workspace::inspect_path_presence(&junction_jdir) {
+            super::implementer_workspace::PathPresence::Present(_) => {}
+            other => panic!("Junction evidence must remain on disk, got {:?}", other),
+        }
+        assert!(real_target.exists(), "Target journal directory must remain untouched");
+        assert!(real_target.join("journal.json").exists(), "Target journal.json must remain intact");
+
+        remove_symlink_or_junction(&junction_jdir);
+        let _ = std::fs::remove_dir_all(&real_target);
+    }
+
+    // Case 14 (§113): Injected metadata error in RecoveryRestored fails closed, retains binding, nonterminal
+    {
+        std::fs::write(&primary_file, initial_bytes).unwrap();
+        let synthetic_jdir = primary_dir.parent().unwrap().join(format!(".pct-promotion-{}-{}", run_id, uuid::Uuid::new_v4()));
+
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: synthetic_jdir.to_string_lossy().to_string(),
+            journal_digest: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            phase: super::types::PromotionPhase::RecoveryRestored,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        // Inject permission denial on journal path via TestMetadataInspectorGuard seam
+        let target_jdir = synthetic_jdir.clone();
+        let _seam_guard = super::implementer_workspace::TestMetadataInspectorGuard::enter(move |path| {
+            if path == target_jdir {
+                Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected host permission error"))
+            } else {
+                std::fs::symlink_metadata(path)
+            }
+        });
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Metadata inspection error must return Err");
+        let err_msg = res.unwrap_err();
+        assert!(
+            err_msg.contains("Failed to inspect promotion journal path: injected host permission error"),
+            "Error message should mention inspection failure, got: {err_msg}"
+        );
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.promotion_journal.is_some(), "Binding must be retained on metadata error");
+        assert!(!sim_state.is_terminal, "Run must not be marked terminal on metadata error");
+    }
+
+    // Case 15 (§113): Injected metadata error in Applied fails closed, retains binding, nonterminal
+    {
+        std::fs::write(&primary_file, modified_bytes).unwrap();
+        let synthetic_jdir = primary_dir.parent().unwrap().join(format!(".pct-promotion-{}-{}", run_id, uuid::Uuid::new_v4()));
+
+        let mut sim_state = state.clone();
+        sim_state.promotion_journal = Some(super::types::PromotionJournalBinding {
+            run_id: run_id.clone(),
+            journal_dir: synthetic_jdir.to_string_lossy().to_string(),
+            journal_digest: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            phase: super::types::PromotionPhase::Applied,
+            candidate_root: cb.candidate_root.clone(),
+        });
+        save_run_state_authenticated(&state_file, &mut sim_state).unwrap();
+
+        // Inject permission denial on journal path via TestMetadataInspectorGuard seam
+        let target_jdir = synthetic_jdir.clone();
+        let _seam_guard = super::implementer_workspace::TestMetadataInspectorGuard::enter(move |path| {
+            if path == target_jdir {
+                Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected host permission error"))
+            } else {
+                std::fs::symlink_metadata(path)
+            }
+        });
+
+        let res = super::run_phase_a_step(&mut sim_state, &agent_runner, &git_runner, &state_file);
+        assert!(res.is_err(), "Metadata inspection error in Applied must return Err");
+        let err_msg = res.unwrap_err();
+        assert!(
+            err_msg.contains("Failed to inspect promotion journal path: injected host permission error"),
+            "Error message should mention inspection failure, got: {err_msg}"
+        );
+        assert_eq!(sim_state.current_state, AutoConvergeState::Blocked);
+        assert!(sim_state.promotion_journal.is_some(), "Binding must NOT be cleared on metadata error");
+        assert!(!sim_state.is_terminal, "Run must NOT be marked terminal on metadata error in Applied");
+    }
+
+    // Clean up
+    let _ = std::fs::remove_dir_all(cand_ws.candidate_root());
+}
+
+fn create_junction_to_existing_target(link_path: &std::path::Path, existing_target: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        let link_str = link_path.to_str().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "link path not utf-8"))?;
+        let target_str = existing_target.to_str().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "target path not utf-8"))?;
+        let status = std::process::Command::new("cmd")
+            .args(&["/C", "mklink", "/J", link_str, target_str])
+            .status()?;
+        if !status.success() {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "mklink /J failed"));
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        std::os::unix::fs::symlink(existing_target, link_path)
+    }
+}
+
+#[test]
+fn test_stage_2_113_path_presence_pure_classification() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("file.txt");
+    std::fs::write(&file, b"content").unwrap();
+
+    // 1. Existing file -> Present
+    let meta = std::fs::symlink_metadata(&file);
+    match super::implementer_workspace::classify_metadata_result(meta) {
+        super::implementer_workspace::PathPresence::Present(m) => {
+            assert!(m.is_file());
+        }
+        other => panic!("Expected Present, got {:?}", other),
+    }
+
+    // 2. NotFound error -> Absent
+    let not_found_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+    match super::implementer_workspace::classify_metadata_result(Err(not_found_err)) {
+        super::implementer_workspace::PathPresence::Absent => {}
+        other => panic!("Expected Absent, got {:?}", other),
+    }
+
+    // 3. PermissionDenied error -> Error
+    let perm_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
+    match super::implementer_workspace::classify_metadata_result(Err(perm_err)) {
+        super::implementer_workspace::PathPresence::Error(msg) => {
+            assert!(msg.contains("access denied"));
+        }
+        other => panic!("Expected Error, got {:?}", other),
+    }
+
+    // 4. Other I/O error -> Error
+    let other_err = std::io::Error::new(std::io::ErrorKind::Other, "unknown io failure");
+    match super::implementer_workspace::classify_metadata_result(Err(other_err)) {
+        super::implementer_workspace::PathPresence::Error(msg) => {
+            assert!(msg.contains("unknown io failure"));
+        }
+        other => panic!("Expected Error, got {:?}", other),
+    }
+}
+
+fn create_dangling_symlink_or_junction(link_path: &std::path::Path, nonexistent_target: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        std::fs::create_dir_all(nonexistent_target)?;
+        let link_str = link_path.to_str().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "link path not utf-8"))?;
+        let target_str = nonexistent_target.to_str().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "target path not utf-8"))?;
+        let status = std::process::Command::new("cmd")
+            .args(&["/C", "mklink", "/J", link_str, target_str])
+            .status()?;
+        if !status.success() {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "mklink /J failed"));
+        }
+        std::fs::remove_dir(nonexistent_target)?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        std::os::unix::fs::symlink(nonexistent_target, link_path)
+    }
+}
+
+fn remove_symlink_or_junction(link_path: &std::path::Path) {
+    #[cfg(windows)]
+    {
+        if std::fs::remove_dir(link_path).is_err() {
+            if let Some(s) = link_path.to_str() {
+                let _ = std::process::Command::new("cmd")
+                    .args(&["/C", "rmdir", s])
+                    .status();
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::fs::remove_file(link_path);
+    }
 }

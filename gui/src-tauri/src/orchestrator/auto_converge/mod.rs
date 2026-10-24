@@ -1,8 +1,10 @@
 pub mod agent_runner;
+pub mod codex_exec;
 pub mod finding_tracker;
 pub mod git_runner;
 pub mod guards;
 pub mod isolation;
+mod implementer_workspace;
 pub mod profile_store;
 pub mod release_reviewer;
 pub mod state_machine;
@@ -11,6 +13,12 @@ pub mod types;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod codex_exec_poc;
+
+#[cfg(test)]
+mod isolation_poc;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -25,6 +33,55 @@ pub use release_reviewer::*;
 pub use state_machine::*;
 pub use state_store::*;
 pub use types::*;
+
+#[cfg(test)]
+thread_local! {
+    static TEST_ENGINE_AUTHORITY_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub fn set_test_engine_authority_dir(dir: Option<PathBuf>) {
+    TEST_ENGINE_AUTHORITY_DIR.with(|cell| {
+        *cell.borrow_mut() = dir;
+    });
+}
+
+#[cfg(test)]
+pub struct TestEngineAuthorityGuard {
+    prev: Option<PathBuf>,
+}
+
+#[cfg(test)]
+impl TestEngineAuthorityGuard {
+    pub fn enter(dir: PathBuf) -> Self {
+        let prev = TEST_ENGINE_AUTHORITY_DIR.with(|cell| {
+            let p = cell.borrow().clone();
+            *cell.borrow_mut() = Some(dir);
+            p
+        });
+        Self { prev }
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestEngineAuthorityGuard {
+    fn drop(&mut self) {
+        TEST_ENGINE_AUTHORITY_DIR.with(|cell| {
+            *cell.borrow_mut() = self.prev.clone();
+        });
+    }
+}
+
+pub fn resolve_engine_authority_dir() -> Result<PathBuf, String> {
+    #[cfg(test)]
+    {
+        let local = TEST_ENGINE_AUTHORITY_DIR.with(|cell| cell.borrow().clone());
+        if let Some(dir) = local {
+            return Ok(dir);
+        }
+    }
+    state_store::get_engine_authority_dir().map_err(|e| e.to_string())
+}
 
 /// Returns the engine-owned durable state path for `run_id`, stored in the OS user-data root
 /// strictly outside agent-writable repository scopes (§10.1, §16.3).
@@ -865,8 +922,13 @@ pub fn validate_snapshot_against_authenticated_state(
 
             // Compute delta ONCE and propagate errors fail-closed
             check_injected_fault(InjectedSnapshotFault::ComputeDiff)?;
+            let source_dir = if let Some(ref cb) = state.candidate_binding {
+                Path::new(&cb.candidate_root)
+            } else {
+                ws_path
+            };
             let delta = compute_run_delta_manifest(
-                ws_path,
+                source_dir,
                 &state.runtime_allowlist,
                 &state.workspace.baseline_file_manifest,
             )
@@ -1109,8 +1171,13 @@ pub fn materialize_implementation_review_snapshot(
     // 3. Run delta manifest - propagate calculation failure fail-closed
     let delta_file = snapshot_dir.join("run_delta.json");
     check_injected_fault(InjectedSnapshotFault::ComputeDiff)?;
+    let source_root = if let Some(ref cb) = state.candidate_binding {
+        PathBuf::from(&cb.candidate_root)
+    } else {
+        ws_path.to_path_buf()
+    };
     let delta = compute_run_delta_manifest(
-        ws_path,
+        &source_root,
         &state.runtime_allowlist,
         &state.workspace.baseline_file_manifest,
     )
@@ -1138,6 +1205,8 @@ pub fn materialize_implementation_review_snapshot(
         "evidence_manifest_digest": state.current_evidence_manifest_digest,
         "allowlist_digest": state.allowlist_digest,
         "policy_profile_digest": state.policy_profile_digest,
+        "cycle": state.candidate_binding.as_ref().map(|cb| cb.cycle),
+        "producer_session_id": state.session_provenance.producer_session_id.clone(),
     });
     check_injected_fault(InjectedSnapshotFault::SerializeManifest)?;
     let manifest_str = serde_json::to_string_pretty(&manifest_json).map_err(|e| e.to_string())?;
@@ -1149,7 +1218,7 @@ pub fn materialize_implementation_review_snapshot(
         if entry.current_sha256
             != "0000000000000000000000000000000000000000000000000000000000000000"
         {
-            let src = ws_path.join(&entry.path);
+            let src = source_root.join(&entry.path);
             if !src.exists() || !src.is_file() {
                 return Err(format!(
                     "Allowlisted file missing from workspace: {}",
@@ -1248,8 +1317,13 @@ pub fn materialize_corrective_plan_review_snapshot(
 
     // 5. Compute current delta and copy present allowlisted files into snapshot (fail closed on any error)
     check_injected_fault(InjectedSnapshotFault::ComputeDiff)?;
+    let source_dir = if let Some(ref cb) = state.candidate_binding {
+        std::path::Path::new(&cb.candidate_root)
+    } else {
+        ws_path
+    };
     let delta = compute_run_delta_manifest(
-        ws_path,
+        source_dir,
         &state.runtime_allowlist,
         &state.workspace.baseline_file_manifest,
     )
@@ -1258,7 +1332,7 @@ pub fn materialize_corrective_plan_review_snapshot(
         if entry.current_sha256
             != "0000000000000000000000000000000000000000000000000000000000000000"
         {
-            let src = ws_path.join(&entry.path);
+            let src = source_dir.join(&entry.path);
             if !src.exists() || !src.is_file() {
                 return Err(format!(
                     "Allowlisted file missing from workspace: {}",
@@ -1287,6 +1361,549 @@ pub fn materialize_corrective_plan_review_snapshot(
     Ok(target_plan)
 }
 
+fn reconcile_interrupted_promotion_on_resume(
+    state: &mut AutoConvergeRunState,
+    state_path: &Path,
+    ws_path: &Path,
+    now_iso: &str,
+) -> Result<(), String> {
+    let pj = match state.promotion_journal.as_ref() {
+        Some(pj) => pj.clone(),
+        None => return Ok(()),
+    };
+
+    if let Err(e) = pj.validate() {
+        let msg = format!("Invalid promotion journal binding on resume: {e}");
+        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+        save_run_state_authenticated(state_path, state)?;
+        return Err(msg);
+    }
+
+    let journal_path = PathBuf::from(&pj.journal_dir);
+    let cand_path = PathBuf::from(&pj.candidate_root);
+
+    // Verify pj.run_id matches state.run_id
+    if pj.run_id != state.run_id {
+        let msg = format!(
+            "Promotion journal run_id mismatch: binding has {}, state has {}",
+            pj.run_id, state.run_id
+        );
+        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+        save_run_state_authenticated(state_path, state)?;
+        return Err(msg);
+    }
+
+    // Verify candidate_root matches cb.candidate_root if present
+    if let Some(ref cb) = state.candidate_binding {
+        if pj.candidate_root != cb.candidate_root {
+            let msg = format!(
+                "Promotion journal candidate_root mismatch: binding has {}, candidate_binding has {}",
+                pj.candidate_root, cb.candidate_root
+            );
+            halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+            save_run_state_authenticated(state_path, state)?;
+            return Err(msg);
+        }
+    }
+
+    match pj.phase {
+        PromotionPhase::Staged | PromotionPhase::Applying | PromotionPhase::RecoveryRequired => {
+            match implementer_workspace::inspect_path_presence(&journal_path) {
+                implementer_workspace::PathPresence::Present(meta) => {
+                    if implementer_workspace::is_path_alias_or_reparse(&meta) {
+                        let msg = format!(
+                            "Promotion journal path is a symlink or reparse point: {}",
+                            journal_path.display()
+                        );
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false;
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                    if !meta.is_dir() {
+                        let msg = format!(
+                            "Promotion journal path is not a directory: {}",
+                            journal_path.display()
+                        );
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false;
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                }
+                implementer_workspace::PathPresence::Absent => {
+                    let msg = format!(
+                        "Interrupted promotion journal directory does not exist at {}",
+                        journal_path.display()
+                    );
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+                implementer_workspace::PathPresence::Error(e) => {
+                    let msg = format!("Failed to inspect promotion journal path: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    state.is_terminal = false;
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            }
+
+            // Verify journal snapshot digest matches authenticated binding before attempting recovery
+            let (_journal_data, _count, actual_digest) = match implementer_workspace::load_and_validate_journal_with_digest(&journal_path) {
+                Ok(res) => res,
+                Err(e) => {
+                    let msg = format!("Failed to load promotion journal for recovery: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    state.is_terminal = false;
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            };
+
+            if actual_digest != pj.journal_digest {
+                let msg = format!(
+                    "Promotion journal snapshot digest mismatch: expected {}, got {}",
+                    pj.journal_digest, actual_digest
+                );
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                state.is_terminal = false;
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Restore primary to recorded baseline WITHOUT deleting the journal yet
+            if let Err(e) = implementer_workspace::recover_retained_promotion_restore_with_digest(
+                ws_path,
+                &journal_path,
+                None,
+                Some(&pj.journal_digest),
+            ) {
+                let msg = format!("Promotion journal recovery restore failed: {e}");
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                state.is_terminal = false;
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Re-capture and compare the exact in-scope primary manifest after recovery
+            let current_primary_manifest = match capture_baseline_file_manifest(ws_path, &BTreeMap::new()) {
+                Ok(m) => m,
+                Err(e) => {
+                    let msg = format!("Failed to capture primary manifest after recovery: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    state.is_terminal = false;
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            };
+            let current_primary_digest = compute_baseline_workspace_digest(&current_primary_manifest);
+            if current_primary_digest != state.workspace.baseline_workspace_digest
+                || current_primary_manifest != state.workspace.baseline_file_manifest
+            {
+                let msg = "Recovered primary workspace does not match recorded baseline manifest".to_string();
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                state.is_terminal = false;
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Persist intermediate RecoveryRestored phase while journal still exists on disk!
+            if let Some(ref mut binding) = state.promotion_journal {
+                binding.phase = PromotionPhase::RecoveryRestored;
+            }
+            state.updated_at = now_iso.to_string();
+            save_run_state_authenticated(state_path, state)?;
+
+            // Delete validated owned journal
+            match implementer_workspace::inspect_path_presence(&journal_path) {
+                implementer_workspace::PathPresence::Present(meta) => {
+                    if implementer_workspace::is_path_alias_or_reparse(&meta) {
+                        let msg = format!(
+                            "Promotion journal path is a symlink or reparse point: {}",
+                            journal_path.display()
+                        );
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false;
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                    if let Err(e) = implementer_workspace::cleanup_recovered_promotion_journal_authenticated(
+                        ws_path,
+                        &journal_path,
+                        &state.run_id,
+                        &cand_path,
+                        PromotionPhase::RecoveryRestored,
+                        &pj.journal_digest,
+                    ) {
+                        let msg = format!("Failed to clean up recovered promotion journal: {e}");
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false;
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                }
+                implementer_workspace::PathPresence::Absent => {}
+                implementer_workspace::PathPresence::Error(e) => {
+                    let msg = format!("Failed to inspect promotion journal path: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    state.is_terminal = false;
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            }
+
+            // Clear promotion journal binding after successful cleanup
+            state.promotion_journal = None;
+            state.updated_at = now_iso.to_string();
+            if state.current_state != AutoConvergeState::Blocked {
+                halt_blocked(
+                    state,
+                    BlockedKind::FatalInvariant,
+                    "Interrupted promotion was rolled back to baseline on resume",
+                );
+            }
+            save_run_state_authenticated(state_path, state)?;
+        }
+        PromotionPhase::RecoveryRestored => {
+            // §111.4.2 RecoveryRestored order:
+            // First validate binding and journal (when present), then recapture/compare primary baseline manifest.
+            // Only after both checks succeed may cleanup delete the exact journal.
+            match implementer_workspace::inspect_path_presence(&journal_path) {
+                implementer_workspace::PathPresence::Present(meta) => {
+                    if implementer_workspace::is_path_alias_or_reparse(&meta) {
+                        let msg = format!(
+                            "Promotion journal path is a symlink or reparse point: {}",
+                            journal_path.display()
+                        );
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false;
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                    if !meta.is_dir() {
+                        let msg = format!(
+                            "Promotion journal path is not a directory: {}",
+                            journal_path.display()
+                        );
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false;
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                    let (_journal_data, _count, actual_digest) = match implementer_workspace::load_and_validate_journal_with_digest(&journal_path) {
+                        Ok(res) => res,
+                        Err(e) => {
+                            let msg = format!("Failed to validate journal in RecoveryRestored phase: {e}");
+                            halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                            state.is_terminal = false;
+                            save_run_state_authenticated(state_path, state)?;
+                            return Err(msg);
+                        }
+                    };
+                    if actual_digest != pj.journal_digest {
+                        let msg = format!(
+                            "Journal digest mismatch in RecoveryRestored phase: expected {}, got {}",
+                            pj.journal_digest, actual_digest
+                        );
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false;
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                }
+                implementer_workspace::PathPresence::Absent => {
+                    // Genuinely absent: cleanup had already completed before crash
+                }
+                implementer_workspace::PathPresence::Error(e) => {
+                    let msg = format!("Failed to inspect promotion journal path: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    state.is_terminal = false;
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            }
+
+            // Verify primary workspace matches recorded baseline BEFORE journal cleanup
+            let current_primary_manifest = match capture_baseline_file_manifest(ws_path, &BTreeMap::new()) {
+                Ok(m) => m,
+                Err(e) => {
+                    let msg = format!("Failed to capture primary manifest after recovery: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    state.is_terminal = false;
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            };
+            let current_primary_digest = compute_baseline_workspace_digest(&current_primary_manifest);
+            if current_primary_digest != state.workspace.baseline_workspace_digest
+                || current_primary_manifest != state.workspace.baseline_file_manifest
+            {
+                let msg = "Primary workspace does not match recorded baseline manifest before journal cleanup".to_string();
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                state.is_terminal = false;
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Delete journal only after verified baseline and journal checks
+            match implementer_workspace::inspect_path_presence(&journal_path) {
+                implementer_workspace::PathPresence::Present(meta) => {
+                    if implementer_workspace::is_path_alias_or_reparse(&meta) {
+                        let msg = format!(
+                            "Promotion journal path is a symlink or reparse point: {}",
+                            journal_path.display()
+                        );
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false;
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                    if let Err(e) = implementer_workspace::cleanup_recovered_promotion_journal_authenticated(
+                        ws_path,
+                        &journal_path,
+                        &state.run_id,
+                        &cand_path,
+                        PromotionPhase::RecoveryRestored,
+                        &pj.journal_digest,
+                    ) {
+                        let msg = format!("Failed to clean up recovered promotion journal: {e}");
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false;
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                }
+                implementer_workspace::PathPresence::Absent => {}
+                implementer_workspace::PathPresence::Error(e) => {
+                    let msg = format!("Failed to inspect promotion journal path: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    state.is_terminal = false;
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            }
+
+            state.promotion_journal = None;
+            state.updated_at = now_iso.to_string();
+            if state.current_state != AutoConvergeState::Blocked {
+                halt_blocked(
+                    state,
+                    BlockedKind::FatalInvariant,
+                    "Interrupted promotion was rolled back to baseline on resume",
+                );
+            }
+            save_run_state_authenticated(state_path, state)?;
+        }
+        PromotionPhase::Applied => {
+            // For Applied, verify recorded final primary state and approval binding before marking terminal
+            let approval = state
+                .approvals
+                .iter()
+                .rev()
+                .find(|a| !a.invalidated && a.binding.target_type == ApprovalTargetType::ImplementationDiff);
+            let approval = match approval {
+                Some(a) => a,
+                None => {
+                    let msg = "Applied promotion has no valid ImplementationDiff approval record".to_string();
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            };
+
+            // Authenticate approval record
+            let expected_tag = match super::guards::compute_approval_auth_tag(
+                &state.run_id,
+                approval.sequence,
+                &approval.reviewer_session_id,
+                &approval.producer_session_id,
+                &approval.binding,
+            ) {
+                Ok(tag) => tag,
+                Err(e) => {
+                    let msg = format!("Approval record authentication failed: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            };
+            if approval.engine_auth_tag != expected_tag {
+                let msg = "Approval record authentication failed on resume: invalid engine_auth_tag".to_string();
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Verify reviewer independence
+            if approval.reviewer_session_id.trim().is_empty()
+                || approval.reviewer_session_id == approval.producer_session_id
+            {
+                let msg = "Approval record on resume violates Reviewer independence".to_string();
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Verify candidate binding
+            let cb = match state.candidate_binding.as_ref() {
+                Some(cb) => cb,
+                None => {
+                    let msg = "Missing candidate_binding in run_state on resume".to_string();
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            };
+            if let Err(e) = cb.validate() {
+                let msg = format!("Invalid candidate_binding on resume: {e}");
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Validate all binding fields strictly (no optional bypass)
+            let b = &approval.binding;
+            if b.target_type != ApprovalTargetType::ImplementationDiff
+                || b.allowlist_digest != state.allowlist_digest.as_deref().unwrap_or_default()
+                || b.policy_profile_digest != state.policy_profile_digest
+                || b.root_plan_digest != state.plan_lineage.root_plan_digest
+                || b.active_plan_digest != state.plan_lineage.active_plan_digest
+                || b.diff_digest != state.current_diff_digest
+                || b.evidence_manifest_digest != state.current_evidence_manifest_digest
+                || b.run_id.as_deref() != Some(&state.run_id)
+                || b.cycle != Some(cb.cycle)
+                || b.implementer_session_id.as_deref() != Some(&cb.session_id)
+                || b.bundle_digest.is_none()
+                || b.bundle_digest.as_deref() != cb.review_bundle_digest.as_deref()
+                || !is_valid_sha256_hex(b.bundle_digest.as_deref().unwrap())
+            {
+                let msg = "Approval binding does not match run state on resume".to_string();
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Verify primary workspace has the approved candidate delta applied
+            let cand_path = PathBuf::from(&cb.candidate_root);
+            let delta = match compute_run_delta_manifest(
+                &cand_path,
+                &state.runtime_allowlist,
+                &state.workspace.baseline_file_manifest,
+            ) {
+                Ok(d) => d,
+                Err(e) => {
+                    let msg = format!("Failed to compute candidate delta on resume: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            };
+
+            // Check that primary matches every entry in delta
+            for entry in &delta {
+                let target = ws_path.join(&entry.path);
+                match implementer_workspace::inspect_path_presence(&target) {
+                    implementer_workspace::PathPresence::Present(meta) => {
+                        if implementer_workspace::is_path_alias_or_reparse(&meta) {
+                            let msg = format!(
+                                "Applied state verification failed: {} is a symlink or reparse point",
+                                entry.path
+                            );
+                            halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                            save_run_state_authenticated(state_path, state)?;
+                            return Err(msg);
+                        }
+                    }
+                    implementer_workspace::PathPresence::Absent => {
+                        let msg = format!(
+                            "Applied state verification failed: {} is missing from primary",
+                            entry.path
+                        );
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                    implementer_workspace::PathPresence::Error(e) => {
+                        let msg = format!(
+                            "Applied state verification failed: cannot inspect {}: {e}",
+                            entry.path
+                        );
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                }
+                let target_bytes = match std::fs::read(&target) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        let msg = format!("Failed to read primary file {} for applied state verification: {e}", entry.path);
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                };
+                let target_sha = sha256_hex(&target_bytes);
+                if target_sha != entry.current_sha256 {
+                    let msg = format!("Applied state verification failed: digest mismatch for {}", entry.path);
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            }
+
+            // §111.4.3 / §112.4 Applied order:
+            // Validate any remaining journal against authenticated run ID/path/digest, and attempt cleanup.
+            // If cleanup fails, do not clear promotion_journal or mark terminal; persist a retryable/blocked state with the binding intact.
+            // If journal is absent, only permit completion when the persisted phase and verified final-state contract establish that cleanup had already completed.
+            match implementer_workspace::inspect_path_presence(&journal_path) {
+                implementer_workspace::PathPresence::Present(meta) => {
+                    if implementer_workspace::is_path_alias_or_reparse(&meta) {
+                        let msg = format!(
+                            "Promotion journal path is a symlink or reparse point: {}",
+                            journal_path.display()
+                        );
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false;
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                    if let Err(e) = implementer_workspace::cleanup_recovered_promotion_journal_authenticated(
+                        ws_path,
+                        &journal_path,
+                        &state.run_id,
+                        &cand_path,
+                        PromotionPhase::Applied,
+                        &pj.journal_digest,
+                    ) {
+                        let msg = format!("Failed to clean up applied promotion journal: {e}");
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false; // §111.4.3: do not mark terminal on cleanup failure
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                }
+                implementer_workspace::PathPresence::Absent => {}
+                implementer_workspace::PathPresence::Error(e) => {
+                    let msg = format!("Failed to inspect promotion journal path: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    state.is_terminal = false;
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            }
+
+            // Primary verified to have approved changes applied and journal cleaned up!
+            state.promotion_journal = None;
+            state.is_terminal = true;
+            state.updated_at = now_iso.to_string();
+            save_run_state_authenticated(state_path, state)?;
+        }
+    }
+
+    Ok(())
+}
+
 /// Advances the Phase A state machine by one transition using the provided agent and command runners.
 /// Every state transition verifies bounds and persists authenticated state before any subsequent launch.
 fn run_phase_a_step(
@@ -1295,13 +1912,20 @@ fn run_phase_a_step(
     _git_runner: &dyn CommandRunner,
     state_path: &Path,
 ) -> Result<(), String> {
-    if state.is_terminal || state.is_paused || state.current_state == AutoConvergeState::Blocked {
-        return Ok(());
-    }
-
     let ws_path = PathBuf::from(&state.workspace.working_dir);
     let now_iso = chrono::Utc::now().to_rfc3339();
     let case_insensitive_fs = cfg!(windows);
+
+    // 1. Reconciliation of interrupted promotion on process resume / re-entry
+    // Always runs BEFORE short-circuiting on is_terminal, is_paused, or Blocked!
+    if state.promotion_journal.is_some() {
+        reconcile_interrupted_promotion_on_resume(state, state_path, &ws_path, &now_iso)?;
+    }
+
+    // 2. Short-circuit if terminal, paused, or Blocked: no agent dispatch occurs.
+    if state.is_terminal || state.is_paused || state.current_state == AutoConvergeState::Blocked {
+        return Ok(());
+    }
 
     match state.current_state {
         AutoConvergeState::PlanCreate | AutoConvergeState::PlanRevise => {
@@ -1317,6 +1941,9 @@ fn run_phase_a_step(
                 input_prompt: "Create an implementation plan satisfying auto-converge requirements"
                     .to_string(),
                 timeout_seconds: 600,
+                model: Some(state.active_producer_model.clone()),
+                reasoning_effort: Some(state.active_reasoning_effort.clone()),
+                run_id: Some(state.run_id.clone()),
             };
             let resp = match agent_runner.execute_role_session(&req) {
                 Ok(r) => r,
@@ -1421,6 +2048,9 @@ fn run_phase_a_step(
                 runtime_allowlist: state.runtime_allowlist.clone(),
                 input_prompt: "Review candidate plan against requirements and scope".to_string(),
                 timeout_seconds: 600,
+                model: Some(state.active_reviewer_model.clone()),
+                reasoning_effort: Some(state.active_reasoning_effort.clone()),
+                run_id: Some(state.run_id.clone()),
             };
             let resp = match agent_runner.execute_role_session(&req) {
                 Ok(r) => r,
@@ -1435,6 +2065,16 @@ fn run_phase_a_step(
                     return Err(e);
                 }
             };
+            if resp.exit_code != 0 {
+                let _ = std::fs::remove_dir_all(&snapshot_dir);
+                let msg = format!(
+                    "Plan review process exited unsuccessfully with exit code {}",
+                    resp.exit_code
+                );
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
             if let Err(e) = check_injected_fault(InjectedSnapshotFault::PostLaunchHash) {
                 let _ = std::fs::remove_dir_all(&snapshot_dir);
                 let msg = format!("Plan review post-launch hash calculation failed: {e}");
@@ -1505,16 +2145,132 @@ fn run_phase_a_step(
         }
         AutoConvergeState::Implement | AutoConvergeState::CorrectiveImplement => {
             let session_id = format!("{}-implementer-{}", state.run_id, state.state_sequence + 1);
+            let engine_state_root = resolve_engine_authority_dir()?;
+            let candidate_parent_path = std::env::temp_dir()
+                .join("poverello")
+                .join("candidate_workspaces")
+                .join(&state.run_id);
+            let candidate_parent = match implementer_workspace::validate_and_create_candidate_parent(&candidate_parent_path) {
+                Ok(p) => p,
+                Err(e) => {
+                    let msg = format!("Failed to validate candidate parent directory: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            };
+            let candidate_dir = candidate_parent.join(format!("cycle-{}", state.cycle_counts.impl_review_count));
+
+            let candidate_ws = if state.current_state == AutoConvergeState::CorrectiveImplement {
+                // Corrective cycles may reuse candidate ONLY after authenticated binding and tree validation
+                let cb = match state.candidate_binding.as_ref() {
+                    Some(b) => b,
+                    None => {
+                        let msg = "Corrective cycle missing required candidate_binding in run_state".to_string();
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                };
+                if let Err(e) = cb.validate() {
+                    let msg = format!("Invalid candidate_binding for corrective reuse: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+                let cand_path = PathBuf::from(&cb.candidate_root);
+                let cand_presence = implementer_workspace::inspect_path_presence(&cand_path);
+                let cand_valid = match cand_presence {
+                    implementer_workspace::PathPresence::Present(ref m) => !implementer_workspace::is_path_alias_or_reparse(m),
+                    _ => false,
+                };
+                if cb.run_id != state.run_id
+                    || Some(&cb.approved_plan_digest) != state.plan_lineage.active_plan_digest.as_ref()
+                    || Some(&cb.allowlist_digest) != state.allowlist_digest.as_ref()
+                    || !cand_valid
+                {
+                    let msg = "Candidate binding mismatch or candidate root missing for corrective cycle; refusing to delete or overwrite".to_string();
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+                match implementer_workspace::ImplementerWorkspace::load_existing(
+                    &ws_path,
+                    &engine_state_root,
+                    &cand_path,
+                    &state.runtime_allowlist,
+                    &cb.candidate_baseline_digest,
+                ) {
+                    Ok(ws) => ws,
+                    Err(e) => {
+                        let msg = format!("Failed to validate existing candidate tree for corrective cycle: {e}; retaining candidate");
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                }
+            } else {
+                // Initial Implement step: candidate must NOT already exist; reject collision without deleting
+                match implementer_workspace::inspect_path_presence(&candidate_dir) {
+                    implementer_workspace::PathPresence::Absent => {}
+                    _ => {
+                        let msg = format!(
+                            "Candidate directory already exists at {}; refusing to overwrite or delete unowned directory",
+                            candidate_dir.display()
+                        );
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                }
+                match implementer_workspace::ImplementerWorkspace::create(
+                    &ws_path,
+                    &engine_state_root,
+                    &candidate_dir,
+                    &state.runtime_allowlist,
+                ) {
+                    Ok(ws) => ws,
+                    Err(e) => {
+                        let msg = format!("Failed to create candidate workspace: {e}");
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                }
+            };
+
+            let manifest_bytes = serde_json::to_vec(&state.workspace.baseline_file_manifest)
+                .map_err(|e| format!("serialize baseline manifest: {e}"))?;
+            let run_start_baseline_manifest_digest = sha256_hex(&manifest_bytes);
+            let candidate_binding = CandidateBinding {
+                run_id: state.run_id.clone(),
+                cycle: state.cycle_counts.impl_review_count as u64,
+                session_id: session_id.clone(),
+                candidate_root: candidate_ws.candidate_root().to_string_lossy().to_string(),
+                approved_plan_digest: state.plan_lineage.active_plan_digest.clone().unwrap_or_default(),
+                run_start_baseline_manifest_digest,
+                allowlist_digest: state.allowlist_digest.clone().unwrap_or_default(),
+                candidate_baseline_digest: candidate_ws.baseline_digest().to_string(),
+                review_bundle_digest: None,
+            };
+            candidate_binding.validate().map_err(|e| format!("Invalid candidate binding: {e}"))?;
+            state.candidate_binding = Some(candidate_binding);
+            save_run_state_authenticated(state_path, state)?;
+
+            let candidate_root = candidate_ws.candidate_root().to_path_buf();
             let req = RoleExecutionRequest {
                 role: AutoConvergeRole::Implementer,
                 session_id: session_id.clone(),
-                workspace_root: ws_path.clone(),
+                workspace_root: candidate_root.clone(),
                 snapshot_dir: None,
                 plan_path: ws_path.join(".plan").join(format!("{}.md", state.run_id)),
                 runtime_allowlist: state.runtime_allowlist.clone(),
                 input_prompt: "Implement approved changes strictly within runtime_allowlist"
                     .to_string(),
                 timeout_seconds: 1200,
+                model: Some(state.active_producer_model.clone()),
+                reasoning_effort: Some(state.active_reasoning_effort.clone()),
+                run_id: Some(state.run_id.clone()),
             };
             let resp = match agent_runner.execute_role_session(&req) {
                 Ok(r) => r,
@@ -1528,8 +2284,26 @@ fn run_phase_a_step(
                     return Err(e);
                 }
             };
+            if resp.exit_code != 0 {
+                let msg = format!("Implementer execution returned nonzero exit code: {}", resp.exit_code);
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Verify candidate delta and boundary via workspace.delta()
+            let _candidate_delta = match candidate_ws.delta() {
+                Ok(d) => d,
+                Err(e) => {
+                    let msg = format!("Candidate workspace boundary violation: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            };
+
             let delta = compute_run_delta_manifest(
-                &ws_path,
+                &candidate_root,
                 &state.runtime_allowlist,
                 &state.workspace.baseline_file_manifest,
             )?;
@@ -1620,6 +2394,12 @@ fn run_phase_a_step(
                 }
             };
 
+            // Bind exact review bundle digest to candidate binding in authenticated state
+            if let Some(ref mut cb) = state.candidate_binding {
+                cb.review_bundle_digest = Some(pre_hash.clone());
+            }
+            save_run_state_authenticated(state_path, state)?;
+
             let req = RoleExecutionRequest {
                 role: AutoConvergeRole::Reviewer,
                 session_id: session_id.clone(),
@@ -1630,6 +2410,9 @@ fn run_phase_a_step(
                 input_prompt: "Review implementation diff against approved plan and allowlist"
                     .to_string(),
                 timeout_seconds: 600,
+                model: Some(state.active_reviewer_model.clone()),
+                reasoning_effort: Some(state.active_reasoning_effort.clone()),
+                run_id: Some(state.run_id.clone()),
             };
             let resp = match agent_runner.execute_role_session(&req) {
                 Ok(r) => r,
@@ -1644,6 +2427,16 @@ fn run_phase_a_step(
                     return Err(e);
                 }
             };
+            if resp.exit_code != 0 {
+                let _ = std::fs::remove_dir_all(&snapshot_dir);
+                let msg = format!(
+                    "Implementation review process exited unsuccessfully with exit code {}",
+                    resp.exit_code
+                );
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
             if let Err(e) = check_injected_fault(InjectedSnapshotFault::PostLaunchHash) {
                 let _ = std::fs::remove_dir_all(&snapshot_dir);
                 let msg = format!("Implementation review post-launch hash calculation failed: {e}");
@@ -1716,6 +2509,9 @@ fn run_phase_a_step(
                 input_prompt: "Create a corrective plan addressing unresolved review findings"
                     .to_string(),
                 timeout_seconds: 600,
+                model: Some(state.active_producer_model.clone()),
+                reasoning_effort: Some(state.active_reasoning_effort.clone()),
+                run_id: Some(state.run_id.clone()),
             };
             let resp = match agent_runner.execute_role_session(&req) {
                 Ok(r) => r,
@@ -1822,6 +2618,9 @@ fn run_phase_a_step(
                 input_prompt: "Review candidate corrective plan against findings and scope"
                     .to_string(),
                 timeout_seconds: 600,
+                model: Some(state.active_reviewer_model.clone()),
+                reasoning_effort: Some(state.active_reasoning_effort.clone()),
+                run_id: Some(state.run_id.clone()),
             };
             let resp = match agent_runner.execute_role_session(&req) {
                 Ok(r) => r,
@@ -1836,6 +2635,16 @@ fn run_phase_a_step(
                     return Err(e);
                 }
             };
+            if resp.exit_code != 0 {
+                let _ = std::fs::remove_dir_all(&snapshot_dir);
+                let msg = format!(
+                    "Corrective plan review process exited unsuccessfully with exit code {}",
+                    resp.exit_code
+                );
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
             if let Err(e) = check_injected_fault(InjectedSnapshotFault::PostLaunchHash) {
                 let _ = std::fs::remove_dir_all(&snapshot_dir);
                 let msg =
@@ -1893,9 +2702,194 @@ fn run_phase_a_step(
             save_run_state_authenticated(state_path, state)?;
         }
         AutoConvergeState::ImplementationApproved => {
-            state.is_terminal = true;
-            state.updated_at = now_iso;
-            save_run_state_authenticated(state_path, state)?;
+            // Any pre-existing promotion journal must have been reconciled at the start of run_phase_a_step
+            if let Some(ref pj) = state.promotion_journal {
+                let msg = format!("Unreconciled promotion journal in phase {:?}; run cannot proceed without reconciliation", pj.phase);
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Verify approval record
+            let approval = state
+                .approvals
+                .iter()
+                .rev()
+                .find(|a| !a.invalidated && a.binding.target_type == ApprovalTargetType::ImplementationDiff)
+                .ok_or_else(|| "No valid ImplementationDiff approval record found".to_string())?;
+
+            // Authenticate approval record
+            let expected_tag = super::guards::compute_approval_auth_tag(
+                &state.run_id,
+                approval.sequence,
+                &approval.reviewer_session_id,
+                &approval.producer_session_id,
+                &approval.binding,
+            )?;
+            if approval.engine_auth_tag != expected_tag {
+                let msg = "Approval record authentication failed: invalid engine_auth_tag".to_string();
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Verify reviewer independence
+            if approval.reviewer_session_id.trim().is_empty()
+                || approval.reviewer_session_id == approval.producer_session_id
+            {
+                let msg = "Approval record violates Reviewer independence".to_string();
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Verify candidate binding
+            let cb = state
+                .candidate_binding
+                .as_ref()
+                .ok_or_else(|| "Missing candidate_binding in run_state".to_string())?;
+            if let Err(e) = cb.validate() {
+                let msg = format!("Invalid candidate_binding: {e}");
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Validate all binding fields strictly (no optional bypass)
+            let b = &approval.binding;
+            if b.target_type != ApprovalTargetType::ImplementationDiff
+                || b.allowlist_digest != state.allowlist_digest.as_deref().unwrap_or_default()
+                || b.policy_profile_digest != state.policy_profile_digest
+                || b.root_plan_digest != state.plan_lineage.root_plan_digest
+                || b.active_plan_digest != state.plan_lineage.active_plan_digest
+                || b.diff_digest != state.current_diff_digest
+                || b.evidence_manifest_digest != state.current_evidence_manifest_digest
+                || b.run_id.as_deref() != Some(&state.run_id)
+                || b.cycle != Some(cb.cycle)
+                || b.implementer_session_id.as_deref() != Some(&cb.session_id)
+                || b.bundle_digest.is_none()
+                || b.bundle_digest.as_deref() != cb.review_bundle_digest.as_deref()
+                || !is_valid_sha256_hex(b.bundle_digest.as_deref().unwrap())
+            {
+                let msg = "Approval binding does not match current run state".to_string();
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Re-verify primary baseline manifest immediately before promotion
+            let current_primary_manifest = capture_baseline_file_manifest(&ws_path, &BTreeMap::new())?;
+            let current_primary_digest = compute_baseline_workspace_digest(&current_primary_manifest);
+            if current_primary_digest != state.workspace.baseline_workspace_digest
+                || current_primary_manifest != state.workspace.baseline_file_manifest
+            {
+                let msg = "Primary workspace baseline changed concurrently before promotion".to_string();
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+
+            // Load candidate workspace
+            let engine_state_root = resolve_engine_authority_dir()?;
+            let candidate_path = PathBuf::from(&cb.candidate_root);
+            let workspace = implementer_workspace::ImplementerWorkspace::load_existing(
+                &ws_path,
+                &engine_state_root,
+                &candidate_path,
+                &state.runtime_allowlist,
+                &cb.candidate_baseline_digest,
+            )?;
+
+            // Verify candidate delta matches approved diff digest
+            let current_run_delta = compute_run_delta_manifest(
+                &candidate_path,
+                &state.runtime_allowlist,
+                &state.workspace.baseline_file_manifest,
+            )?;
+            let current_diff = compute_diff_digest(&current_run_delta);
+            if Some(&current_diff) != state.current_diff_digest.as_ref() {
+                let msg = "Promotion rejected: candidate delta changed after approval (diff digest mismatch)".to_string();
+                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                save_run_state_authenticated(state_path, state)?;
+                return Err(msg);
+            }
+            let current_delta_digest = workspace.delta_digest()?;
+            let permit = match workspace.authorize_delta(
+                workspace.baseline_digest(),
+                &current_delta_digest,
+            ) {
+                Ok(p) => p,
+                Err(e) => {
+                    let msg = format!("Failed to authorize delta for promotion: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            };
+
+            // Execute promotion with phase callback
+            let run_id = state.run_id.clone();
+            let cand_root_str = cb.candidate_root.clone();
+            let state_path_buf = state_path.to_path_buf();
+
+            let outcome = workspace.promote_with_controller(
+                &permit,
+                &run_id,
+                |phase, journal_dir, journal_digest| {
+                    state.promotion_journal = Some(PromotionJournalBinding {
+                        run_id: run_id.clone(),
+                        journal_dir: journal_dir.to_string_lossy().to_string(),
+                        journal_digest: journal_digest.to_string(),
+                        phase,
+                        candidate_root: cand_root_str.clone(),
+                    });
+                    save_run_state_authenticated(&state_path_buf, state)?;
+                    Ok(())
+                },
+            );
+
+            match outcome {
+                Ok(implementer_workspace::PromotionOutcome::Promoted { changed_files: _ }) => {
+                    state.promotion_journal = None;
+                    state.is_terminal = true;
+                    state.updated_at = now_iso;
+                    save_run_state_authenticated(state_path, state)?;
+                }
+                Ok(implementer_workspace::PromotionOutcome::RecoveryRequired { journal, reason }) => {
+                    let digest = implementer_workspace::load_and_validate_journal_with_digest(&journal)
+                        .map(|(_, _, d)| d)
+                        .unwrap_or_else(|_| state.promotion_journal.as_ref().map(|p| p.journal_digest.clone()).unwrap_or_default());
+                    state.promotion_journal = Some(PromotionJournalBinding {
+                        run_id: run_id.clone(),
+                        journal_dir: journal.to_string_lossy().to_string(),
+                        journal_digest: digest,
+                        phase: PromotionPhase::RecoveryRequired,
+                        candidate_root: cand_root_str,
+                    });
+                    let msg = format!("Promotion requires recovery: {reason}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+                Ok(implementer_workspace::PromotionOutcome::RejectedBaselineChanged) => {
+                    let msg = "Promotion rejected: primary baseline changed concurrently".to_string();
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+                Ok(implementer_workspace::PromotionOutcome::RejectedCandidateChanged) => {
+                    let msg = "Promotion rejected: candidate files changed after authorization".to_string();
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+                Err(e) => {
+                    let msg = format!("Promotion execution failed: {e}");
+                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                    save_run_state_authenticated(state_path, state)?;
+                    return Err(msg);
+                }
+            }
         }
         _ => {}
     }

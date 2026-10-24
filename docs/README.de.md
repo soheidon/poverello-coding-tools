@@ -9,7 +9,7 @@ Poverello Coding Tools (in der App als **Poverello** angezeigt) ist eine Windows
 1. **3P-Gateway für Claude Code / Claude Desktop** — Behalte Claudes Repository-Erkundung, Tool-Nutzung, Dateibearbeitung und Testausführung bei, während die Inferenz an Drittanbieter weitergeleitet wird.
 2. **Dediziertes lokales LLM für Claude Code (Ollama)** — Führe Claude Code mit lokalen Modellen offline aus.
 3. **MCP-Planer & Reviewer für Google Antigravity** — Delegiere Implementierungsplanung, Planrevision und Nachimplementierungsüberprüfung über die MCP-Tools `poverello/plan`, `poverello/revise` und `poverello/review` an externe Modelle.
-4. **Multi-Agent Development Orchestrator** — Führe die unterstützten begrenzten Planner–Reviewer-Abläufe für Planung und Review aus und protokolliere normalisierte Token-Nutzung sowie verifizierte Kostenschätzungen. Diese Abläufe implementieren keinen Code automatisch; der separate vollständige Auto-Converge-Workflow ist in v0.24.6 nicht verfügbar.
+4. **Multi-Agent Development Orchestrator** — Führe die unterstützten begrenzten Planner–Reviewer-Abläufe für Planung und Review aus und protokolliere normalisierte Token-Nutzung sowie verifizierte Kostenschätzungen.
 5. **Verwaltung von Antigravity-Regeln** — Konfiguriere, prüfe und synchronisiere sicher die Poverello-Direct-Coding-Regeln (`pov-direct.md`) für Antigravity.
 
 > **Neuigkeiten:** Versionsbezogene Funktionen, Implementierungsdetails und Änderungsprotokolle findest du in den [Release Notes (NEWS.md)](../NEWS.md).
@@ -66,7 +66,6 @@ unter Nutzung abonnementbasierter Kapazität
 - **Trennung von Planung und Ausführung**: Externe Modelle erstellen den übergeordneten Plan oder das Review-Urteil; die Antigravity-Abonnementkapazität führt tokenintensive Code-Änderungen durch.
 - **Live-GUI-Konfiguration**: Das Wechseln des Planer- oder Reviewer-Anbieters, Modells oder Reasoning-Aufwands wird beim nächsten Aufruf sofort wirksam.
 - **Einrichtungsanleitung**: [Google Antigravity + Poverello MCP-Einrichtung](ANTIGRAVITY_MCP.de.md)
-- **Hinweis zu Auto-Converge**: Der separate vollständige Auto-Converge-Workflow ist in v0.24.6 ausgeblendet und nicht verfügbar. Die hier beschriebenen unterstützten Orchestrator-Workflows sind davon getrennt; Auto-Converge ist für eine spätere Version vorgesehen.
 
 Die ausführbare Datei und die MCP-Toolnamen behalten aus Kompatibilitätsgründen den Bezeichner `anthro-bridge`.
 
@@ -88,7 +87,7 @@ Die kanonischen Antigravity-Befehle sind `/pov-plan`, `/pov-revise` und `/pov-re
 
 ### 4. Multi-Agent Development Orchestrator (Begrenzte Workflows & Kostenschätzungen)
 
-Der Orchestrator unterstützt begrenzte Planner–Reviewer-Schleifen für Planung und Review mit konfigurierbaren Profilen und Iterationsgrenzen; sie implementieren keinen Code automatisch. Ein neuer Hauptplan erfordert immer eine ausdrückliche Bestätigung durch den Menschen. Journale unter `%APPDATA%\Poverello\runs\` enthalten verfügbare normalisierte Nutzungsdaten, Audit-Metadaten und verifizierte Kostenschätzungen. Schätzungen sind keine Rechnungen; nicht unterstützte Routen bleiben nicht berechnet. Der separate vollständige Auto-Converge-Workflow ist in v0.24.6 ausgeblendet und nicht verfügbar.
+Der Orchestrator unterstützt begrenzte Planner–Reviewer-Schleifen für Planung und Review mit konfigurierbaren Profilen und Iterationsgrenzen. Ein neuer Hauptplan erfordert immer eine ausdrückliche Bestätigung durch den Menschen. Journale unter `%APPDATA%\Poverello\runs\` enthalten verfügbare normalisierte Nutzungsdaten, Audit-Metadaten und verifizierte Kostenschätzungen. Schätzungen sind keine Rechnungen; nicht unterstützte Routen bleiben nicht berechnet.
 
 ### 5. Verwaltung von Antigravity-Regeln (Poverello Direct Coding)
 
@@ -178,7 +177,7 @@ Ebenfalls verfügbar: **OpenRouter: Gemini** (Gemini 3.8 Flash · Reasoning-Aufw
 
 ---
 
-## DeepSeek-API-Preise (Stand: 18.10.2026)
+## DeepSeek-API-Preise (Stand: 19.10.2026)
 
 | Modell-ID | Peak-Eingabe (Cache-Miss / -Hit) | Off-Peak-Eingabe (Cache-Miss / -Hit) | Peak-Ausgabe | Off-Peak-Ausgabe |
 |---|---:|---:|---:|---:|
@@ -233,7 +232,7 @@ Das Windows-Installationsprogramm unterstützt 8 Sprachen. Poverello behält die
 
 ### Arbeitsablauf 5: Verwaltung von Antigravity-Regeln
 
-1. Öffne die Registerkarte **Antigravity Rules**.
+1. Öffne **Einstellungen** und wähle in der Einstellungsnavigation **Antigravity Rules** aus.
 2. Wähle den gewünschten Regelmodus und prüfe die Vorschau.
 3. Klicke auf **Apply Settings**, um `pov-direct.md` sicher anzuwenden.
 4. Benutzerdefinierte Kommentare, Frontmatter-Felder und Backups bleiben erhalten.

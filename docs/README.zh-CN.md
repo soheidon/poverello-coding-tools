@@ -66,7 +66,6 @@ Antigravity 使用订阅容量
 - **规划与执行分离**：外部模型负责生成高层次计划或审查结论；Antigravity 订阅容量负责执行耗费大量 token 的代码编辑任务。
 - **实时图形界面配置**：切换规划器或审查器的提供商、模型或推理强度，下次调用时立即生效。
 - **配置指南**：[Google Antigravity + Poverello MCP 配置](ANTIGRAVITY_MCP.zh-CN.md)
-- **Auto-Converge 说明**：独立的完整 Auto-Converge 工作流在 v0.24.6 中已隐藏且不可用。本文所述当前支持的 Orchestrator 工作流与其不同；Auto-Converge 已延期至后续版本。
 
 为保持兼容性，可执行文件和 MCP 工具标识仍使用 `anthro-bridge` 名称。
 
@@ -88,7 +87,7 @@ Antigravity 的规范命令为 `/pov-plan`、`/pov-revise` 和 `/pov-review`；�
 
 ### 4. 多智能体开发 Orchestrator（有界工作流与成本）
 
-Orchestrator 使用可配置的角色配置和迭代上限执行当前支持的 Planner–Reviewer 工作流。独立的完整 Auto-Converge 工作流在 v0.24.6 中不可用。创建新的主计划始终需要用户明确确认。`%APPDATA%\Poverello\runs\` 中的运行日志会记录可用的标准化用量、审计元数据和基于已核验费率的成本估算。估算不等同于供应商账单；不支持的路由不会计算成本。
+Orchestrator 使用可配置的角色配置和迭代上限执行当前支持的 Planner–Reviewer 工作流。创建新的主计划始终需要用户明确确认。`%APPDATA%\Poverello\runs\` 中的运行日志会记录可用的标准化用量、审计元数据和基于已核验费率的成本估算。估算不等同于供应商账单；不支持的路由不会计算成本。
 
 ### 5. Antigravity 规则管理（Poverello Direct Coding）
 
@@ -178,7 +177,7 @@ Orchestrator 使用可配置的角色配置和迭代上限执行当前支持的 
 
 ---
 
-## DeepSeek API 价格（核验于 2026-10-18）
+## DeepSeek API 价格（核验于 2026-10-19）
 
 | 模型 ID | 峰时输入（缓存未命中 / 命中） | 非峰时输入（缓存未命中 / 命中） | 峰时输出 | 非峰时输出 |
 |---|---:|---:|---:|---:|
@@ -232,7 +231,7 @@ Windows 安装程序支持 8 种语言。Poverello 保留现有应用标识，�
 
 ### 工作流 5：Antigravity 规则管理
 
-1. 打开顶部导航栏中的 **Antigravity Rules** 标签页。
+1. 打开**设置**，然后在设置导航中选择 **Antigravity Rules**。
 2. 选择规则模式并检查预览。
 3. 点击 **Apply Settings**，将 `pov-direct.md` 安全地应用到 Antigravity。
 4. 自定义注释、frontmatter 字段和备份会得到保留。

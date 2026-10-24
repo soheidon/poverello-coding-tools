@@ -12,6 +12,18 @@ pub const GIT_COMMAND_SAFETY_TIMEOUT: Duration = Duration::from_secs(60);
 pub const DRAIN_GRACE_PERIOD: Duration = Duration::from_secs(5);
 pub const MAX_CAPTURE_BYTES: usize = 1024 * 1024; // 1 MiB
 
+fn redact_process_output(
+    redactor: &SecretRedactor,
+    text: &str,
+    inspect_environment: bool,
+) -> String {
+    if inspect_environment {
+        return redactor.redact_secrets(text);
+    }
+
+    redactor.redact_secrets_without_environment(text)
+}
+
 #[derive(Debug, Clone)]
 pub struct ProcessRunner;
 
@@ -49,8 +61,90 @@ impl ProcessRunner {
         timeout: Duration,
         cancel_token: Option<&CancellationToken>,
     ) -> Result<ProcessResult, String> {
+        self.run_with_stdin_using_redactor(
+            executable,
+            args,
+            working_dir,
+            stdin_input,
+            timeout,
+            cancel_token,
+            &SecretRedactor::new(),
+            true,
+            None,
+        )
+        .await
+    }
+
+    /// Runs a child with an explicit environment allowlist. Variables not
+    /// supplied here are not inherited, including ambient API-key variables.
+    pub(crate) async fn run_with_stdin_in_environment(
+        &self,
+        executable: &str,
+        args: &[String],
+        working_dir: Option<&Path>,
+        stdin_input: Option<&[u8]>,
+        timeout: Duration,
+        cancel_token: Option<&CancellationToken>,
+        environment: &[(std::ffi::OsString, std::ffi::OsString)],
+    ) -> Result<ProcessResult, String> {
+        self.run_with_stdin_using_redactor(
+            executable,
+            args,
+            working_dir,
+            stdin_input,
+            timeout,
+            cancel_token,
+            &SecretRedactor::new(),
+            false,
+            Some(environment),
+        )
+        .await
+    }
+
+    /// Test-only process entrypoint for synthetic fixtures. It retains the same
+    /// bounded OS process implementation but never inspects environment values.
+    #[cfg(test)]
+    pub(crate) async fn run_fixture_with_stdin(
+        &self,
+        executable: &str,
+        args: &[String],
+        working_dir: Option<&Path>,
+        stdin_input: Option<&[u8]>,
+        timeout: Duration,
+        cancel_token: Option<&CancellationToken>,
+        env_overrides: &[(&str, &str)],
+    ) -> Result<ProcessResult, String> {
+        let environment = env_overrides
+            .iter()
+            .map(|(key, value)| ((*key).into(), (*value).into()))
+            .collect::<Vec<(std::ffi::OsString, std::ffi::OsString)>>();
+        self.run_with_stdin_using_redactor(
+            executable,
+            args,
+            working_dir,
+            stdin_input,
+            timeout,
+            cancel_token,
+            &SecretRedactor::new(),
+            false,
+            Some(&environment),
+        )
+        .await
+    }
+
+    async fn run_with_stdin_using_redactor(
+        &self,
+        executable: &str,
+        args: &[String],
+        working_dir: Option<&Path>,
+        stdin_input: Option<&[u8]>,
+        timeout: Duration,
+        cancel_token: Option<&CancellationToken>,
+        redactor: &SecretRedactor,
+        inspect_environment: bool,
+        env_overrides: Option<&[(std::ffi::OsString, std::ffi::OsString)]>,
+    ) -> Result<ProcessResult, String> {
         let start = Instant::now();
-        let redactor = SecretRedactor::new();
 
         #[cfg(windows)]
         {
@@ -61,7 +155,9 @@ impl ProcessRunner {
                 stdin_input,
                 timeout,
                 cancel_token,
-                &redactor,
+                redactor,
+                inspect_environment,
+                env_overrides,
                 start,
             )
             .await
@@ -76,7 +172,9 @@ impl ProcessRunner {
                 stdin_input,
                 timeout,
                 cancel_token,
-                &redactor,
+                redactor,
+                inspect_environment,
+                env_overrides,
                 start,
             )
             .await
@@ -93,6 +191,8 @@ impl ProcessRunner {
         timeout: Duration,
         cancel_token: Option<&CancellationToken>,
         redactor: &SecretRedactor,
+        inspect_environment: bool,
+        env_overrides: Option<&[(std::ffi::OsString, std::ffi::OsString)]>,
         start: Instant,
     ) -> Result<ProcessResult, String> {
         use windows_sys::Win32::Foundation::HANDLE;
@@ -102,7 +202,13 @@ impl ProcessRunner {
         };
 
         // All Win32 handle operations that involve raw pointers are isolated in spawn_win32_child
-        let handles = spawn_win32_child(executable, args, working_dir, stdin_input.is_some())?;
+        let handles = spawn_win32_child(
+            executable,
+            args,
+            working_dir,
+            stdin_input.is_some(),
+            env_overrides,
+        )?;
 
         let _job_guard = SendHandleGuard(handles.job);
         let _proc_guard = SendHandleGuard(handles.proc);
@@ -237,13 +343,13 @@ impl ProcessRunner {
         });
 
         let stdout = CapturedOutput {
-            text: redactor.redact_secrets(&raw_stdout.text),
+            text: redact_process_output(redactor, &raw_stdout.text, inspect_environment),
             is_truncated: raw_stdout.is_truncated,
             total_bytes: raw_stdout.total_bytes,
         };
 
         let stderr = CapturedOutput {
-            text: redactor.redact_secrets(&raw_stderr.text),
+            text: redact_process_output(redactor, &raw_stderr.text, inspect_environment),
             is_truncated: raw_stderr.is_truncated,
             total_bytes: raw_stderr.total_bytes,
         };
@@ -270,6 +376,8 @@ impl ProcessRunner {
         timeout: Duration,
         cancel_token: Option<&CancellationToken>,
         redactor: &SecretRedactor,
+        inspect_environment: bool,
+        env_overrides: Option<&[(std::ffi::OsString, std::ffi::OsString)]>,
         start: Instant,
     ) -> Result<ProcessResult, String> {
         use std::process::Stdio;
@@ -278,6 +386,10 @@ impl ProcessRunner {
 
         let mut cmd = Command::new(executable);
         cmd.args(args);
+        if let Some(overrides) = env_overrides {
+            cmd.env_clear();
+            cmd.envs(overrides.iter().cloned());
+        }
         if let Some(dir) = working_dir {
             cmd.current_dir(dir);
         }
@@ -413,13 +525,13 @@ impl ProcessRunner {
         process_group_guard.disarm();
 
         let stdout = CapturedOutput {
-            text: redactor.redact_secrets(&raw_stdout.text),
+            text: redact_process_output(redactor, &raw_stdout.text, inspect_environment),
             is_truncated: raw_stdout.is_truncated,
             total_bytes: raw_stdout.total_bytes,
         };
 
         let stderr = CapturedOutput {
-            text: redactor.redact_secrets(&raw_stderr.text),
+            text: redact_process_output(redactor, &raw_stderr.text, inspect_environment),
             is_truncated: raw_stderr.is_truncated,
             total_bytes: raw_stderr.total_bytes,
         };
@@ -523,6 +635,7 @@ fn spawn_win32_child(
     args: &[String],
     working_dir: Option<&Path>,
     with_stdin: bool,
+    env_overrides: Option<&[(std::ffi::OsString, std::ffi::OsString)]>,
 ) -> Result<Win32ChildHandles, String> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
@@ -542,6 +655,52 @@ fn spawn_win32_child(
         ResumeThread, UpdateProcThreadAttribute, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
         EXTENDED_STARTUPINFO_PRESENT, PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
         STARTF_USESTDHANDLES, STARTUPINFOEXW,
+    };
+
+    // An explicit child environment is supplied only for the Codex runtime
+    // allowlist and synthetic fixtures; ordinary callers retain inherited env.
+    // Resolve/validate it before allocating any raw Win32 handles.
+    let environment_w = if let Some(overrides) = env_overrides {
+        let mut entries = Vec::<std::ffi::OsString>::with_capacity(overrides.len() + 2);
+        let mut names = std::collections::BTreeSet::new();
+        names.insert("systemroot".to_string());
+        names.insert("windir".to_string());
+        let windows_root = windows_directory()?;
+        let mut system_root = std::ffi::OsString::from("SystemRoot=");
+        system_root.push(&windows_root);
+        entries.push(system_root);
+        let mut windir = std::ffi::OsString::from("WINDIR=");
+        windir.push(&windows_root);
+        entries.push(windir);
+        for (key, value) in overrides {
+            let Some(key_text) = key.to_str() else {
+                return Err("invalid non-Unicode child environment key".to_string());
+            };
+            if key_text.is_empty()
+                || key_text.contains('=')
+                || key_text.contains('\0')
+                || value.encode_wide().any(|unit| unit == 0)
+            {
+                return Err("invalid child environment override".to_string());
+            }
+            if !names.insert(key_text.to_ascii_lowercase()) {
+                return Err("duplicate child environment variable name".to_string());
+            }
+            let mut entry = key.clone();
+            entry.push("=");
+            entry.push(value);
+            entries.push(entry);
+        }
+        entries.sort_by_key(|entry| entry.to_string_lossy().to_ascii_lowercase());
+        let mut block = Vec::<u16>::new();
+        for entry in entries {
+            block.extend(entry.encode_wide());
+            block.push(0);
+        }
+        block.push(0);
+        Some(block)
+    } else {
+        None
     };
 
     // 1. Create Job Object
@@ -705,7 +864,9 @@ fn spawn_win32_child(
             null_mut(),
             TRUE,
             CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT,
-            null_mut(),
+            environment_w
+                .as_ref()
+                .map_or(null_mut(), |block| block.as_ptr() as *mut _),
             workdir_w.as_ref().map_or(null(), |w| w.as_ptr()),
             &startup as *const STARTUPINFOEXW as _,
             &mut pi,
@@ -788,6 +949,25 @@ fn spawn_win32_child(
     })
 }
 
+#[cfg(windows)]
+fn windows_directory() -> Result<std::ffi::OsString, String> {
+    use std::os::windows::ffi::OsStringExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetWindowsDirectoryW(buffer: *mut u16, size: u32) -> u32;
+    }
+
+    let mut buffer = vec![0u16; 32768];
+    let length = unsafe { GetWindowsDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) };
+    if length == 0 || length as usize >= buffer.len() {
+        return Err(
+            "failed to resolve the Windows directory for the test child environment".into(),
+        );
+    }
+    Ok(std::ffi::OsString::from_wide(&buffer[..length as usize]))
+}
+
 /// Encodes one argument using the quoting rules used by the Windows C runtime.
 /// Quoting every argument also makes empty strings and trailing backslashes safe.
 fn quote_windows_arg(arg: &str) -> String {
@@ -812,6 +992,41 @@ fn quote_windows_arg(arg: &str) -> String {
     encoded.extend(std::iter::repeat('\\').take(backslashes.saturating_mul(2)));
     encoded.push('"');
     encoded
+}
+
+#[cfg(all(test, windows))]
+pub(crate) fn round_trip_windows_args_for_test(args: &[String]) -> Vec<String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::UI::Shell::CommandLineToArgvW;
+
+    let command_line = std::iter::once(quote_windows_arg("runner.exe"))
+        .chain(args.iter().map(|arg| quote_windows_arg(arg)))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let wide: Vec<u16> = std::ffi::OsStr::new(&command_line)
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let mut argc = 0i32;
+    let argv = unsafe { CommandLineToArgvW(wide.as_ptr(), &mut argc) };
+    assert!(!argv.is_null());
+    let parsed = unsafe { std::slice::from_raw_parts(argv, argc as usize) }
+        .iter()
+        .map(|ptr| {
+            let ptr = *ptr;
+            let mut len = 0usize;
+            unsafe {
+                while *ptr.add(len) != 0 {
+                    len += 1;
+                }
+            }
+            String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(ptr, len) })
+        })
+        .skip(1)
+        .collect();
+    unsafe { LocalFree(argv as _) };
+    parsed
 }
 
 #[cfg(windows)]

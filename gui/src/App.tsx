@@ -36,8 +36,8 @@ import {
 
 function AppContent() {
   const { t } = useTranslation();
-  const [mainTab, setMainTab] = useState<"gateway" | "mcp" | "antigravityRules" | "orchestrator" | "autoConverge" | "settings">("gateway");
-  const [settingsTab, setSettingsTab] = useState<"general" | "claudeDesktop" | "antigravity" | "orchestrator">("general");
+  const [mainTab, setMainTab] = useState<"gateway" | "mcp" | "orchestrator" | "autoConverge" | "settings">("gateway");
+  const [settingsTab, setSettingsTab] = useState<"general" | "claudeDesktop" | "antigravity" | "antigravityRules" | "orchestrator">("general");
   const { managedRunning, loading: proxyLoading, error: proxyError, diag: proxyDiag, successMessage, start, stop, clearDiag } = useProxyToggle();
   const { data: health, error: healthError, loading: healthLoading, refresh: healthRefresh } = useHealthCheck(managedRunning);
 
@@ -238,7 +238,7 @@ function AppContent() {
     [refreshConfig],
   );
 
-  const handleMainTabChange = useCallback((tab: "gateway" | "mcp" | "antigravityRules" | "orchestrator" | "autoConverge" | "settings") => {
+  const handleMainTabChange = useCallback((tab: "gateway" | "mcp" | "orchestrator" | "autoConverge" | "settings") => {
     setMainTab(tab);
   }, []);
 
@@ -300,6 +300,13 @@ function AppContent() {
             </button>
             <button
               type="button"
+              className={`settings-nav-item ${settingsTab === "antigravityRules" ? "active" : ""}`}
+              onClick={() => setSettingsTab("antigravityRules")}
+            >
+              {t("antigravityRules.tabTitle")}
+            </button>
+            <button
+              type="button"
               className={`settings-nav-item ${settingsTab === "orchestrator" ? "active" : ""}`}
               onClick={() => setSettingsTab("orchestrator")}
             >
@@ -341,6 +348,9 @@ function AppContent() {
             {settingsTab === "antigravity" && (
               <McpSettingPanel config={config} refreshConfig={refreshConfig} />
             )}
+            {settingsTab === "antigravityRules" && (
+              <AntigravityRulesPanel />
+            )}
             {settingsTab === "orchestrator" && (
               <OrchestratorSettingsPanel t={t} onChanged={refreshConfig} />
             )}
@@ -354,8 +364,6 @@ function AppContent() {
         </div>
       ) : mainTab === "mcp" ? (
         <McpPanel config={config} refreshConfig={refreshConfig} />
-      ) : mainTab === "antigravityRules" ? (
-        <AntigravityRulesPanel />
       ) : mainTab === "autoConverge" ? (
         <AutoConvergePanel />
       ) : (

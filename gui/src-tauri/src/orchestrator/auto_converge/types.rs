@@ -217,6 +217,104 @@ pub struct ApprovalBinding {
     pub evidence_manifest_digest: Option<String>,
     #[serde(default)]
     pub release_manifest_digest: Option<String>,
+    #[serde(default)]
+    pub bundle_digest: Option<String>,
+    #[serde(default)]
+    pub run_id: Option<String>,
+    #[serde(default)]
+    pub cycle: Option<u64>,
+    #[serde(default)]
+    pub implementer_session_id: Option<String>,
+}
+
+impl Default for ApprovalBinding {
+    fn default() -> Self {
+        Self {
+            target_type: ApprovalTargetType::Plan,
+            allowlist_digest: String::new(),
+            policy_profile_digest: String::new(),
+            candidate_plan_digest: None,
+            root_plan_digest: None,
+            active_plan_digest: None,
+            baseline_workspace_digest: None,
+            diff_digest: None,
+            evidence_manifest_digest: None,
+            release_manifest_digest: None,
+            bundle_digest: None,
+            run_id: None,
+            cycle: None,
+            implementer_session_id: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CandidateBinding {
+    pub run_id: String,
+    pub cycle: u64,
+    pub session_id: String,
+    pub candidate_root: String,
+    pub approved_plan_digest: String,
+    pub run_start_baseline_manifest_digest: String,
+    pub allowlist_digest: String,
+    pub candidate_baseline_digest: String,
+    #[serde(default)]
+    pub review_bundle_digest: Option<String>,
+}
+
+impl CandidateBinding {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.run_id.trim().is_empty()
+            || self.session_id.trim().is_empty()
+            || self.candidate_root.trim().is_empty()
+            || !std::path::Path::new(&self.candidate_root).is_absolute()
+            || !is_valid_sha256_hex(&self.approved_plan_digest)
+            || !is_valid_sha256_hex(&self.run_start_baseline_manifest_digest)
+            || !is_valid_sha256_hex(&self.allowlist_digest)
+            || !is_valid_sha256_hex(&self.candidate_baseline_digest)
+            || (self.review_bundle_digest.is_some()
+                && !is_valid_sha256_hex(self.review_bundle_digest.as_deref().unwrap()))
+        {
+            return Err(
+                "candidate binding is partially populated or contains malformed digests".into(),
+            );
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromotionPhase {
+    Staged,
+    Applying,
+    Applied,
+    RecoveryRequired,
+    RecoveryRestored,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromotionJournalBinding {
+    pub run_id: String,
+    pub journal_dir: String,
+    pub journal_digest: String,
+    pub phase: PromotionPhase,
+    pub candidate_root: String,
+}
+
+impl PromotionJournalBinding {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.run_id.trim().is_empty()
+            || self.journal_dir.trim().is_empty()
+            || !std::path::Path::new(&self.journal_dir).is_absolute()
+            || self.candidate_root.trim().is_empty()
+            || !std::path::Path::new(&self.candidate_root).is_absolute()
+            || !is_valid_sha256_hex(&self.journal_digest)
+        {
+            return Err("promotion journal binding is partially populated or invalid".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -540,6 +638,10 @@ pub struct AutoConvergeRunState {
     pub execution_log: Vec<ExecutionLogEntry>,
     #[serde(default)]
     pub configured_agent_cli: Option<String>,
+    #[serde(default)]
+    pub candidate_binding: Option<CandidateBinding>,
+    #[serde(default)]
+    pub promotion_journal: Option<PromotionJournalBinding>,
     pub engine_auth_tag: String,
 }
 

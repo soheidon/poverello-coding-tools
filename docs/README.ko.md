@@ -9,7 +9,7 @@ Poverello Coding Tools(앱 표시 이름 **Poverello**)는 AI 기반 소프트�
 1. **Claude Code / Claude Desktop용 3P 게이트웨이** — Claude의 저장소 탐색, 도구 사용, 파일 편집, 테스트 실행 기능을 유지하면서 추론을 서드파티 프로바이더로 라우팅합니다.
 2. **Claude Code 전용 로컬 LLM (Ollama)** — 로컬 모델을 사용해 Claude Code를 오프라인으로 실행할 수 있습니다.
 3. **Google Antigravity용 MCP 플래너 & 리뷰어** — `poverello/plan`, `poverello/revise`, `poverello/review` MCP 도구를 통해 구현 계획, 계획 수정 및 구현 후 리뷰를 외부 모델에 위임합니다.
-4. **멀티 에이전트 개발 오케스트레이터** — 현재 지원되는 제한된 Planner–Reviewer 계획·검토 워크플로를 실행하고 정규화된 토큰 사용량과 검증된 비용 추정치를 기록합니다. 이 워크플로는 코드를 자동으로 구현하지 않으며, 전체 Auto-Converge는 v0.24.6에서 사용할 수 없습니다.
+4. **멀티 에이전트 개발 오케스트레이터** — 현재 지원되는 제한된 Planner–Reviewer 계획·검토 워크플로를 실행하고 정규화된 토큰 사용량과 검증된 비용 추정치를 기록합니다.
 5. **Antigravity 규칙 관리** — Antigravity용 Poverello Direct Coding 규칙(`pov-direct.md`)을 설정, 미리보기 및 안전하게 동기화합니다.
 
 > **새 소식:** 버전별 기능, 구현 세부 정보 및 변경 내역은 [NEWS.md(릴리스 노트)](../NEWS.md)를 참조하세요.
@@ -56,7 +56,6 @@ Antigravity가 구독 기반 용량으로
 - **계획과 실행의 분리**: 외부 모델이 고수준 계획 또는 리뷰 결과를 생성하고, Antigravity 구독 용량이 토큰 집약적인 코드 편집을 실행합니다.
 - **실시간 GUI 설정**: 플래너 또는 리뷰어의 프로바이더, 모델, 추론 강도를 변경하면 다음 호출 시 즉시 적용됩니다.
 - **설정 가이드**: [Google Antigravity + Poverello MCP 설정](ANTIGRAVITY_MCP.ko.md)
-- **Auto-Converge 안내**: 별도의 전체 Auto-Converge 워크플로는 v0.24.6에서 숨겨져 있으며 사용할 수 없습니다. 여기 설명된 지원 Orchestrator 워크플로와는 별개이며, Auto-Converge는 후속 버전으로 연기되었습니다.
 
 실행 파일과 MCP 도구 식별자는 호환성을 위해 `anthro-bridge` 이름을 유지합니다.
 
@@ -78,7 +77,7 @@ Antigravity의 정식 명령은 `/pov-plan`, `/pov-revise`, `/pov-review`이며,
 
 ### 4. 멀티 에이전트 개발 오케스트레이터 (제한된 워크플로 및 비용)
 
-Orchestrator는 설정 가능한 프로필과 반복 제한에 따라 계획·검토 목적의 제한된 Planner–Reviewer 루프를 실행하며 코드를 자동 구현하지 않습니다. 전체 Auto-Converge는 v0.24.6에서 숨겨져 있고 사용할 수 없습니다. 새로운 기본 계획을 만들 때는 항상 사용자의 명시적 확인이 필요합니다. `%APPDATA%\Poverello\runs\`의 실행 로그에는 사용 가능한 정규화 사용량, 감사 메타데이터 및 검증된 비용 추정치가 기록됩니다. 추정치는 청구서가 아니며, 미지원 경로는 비용을 계산하지 않습니다.
+Orchestrator는 설정 가능한 프로필과 반복 제한에 따라 계획·검토 목적의 제한된 Planner–Reviewer 루프를 실행합니다. 새로운 기본 계획을 만들 때는 항상 사용자의 명시적 확인이 필요합니다. `%APPDATA%\Poverello\runs\`의 실행 로그에는 사용 가능한 정규화 사용량, 감사 메타데이터 및 검증된 비용 추정치가 기록됩니다. 추정치는 청구서가 아니며, 미지원 경로는 비용을 계산하지 않습니다.
 
 ### 5. Antigravity 규칙 관리 (Poverello Direct Coding)
 
@@ -168,7 +167,7 @@ Moonshot Kimi와 별도로 운용되는 코딩 전문 API (`KIMI_CODE_API_KEY`):
 
 ---
 
-## DeepSeek API 가격 (2026-10-18 확인)
+## DeepSeek API 가격 (2026-10-19 확인)
 
 | 모델 ID | 피크 입력 (캐시 미스 / 적중) | 비피크 입력 (캐시 미스 / 적중) | 피크 출력 | 비피크 출력 |
 |---|---:|---:|---:|---:|
@@ -222,7 +221,7 @@ Windows 설치 프로그램은 8개 언어를 지원합니다. Poverello는 기�
 
 ### 워크플로 5: Antigravity 규칙 관리
 
-1. 상단 탭에서 **Antigravity Rules**를 엽니다.
+1. **설정**을 열고 설정 탐색 메뉴에서 **Antigravity Rules**를 선택합니다.
 2. 규칙 모드를 선택하고 미리보기를 확인합니다.
 3. **Apply Settings**를 클릭해 `pov-direct.md`를 안전하게 적용합니다.
 4. 사용자 지정 주석, frontmatter 필드 및 백업은 보존됩니다.

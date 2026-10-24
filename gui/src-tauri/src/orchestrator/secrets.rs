@@ -1,4 +1,3 @@
-
 /// Shared SecretRedactor enforcing data protection across all 10 boundary points.
 #[derive(Debug, Clone, Default)]
 pub struct SecretRedactor;
@@ -25,9 +24,19 @@ impl SecretRedactor {
         Self
     }
 
+    /// Redacts output without reading process environment values. Use this for
+    /// child processes that run with an explicit environment allowlist.
+    pub(crate) fn redact_secrets_without_environment(&self, text: &str) -> String {
+        self.redact_secrets_internal(text, false)
+    }
+
     /// Masks secret tokens (API keys, bearer tokens, high-entropy secrets) in arbitrary text.
     /// This function is idempotent (redacting already-redacted text yields identical output).
     pub fn redact_secrets(&self, text: &str) -> String {
+        self.redact_secrets_internal(text, true)
+    }
+
+    fn redact_secrets_internal(&self, text: &str, inspect_environment: bool) -> String {
         if text.is_empty() {
             return String::new();
         }
@@ -35,19 +44,21 @@ impl SecretRedactor {
         let mut result = text.to_string();
 
         // 1. Redact known provider environment keys if present in memory
-        for env_key in &[
-            "DEEPSEEK_API_KEY",
-            "OPENROUTER_API_KEY",
-            "XIAOMI_API_KEY",
-            "MOONSHOT_API_KEY",
-            "KIMI_CODE_API_KEY",
-            "MINIMAX_API_KEY",
-            "ZAI_API_KEY",
-        ] {
-            if let Ok(val) = std::env::var(env_key) {
-                let trimmed = val.trim();
-                if trimmed.len() >= 8 {
-                    result = result.replace(trimmed, "[REDACTED_SECRET]");
+        if inspect_environment {
+            for env_key in &[
+                "DEEPSEEK_API_KEY",
+                "OPENROUTER_API_KEY",
+                "XIAOMI_API_KEY",
+                "MOONSHOT_API_KEY",
+                "KIMI_CODE_API_KEY",
+                "MINIMAX_API_KEY",
+                "ZAI_API_KEY",
+            ] {
+                if let Ok(val) = std::env::var(env_key) {
+                    let trimmed = val.trim();
+                    if trimmed.len() >= 8 {
+                        result = result.replace(trimmed, "[REDACTED_SECRET]");
+                    }
                 }
             }
         }
@@ -261,6 +272,15 @@ mod tests {
         // Idempotency check
         let second_redact = redactor.redact_secrets(&redacted);
         assert_eq!(redacted, second_redact);
+    }
+
+    #[test]
+    fn test_environment_free_redactor_handles_synthetic_text_without_environment_mode() {
+        let redactor = SecretRedactor::new();
+        let redacted = redactor
+            .redact_secrets_without_environment("synthetic Bearer token sk-1234567890abcdef");
+        assert!(!redacted.contains("sk-1234567890abcdef"));
+        assert!(redacted.contains("[REDACTED_SECRET]"));
     }
 
     #[test]

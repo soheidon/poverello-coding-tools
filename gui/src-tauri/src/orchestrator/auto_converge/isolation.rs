@@ -61,6 +61,27 @@ pub fn set_test_isolation_pass(enabled: bool) {
     TEST_ISOLATION_PASS.store(enabled, std::sync::atomic::Ordering::SeqCst);
 }
 
+#[cfg(test)]
+thread_local! {
+    static THREAD_FIXTURE_PREFLIGHT_ONLY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+pub struct ScopedFixturePreflightGuard;
+
+#[cfg(test)]
+impl Drop for ScopedFixturePreflightGuard {
+    fn drop(&mut self) {
+        THREAD_FIXTURE_PREFLIGHT_ONLY.with(|c| c.set(false));
+    }
+}
+
+#[cfg(test)]
+pub fn with_scoped_fixture_preflight_only() -> ScopedFixturePreflightGuard {
+    THREAD_FIXTURE_PREFLIGHT_ONLY.with(|c| c.set(true));
+    ScopedFixturePreflightGuard
+}
+
 pub struct PlatformIsolationGuard;
 
 impl PlatformIsolationGuard {
@@ -71,9 +92,6 @@ impl PlatformIsolationGuard {
         workspace_root: &Path,
         snapshot_dir: &Path,
     ) -> Result<(), IsolationError> {
-        let auth_dir =
-            get_engine_authority_dir().map_err(|e| IsolationError::ProbeFailed(e.to_string()))?;
-
         // 1. Structural preflight: Ensure snapshot_dir is outside workspace_root
         let canonical_ws = workspace_root
             .canonicalize()
@@ -87,6 +105,19 @@ impl PlatformIsolationGuard {
                 "Reviewer snapshot directory must reside outside workspace root".into(),
             ));
         }
+
+        #[cfg(test)]
+        {
+            if THREAD_FIXTURE_PREFLIGHT_ONLY.with(|c| c.get()) {
+                // §60.2 / §60.9 / §61.4.3: Test-only fixture-local preflight substitute.
+                // Thread-local and RAII scoped; validates structural separation of disposable fixture only.
+                // Bypasses run_disposable_probe, loopback socket probe, and engine authority lookup.
+                return Ok(());
+            }
+        }
+
+        let auth_dir =
+            get_engine_authority_dir().map_err(|e| IsolationError::ProbeFailed(e.to_string()))?;
 
         // §24.1 / §24.4.1: Real OS isolation requires a verified container or restricted-identity boundary.
         // Environment variables must never establish production isolation.
