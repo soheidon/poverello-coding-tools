@@ -1,4 +1,4 @@
-# Development & Verification Guide
+﻿# Development & Verification Guide
 
 This document contains instructions for building, developing, testing, and verifying Poverello.
 
@@ -31,6 +31,13 @@ poverello-coding-tools/
 │   │   │   ├── openrouter.rs
 │   │   │   └── model_capabilities.rs
 │   │   └── resources/
+│   │       └── antigravity-skills/
+│   │           ├── pov-mcp-plan/SKILL.md
+│   │           ├── pov-mcp-review/SKILL.md
+│   │           ├── pov-mcp-revise/SKILL.md
+│   │           ├── pov-full-cycle/SKILL.md
+│   │           ├── pov-plan-only/SKILL.md
+│   │           └── pov-build-review/SKILL.md
 │   └── package.json
 ├── mcp-server/
 │   ├── src/

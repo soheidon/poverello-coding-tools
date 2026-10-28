@@ -120,14 +120,14 @@ Poverello clearly separates model selection from detailed parameter management:
    - Click a provider card to switch the active planner and reviewer destination immediately.
 2. **`Settings` > `Antigravity`**:
    - **MCP Plan Settings** card: Configure model selection, Thinking mode, and Reasoning Effort per provider/profile. Both `plan` and `review` share the same target configuration.
-   - **Antigravity Integration** card: Manage MCP server registration and Antigravity Commands (Global Skills).
+   - **Antigravity Integration** card: Manage MCP server registration, Antigravity Commands (Global Skills), and Global Rules (`deepseek-harness.md`, `codex-cli.md`).
 
 > [!NOTE]
 > The Poverello MCP server reads current configuration dynamically on every `plan()` and `review()` tool invocation. You do **not** need to restart the MCP server or Antigravity when changing providers or model settings in the GUI.
 
 ---
 
-## 6. Antigravity Commands (`/pov-plan`, `/pov-revise` & `/pov-review`) (Recommended)
+## 6. Antigravity Commands (`/pov-mcp-plan`, `/pov-mcp-revise` & `/pov-mcp-review`) (Recommended)
 
 From **Settings > Antigravity > Antigravity Integration**, you can install Global Skills to use slash commands across all Antigravity workspaces (legacy `/anthro-*` commands remain supported for existing workspaces):
 
@@ -135,28 +135,51 @@ From **Settings > Antigravity > Antigravity Integration**, you can install Globa
 
 ### Create a new implementation plan:
 ```text
-/pov-plan <description of the task or feature>
+/pov-mcp-plan <description of the task or feature>
 ```
 *Gathers repository context, invokes canonical `poverello/plan` (or legacy `anthro-bridge/plan`), and stops cleanly after presenting the plan without making code edits or running build commands.*
 
 ### Revise an existing implementation plan:
 ```text
-/pov-revise <feedback or updated requirements to incorporate>
+/pov-mcp-revise <feedback or updated requirements to incorporate>
 ```
 *Identifies the current implementation plan (from active context or `implementation_plan.md`), passes the plan and feedback to canonical `poverello/revise` (or legacy fallback), and updates the plan while preserving unaffected sections.*
 
 ### Review implementation against approved plan:
 ```text
-/pov-review
+/pov-mcp-review
 ```
 *Gathers the approved plan, `git status --short`, `git diff HEAD`, review-relevant untracked files, and test results, invokes canonical `poverello/review` (or legacy `anthro-bridge/review`), and presents a 3-tier verdict (`Approved`, `Approved with recommendations`, `Not approved`) along with commit readiness (`READY` / `NOT READY`). Read-only; never commits or modifies files.*
 
 > [!IMPORTANT]
-> When executing through `/pov-plan`, `/pov-revise`, or `/pov-review` (or legacy `/anthro-*`), the command workflow owns the tool call. Workspace rules will not trigger additional duplicate calls.
+> When executing through `/pov-mcp-plan`, `/pov-mcp-revise`, or `/pov-mcp-review` (or legacy `/anthro-*`), the command workflow owns the tool call. Workspace rules will not trigger additional duplicate calls.
 
 ---
 
-## 7. Automating Planning via Workspace Rules
+---
+
+## 7. Upper-level Antigravity Commands (`/pov-full-cycle`, `/pov-plan-only` & `/pov-build-review`)
+
+In addition to direct MCP skills, Poverello provides three upper-level autonomous workflow skills installed to `~/.gemini/antigravity/skills/`:
+
+### Full-cycle implementation:
+```text
+/pov-full-cycle <task description>
+```
+*Manages the end-to-end cycle: plan authoring, independent external plan review, plan revision, authorized implementation, build and test verification, independent external implementation review, and bounded corrective passes.*
+
+### Plan-only lifecycle:
+```text
+/pov-plan-only <task description>
+```
+*Dedicated to plan authoring and independent external plan review. Stops cleanly upon plan approval (`APPROVED` / `APPROVED_WITH_NON_BLOCKING_FINDINGS`) without modifying files or proceeding to implementation.*
+
+### Build and review lifecycle:
+```text
+/pov-build-review
+```
+*Implements an already approved plan, executes test suites, performs independent external implementation review, and manages evidence boundaries and authorized corrective edits.*
+## 8. Automating Planning via Workspace Rules
 
 You may create an optional project-specific workspace rule based on the example below. Poverello does not bundle or install a DeepSeek-specific planner rule; the configured MCP provider/model is selected in Poverello settings.
 
@@ -170,7 +193,7 @@ description: Use for implementation, debugging, architectural changes, or multi-
 
 For non-trivial implementation tasks in this repository:
 
-1. If the current task is being executed through the `/pov-plan` or `/pov-revise` command (or legacy `/anthro-plan` / `/anthro-revise`), do NOT invoke `poverello/plan` (or `anthro-bridge/plan`) separately. The command workflow owns the planner call.
+1. If the current task is being executed through the `/pov-mcp-plan` or `/pov-mcp-revise` command (or legacy `/anthro-plan` / `/anthro-revise`), do NOT invoke `poverello/plan` (or `anthro-bridge/plan`) separately. The command workflow owns the planner call.
 2. First inspect the repository yourself and identify the files and code relevant to the task.
 3. Summarize only the context necessary for implementation planning.
 4. Call the canonical `poverello/plan` MCP tool (or legacy `anthro-bridge/plan` if `poverello` is not yet configured) exactly once with:
@@ -191,7 +214,7 @@ For non-trivial implementation tasks in this repository:
 
 ---
 
-## 8. Typical Automated Workflow
+## 9. Typical Automated Workflow
 
 ```text
 User: "Refactor feature X to support multiple profiles."
@@ -211,7 +234,7 @@ Antigravity modifies files, executes tests, and verifies changes
 
 ---
 
-## 9. Important Notes
+## 10. Important Notes
 
 - **Independent Operation**: The MCP server operates completely independently of the Poverello 3P Gateway. The 3P Gateway does not need to be running for MCP calls to work.
 - **Separate Billing**: Calls to `poverello/plan`, `poverello/revise`, and `poverello/review` (or legacy `anthro-bridge/*`) incur external API costs billed by the chosen provider. Subsequent file editing, tool execution, and testing use Antigravity's subscription capacity.

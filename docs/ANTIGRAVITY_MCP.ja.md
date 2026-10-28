@@ -119,14 +119,14 @@ Poverello では、プランナーの選択と詳細設定の役割が明確に�
    - カードをクリックすることで、アクティブなプランナー送信先を即座に切り替えます。
 2. **`設定` > `Antigravity`**:
    - **MCP Plan 詳細設定** カード: プロバイダー/プロファイルごとに、使用モデル、Thinking モード、推論強度 (Reasoning Effort) を詳細に設定できます。
-   - **Google Antigravity 連携設定** カード: MCP サーバー登録状態の管理や Antigravity Commands（Global Skills）の管理を行います。
+   - **Google Antigravity 連携設定** カード: MCP サーバー登録状態、Antigravity Commands（Global Skills）、および Global Rules（`deepseek-harness.md`, `codex-cli.md`）の管理・編集を行います。
 
 > [!NOTE]
 > Poverello MCP サーバーは、各 `plan()` ツールの呼び出し時に現在の設定を動的に読み込みます。GUI でプロバイダーやモデル設定を変更した場合でも、MCP サーバーや Antigravity を再起動する必要はありません。
 
 ---
 
-## 6. Antigravity Commands (`/pov-plan`、`/pov-revise`、`/pov-review`) の利用（推奨）
+## 6. Antigravity Commands (`/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`) の利用（推奨）
 
 **設定 > Antigravity** の **Google Antigravity 連携設定** カードから Antigravity Commands をインストールすると、すべてのワークスペースからスラッシュコマンドを利用できます:
 
@@ -134,28 +134,51 @@ Poverello では、プランナーの選択と詳細設定の役割が明確に�
 
 ### 新規実装計画の作成:
 ```text
-/pov-plan <実装したい課題や機能の説明>
+/pov-mcp-plan <実装したい課題や機能の説明>
 ```
 *リポジトリのコンテキストを収集し、`poverello/plan` を呼び出し、ファイル編集やビルドを実行せずに安全に停止して実装計画を提示します。*
 
 ### 既存実装計画の修正・フィードバック反映:
 ```text
-/pov-revise <反映したいフィードバックや変更要件>
+/pov-mcp-revise <反映したいフィードバックや変更要件>
 ```
 *アクティブコンテキストまたは `implementation_plan.md` から現在の実装計画を特定し、フィードバックとともに `poverello/plan` へ渡して計画を更新します。*
 
 ### 承認済み計画に対する実装レビュー:
 ```text
-/pov-review
+/pov-mcp-review
 ```
 *承認済み計画、作業ツリーの差分、関連する未追跡ファイル、テスト結果を確認し、計画に対する実装レビューを報告します。読み取り専用で、ファイルは変更しません。*
 
 > [!IMPORTANT]
-> `/pov-plan` や `/pov-revise` を明示実行している間は、コマンド自身が 1 回の planner 呼び出しを管理するため、Workspace Rule による二重の planner 呼び出しは発生しません。
+> `/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`（または旧 `/anthro-*`）を明示実行している間は、コマンド自身がツール呼び出しを管理するため、Workspace Rule による二重呼び出しは発生しません。
 
 ---
 
-## 7. Workspace Rule による計画作成の自動化
+---
+
+## 7. 上位 Antigravity Commands (`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`)
+
+直接的な MCP スキルに加えて、Poverello は `~/.gemini/antigravity/skills/` にインストールされる 3 つの上位自律ワークフロースキルを提供します:
+
+### フルサイクル開発ライフサイクル:
+```text
+/pov-full-cycle <実装タスクの説明>
+```
+*計画作成、外部独立計画レビュー、計画修正、承認後実装、ビルド・テスト検証、外部独立実装レビュー、および限定的な是正パスまでの一貫した自律サイクルを管理します。*
+
+### 計画作成・レビュー専用ライフサイクル:
+```text
+/pov-plan-only <タスクの説明>
+```
+*計画作成と外部独立計画レビューに特化し、計画承認（`APPROVED` / `APPROVED_WITH_NON_BLOCKING_FINDINGS`）時点でファイル編集や実装へ進まず安全に停止します。*
+
+### 実装・テスト・レビュー専用ライフサイクル:
+```text
+/pov-build-review
+```
+*承認済み計画に基づく実装、テスト実行、外部独立実装レビュー、証拠境界の遵守および認可された是正編集を進行・管理します。*
+## 8. Workspace Rule による計画作成の自動化
 
 以下の例を参考に、プロジェクト固有の Workspace Rule を任意で作成できます。Poverello は DeepSeek 専用のプランナールールを同梱・インストールしません。利用する MCP プロバイダーとモデルは Poverello の設定で選択します。
 
@@ -169,7 +192,7 @@ description: Use for implementation, debugging, architectural changes, or multi-
 
 For non-trivial implementation tasks in this repository:
 
-1. If the current task is being executed through the `/pov-plan` or `/pov-revise` command, do NOT invoke `poverello/plan` separately. The command workflow owns the planner call.
+1. If the current task is being executed through the `/pov-mcp-plan` or `/pov-mcp-revise` command (or legacy `/anthro-plan` / `/anthro-revise`), do NOT invoke `poverello/plan` (or `anthro-bridge/plan`) separately. The command workflow owns the planner call.
 2. First inspect the repository yourself and identify the files and code relevant to the task.
 3. Summarize only the context necessary for implementation planning.
 4. Call the `poverello/plan` MCP tool exactly once with:
@@ -190,7 +213,7 @@ For non-trivial implementation tasks in this repository:
 
 ---
 
-## 8. 一般的な自動化ワークフローの流れ
+## 9. 一般的な自動化ワークフローの流れ
 
 ```text
 ユーザー: 「機能 X をリファクタリングしてマルチプロファイルに対応させて」
@@ -210,7 +233,7 @@ Antigravity がファイルの編集、テストを実行し変更を検証
 
 ---
 
-## 9. 重要な注意事項
+## 10. 重要な注意事項
 
 - **独立した動作**: MCP サーバーは Poverello 3P Gateway とは完全に独立して動作します。MCP ツールの使用にあたって 3P Gateway を起動（ON）にしておく必要はありません。
 - **料金の分離**: `poverello/plan` の呼び出しには、選択したプロバイダーの API 利用料金が発生します。その後のファイル編集やテストは Antigravity のサブスクリプション枠を使用します。

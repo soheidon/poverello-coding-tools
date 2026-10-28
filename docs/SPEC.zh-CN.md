@@ -91,12 +91,13 @@
 - **Antigravity 规则管理（设置 > Antigravity Rules）**：设置分区通过状态机管理 `pov-direct.md`，仅修改 YAML `trigger` 标量和有边界的受管理区块，同时保留用户 frontmatter、注释和 Skill 引用。安全措施包括防冲突且不自动清理的备份、替换前 SHA-256 与外部删除冲突检测、验证后的回滚、旧 sidecar 文件夹保护，以及 24,000 UTF-8 字节限制；支持 8 种语言。
 - **Anthropic 官方直连提供商**：通过 `ANTHROPIC_API_KEY` 直连 `https://api.anthropic.com`，不经协议转换转发原生 Messages 请求；包括已验证模型目录、流式和非流式 token 上限故障诊断，以及原生采样参数验证。
 - **多提供商网关配置（`gateway_profile`）**：可为三个标准 Claude 路由（`claude-opus-5`、`claude-sonnet-5`、`claude-haiku-4-5`）分别指定提供商和模型。由 `active_provider` 与 `active_gateway_profile_id` 激活，配置存放于 `gateway_profiles`，并集成能力检查及 Claude Code 自动压缩的上下文计算。
-- **Poverello Skills 与 MCP 正式命名空间**：正式工具为 `poverello/plan`、`poverello/revise`、`poverello/review`，斜杠命令为 `/pov-plan`、`/pov-revise`、`/pov-review`。Poverello 会在 Antigravity 中增量注册 `poverello` 服务键，同时保留 `anthro-bridge` 和旧 `/anthro-*` Skills 以保持兼容，并安全管理单文件生命周期。
+- **Poverello Skills 与 MCP 正式命名空间**：正式工具为 `poverello/plan`、`poverello/revise`、`poverello/review`，斜杠命令为 `/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`。Poverello 会在 Antigravity 中增量注册 `poverello` 服务键，同时保留 `anthro-bridge` 和旧 `/anthro-*` Skills 以保持兼容，并安全管理单文件生命周期。 除三个直接 MCP Skills 外，还提供上层工作流 Skills `/pov-full-cycle`、`/pov-plan-only` 和 `/pov-build-review`。
 - **Orchestrator 规范化用量与成本引擎**：支持时将 `input_tokens`、`output_tokens`、`raw_total_tokens`、`cache_read_tokens`、`cache_write_tokens` 写入 RunJournal 和审计记录；缺失或无效值保持未知，缓存创建量序列化为 `cacheWriteTokens`。目前仅估算符合条件且缓存分桶明确为零的 Anthropic Direct Opus 5.5/Sonnet 5.5 Planner–Reviewer dispatch；其他情况是未定价，不代表零成本。金额以整数纳美元（`amount_nanos: u64`）计算并序列化为十进制字符串，禁止浮点运算。严格核对价格表 ID、提供商、模型和币种；未知或不匹配时 fail-closed 并标记未定价。`RunCostSummary` 状态为 `Complete`、`Partial` 或 `Unavailable`；`list_journals()` 每次读取都会根据不可变 dispatch 记录重新聚合。
 
+- **Antigravity 全局规则编辑器（Settings > Antigravity）**：可在 Antigravity 集成面板中选择、编辑并保存全局 Markdown 规则 `deepseek-harness.md` 和 `codex-cli.md`。
 ### GUI 管理工具
 
-Tauri v2 + React 19 + TypeScript。仪表板 + 设置双面板布局。
+Tauri v2 + React 19 + TypeScript。仪表板 + 设置双面板布局。顶部导航包含 Gateway、MCP 和 Settings；v0.25.1 中 Orchestrator 标签页已从顶部导航隐藏。Settings 仍包含 General、Claude Desktop、Antigravity、Antigravity Rules 和 Orchestrator 设置。
 
 ```
 +------------------------------------------+

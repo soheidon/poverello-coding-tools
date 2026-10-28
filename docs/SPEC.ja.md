@@ -91,7 +91,7 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
 - **Antigravity ルール管理（設定 > Antigravity Rules）**: Google Antigravity 向けの軽量 Direct Coding ルール（`pov-direct.md`）を設定・同期。YAML の `trigger` スカラーと管理ブロック（`<!-- pov-direct:managed:begin -->` ... `<!-- pov-direct:managed:end -->`）のみを操作する単一ファイルステートマシンを採用し、ユーザー独自の frontmatter、コメント、Skill インクルードを保持する。衝突耐性のある保持バックアップ、置換直前の SHA-256 および外部削除競合の検出、読み戻し検証ロールバック、旧 sidecar フォルダ存在時の保存拒否、24,000 UTF-8 バイト上限ガードを備える。8言語完全ローカライズ。
 - **Anthropic 公式 Direct プロバイダー対応**: `https://api.anthropic.com` を `ANTHROPIC_API_KEY` 経由で直接利用。ネイティブの Messages プロトコルをプロトコル変換なしで透過転送。検証済みモデルカタログ（`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5` 等）、ストリーミングおよび非ストリーミングのトークン上限障害診断（思考ブロックのみで最終テキストが生成されないまま `stop_reason: "max_tokens"` となった場合に明示的エラーでフェイルクローズ）、およびサンプリングパラメータ検証。
 - **マルチプロバイダーゲートウェイプロファイル（`gateway_profile`）**: 3つの標準 Claude ルート（`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`）それぞれに独立して異なるプロバイダーとモデルを割り当て可能。`active_provider: "gateway_profile"` および `active_gateway_profile_id` で制御され、`gateway_profiles` 配下の指定プロファイルを参照する。ルートごとの機能チェックおよび Claude Code 自動圧縮のためのコンテキスト容量計算に統合される。
-- **正本 Poverello スキル & MCP 名前空間の移行**: 正本 MCP ツール（`poverello/plan`, `poverello/revise`, `poverello/review`）およびスラッシュコマンド（`/pov-plan`, `/pov-revise`, `/pov-review`）。Poverello は Antigravity の `mcp_config.json` に `poverello` サーバーキーを加法的に登録し、既存の `anthro-bridge` キーや旧 `/anthro-*` スキルを完全な後方互換性のために保持する。親ディレクトリを削除しない堅牢な単一ファイルライフサイクル管理。
+- **正本 Poverello スキル & MCP 名前空間の移行**: 正本 MCP ツール（`poverello/plan`, `poverello/revise`, `poverello/review`）およびスラッシュコマンド（`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`）。Poverello は Antigravity の `mcp_config.json` に `poverello` サーバーキーを加法的に登録し、既存の `anthro-bridge` キーや旧 `/anthro-*` スキルを完全な後方互換性のために保持する。親ディレクトリを削除しない堅牢な単一ファイルライフサイクル管理。 直接MCPスキルに加え、上位ワークフローSkill `/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`も提供します。
 - **Orchestrator 正規化使用量 & 財務コスト計算エンジン**:
   - `NormalizedUsage` スキーマ: アダプターが対応形式の使用量を返した場合に `input_tokens`, `output_tokens`, `raw_total_tokens`, `cache_read_tokens`, `cache_write_tokens` を捕捉し、取得できた値を `RunJournal`（`runs/<run_id>.json`）および収束監査ログに永続化する。未取得・不正形式の値はゼロではなく不明として扱う。正規化フィールド `cache_write_tokens` のシリアライズ名は `cacheWriteTokens` であり、プロバイダー固有のキャッシュ作成使用量はこのフィールドに対応付けられる。
   - 現在の同梱コスト見積もりは、Anthropic Direct Opus 5.5 / Sonnet 5.5 でキャッシュ各項目が明示的にゼロの、条件を満たす Planner–Reviewer収束ディスパッチに限定される。他のプロバイダー、ルート、実行経路は未算定／利用不可であり、コストゼロを意味しない。
@@ -100,9 +100,10 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
   - フェイルクローズ集計（`RunCostSummary`）: すべてのディスパッチが検証済みスケジュールで算出できた場合は `Complete`、一部のみ算出できた場合は未算定数を記録し小計を保持する `Partial`、1件も算出できない場合は数値を非表示とする `Unavailable`。寄与したスケジュール一覧（`schedules`）および算出方法（`method`）を明示。
   - `list_journals()` による動的再集計: ジャーナル一覧取得時にディスク上の不変ディスパッチ記録から動的に再集計を実行し、ディスク上の古い集計値が厳格な検証を迂回して表示されるのを完全に防止。
 
+- **Antigravityグローバルルール編集（Settings > Antigravity）**: Antigravity連携画面からグローバルMarkdownルール`deepseek-harness.md`と`codex-cli.md`を選択・編集・保存できます。
 ### GUI 管理ツール
 
-Tauri v2 + React 19 + TypeScript。上部ナビゲーション: Gateway（ダッシュボード）、MCP、Orchestrator、Settings。設定内の項目: General、Claude Desktop、Antigravity、Antigravity Rules、Orchestrator。
+Tauri v2 + React 19 + TypeScript。上部ナビゲーション: Gateway（ダッシュボード）、MCP、Settings。設定内の項目: General、Claude Desktop、Antigravity、Antigravity Rules、Orchestrator。v0.25.1ではOrchestratorタブを上部ナビゲーションから非表示にし、自律AntigravityワークフローはスラッシュコマンドSkillから開始します。
 
 ```
 +------------------------------------------+

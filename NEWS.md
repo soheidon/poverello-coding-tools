@@ -1,11 +1,25 @@
 # Poverello Coding Tools — Release Notes
 
-## v0.25.1 — Work in progress (2026-10-28)
+## v0.25.1 — 2026-10-28
 
-### Auto-Converge transition
+### Antigravity Commands & MCP Skills
 
-- Hid Auto-Converge from the normal app navigation while retaining its implementation, tests, and Skill files.
-- Production dispatch remains disabled, Stage 2 isolation remains unverified, and this transition does not indicate release readiness.
+- Renamed the core MCP tool skills to `pov-mcp-plan`, `pov-mcp-review`, and `pov-mcp-revise` (slash commands `/pov-mcp-plan`, `/pov-mcp-review`, `/pov-mcp-revise`).
+- Bundled upper-level Antigravity Commands skills (`pov-full-cycle`, `pov-plan-only`, `pov-build-review`) directly inside the application under `gui/src-tauri/resources/antigravity-skills/` with automatic installation and synchronization.
+
+### Antigravity Global Rules Editor
+
+- Added a GUI editor in Settings > Antigravity under the MCP Settings panel to inspect, edit, and save global Markdown rule files for DeepSeek (`deepseek-harness.md`) and Codex (`codex-cli.md`) directly within the application.
+
+### Navigation & Auto-Converge Transition
+
+- Hidden the Orchestrator / Auto-Converge tab from TitleBar navigation to prevent direct invocation while retaining internal engine implementation, tests, and skills.
+- Production dispatch remains disabled, Stage 2 isolation remains unverified, and this transition does not indicate release readiness for autonomous execution.
+
+### Test Suite Stability
+
+- Stabilized `orchestrator::engine` parallel test execution using RAII Seam Guards, event-driven HumanGate approvals, and deterministic test paths.
+- Windows x64 NSIS multilingual installer: `Poverello-Coding-Tools_0.25.1_x64-setup.exe` (SHA-256: `22F042E0758EABBF919E505E82305E9DE6E799028EB561DC55D20C70F976FCE5`).
 
 ## v0.24.6 — 2026-10-19
 

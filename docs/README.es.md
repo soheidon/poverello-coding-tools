@@ -46,7 +46,7 @@ Gemma 4 / Qwen / Llama 3 / DeepSeek-R1 (Local en el dispositivo)
 
 - **Gratuito, sin conexión y privado**: Ejecute Claude Code sin claves API, límites de uso ni transferencia de datos a la nube.
 - **Enrutamiento dedicado y detección de modelos**: Ruta de Claude Code independiente (`active_route: "ollama"`) con detección automática de modelos mediante `/api/tags`.
-- **Modo de pensamiento y ajuste de contexto**: Soporte completo para presupuestos de pensamiento (1024 tokens) y ventana de contexto (`num_ctx`) por alias.
+- **Modo de pensamiento y ajuste de contexto**: Soporte completo para presupuestos de pensamiento (1024 tokens) y ventana de contexto (`r`num_ctx`) por alias.
 - **Aislamiento total**: Claude Desktop, Cowork on 3P y Google Antigravity MCP continúan utilizando modelos en la nube de forma independiente.
 - **Guía de configuración**: [Guía de Ollama Local](OLLAMA_LOCAL.es.md)
 
@@ -71,18 +71,20 @@ usando capacidad respaldada por suscripción
 
 El ejecutable y los identificadores de herramientas MCP conservan el nombre `anthro-bridge` por compatibilidad.
 
-Los comandos canónicos de Antigravity son `/pov-plan`, `/pov-revise` y `/pov-review`; los comandos anteriores `/anthro-*` siguen disponibles por compatibilidad.
+Los comandos canónicos de Antigravity son `/pov-mcp-plan`, `/pov-mcp-revise` y `/pov-mcp-review`; los comandos anteriores `/anthro-*` siguen disponibles por compatibilidad.
 
 **Comandos globales de Antigravity:**
 
-- **`/pov-plan`** — Delega la planificación de la implementación al modelo externo configurado.
-- **`/pov-revise`** — Revisa un plan existente en función de nuevos comentarios o restricciones.
-- **`/pov-review`** — Revisa una implementación completada contra el plan aprobado antes de hacer commit, con veredictos explícitos READY / NOT READY.
+- **`/pov-mcp-plan`** — Delega la planificación de la implementación al modelo externo configurado.
+- **`/pov-mcp-revise`** — Revisa un plan existente en función de nuevos comentarios o restricciones.
+- **`/pov-mcp-review`** — Revisa una implementación completada contra el plan aprobado antes de hacer commit, con veredictos explícitos READY / NOT READY.
+
+Flujos autónomos: `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`.
 
 **Flujo de trabajo recomendado:**
 
 ```text
-/pov-plan → Implementación y Pruebas → /pov-review → Commit
+/pov-mcp-plan → Implementación y Pruebas → /pov-mcp-review → Commit
 ```
 
 ---
@@ -146,6 +148,14 @@ Modelos: `mimo-v2.6-flash`, `mimo-v2.6-pro`, `mimo-v2.6-pro-ultraspeed` (selecci
 **Normal / Thinking**: MiMo usa un simple interruptor Normal/Thinking — sin niveles de esfuerzo de razonamiento.
 
 **Compatibilidad con V2.5**: Las rutas guardadas `mimo-v2.5`, `mimo-v2.5-pro` y `mimo-v2.5-pro-ultraspeed` se conservan y siguen funcionando. Los valores predeterminados heredados sin modificar migran automáticamente a V2.6 al inicio.
+
+### LLM local dedicado (Ollama Local)
+
+Backend de inferencia local **dedicado a Claude Code CLI**:
+- Endpoint: `http://127.0.0.1:11434/v1` (bucle local del protocolo Anthropic Messages nativo)
+- Detección dinámica de modelos locales instalados mediante `/api/tags`
+- Presupuestos de pensamiento (1024 tokens) y ventanas de contexto (`r`num_ctx`) configurables por alias
+- Consulta la [Guía de Ollama Local](OLLAMA_LOCAL.es.md) para obtener detalles de configuración
 
 ### OpenRouter
 
@@ -221,24 +231,18 @@ El instalador de Windows admite 8 idiomas. Poverello conserva la identidad de ap
 1. Configura una clave de API para el modelo planificador/revisor elegido en Poverello.
 2. Selecciona la pestaña **MCP** y configura tu modelo en **Settings > Antigravity > MCP Plan Settings**.
 3. Registra `anthro-bridge.exe` con `["--mcp-server"]` en la configuración MCP de Antigravity (o haz clic en **Configure Automatically** en Poverello).
-4. Usa `/pov-plan` para diseñar planes, `/pov-revise` para actualizar planes y `/pov-review` para revisar implementaciones antes de hacer commit.
+4. Usa `/pov-mcp-plan` para diseñar planes, `/pov-mcp-revise` para actualizar planes y `/pov-mcp-review` para revisar implementaciones antes de hacer commit.
 5. Sigue la [Guía Completa de Configuración de MCP para Antigravity](ANTIGRAVITY_MCP.es.md).
 
 ### Flujo de Trabajo 4: Orquestador de desarrollo multiagente
 
-1. Abre la pestaña **Orchestrator**.
-2. Selecciona o personaliza los perfiles **Planner** y **Reviewer**.
-3. Define el objetivo de la tarea y los límites de iteración del flujo compatible seleccionado.
-4. Revisa el progreso, los veredictos de auditoría, el estado de las estimaciones y los registros de `%APPDATA%\Poverello\runs\`.
+**Acceso:** En v0.25.1, la pestaña Orchestrator está oculta en la navegación superior. Ejecuta los comandos anteriores en Antigravity.
 
 ### Flujo de Trabajo 5: Gestión de reglas de Antigravity
 
-1. Abre **Configuración** y selecciona **Antigravity Rules** en la navegación de ajustes.
-2. Selecciona el modo de reglas y revisa la vista previa.
-3. Pulsa **Apply Settings** para aplicar de forma segura `pov-direct.md`.
-4. Se conservan los comentarios personalizados, los campos frontmatter y las copias de seguridad.
-
----
+1. Abre **Settings > Antigravity** y busca **Global rules**.
+2. Edita y guarda `deepseek-harness.md` o `codex-cli.md`.
+3. La regla independiente de Poverello Direct Coding `pov-direct.md` se previsualiza y aplica en **Settings > Antigravity Rules**.
 
 ## Claves de API
 

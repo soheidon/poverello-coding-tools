@@ -118,14 +118,14 @@ Poverello 明确划分了规划器选择与详细参数管理的职责：
    - 点击卡片即可立即切换生效的规划器目标。
 2. **`设置` > `Antigravity`**：
    - **MCP Plan 详细设置** 卡片：按提供商/配置文件详细配置所选模型、思考模式 (Thinking Mode) 及推理强度 (Reasoning Effort)。
-   - **Google Antigravity 集成** 卡片：管理 MCP 服务器注册状态以及 Antigravity Commands（全局技能）。
+   - **Google Antigravity 集成** 卡片：管理 MCP 服务器注册状态、Antigravity Commands（全局技能）以及全局规则（`deepseek-harness.md`、`codex-cli.md`）。
 
 > [!NOTE]
 > Poverello MCP 服务器在每次调用 `plan()` 工具时都会动态读取当前配置。在 GUI 中更改规划器提供商或模型参数时，**无需**重启 MCP 服务器或 Antigravity。
 
 ---
 
-## 6. 使用 Antigravity Commands (`/pov-plan`、`/pov-revise` 和 `/pov-review`)（推荐）
+## 6. 使用 Antigravity Commands (`/pov-mcp-plan`、`/pov-mcp-revise` 和 `/pov-mcp-review`)（推荐）
 
 在 **设置 > Antigravity** 的 **Google Antigravity 集成** 卡片中安装全局技能后，可在所有 Antigravity 工作区中使用斜杠命令：
 
@@ -133,28 +133,51 @@ Poverello 明确划分了规划器选择与详细参数管理的职责：
 
 ### 创建新实现计划:
 ```text
-/pov-plan <要实现的课题或功能描述>
+/pov-mcp-plan <要实现的课题或功能描述>
 ```
 *收集代码库上下文，调用 `poverello/plan`，在展示计划后安全停止，不进行文件修改或运行构建命令。*
 
 ### 修订现有实现计划:
 ```text
-/pov-revise <要反映的反馈或变更需求>
+/pov-mcp-revise <要反映的反馈或变更需求>
 ```
 *从活动上下文或 `implementation_plan.md` 中确定当前实现计划，连同反馈一起传递给 `poverello/plan` 进行修订，同时保留未受影响的部分。*
 
 ### 根据已批准的计划审查实现：
 ```text
-/pov-review
+/pov-mcp-review
 ```
 *检查已批准的计划、工作树差异、相关未跟踪文件和测试结果，并报告实现审查结论。此命令为只读，不会修改文件。*
 
 > [!IMPORTANT]
-> 通过 `/pov-plan` 或 `/pov-revise` 执行时，由命令自身管理单次 planner 调用，Workspace Rule 不会触发额外的重复 planner 调用。
+> 通过 `/pov-mcp-plan`、`/pov-mcp-revise` 或 `/pov-mcp-review`（或旧版 `/anthro-*`）执行时，由命令自身管理工具调用，Workspace Rule 不会触发重复调用。
 
 ---
 
-## 7. 通过 Workspace Rule 自动化计划流程
+---
+
+## 7. Antigravity 上层命令（`/pov-full-cycle`、`/pov-plan-only` 与 `/pov-build-review`）
+
+除直接的 MCP 技能外，Poverello 还提供了安装到 `~/.gemini/antigravity/skills/` 的 3 个上层自主工作流技能：
+
+### 全周期自主开发：
+```text
+/pov-full-cycle <任务描述>
+```
+*端到端管理整个周期：计划起草、外部独立计划审查、计划修订、授权实现、构建与测试验证、外部独立实现审查以及有界纠偏。*
+
+### 仅规划生命周期：
+```text
+/pov-plan-only <任务描述>
+```
+*专注于计划起草与外部独立计划审查。在计划获得批准（`APPROVED` / `APPROVED_WITH_NON_BLOCKING_FINDINGS`）后干净利落地停止，不修改文件也不进入实现阶段。*
+
+### 构建与审查生命周期：
+```text
+/pov-build-review
+```
+*基于已批准的计划进行实现、执行测试套件、进行外部独立实现审查，并管理证据边界与授权纠偏。*
+## 8. 通过 Workspace Rule 自动化计划流程
 
 您可以参考下面的示例，按需创建项目专用的 Workspace Rule。Poverello 不附带或安装 DeepSeek 专用规划规则；配置使用的 MCP 提供商和模型可在 Poverello 设置中选择：
 
@@ -168,7 +191,7 @@ description: Use for implementation, debugging, architectural changes, or multi-
 
 For non-trivial implementation tasks in this repository:
 
-1. If the current task is being executed through the `/pov-plan` or `/pov-revise` command, do NOT invoke `poverello/plan` separately. The command workflow owns the planner call.
+1. If the current task is being executed through the `/pov-mcp-plan` or `/pov-mcp-revise` command (or legacy `/anthro-plan` / `/anthro-revise`), do NOT invoke `poverello/plan` (or `anthro-bridge/plan`) separately. The command workflow owns the planner call.
 2. First inspect the repository yourself and identify the files and code relevant to the task.
 3. Summarize only the context necessary for implementation planning.
 4. Call the `poverello/plan` MCP tool exactly once with:
@@ -189,7 +212,7 @@ For non-trivial implementation tasks in this repository:
 
 ---
 
-## 8. 典型自动化工作流
+## 9. 典型自动化工作流
 
 ```text
 用户：“重构功能 X 以支持多配置文件。”
@@ -209,7 +232,7 @@ Antigravity 执行代码编辑、运行测试并验证修改
 
 ---
 
-## 9. 重要说明
+## 10. 重要说明
 
 - **独立运行**：MCP 服务器完全独立于 Poverello 3P Gateway 运行。无需启动（开启）3P Gateway 即可使用 MCP 工具。
 - **账单分离**：调用 `poverello/plan` 会产生由相应提供商收取的 API 费用。随后的文件编辑和测试消耗 Antigravity 自身的订阅额度。

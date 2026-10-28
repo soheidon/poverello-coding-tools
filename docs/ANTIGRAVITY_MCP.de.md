@@ -118,14 +118,14 @@ Poverello trennt die Planerauswahl klar von der detaillierten Parameterverwaltun
    - Ein Klick auf eine Kachel wechselt das aktive Planer-Ziel sofort.
 2. **`Einstellungen` > `Antigravity`**:
    - Karte **MCP Plan Detaileinstellungen**: Konfigurieren Sie Modell, Thinking-Modus und Reasoning Effort pro Anbieter/Profil.
-   - Karte **Google Antigravity Integration**: Verwalten Sie die MCP-Serverregistrierung und die Antigravity Commands (Global Skills).
+   - Karte **Google Antigravity Integration**: Verwalten Sie die MCP-Serverregistrierung, die Antigravity Commands (Global Skills) und globale Regeln (`deepseek-harness.md`, `codex-cli.md`).
 
 > [!NOTE]
 > Der Poverello MCP-Server liest die aktuelle Konfiguration bei jedem `plan()`-Toolaufruf dynamisch ein. Sie müssen den MCP-Server oder Antigravity **nicht** neu starten, wenn Sie Einstellungen in der GUI ändern.
 
 ---
 
-## 6. Antigravity Commands (`/pov-plan`, `/pov-revise` & `/pov-review`) verwenden (Empfohlen)
+## 6. Antigravity Commands (`/pov-mcp-plan`, `/pov-mcp-revise` & `/pov-mcp-review`) verwenden (Empfohlen)
 
 Über **Einstellungen > Antigravity > Google Antigravity Integration** können Sie Global Skills installieren, um Slash-Befehle in jedem Antigravity-Workspace zu nutzen:
 
@@ -133,28 +133,51 @@ Poverello trennt die Planerauswahl klar von der detaillierten Parameterverwaltun
 
 ### Neuen Implementierungsplan erstellen:
 ```text
-/pov-plan <Beschreibung der Aufgabe oder des Features>
+/pov-mcp-plan <Beschreibung der Aufgabe oder des Features>
 ```
 *Sammelt den Repository-Kontext, ruft `poverello/plan` auf und stoppt sicher nach der Planpräsentation, ohne Dateien zu ändern oder Builds auszuführen.*
 
 ### Bestehenden Plan überarbeiten / Feedback einarbeiten:
 ```text
-/pov-revise <Einzuarbeitendes Feedback oder geänderte Anforderungen>
+/pov-mcp-revise <Einzuarbeitendes Feedback oder geänderte Anforderungen>
 ```
 *Identifiziert den aktuellen Plan (aktiver Kontext oder `implementation_plan.md`), übergibt Plan und Feedback an `poverello/plan` und aktualisiert den Plan unter Beibehaltung unveränderter Abschnitte.*
 
 ### Implementierung anhand des genehmigten Plans prüfen:
 ```text
-/pov-review
+/pov-mcp-review
 ```
 *Prüft den genehmigten Plan, den Arbeitsbaum-Diff, relevante nicht verfolgte Dateien und Testergebnisse und berichtet die Implementierungsprüfung. Der Befehl ist schreibgeschützt und ändert keine Dateien.*
 
 > [!IMPORTANT]
-> Bei der Ausführung über `/pov-plan` oder `/pov-revise` verwaltet der Befehl den einzelnen Planeraufruf. Workspace Rules lösen keine zusätzlichen doppelten Aufrufe aus.
+> Bei der Ausführung über `/pov-mcp-plan`, `/pov-mcp-revise` oder `/pov-mcp-review` (oder ältere `/anthro-*`) verwaltet der Befehl den Toolaufruf. Workspace Rules lösen keine zusätzlichen doppelten Aufrufe aus.
 
 ---
 
-## 7. Planung mit Workspace Rules automatisieren
+---
+
+## 7. Übergeordnete Antigravity Commands (`/pov-full-cycle`, `/pov-plan-only` & `/pov-build-review`)
+
+Zusätzlich zu den direkten MCP-Skills stellt Poverello drei übergeordnete autonome Workflow-Skills bereit, die in `~/.gemini/antigravity/skills/` installiert werden:
+
+### Vollzyklus-Entwicklung:
+```text
+/pov-full-cycle <Aufgabenbeschreibung>
+```
+*Verwaltet den gesamten Zyklus: Planentwurf, unabhängige externe Planprüfung, Planüberarbeitung, autorisierte Implementierung, Build- und Testverifikation, unabhängige externe Implementierungsprüfung sowie begrenzte Korrekturschleifen.*
+
+### Reiner Planungs-Lebenszyklus:
+```text
+/pov-plan-only <Aufgabenbeschreibung>
+```
+*Spezialisiert auf Planerstellung und unabhängige externe Planprüfung. Stoppt sauber nach Planfreigabe (`APPROVED` / `APPROVED_WITH_NON_BLOCKING_FINDINGS`), ohne Dateien zu ändern oder zur Implementierung überzugehen.*
+
+### Build- und Review-Lebenszyklus:
+```text
+/pov-build-review
+```
+*Implementiert einen genehmigten Plan, führt Testsuiten aus, führt unabhängige externe Implementierungsprüfungen durch und wahrt Evidenzgrenzen sowie autorisierte Korrekturbearbeitungen.*
+## 8. Planung mit Workspace Rules automatisieren
 
 Sie können eine optionale projektspezifische Workspace-Regel nach dem folgenden Beispiel erstellen. Poverello liefert keine DeepSeek-spezifische Planerregel mit und installiert sie auch nicht; der konfigurierte MCP-Anbieter und das Modell werden in den Poverello-Einstellungen ausgewählt:
 
@@ -168,7 +191,7 @@ description: Use for implementation, debugging, architectural changes, or multi-
 
 For non-trivial implementation tasks in this repository:
 
-1. If the current task is being executed through the `/pov-plan` or `/pov-revise` command, do NOT invoke `poverello/plan` separately. The command workflow owns the planner call.
+1. If the current task is being executed through the `/pov-mcp-plan` or `/pov-mcp-revise` command (or legacy `/anthro-plan` / `/anthro-revise`), do NOT invoke `poverello/plan` (or `anthro-bridge/plan`) separately. The command workflow owns the planner call.
 2. First inspect the repository yourself and identify the files and code relevant to the task.
 3. Summarize only the context necessary for implementation planning.
 4. Call the `poverello/plan` MCP tool exactly once with:
@@ -189,7 +212,7 @@ For non-trivial implementation tasks in this repository:
 
 ---
 
-## 8. Typischer automatisierter Workflow
+## 9. Typischer automatisierter Workflow
 
 ```text
 Benutzer: "Refaktoriere Feature X für Multi-Profil-Unterstützung."
@@ -209,7 +232,7 @@ Antigravity führt Codeänderungen durch und führt Tests aus
 
 ---
 
-## 9. Wichtige Hinweise
+## 10. Wichtige Hinweise
 
 - **Unabhängiger Betrieb**: Der MCP-Server arbeitet vollständig unabhängig vom Poverello 3P Gateway. Das 3P Gateway muss nicht aktiv (eingeschaltet) sein, um den MCP-Server zu nutzen.
 - **Getrennte Abrechnung**: Aufrufe von `poverello/plan` verursachen API-Kosten beim jeweiligen Drittanbieter. Nachfolgende Codeänderungen und Tests nutzen Ihr Antigravity-Abonnement.

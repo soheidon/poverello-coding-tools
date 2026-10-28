@@ -76,14 +76,16 @@ MCP server key and `/anthro-*` skills remain supported for backward compatibilit
 
 **Global Antigravity commands:**
 
-- **`/pov-plan`** (legacy `/anthro-plan`) — Delegate implementation planning to the configured external model.
-- **`/pov-revise`** (legacy `/anthro-revise`) — Revise an existing plan based on new feedback or constraints.
-- **`/pov-review`** (legacy `/anthro-review`) — Review a completed implementation against the approved plan before commit, with explicit READY / NOT READY verdicts.
+- **`/pov-mcp-plan`** (legacy `/anthro-plan`) — Delegate implementation planning to the configured external model.
+- **`/pov-mcp-revise`** (legacy `/anthro-revise`) — Revise an existing plan based on new feedback or constraints.
+- **`/pov-mcp-review`** (legacy `/anthro-review`) — Review a completed implementation against the approved plan before commit, with explicit READY / NOT READY verdicts.
+
+Complete autonomous workflows: `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`.
 
 **Recommended workflow:**
 
 ```text
-/pov-plan → Implementation & Tests → /pov-review → Commit
+/pov-mcp-plan → Implementation & Tests → /pov-mcp-review → Commit
 ```
 
 ### 4. Multi-Agent Development Orchestrator (Bounded Workflows & Cost Estimates)
@@ -286,25 +288,18 @@ The Windows installer supports 8 languages. Poverello keeps the existing applica
 1. Configure an API key for your chosen planner/reviewer model in Poverello.
 2. Select the **MCP** tab and configure your model in **Settings > Antigravity > MCP Plan Settings**.
 3. Register `anthro-bridge.exe` with `["--mcp-server"]` under server key `poverello` in Antigravity's MCP configuration (or click **Configure Automatically** in Poverello).
-4. Use `/pov-plan` to design plans, `/pov-revise` to update plans, and `/pov-review` to review implementations before commit (legacy `/anthro-*` commands remain recognized).
+4. Use `/pov-mcp-plan` to design plans, `/pov-mcp-revise` to update plans, and `/pov-mcp-review` to review implementations before commit (legacy `/anthro-*` commands remain recognized).
 5. Follow the complete [Antigravity MCP Setup Guide](docs/ANTIGRAVITY_MCP.md).
 
 ### Workflow 4: Multi-Agent Development Orchestrator
 
-1. Open Poverello and switch to the **Orchestrator** tab in the top navigation bar.
-2. Select or customize agent profiles for the **Planner** and **Reviewer** roles (or choose a built-in preset in Orchestrator Settings).
-3. Set the task goal and iteration bounds for the selected Orchestrator workflow.
-4. Run the supported workflow and monitor dispatch progress, audit verdicts, and cost-estimate coverage badges.
-5. Review completed runs and dispatch logs stored under `%APPDATA%\Poverello\runs\`.
+**Access note:** v0.25.1 hides the Orchestrator tab from top navigation. Start autonomous workflows in Antigravity with `/pov-full-cycle`, `/pov-plan-only`, or `/pov-build-review`.
 
 ### Workflow 5: Antigravity Rules Management (Poverello Direct Coding)
 
-1. Open **Settings** and select **Antigravity Rules** from the settings navigation.
-2. Select the desired rule mode and inspect the generated rule preview.
-3. Click **Apply Settings** to safely write the rule to `%USERPROFILE%\.gemini\config\rules\pov-direct.md`.
-4. Existing custom comments, frontmatter fields, and backups are safely preserved.
-
----
+1. Open **Settings > Antigravity** and find **Global rules**.
+2. Edit and save `deepseek-harness.md` or `codex-cli.md`.
+3. For the separate Poverello Direct Coding rule, use **Settings > Antigravity Rules** to preview and apply `pov-direct.md`.
 
 ## API Keys
 

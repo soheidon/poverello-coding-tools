@@ -71,18 +71,20 @@ Antigravity 使用訂閱容量
 
 為維持相容性，可執行檔與 MCP 工具識別名稱仍保留 `anthro-bridge`。
 
-Antigravity 的正式指令為 `/pov-plan`、`/pov-revise` 和 `/pov-review`；舊版 `/anthro-*` 指令仍為相容性保留。
+Antigravity 的正式指令為 `/pov-mcp-plan`、`/pov-mcp-revise` 和 `/pov-mcp-review`；舊版 `/anthro-*` 指令仍為相容性保留。
 
 **Antigravity 全域指令：**
 
-- **`/pov-plan`** — 將實作規劃委派給已設定的外部模型。
-- **`/pov-revise`** — 根據新的回饋或限制條件修改現有計畫。
-- **`/pov-review`** — 在提交前，對照已核准的計畫審查已完成的實作，並給出明確的 READY / NOT READY 結論。
+- **`/pov-mcp-plan`** — 將實作規劃委派給已設定的外部模型。
+- **`/pov-mcp-revise`** — 根據新的回饋或限制條件修改現有計畫。
+- **`/pov-mcp-review`** — 在提交前，對照已核准的計畫審查已完成的實作，並給出明確的 READY / NOT READY 結論。
+
+自主工作流程：`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`。
 
 **建議工作流程：**
 
 ```text
-/pov-plan → 實作與測試 → /pov-review → 提交
+/pov-mcp-plan → 實作與測試 → /pov-mcp-review → 提交
 ```
 
 ---
@@ -146,6 +148,14 @@ Orchestrator 使用可設定的角色設定檔與迭代上限執行目前支援�
 **Normal / Thinking**：MiMo 採用簡單的 Normal/Thinking 切換 —— 不支援推論強度等級。
 
 **V2.5 向下相容**：已儲存的 `mimo-v2.5`、`mimo-v2.5-pro`、`mimo-v2.5-pro-ultraspeed` 路由將持續正常運作。未修改的舊版預設設定將於啟動時自動遷移至 V2.6。
+
+### 專用本機 LLM（Ollama Local）
+
+**專供 Claude Code CLI 使用** 的本機推論後端：
+- 端點：`http://127.0.0.1:11434/v1`（原生 Anthropic messages 迴路）
+- 透過迴路 `/api/tags` 動態探索已安裝的本機模型
+- 支援各別名的思考預算（1024 tokens）與上下文視窗（`num_ctx`）覆寫
+- 詳細設定請參閱 [Ollama Local 指南](OLLAMA_LOCAL.zh-TW.md)
 
 ### OpenRouter
 
@@ -221,24 +231,18 @@ Windows 安裝程式支援 8 種語言。Poverello 保留既有應用程式識�
 1. 在 Poverello 中為您選擇的規劃器 / 審查器模型設定 API 金鑰。
 2. 選擇 **MCP** 標籤，並在 **Settings > Antigravity > MCP Plan Settings** 中設定您的模型。
 3. 在 Antigravity 的 MCP 設定中以 `["--mcp-server"]` 參數註冊 `anthro-bridge.exe`（或在 Poverello 中點擊 **Configure Automatically**）。
-4. 使用 `/pov-plan` 設計計畫、`/pov-revise` 更新計畫，以及 `/pov-review` 在提交前審查實作成果。
+4. 使用 `/pov-mcp-plan` 設計計畫、`/pov-mcp-revise` 更新計畫，以及 `/pov-mcp-review` 在提交前審查實作成果。
 5. 請參閱完整的 [Antigravity MCP 設定指南](ANTIGRAVITY_MCP.zh-TW.md)。
 
 ### 工作流程 4：多代理開發 Orchestrator
 
-1. 開啟上方導覽列中的 **Orchestrator** 分頁。
-2. 選取或自訂 **Planner** 與 **Reviewer** 角色設定檔。
-3. 設定所選支援 Orchestrator 工作流程的任務目標與迭代上限。
-4. 檢視即時進度、稽核判定、成本估算狀態，以及 `%APPDATA%\Poverello\runs\` 中的執行記錄。
+**使用方式：** v0.25.1 已從上方導覽列隱藏 Orchestrator 分頁。請在 Antigravity 中執行上述斜線指令。
 
 ### 工作流程 5：Antigravity 規則管理
 
-1. 開啟**設定**，再從設定導覽中選取 **Antigravity Rules**。
-2. 選擇規則模式並檢查預覽。
-3. 點擊 **Apply Settings**，安全套用 `pov-direct.md`。
-4. 自訂註解、frontmatter 欄位與備份都會保留。
-
----
+1. 開啟 **Settings > Antigravity** 並找到 **Global rules**。
+2. 編輯並儲存 `deepseek-harness.md` 或 `codex-cli.md`。
+3. 獨立的 Poverello Direct Coding 規則可在 **Settings > Antigravity Rules** 預覽並套用 `pov-direct.md`。
 
 ## API 金鑰
 

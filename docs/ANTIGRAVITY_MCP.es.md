@@ -114,14 +114,14 @@ Poverello separa claramente la selección del planificador de la gestión detall
    - Haga clic en una tarjeta para cambiar de inmediato el destino del planificador activo.
 2. **`Configuración` > `Antigravity`**:
    - Tarjeta **Configuración detallada de MCP**: Configure el modelo, el modo Thinking y el nivel Reasoning Effort por proveedor/perfil.
-   - Tarjeta **Integración con Google Antigravity**: Gestione el registro del servidor MCP y los comandos de Antigravity (Global Skills).
+   - Tarjeta **Integración con Google Antigravity**: Gestione el registro del servidor MCP, los comandos de Antigravity (Global Skills) y las reglas globales (`deepseek-harness.md`, `codex-cli.md`).
 
 > [!NOTE]
 > El servidor MCP de Poverello lee dinámicamente la configuración actual en cada invocación de la herramienta `plan()`. **No** necesita reiniciar el servidor MCP ni Antigravity al cambiar de proveedor o parámetros en la GUI.
 
 ---
 
-## 6. Uso de los comandos de Antigravity (`/pov-plan`, `/pov-revise` y `/pov-review`) (Recomendado)
+## 6. Uso de los comandos de Antigravity (`/pov-mcp-plan`, `/pov-mcp-revise` y `/pov-mcp-review`) (Recomendado)
 
 Desde **Configuración > Antigravity > Integración con Google Antigravity**, instale habilidades globales para utilizar comandos de barra en todos sus espacios de trabajo de Antigravity:
 
@@ -129,28 +129,51 @@ Desde **Configuración > Antigravity > Integración con Google Antigravity**, in
 
 ### Crear un nuevo plan de implementación:
 ```text
-/pov-plan <descripción de la tarea o función a implementar>
+/pov-mcp-plan <descripción de la tarea o función a implementar>
 ```
 *Recopila el contexto del repositorio, invoca `poverello/plan` y se detiene de forma limpia tras presentar el plan, sin modificar archivos ni compilar.*
 
 ### Revisar un plan de implementación existente:
 ```text
-/pov-revise <comentarios o nuevos requisitos a incorporar>
+/pov-mcp-revise <comentarios o nuevos requisitos a incorporar>
 ```
 *Identifica el plan actual (contexto activo o `implementation_plan.md`), pasa el plan y los comentarios a `poverello/plan`, y actualiza el plan preservando las secciones no afectadas.*
 
 ### Revisar la implementación según el plan aprobado:
 ```text
-/pov-review
+/pov-mcp-review
 ```
 *Revisa el plan aprobado, las diferencias del árbol de trabajo, los archivos relevantes sin seguimiento y los resultados de las pruebas, y presenta la revisión de la implementación. Es de solo lectura y no modifica archivos.*
 
 > [!IMPORTANT]
-> Al ejecutar mediante `/pov-plan` o `/pov-revise`, el propio comando gestiona la única llamada al planificador. Las reglas de Workspace no generarán llamadas adicionales duplicadas.
+> Al ejecutar mediante `/pov-mcp-plan`, `/pov-mcp-revise` o `/pov-mcp-review` (o los antiguos `/anthro-*`), el comando gestiona la llamada a la herramienta. Las reglas de Workspace no generarán llamadas duplicadas.
 
 ---
 
-## 7. Automatización de la planificación con Workspace Rules
+---
+
+## 7. Comandos de Antigravity de nivel superior (`/pov-full-cycle`, `/pov-plan-only` y `/pov-build-review`)
+
+Además de las habilidades MCP directas, Poverello proporciona tres habilidades de flujo de trabajo autónomas de nivel superior instaladas en `~/.gemini/antigravity/skills/`:
+
+### Ciclo completo de desarrollo:
+```text
+/pov-full-cycle <descripción de la tarea>
+```
+*Gestiona el ciclo de principio a fin: redacción del plan, revisión externa independiente del plan, revisión de requisitos, implementación autorizada, verificación de compilación y pruebas, revisión externa independiente de la implementación y pases correctivos delimitados.*
+
+### Ciclo de vida exclusivo de planificación:
+```text
+/pov-plan-only <descripción de la tarea>
+```
+*Dedicado a la redacción y revisión externa independiente del plan. Se detiene de forma limpia tras la aprobación del plan (`APPROVED` / `APPROVED_WITH_NON_BLOCKING_FINDINGS`) sin modificar archivos ni continuar hacia la implementación.*
+
+### Ciclo de vida de compilación y revisión:
+```text
+/pov-build-review
+```
+*Implementa un plan ya aprobado, ejecuta conjuntos de pruebas, realiza la revisión externa independiente de la implementación y gestiona los límites de evidencia y las correcciones autorizadas.*
+## 8. Automatización de la planificación con Workspace Rules
 
 Puede crear una regla de espacio de trabajo opcional y específica del proyecto basándose en el ejemplo siguiente. Poverello no incluye ni instala una regla de planificación específica de DeepSeek; el proveedor y el modelo MCP configurados se seleccionan en los ajustes de Poverello:
 
@@ -164,7 +187,7 @@ description: Use for implementation, debugging, architectural changes, or multi-
 
 For non-trivial implementation tasks in this repository:
 
-1. If the current task is being executed through the `/pov-plan` or `/pov-revise` command, do NOT invoke `poverello/plan` separately. The command workflow owns the planner call.
+1. If the current task is being executed through the `/pov-mcp-plan` or `/pov-mcp-revise` command (or legacy `/anthro-plan` / `/anthro-revise`), do NOT invoke `poverello/plan` (or `anthro-bridge/plan`) separately. The command workflow owns the planner call.
 2. First inspect the repository yourself and identify the files and code relevant to the task.
 3. Summarize only the context necessary for implementation planning.
 4. Call the `poverello/plan` MCP tool exactly once with:
@@ -185,7 +208,7 @@ For non-trivial implementation tasks in this repository:
 
 ---
 
-## 8. Flujo de trabajo automatizado típico
+## 9. Flujo de trabajo automatizado típico
 
 ```text
 Usuario: "Refactoriza la función X para admitir múltiples perfiles."
@@ -205,7 +228,7 @@ Antigravity realiza los cambios en los archivos y ejecuta las pruebas
 
 ---
 
-## 9. Notas importantes
+## 10. Notas importantes
 
 - **Operación independiente**: El servidor MCP opera de forma completamente independiente de la pasarela 3P Gateway. La pasarela 3P no necesita estar encendida (ON) para que funcionen las llamadas MCP.
 - **Facturación separada**: Las llamadas a `poverello/plan` generan costos de API facturados por el proveedor externo seleccionado. Las ediciones posteriores y las pruebas utilizan la cuota de suscripción de Antigravity.

@@ -71,18 +71,20 @@ Antigravity 使用订阅容量
 
 为保持兼容性，可执行文件和 MCP 工具标识仍使用 `anthro-bridge` 名称。
 
-Antigravity 的规范命令为 `/pov-plan`、`/pov-revise` 和 `/pov-review`；旧的 `/anthro-*` 命令仍为兼容性保留。
+Antigravity 的规范命令为 `/pov-mcp-plan`、`/pov-mcp-revise` 和 `/pov-mcp-review`；旧的 `/anthro-*` 命令仍为兼容性保留。
 
 **Antigravity 全局命令：**
 
-- **`/pov-plan`** — 将实现规划委托给已配置的外部模型。
-- **`/pov-revise`** — 根据新的反馈或约束条件修订现有计划。
-- **`/pov-review`** — 在提交前，针对已批准的计划审查已完成的实现，并给出明确的 READY / NOT READY 结论。
+- **`/pov-mcp-plan`** — 将实现规划委托给已配置的外部模型。
+- **`/pov-mcp-revise`** — 根据新的反馈或约束条件修订现有计划。
+- **`/pov-mcp-review`** — 在提交前，针对已批准的计划审查已完成的实现，并给出明确的 READY / NOT READY 结论。
+
+自主工作流：`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`。
 
 **推荐工作流：**
 
 ```text
-/pov-plan → 实现与测试 → /pov-review → 提交
+/pov-mcp-plan → 实现与测试 → /pov-mcp-review → 提交
 ```
 
 ---
@@ -146,6 +148,14 @@ Orchestrator 使用可配置的角色配置和迭代上限执行当前支持的 
 **Normal / Thinking**：MiMo 采用简单的 Normal/Thinking 切换 —— 不支持推理强度级别。
 
 **V2.5 向下兼容**：已保存的 `mimo-v2.5`、`mimo-v2.5-pro`、`mimo-v2.5-pro-ultraspeed` 路由将继续正常运行。未修改的旧版默认配置将在启动时自动迁移至 V2.6。
+
+### 专用本地 LLM（Ollama Local）
+
+**专用于 Claude Code CLI** 的本地推理后端：
+- 端点：`http://127.0.0.1:11434/v1`（原生 Anthropic messages loopback）
+- 通过 loopback `/api/tags` 动态发现已安装的本地模型
+- 支持每个别名的思考预算（1024 tokens）和上下文窗口（`num_ctx`）覆盖
+- 详细配置请参阅 [Ollama Local 指南](OLLAMA_LOCAL.zh-CN.md)
 
 ### OpenRouter
 
@@ -221,24 +231,18 @@ Windows 安装程序支持 8 种语言。Poverello 保留现有应用标识，�
 1. 在 Poverello 中为所选规划器/审查器模型配置 API 密钥。
 2. 选择 **MCP** 标签页，并在 **Settings > Antigravity > MCP Plan Settings** 中配置模型。
 3. 在 Antigravity 的 MCP 配置中注册 `anthro-bridge.exe`，并附加参数 `["--mcp-server"]`（或在 Poverello 中点击 **Configure Automatically**）。
-4. 使用 `/pov-plan` 制定计划，使用 `/pov-revise` 更新计划，使用 `/pov-review` 在提交前审查实现。
+4. 使用 `/pov-mcp-plan` 制定计划，使用 `/pov-mcp-revise` 更新计划，使用 `/pov-mcp-review` 在提交前审查实现。
 5. 请参阅完整的 [Antigravity MCP 配置指南](ANTIGRAVITY_MCP.zh-CN.md)。
 
 ### 工作流 4：多智能体开发 Orchestrator
 
-1. 打开顶部导航栏中的 **Orchestrator** 标签页。
-2. 选择或自定义 **Planner** 和 **Reviewer** 角色配置。
-3. 设置所选受支持 Orchestrator 工作流的任务目标和迭代上限。
-4. 查看实时进度、审计结论、成本估算状态，以及 `%APPDATA%\Poverello\runs\` 中的运行日志。
+**访问方式：** v0.25.1 已从顶部导航隐藏 Orchestrator 标签页。请在 Antigravity 中运行上述斜杠命令。
 
 ### 工作流 5：Antigravity 规则管理
 
-1. 打开**设置**，然后在设置导航中选择 **Antigravity Rules**。
-2. 选择规则模式并检查预览。
-3. 点击 **Apply Settings**，将 `pov-direct.md` 安全地应用到 Antigravity。
-4. 自定义注释、frontmatter 字段和备份会得到保留。
-
----
+1. 打开 **Settings > Antigravity** 并找到 **Global rules**。
+2. 编辑并保存 `deepseek-harness.md` 或 `codex-cli.md`。
+3. 独立的 Poverello Direct Coding 规则可在 **Settings > Antigravity Rules** 中预览并应用 `pov-direct.md`。
 
 ## API 密钥
 

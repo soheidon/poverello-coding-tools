@@ -91,12 +91,13 @@
 - **Antigravity 규칙 관리 (설정 > Antigravity Rules)**: 설정 섹션은 `pov-direct.md`의 YAML `trigger`와 경계가 지정된 관리 블록만 다루는 상태 머신으로 동기화하며, 사용자 frontmatter, 주석, Skill 포함 항목은 보존합니다. 충돌 방지 백업, 교체 전 SHA-256 및 외부 삭제 충돌 검사, 검증된 롤백, 기존 sidecar 폴더 보호, UTF-8 24,000바이트 제한을 포함하며 8개 언어로 제공됩니다.
 - **Anthropic 공식 직접 제공자**: `ANTHROPIC_API_KEY`로 `https://api.anthropic.com`에 직접 연결하고 네이티브 Messages 프로토콜을 변환 없이 전달합니다. 검증된 모델 카탈로그, 스트리밍/비스트리밍 토큰 한도 진단, 네이티브 샘플링 매개변수 검증을 지원합니다.
 - **멀티 제공자 게이트웨이 프로필(`gateway_profile`)**: 표준 Claude 경로(`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`)마다 독립적인 제공자와 모델을 지정합니다. `active_provider`와 `active_gateway_profile_id`로 활성화하고 `gateway_profiles`에 프로필을 저장하며, 기능 검사와 Claude Code 자동 압축용 컨텍스트 계산에 통합됩니다.
-- **정식 Poverello Skills 및 MCP 네임스페이스**: 정식 도구는 `poverello/plan`, `poverello/revise`, `poverello/review`, 명령은 `/pov-plan`, `/pov-revise`, `/pov-review`입니다. Antigravity에 `poverello` 서버 키를 추가 등록하며, 하위 호환성을 위해 `anthro-bridge`와 기존 `/anthro-*` Skills도 유지합니다. 단일 파일 수명주기를 안전하게 관리합니다.
+- **정식 Poverello Skills 및 MCP 네임스페이스**: 정식 도구는 `poverello/plan`, `poverello/revise`, `poverello/review`, 명령은 `/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`입니다. Antigravity에 `poverello` 서버 키를 추가 등록하며, 하위 호환성을 위해 `anthro-bridge`와 기존 `/anthro-*` Skills도 유지합니다. 단일 파일 수명주기를 안전하게 관리합니다. 직접 MCP Skill 3개와 함께 상위 워크플로 Skill `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`도 제공합니다.
 - **Orchestrator 정규화 사용량 및 비용 엔진**: 지원되는 사용량 필드(`input_tokens`, `output_tokens`, `raw_total_tokens`, `cache_read_tokens`, `cache_write_tokens`)를 RunJournal 및 감사 기록에 저장합니다. 누락되거나 잘못된 값은 미상으로 유지하고 캐시 생성량은 `cacheWriteTokens`로 직렬화합니다. 현재 비용 추정은 캐시 버킷이 명시적으로 0인 적격 Anthropic Direct Opus 5.5/Sonnet 5.5 Planner–Reviewer 디스패치에만 적용되며, 다른 경우는 무료가 아니라 미산정입니다. 금액은 정수 나노달러(`amount_nanos: u64`)로 계산해 10진 문자열로 직렬화하고 부동소수점 연산은 사용하지 않습니다. 요금표 ID・제공자・모델・통화를 정확히 검증하고, 불일치는 fail-closed로 미산정 처리합니다. `RunCostSummary`는 `Complete`/`Partial`/`Unavailable`이며 `list_journals()`는 읽을 때마다 불변 디스패치 기록에서 다시 집계합니다.
 
+- **Antigravity 전역 규칙 편집기 (Settings > Antigravity)**: Antigravity 연동 패널에서 전역 Markdown 규칙 `deepseek-harness.md`와 `codex-cli.md`를 선택하고 편집한 뒤 저장할 수 있습니다.
 ### GUI 관리 도구
 
-Tauri v2 + React 19 + TypeScript. 이중 패널 레이아웃: 대시보드 + 설정.
+Tauri v2 + React 19 + TypeScript. 이중 패널 레이아웃: 대시보드 + 설정. 상단 탐색은 Gateway, MCP, Settings로 구성되며 v0.25.1에서는 Orchestrator 탭이 상단 탐색에서 숨겨집니다. Settings에는 General, Claude Desktop, Antigravity, Antigravity Rules, Orchestrator 설정이 포함됩니다.
 
 ```
 +------------------------------------------+

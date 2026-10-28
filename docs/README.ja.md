@@ -64,14 +64,16 @@ Antigravity がサブスクリプションの処理能力を使って
 
 **Antigravity グローバルコマンド:**
 
-- **`/pov-plan`** (旧 `/anthro-plan`) — 設定済み外部モデルに実装計画を委任します。
-- **`/pov-revise`** (旧 `/anthro-revise`) — 新しいフィードバックや制約に基づいて既存の計画を修正します。
-- **`/pov-review`** (旧 `/anthro-review`) — コミット前に承認済み計画に対して完成した実装をレビューし、明示的に READY / NOT READY の判定を行います。
+- **`/pov-mcp-plan`** (旧 `/anthro-plan`) — 設定済み外部モデルに実装計画を委任します。
+- **`/pov-mcp-revise`** (旧 `/anthro-revise`) — 新しいフィードバックや制約に基づいて既存の計画を修正します。
+- **`/pov-mcp-review`** (旧 `/anthro-review`) — コミット前に承認済み計画に対して完成した実装をレビューし、明示的に READY / NOT READY の判定を行います。
+
+自律ワークフロー: `/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`。
 
 **推奨ワークフロー:**
 
 ```text
-/pov-plan → 実装 & テスト → /pov-review → コミット
+/pov-mcp-plan → 実装 & テスト → /pov-mcp-review → コミット
 ```
 
 ### 4. マルチエージェント開発オーケストレーター（対応ワークフロー & コスト見積もり）
@@ -272,25 +274,18 @@ Windowsインストーラーは8言語に対応しています。Poverelloは既
 1. Poverello で、選択したプランナー / レビュアーモデルの API キーを設定します。
 2. **MCP** タブを選択し、**Settings > Antigravity > MCP Plan Settings** でモデルを設定します。
 3. Antigravity の MCP 設定で `anthro-bridge.exe` を `["--mcp-server"]` 付きで登録します（または Poverello の **Configure Automatically** をクリックします）。
-4. `/pov-plan` で計画を作成し、`/pov-revise` で計画を更新し、`/pov-review` でコミット前に実装をレビューします。
+4. `/pov-mcp-plan` で計画を作成し、`/pov-mcp-revise` で計画を更新し、`/pov-mcp-review` でコミット前に実装をレビューします。
 5. 完全な [Antigravity MCP セットアップガイド](ANTIGRAVITY_MCP.ja.md) に従ってください。
 
 ### ワークフロー 4: マルチエージェント開発オーケストレーター
 
-1. Poverello の上部タブから **Orchestrator** を開きます。
-2. **Planner** および **Reviewer** 役割のエージェントプロファイルを選択またはカスタマイズします（Orchestrator 設定で組み込みプリセットの選択も可能です）。
-3. 選択した対応済みOrchestratorワークフローのタスク目標と最大反復回数（ターン上限）を設定します。
-4. 対応するワークフローを実行し、ディスパッチ進捗、監査判定、コスト見積もりの対象範囲を示すバッジを確認します。
-5. 完了した実行履歴とディスパッチログは `%APPDATA%\Poverello\runs\` に保存され、監査できます。実行の再開可否は状態によって異なり、完了済みの実行を復元できるとは限りません。
+**アクセス方法:** v0.25.1では上部ナビゲーションからOrchestratorタブが非表示です。Antigravityで上記スラッシュコマンドを実行します。
 
 ### ワークフロー 5: Antigravity ルール管理（Poverello Direct Coding）
 
-1. **設定**を開き、設定内のナビゲーションから **Antigravity Rules** を選択します。
-2. 希望するルールモードを選択し、生成プレビューを確認します。
-3. **Apply Settings** をクリックして `%USERPROFILE%\.gemini\config\rules\pov-direct.md` へ安全に書き込みます。
-4. 既存のカスタムコメント、frontmatter、バックアップは安全に保持されます。
-
----
+1. **Settings > Antigravity** を開き、**Global rules** を表示します。
+2. `deepseek-harness.md` または `codex-cli.md` を編集して保存します。
+3. 別機能のPoverello Direct Codingルールは、**Settings > Antigravity Rules** で `pov-direct.md` をプレビューして適用します。
 
 ## API キー
 

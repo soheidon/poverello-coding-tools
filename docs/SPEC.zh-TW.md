@@ -91,12 +91,13 @@
 - **Antigravity 規則管理（設定 > Antigravity Rules）**：設定區段以狀態機管理 `pov-direct.md`，只修改 YAML `trigger` 純量與有界管理區塊，同時保留使用者的 frontmatter、註解及 Skill 引用。安全措施包括防衝突且不自動清理的備份、替換前 SHA-256 與外部刪除衝突檢查、驗證後回復、舊 sidecar 資料夾保護，以及 24,000 UTF-8 位元組限制；提供八種語言在地化。
 - **Anthropic 官方直接提供者**：透過 `ANTHROPIC_API_KEY` 直接連線 `https://api.anthropic.com`，不做協定轉換而轉送原生 Messages 請求；包含已驗證模型目錄、串流與非串流 token 上限故障診斷，以及原生取樣參數驗證。
 - **多提供者閘道設定檔（`gateway_profile`）**：可為三個標準 Claude 路由（`claude-opus-5`、`claude-sonnet-5`、`claude-haiku-4-5`）分別指定提供者與模型。透過 `active_provider` 和 `active_gateway_profile_id` 啟用，設定存於 `gateway_profiles`，並整合能力檢查及 Claude Code 自動壓縮的上下文計算。
-- **Poverello Skills 與 MCP 正式命名空間**：正式工具為 `poverello/plan`、`poverello/revise`、`poverello/review`，斜線命令為 `/pov-plan`、`/pov-revise`、`/pov-review`。Poverello 會在 Antigravity 中以新增方式註冊 `poverello` 伺服器鍵，同時保留 `anthro-bridge` 與舊 `/anthro-*` Skills 以維持相容性，並安全管理單一檔案生命週期。
+- **Poverello Skills 與 MCP 正式命名空間**：正式工具為 `poverello/plan`、`poverello/revise`、`poverello/review`，斜線命令為 `/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`。Poverello 會在 Antigravity 中以新增方式註冊 `poverello` 伺服器鍵，同時保留 `anthro-bridge` 與舊 `/anthro-*` Skills 以維持相容性，並安全管理單一檔案生命週期。 除三個直接 MCP Skills 外，亦提供上層工作流程 Skills `/pov-full-cycle`、`/pov-plan-only` 與 `/pov-build-review`。
 - **Orchestrator 正規化用量與成本引擎**：支援時會將 `input_tokens`、`output_tokens`、`raw_total_tokens`、`cache_read_tokens`、`cache_write_tokens` 寫入 RunJournal 與稽核記錄；缺少或無效的值維持未知，快取建立量序列化為 `cacheWriteTokens`。目前僅估算符合條件且快取桶明確為零的 Anthropic Direct Opus 5.5/Sonnet 5.5 Planner–Reviewer dispatch；其他情況為未定價，不代表零成本。金額以整數奈美元（`amount_nanos: u64`）計算並序列化為十進位字串，禁止浮點運算。嚴格核對費率表 ID、提供者、模型與幣別；未知或不符時 fail-closed 並標示未定價。`RunCostSummary` 狀態為 `Complete`、`Partial` 或 `Unavailable`；`list_journals()` 每次讀取都會依不可變 dispatch 紀錄重新彙總。
 
+- **Antigravity 全域規則編輯器（Settings > Antigravity）**：可在 Antigravity 整合面板中選取、編輯並儲存全域 Markdown 規則 `deepseek-harness.md` 與 `codex-cli.md`。
 ### GUI 管理工具
 
-Tauri v2 + React 19 + TypeScript。雙面板佈局：儀表板 + 設定。
+Tauri v2 + React 19 + TypeScript。雙面板佈局：儀表板 + 設定。頂層導覽包含 Gateway、MCP 和 Settings；v0.25.1 已從頂層導覽隱藏 Orchestrator 分頁。Settings 仍包含 General、Claude Desktop、Antigravity、Antigravity Rules 與 Orchestrator 設定。
 
 ```
 +------------------------------------------+

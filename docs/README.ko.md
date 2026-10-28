@@ -61,18 +61,20 @@ Antigravity가 구독 기반 용량으로
 
 실행 파일과 MCP 도구 식별자는 호환성을 위해 `anthro-bridge` 이름을 유지합니다.
 
-Antigravity의 정식 명령은 `/pov-plan`, `/pov-revise`, `/pov-review`이며, 이전 `/anthro-*` 명령도 호환성을 위해 계속 지원됩니다.
+Antigravity의 정식 명령은 `/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`이며, 이전 `/anthro-*` 명령도 호환성을 위해 계속 지원됩니다.
 
 **Antigravity 전역 명령어:**
 
-- **`/pov-plan`** — 구현 계획 수립을 설정된 외부 모델에 위임합니다.
-- **`/pov-revise`** — 새로운 피드백이나 제약 조건에 따라 기존 계획을 수정합니다.
-- **`/pov-review`** — 커밋 전에 완료된 구현을 승인된 계획과 대조하여 리뷰하고, 명시적으로 READY / NOT READY 판정을 내립니다.
+- **`/pov-mcp-plan`** — 구현 계획 수립을 설정된 외부 모델에 위임합니다.
+- **`/pov-mcp-revise`** — 새로운 피드백이나 제약 조건에 따라 기존 계획을 수정합니다.
+- **`/pov-mcp-review`** — 커밋 전에 완료된 구현을 승인된 계획과 대조하여 리뷰하고, 명시적으로 READY / NOT READY 판정을 내립니다.
+
+자율 워크플로: `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`.
 
 **권장 워크플로:**
 
 ```text
-/pov-plan → 구현 및 테스트 → /pov-review → 커밋
+/pov-mcp-plan → 구현 및 테스트 → /pov-mcp-review → 커밋
 ```
 
 ---
@@ -136,6 +138,14 @@ Moonshot Kimi와 별도로 운용되는 코딩 전문 API (`KIMI_CODE_API_KEY`):
 **Normal / Thinking**: MiMo는 단순한 Normal/Thinking 전환 방식을 사용 — 추론 강도 레벨은 없습니다.
 
 **V2.5 하위 호환성**: 저장된 `mimo-v2.5`, `mimo-v2.5-pro`, `mimo-v2.5-pro-ultraspeed` 라우트는 계속 정상 작동합니다. 변경되지 않은 레거시 기본값은 시작 시 자동으로 V2.6으로 마이그레이션됩니다.
+
+### 전용 로컬 LLM (Ollama Local)
+
+**Claude Code CLI 전용** 로컬 추론 백엔드:
+- 엔드포인트: `http://127.0.0.1:11434/v1` (네이티브 Anthropic messages 루프백)
+- 루프백 `/api/tags`를 통해 설치된 로컬 모델을 동적으로 검색
+- 별칭별 사고 예산(1024 tokens) 및 컨텍스트 창(`num_ctx`) 재정의를 지원
+- 자세한 설정은 [Ollama Local 가이드](OLLAMA_LOCAL.ko.md)를 참조하세요
 
 ### OpenRouter
 
@@ -211,24 +221,18 @@ Windows 설치 프로그램은 8개 언어를 지원합니다. Poverello는 기�
 1. Poverello에서 선택한 플래너/리뷰어 모델의 API 키를 설정합니다.
 2. **MCP** 탭을 선택하고 **설정 > Antigravity > MCP Plan Settings**에서 모델을 설정합니다.
 3. Antigravity의 MCP 설정에 `anthro-bridge.exe`를 `["--mcp-server"]` 인수와 함께 등록하거나, Poverello에서 **Configure Automatically**를 클릭합니다.
-4. `/pov-plan`으로 계획을 수립하고, `/pov-revise`로 계획을 수정하며, `/pov-review`로 커밋 전 구현을 리뷰합니다.
+4. `/pov-mcp-plan`으로 계획을 수립하고, `/pov-mcp-revise`로 계획을 수정하며, `/pov-mcp-review`로 커밋 전 구현을 리뷰합니다.
 5. 전체 [Antigravity MCP 설정 가이드](ANTIGRAVITY_MCP.ko.md)를 참고하세요.
 
 ### 워크플로 4: 멀티 에이전트 개발 오케스트레이터
 
-1. 상단 탭에서 **Orchestrator**를 엽니다.
-2. **Planner**와 **Reviewer** 역할의 프로필을 선택하거나 사용자 지정합니다.
-3. 선택한 지원 Orchestrator 워크플로의 작업 목표와 반복 횟수 제한을 설정합니다.
-4. 진행 상황, 감사 판정, 비용 추정 상태 및 `%APPDATA%\Poverello\runs\`의 실행 로그를 확인합니다.
+**접근 안내:** v0.25.1에서는 상단 탐색에서 Orchestrator 탭이 숨겨져 있습니다. Antigravity에서 위 슬래시 명령을 실행하세요.
 
 ### 워크플로 5: Antigravity 규칙 관리
 
-1. **설정**을 열고 설정 탐색 메뉴에서 **Antigravity Rules**를 선택합니다.
-2. 규칙 모드를 선택하고 미리보기를 확인합니다.
-3. **Apply Settings**를 클릭해 `pov-direct.md`를 안전하게 적용합니다.
-4. 사용자 지정 주석, frontmatter 필드 및 백업은 보존됩니다.
-
----
+1. **설정 > Antigravity**를 열고 **Global rules**를 찾습니다.
+2. `deepseek-harness.md` 또는 `codex-cli.md`를 편집하고 저장합니다.
+3. 별도의 Poverello Direct Coding 규칙은 **설정 > Antigravity Rules**에서 `pov-direct.md`를 미리 보고 적용합니다.
 
 ## API 키
 
