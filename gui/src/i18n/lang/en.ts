@@ -1,4 +1,4 @@
-export const nativeName = "English";
+﻿export const nativeName = "English";
 
 export const translations = {
   // Header
@@ -68,14 +68,24 @@ export const translations = {
   "antigravity.btnRemove": "Remove Configuration",
   "antigravity.savedMessage": "Saved",
 
-  // Antigravity Commands (/pov-plan, /pov-revise & /pov-review)
-  "antigravity.commandsSectionHeader": "Antigravity Commands (/pov-plan, /pov-revise & /pov-review)",
-  "antigravity.commandsDesc": "Registers global slash commands (/pov-plan, /pov-revise, /pov-review) to create plans, revise plans, and review implementations in Antigravity.",
-  "antigravity.commandPlanTitle": "/pov-plan",
+  // Antigravity Commands (/pov-mcp-plan, /pov-mcp-revise & /pov-mcp-review)
+  "antigravity.commandsSectionHeader": "Antigravity Commands (6 Skills)",
+  "antigravity.commandsDesc": "Install and manage six global Skills.",
+  "antigravity.commandGenericDesc": "Skill for a planning, review, or implementation workflow.",
+  "antigravity.globalRulesTitle": "Global rules",
+  "antigravity.globalRulesDiscardChangesConfirm": "Discard unsaved changes and open another rule file?",
+  "antigravity.globalRulesSelect": "Select rule file",
+  "antigravity.globalRulesEditor": "Edit global rule Markdown",
+  "antigravity.globalRulesSave": "Save rule",
+  "antigravity.btnOpenRulesFolder": "Open Rules Folder",
+  "antigravity.globalRulesNotCreated": "File does not exist; saving will create it.",
+  "antigravity.globalRulesUnsaved": "Unsaved changes",
+  "antigravity.globalRulesSaved": "Rule saved.",
+  "antigravity.commandPlanTitle": "/pov-mcp-plan",
   "antigravity.commandPlanDesc": "Creates a new implementation plan from scratch.",
-  "antigravity.commandReviseTitle": "/pov-revise",
+  "antigravity.commandReviseTitle": "/pov-mcp-revise",
   "antigravity.commandReviseDesc": "Revises an existing implementation plan based on user feedback.",
-  "antigravity.commandReviewTitle": "/pov-review",
+  "antigravity.commandReviewTitle": "/pov-mcp-review",
   "antigravity.commandReviewDesc": "Reviews an implementation against the approved plan and outputs a 3-tier verdict.",
   "antigravity.commandStatusInstalled": "Installed",
   "antigravity.commandStatusNotInstalled": "Not installed",
@@ -93,7 +103,7 @@ export const translations = {
   "antigravity.btnOpenSkillsFolder": "Open Skills Folder",
   "antigravity.commandsMcpWarning": "⚠ Poverello MCP server is not registered in Antigravity. Register MCP above to use Antigravity Commands.",
   "antigravity.legacyNoticeTitle": "Legacy Skills Detected",
-  "antigravity.legacyNoticeDesc": "Legacy skills (/anthro-plan, /anthro-revise, /anthro-review) remain present and preserved. Poverello uses /pov-plan, /pov-revise, and /pov-review as canonical commands.",
+  "antigravity.legacyNoticeDesc": "Legacy skills (/anthro-plan, /anthro-revise, /anthro-review) remain present and preserved. Poverello uses /pov-mcp-plan, /pov-mcp-revise, and /pov-mcp-review as canonical commands.",
   "antigravity.mcpLegacyPreserved": "Legacy 'anthro-bridge' MCP server is detected and preserved in mcp_config.json.",
 
   // Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight)

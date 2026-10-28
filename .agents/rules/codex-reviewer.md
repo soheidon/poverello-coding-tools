@@ -35,7 +35,7 @@ Use risk-proportionate review. The purpose is to catch material defects, not to 
 
 For non-trivial implementation tasks in this repository before requesting commit approval:
 
-1. If the current task is being reviewed through the `/pov-review` command (or legacy `/anthro-review`), do NOT invoke `poverello/review` (or `anthro-bridge/review`) separately. The command workflow owns the review call.
+1. If the current task is being reviewed through the `/pov-mcp-review` command (or legacy `/anthro-review`), do NOT invoke `poverello/review` (or `anthro-bridge/review`) separately. The command workflow owns the review call.
 2. Ensure the implementation plan against which the changes will be evaluated is approved and clearly identified.
 3. Collect the working tree status using `git status --short`.
 4. Collect all tracked changes relative to HEAD using `git diff HEAD`.

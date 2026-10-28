@@ -1,4 +1,4 @@
-import type { TranslationMap } from "./en";
+﻿import type { TranslationMap } from "./en";
 
 export const nativeName = "Español";
 
@@ -70,14 +70,24 @@ export const translations: TranslationMap = {
   "antigravity.btnRemove": "Eliminar configuración",
   "antigravity.savedMessage": "Guardado",
 
-  // Antigravity Commands (/pov-plan, /pov-revise & /pov-review)
-  "antigravity.commandsSectionHeader": "Antigravity Commands (/pov-plan, /pov-revise & /pov-review)",
-  "antigravity.commandsDesc": "Registra comandos globales (/pov-plan, /pov-revise, /pov-review) para crear y revisar planes de implementación en Antigravity.",
-  "antigravity.commandPlanTitle": "/pov-plan",
+  // Antigravity Commands (/pov-mcp-plan, /pov-mcp-revise & /pov-mcp-review)
+  "antigravity.commandsSectionHeader": "Antigravity Commands (6 Skills)",
+  "antigravity.commandsDesc": "Instala y administra seis Skills globales.",
+  "antigravity.commandGenericDesc": "Skill para flujos de planificación, revisión o implementación.",
+  "antigravity.globalRulesTitle": "Reglas globales",
+  "antigravity.globalRulesDiscardChangesConfirm": "¿Descartar los cambios sin guardar y abrir otro archivo de reglas?",
+  "antigravity.globalRulesSelect": "Seleccionar archivo de reglas",
+  "antigravity.globalRulesEditor": "Editar Markdown de reglas globales",
+  "antigravity.globalRulesSave": "Guardar regla",
+  "antigravity.btnOpenRulesFolder": "Abrir carpeta de reglas",
+  "antigravity.globalRulesNotCreated": "El archivo no existe; se creará al guardar.",
+  "antigravity.globalRulesUnsaved": "Cambios sin guardar",
+  "antigravity.globalRulesSaved": "Regla guardada.",
+  "antigravity.commandPlanTitle": "/pov-mcp-plan",
   "antigravity.commandPlanDesc": "Crea un nuevo plan de implementación completo.",
-  "antigravity.commandReviseTitle": "/pov-revise",
+  "antigravity.commandReviseTitle": "/pov-mcp-revise",
   "antigravity.commandReviseDesc": "Revisa un plan de implementación existente según los comentarios del usuario.",
-  "antigravity.commandReviewTitle": "/pov-review",
+  "antigravity.commandReviewTitle": "/pov-mcp-review",
   "antigravity.commandReviewDesc": "Revisa una implementación frente al plan aprobado y emite un veredicto de 3 niveles.",
   "antigravity.commandStatusInstalled": "Instalado",
   "antigravity.commandStatusNotInstalled": "No instalado",
@@ -95,7 +105,7 @@ export const translations: TranslationMap = {
   "antigravity.btnOpenSkillsFolder": "Abrir carpeta de habilidades",
   "antigravity.commandsMcpWarning": "⚠ El servidor MCP de Poverello no está registrado en Antigravity. Registre MCP arriba para usar Antigravity Commands.",
   "antigravity.legacyNoticeTitle": "Skills heredados detectados",
-  "antigravity.legacyNoticeDesc": "Los skills heredados (/anthro-plan, /anthro-revise, /anthro-review) se conservan. Poverello utiliza /pov-plan, /pov-revise y /pov-review como comandos canónicos.",
+  "antigravity.legacyNoticeDesc": "Los skills heredados (/anthro-plan, /anthro-revise, /anthro-review) se conservan. Poverello utiliza /pov-mcp-plan, /pov-mcp-revise y /pov-mcp-review como comandos canónicos.",
   "antigravity.mcpLegacyPreserved": "El servidor MCP heredado 'anthro-bridge' se detectó y se conserva en mcp_config.json.",
 
   // Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight)

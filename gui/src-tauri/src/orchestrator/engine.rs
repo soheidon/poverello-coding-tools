@@ -9701,22 +9701,9 @@ mod tests {
         let (human_gate_tx, human_gate_rx) = mpsc::channel(1);
         let (_worker_reclaim_tx, worker_reclaim_rx) = mpsc::channel(1);
 
-        // Auto-approve human gate in background
-        let events_clone = Arc::clone(&events);
-        tokio::spawn(async move {
-            for _ in 0..100 {
-                tokio::time::sleep(tokio::time::Duration::from_millis(15)).await;
-                let is_human_gate = events_clone
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .any(|e| e.step == WorkflowState::HumanGate);
-                if is_human_gate {
-                    let _ = human_gate_tx.send(HumanGateDecision::Approve).await;
-                    break;
-                }
-            }
-        });
+        let approved = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let approved_clone = Arc::clone(&approved);
+        let human_gate_tx_clone = human_gate_tx.clone();
 
         // Run human_gated_loop production workflow
         let state = engine
@@ -9734,7 +9721,12 @@ mod tests {
                 human_gate_rx,
                 worker_reclaim_rx,
                 Arc::new(move |event| {
-                    event_sink.lock().unwrap().push(event);
+                    event_sink.lock().unwrap().push(event.clone());
+                    if event.step == WorkflowState::HumanGate
+                        && !approved_clone.swap(true, std::sync::atomic::Ordering::SeqCst)
+                    {
+                        let _ = human_gate_tx_clone.try_send(HumanGateDecision::Approve);
+                    }
                     Ok(())
                 }),
                 Arc::new(|_| {}),
@@ -9861,22 +9853,9 @@ mod tests {
         let (human_gate_tx, human_gate_rx) = mpsc::channel(1);
         let (_worker_reclaim_tx, worker_reclaim_rx) = mpsc::channel(1);
 
-        // Auto-approve human gate in background
-        let events_clone = Arc::clone(&events);
-        tokio::spawn(async move {
-            for _ in 0..100 {
-                tokio::time::sleep(tokio::time::Duration::from_millis(15)).await;
-                let is_human_gate = events_clone
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .any(|e| e.step == WorkflowState::HumanGate);
-                if is_human_gate {
-                    let _ = human_gate_tx.send(HumanGateDecision::Approve).await;
-                    break;
-                }
-            }
-        });
+        let approved = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let approved_clone = Arc::clone(&approved);
+        let human_gate_tx_clone = human_gate_tx.clone();
 
         // Run human_gated_loop production workflow
         let state = engine
@@ -9894,7 +9873,12 @@ mod tests {
                 human_gate_rx,
                 worker_reclaim_rx,
                 Arc::new(move |event| {
-                    event_sink.lock().unwrap().push(event);
+                    event_sink.lock().unwrap().push(event.clone());
+                    if event.step == WorkflowState::HumanGate
+                        && !approved_clone.swap(true, std::sync::atomic::Ordering::SeqCst)
+                    {
+                        let _ = human_gate_tx_clone.try_send(HumanGateDecision::Approve);
+                    }
                     Ok(())
                 }),
                 Arc::new(|_| {}),
@@ -10002,6 +9986,21 @@ mod tests {
         assert!(events.lock().unwrap().is_empty());
     }
 
+    struct CaptureDriftSeamGuard;
+    impl Drop for CaptureDriftSeamGuard {
+        fn drop(&mut self) {
+            super::super::plan_workspace::set_capture_drift_seam(None);
+        }
+    }
+
+    fn set_scoped_capture_drift_seam<F>(seam: F) -> CaptureDriftSeamGuard
+    where
+        F: Fn(&super::super::plan_workspace::PlanContext, usize) + Send + Sync + 'static,
+    {
+        super::super::plan_workspace::set_capture_drift_seam(Some(Arc::new(seam)));
+        CaptureDriftSeamGuard
+    }
+
     #[tokio::test]
     async fn test_production_workflow_run_entry_fails_closed_on_persistent_digest_drift_seam_before_side_effects() {
         let _serial = super::super::plan_workspace::hold_plan_workspace_test_serial();
@@ -10022,10 +10021,22 @@ mod tests {
         snapshot.plan_workspace.version_sources = vec!["package.json".to_string()];
         snapshot.plan_workspace.plan_series_version_override = Some("0.24.0".to_string());
 
+        let canonical_root = std::fs::canonicalize(&root).expect("canonicalize fixture root");
+        let canonical_root_str = canonical_root.to_string_lossy().to_string();
+
         let plan_file_clone = plan_file.clone();
-        super::super::plan_workspace::set_capture_drift_seam(Some(Arc::new(move |_, attempt| {
-            fs::write(&plan_file_clone, format!("# Mutated on attempt {attempt}\n")).unwrap();
-        })));
+        let fire_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let last_attempt = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let fire_count_clone = Arc::clone(&fire_count);
+        let last_attempt_clone = Arc::clone(&last_attempt);
+
+        let _seam_guard = set_scoped_capture_drift_seam(move |context, attempt| {
+            if context.project_root_identity == canonical_root_str {
+                fire_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                last_attempt_clone.store(attempt, std::sync::atomic::Ordering::SeqCst);
+                fs::write(&plan_file_clone, format!("# Mutated on attempt {attempt}\n")).unwrap();
+            }
+        });
 
         let engine = OrchestratorEngine::with_scripted_adapters(vec![], vec![]);
         let scripted_executor = engine.scripted_adapter_executor.clone().unwrap();
@@ -10062,11 +10073,15 @@ mod tests {
             .await
             .unwrap_err();
 
-        // Clear seam
-        super::super::plan_workspace::set_capture_drift_seam(None);
+        let fires = fire_count.load(std::sync::atomic::Ordering::SeqCst);
+        let attempt = last_attempt.load(std::sync::atomic::Ordering::SeqCst);
 
         // 1. Assert typed error
-        assert!(err.contains("stale_plan_file_digest"));
+        assert!(
+            err.contains("stale_plan_file_digest"),
+            "Expected stale_plan_file_digest, got: {err}, fires={fires}, attempt={attempt}, root={canonical_root:?}"
+        );
+        assert!(fires >= 1, "Expected drift seam to fire for target root (fires={fires})");
 
         // 2. Assert no provider/model call occurred
         assert!(scripted_executor.calls.lock().unwrap().is_empty());
@@ -10095,13 +10110,22 @@ mod tests {
         snapshot.plan_workspace.version_sources = vec!["package.json".to_string()];
         snapshot.plan_workspace.plan_series_version_override = Some("0.24.0".to_string());
 
+        let canonical_root = std::fs::canonicalize(&root).expect("canonicalize fixture root");
+        let canonical_root_str = canonical_root.to_string_lossy().to_string();
+
         let plan_file_clone = plan_file.clone();
-        super::super::plan_workspace::set_capture_drift_seam(Some(Arc::new(move |_, attempt| {
-            // Mutate ONLY on attempt 0 (transient drift)
-            if attempt == 0 {
-                fs::write(&plan_file_clone, "# Transient Mutated Plan Content\n").unwrap();
+        let fire_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let fire_count_clone = Arc::clone(&fire_count);
+
+        let _seam_guard = set_scoped_capture_drift_seam(move |context, attempt| {
+            if context.project_root_identity == canonical_root_str {
+                fire_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                // Mutate ONLY on attempt 0 (transient drift)
+                if attempt == 0 {
+                    fs::write(&plan_file_clone, "# Transient Mutated Plan Content\n").unwrap();
+                }
             }
-        })));
+        });
 
         let scripted_adapters = vec![
             (
@@ -10166,8 +10190,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Clear seam
-        super::super::plan_workspace::set_capture_drift_seam(None);
+        let fires = fire_count.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(fires >= 1, "Expected transient drift seam to fire for target root (fires={fires})");
 
         assert_eq!(state, WorkflowState::Complete);
 
@@ -10179,6 +10203,98 @@ mod tests {
             .map(|(_, p)| p.clone())
             .expect("Planner prompt captured");
         assert!(planner_prompt.contains("Transient Mutated Plan Content"));
+    }
+
+    #[test]
+    fn test_production_workflow_capture_drift_seam_root_binding_isolation() {
+        let _serial = super::super::plan_workspace::hold_plan_workspace_test_serial();
+
+        let temp_a = tempfile::tempdir().unwrap();
+        let root_a = temp_a.path().to_path_buf();
+        fs::write(
+            root_a.join("package.json"),
+            r#"{"name":"proj-a","version":"0.24.0"}"#,
+        )
+        .unwrap();
+        let plan_dir_a = root_a.join(".plan");
+        fs::create_dir_all(&plan_dir_a).unwrap();
+        let plan_file_a = plan_dir_a.join("V0.24.0-r1.md");
+        fs::write(&plan_file_a, "# Root A Plan\n").unwrap();
+
+        let temp_b = tempfile::tempdir().unwrap();
+        let root_b = temp_b.path().to_path_buf();
+        fs::write(
+            root_b.join("package.json"),
+            r#"{"name":"proj-b","version":"0.24.0"}"#,
+        )
+        .unwrap();
+        let plan_dir_b = root_b.join(".plan");
+        fs::create_dir_all(&plan_dir_b).unwrap();
+        let plan_file_b = plan_dir_b.join("V0.24.0-r1.md");
+        fs::write(&plan_file_b, "# Root B Plan\n").unwrap();
+
+        let canon_a = std::fs::canonicalize(&root_a).expect("canonicalize root_a");
+        let canon_a_str = canon_a.to_string_lossy().to_string();
+
+        let fire_count_a = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let fire_count_a_clone = Arc::clone(&fire_count_a);
+        let plan_file_a_clone = plan_file_a.clone();
+
+        let _seam_guard = set_scoped_capture_drift_seam(move |context, attempt| {
+            if context.project_root_identity == canon_a_str {
+                fire_count_a_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                fs::write(&plan_file_a_clone, format!("# Mutated Root A attempt {attempt}\n")).unwrap();
+            }
+        });
+
+        let mut config_b = super::super::plan_workspace::PlanWorkspaceConfig::default();
+        config_b.version_sources = vec!["package.json".to_string()];
+        config_b.plan_series_version_override = Some("0.24.0".to_string());
+
+        // 1. Capture snapshot for Root B: seam targets Root A, so Root B must be untouched and succeed
+        let snapshot_b = super::super::plan_workspace::capture_frozen_plan_snapshot(&root_b, &config_b)
+            .expect("Root B capture should succeed without concurrency drift");
+        assert_eq!(
+            snapshot_b.primary_plan_content.as_deref(),
+            Some("# Root B Plan\n")
+        );
+        assert!(
+            snapshot_b
+                .effective_plan_content
+                .as_deref()
+                .unwrap_or_default()
+                .contains("# Root B Plan\n")
+        );
+        assert_eq!(
+            fire_count_a.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "Root A seam must not fire for Root B capture"
+        );
+        let plan_a_content_after_b = fs::read_to_string(&plan_file_a).unwrap();
+        assert_eq!(
+            plan_a_content_after_b,
+            "# Root A Plan\n",
+            "Root A plan file must remain untouched during Root B capture"
+        );
+
+        // 2. Capture snapshot for Root A: seam matches Root A and mutates every attempt -> must fail with stale_plan_file_digest
+        let mut config_a = super::super::plan_workspace::PlanWorkspaceConfig::default();
+        config_a.version_sources = vec!["package.json".to_string()];
+        config_a.plan_series_version_override = Some("0.24.0".to_string());
+
+        let err_a = super::super::plan_workspace::capture_frozen_plan_snapshot(&root_a, &config_a)
+            .expect_err("Root A capture should fail closed due to persistent drift");
+        let fires_a = fire_count_a.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(
+            fires_a >= 1,
+            "Root A seam must fire when capturing Root A (fires={fires_a})"
+        );
+        assert_eq!(
+            err_a.code,
+            "stale_plan_file_digest",
+            "Expected stale_plan_file_digest code for Root A, got: {:?}",
+            err_a
+        );
     }
 
     #[tokio::test]

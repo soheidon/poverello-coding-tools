@@ -36,7 +36,7 @@ describe("TitleBar Component", () => {
     expect(screen.getByRole("button", { name: /Gateway for Claude Desktop/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /MCP for Antigravity/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Antigravity Rules/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Orchestrator/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Orchestrator/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /header\.settings/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Auto-Converge/i })).not.toBeInTheDocument();
 

@@ -1,4 +1,4 @@
-// ---- Health ----
+﻿// ---- Health ----
 export interface HealthStatus {
   status: string;
   upstream: string;
@@ -227,6 +227,7 @@ export interface AntigravityCommandItemInfo {
 
 export interface AntigravityCommandsInfo {
   skills_dir: string;
+  commands?: AntigravityCommandItemInfo[];
   plan_command: AntigravityCommandItemInfo;
   revise_command: AntigravityCommandItemInfo;
   review_command: AntigravityCommandItemInfo;
@@ -234,6 +235,16 @@ export interface AntigravityCommandsInfo {
   legacy_revise_command?: AntigravityCommandItemInfo | null;
   legacy_review_command?: AntigravityCommandItemInfo | null;
   install_all_results?: AntigravityCommandInstallResult[] | null;
+}
+
+export type AntigravityGlobalRuleId = "deepseek_harness" | "codex_cli";
+export interface AntigravityGlobalRuleStatus {
+  id: AntigravityGlobalRuleId;
+  file_name: string;
+  path: string;
+  exists: boolean;
+  content: string;
+  content_hash: string;
 }
 
 export type AntigravityCommandInstallOutcome = "installed" | "already_current" | "refused" | "failed" | "not_attempted";

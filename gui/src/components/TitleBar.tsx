@@ -133,14 +133,6 @@ export default function TitleBar({
 
             <button
               type="button"
-              className={`titlebar-tab titlebar-tab-orchestrator ${activeTab === "orchestrator" ? "titlebar-tab-active" : ""}`}
-              onClick={() => onTabChange("orchestrator")}
-            >
-              {t("tab.orchestrator")}
-            </button>
-
-            <button
-              type="button"
               className={`titlebar-tab titlebar-tab-settings ${activeTab === "settings" ? "titlebar-tab-active" : ""}`}
               onClick={() => onTabChange("settings")}
             >

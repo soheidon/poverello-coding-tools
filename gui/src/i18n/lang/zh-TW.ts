@@ -1,4 +1,4 @@
-import type { TranslationMap } from "./en";
+﻿import type { TranslationMap } from "./en";
 
 export const nativeName = "中文(繁體)";
 
@@ -70,14 +70,24 @@ export const translations: TranslationMap = {
   "antigravity.btnRemove": "移除設定",
   "antigravity.savedMessage": "已儲存",
 
-  // Antigravity Commands (/pov-plan, /pov-revise & /pov-review)
-  "antigravity.commandsSectionHeader": "Antigravity Commands (/pov-plan, /pov-revise & /pov-review)",
-  "antigravity.commandsDesc": "註冊全域斜線指令 (/pov-plan, /pov-revise, /pov-review)，在 Antigravity 中建立和修訂實作計畫。",
-  "antigravity.commandPlanTitle": "/pov-plan",
+  // Antigravity Commands (/pov-mcp-plan, /pov-mcp-revise & /pov-mcp-review)
+  "antigravity.commandsSectionHeader": "Antigravity Commands（6 個 Skill）",
+  "antigravity.commandsDesc": "安裝並管理 6 個全域 Skill。",
+  "antigravity.commandGenericDesc": "用於規劃、審查或實作工作流程的 Skill。",
+  "antigravity.globalRulesTitle": "全域規則",
+  "antigravity.globalRulesDiscardChangesConfirm": "捨棄未儲存的變更並開啟另一個規則檔案嗎？",
+  "antigravity.globalRulesSelect": "選擇規則檔案",
+  "antigravity.globalRulesEditor": "編輯全域 Markdown 規則",
+  "antigravity.globalRulesSave": "儲存規則",
+  "antigravity.btnOpenRulesFolder": "開啟規則資料夾",
+  "antigravity.globalRulesNotCreated": "檔案尚不存在，儲存時會建立。",
+  "antigravity.globalRulesUnsaved": "有未儲存的變更",
+  "antigravity.globalRulesSaved": "規則已儲存。",
+  "antigravity.commandPlanTitle": "/pov-mcp-plan",
   "antigravity.commandPlanDesc": "從零開始建立新的實作計畫。",
-  "antigravity.commandReviseTitle": "/pov-revise",
+  "antigravity.commandReviseTitle": "/pov-mcp-revise",
   "antigravity.commandReviseDesc": "根據使用者回饋修訂現有的實作計畫。",
-  "antigravity.commandReviewTitle": "/pov-review",
+  "antigravity.commandReviewTitle": "/pov-mcp-review",
   "antigravity.commandReviewDesc": "對照已批准的計畫審查實作差異，並輸出三級審查結論。",
   "antigravity.commandStatusInstalled": "已安裝",
   "antigravity.commandStatusNotInstalled": "未安裝",
@@ -95,7 +105,7 @@ export const translations: TranslationMap = {
   "antigravity.btnOpenSkillsFolder": "開啟技能資料夾",
   "antigravity.commandsMcpWarning": "⚠ Poverello MCP 伺服器尚未在 Antigravity 中註冊。使用指令前請先完成上方 MCP 設定。",
   "antigravity.legacyNoticeTitle": "偵測到舊版 Skill",
-  "antigravity.legacyNoticeDesc": "舊版 Skill (/anthro-plan, /anthro-revise, /anthro-review) 將予以保留。Poverello 使用 /pov-plan、/pov-revise 與 /pov-review 作為標準指令。",
+  "antigravity.legacyNoticeDesc": "舊版 Skill (/anthro-plan, /anthro-revise, /anthro-review) 將予以保留。Poverello 使用 /pov-mcp-plan、/pov-mcp-revise 與 /pov-mcp-review 作為標準指令。",
   "antigravity.mcpLegacyPreserved": "舊版 'anthro-bridge' MCP 伺服器設定已在 mcp_config.json 中保留。",
 
   // Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight)

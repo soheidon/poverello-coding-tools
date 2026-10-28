@@ -1,4 +1,4 @@
-import type { TranslationMap } from "./en";
+﻿import type { TranslationMap } from "./en";
 
 export const nativeName = "한국어";
 
@@ -70,14 +70,24 @@ export const translations: TranslationMap = {
   "antigravity.btnRemove": "설정 제거",
   "antigravity.savedMessage": "저장됨",
 
-  // Antigravity Commands (/pov-plan, /pov-revise & /pov-review)
-  "antigravity.commandsSectionHeader": "Antigravity Commands (/pov-plan, /pov-revise & /pov-review)",
-  "antigravity.commandsDesc": "모든 Antigravity 워크스페이스에서 구현 계획을 생성하고 수정할 수 있는 전역 슬래시 명령어(/pov-plan, /pov-revise, /pov-review)를 등록하고 관리합니다.",
-  "antigravity.commandPlanTitle": "/pov-plan",
+  // Antigravity Commands (/pov-mcp-plan, /pov-mcp-revise & /pov-mcp-review)
+  "antigravity.commandsSectionHeader": "Antigravity Commands (6 Skills)",
+  "antigravity.commandsDesc": "6개의 전역 Skill을 설치하고 관리합니다.",
+  "antigravity.commandGenericDesc": "계획, 리뷰 또는 구현 워크플로용 Skill입니다.",
+  "antigravity.globalRulesTitle": "전역 규칙",
+  "antigravity.globalRulesDiscardChangesConfirm": "저장하지 않은 변경 사항을 버리고 다른 규칙 파일을 여시겠습니까?",
+  "antigravity.globalRulesSelect": "규칙 파일 선택",
+  "antigravity.globalRulesEditor": "전역 Markdown 규칙 편집",
+  "antigravity.globalRulesSave": "규칙 저장",
+  "antigravity.btnOpenRulesFolder": "규칙 폴더 열기",
+  "antigravity.globalRulesNotCreated": "파일이 없습니다. 저장할 때 생성됩니다.",
+  "antigravity.globalRulesUnsaved": "저장되지 않은 변경 사항",
+  "antigravity.globalRulesSaved": "규칙을 저장했습니다.",
+  "antigravity.commandPlanTitle": "/pov-mcp-plan",
   "antigravity.commandPlanDesc": "처음부터 새로운 구현 계획을 생성합니다.",
-  "antigravity.commandReviseTitle": "/pov-revise",
+  "antigravity.commandReviseTitle": "/pov-mcp-revise",
   "antigravity.commandReviseDesc": "사용자 피드백을 바탕으로 기존 구현 계획을 수정합니다.",
-  "antigravity.commandReviewTitle": "/pov-review",
+  "antigravity.commandReviewTitle": "/pov-mcp-review",
   "antigravity.commandReviewDesc": "승인된 계획과 구현 차이점을 대조하여 3단계 판정을 출력합니다.",
   "antigravity.commandStatusInstalled": "설치됨",
   "antigravity.commandStatusNotInstalled": "미설치",
@@ -95,7 +105,7 @@ export const translations: TranslationMap = {
   "antigravity.btnOpenSkillsFolder": "스킬 폴더 열기",
   "antigravity.commandsMcpWarning": "⚠ Poverello MCP 서버가 Antigravity에 등록되어 있지 않습니다. 명령어를 사용하기 전에 위의 MCP 설정을 먼저 등록하세요.",
   "antigravity.legacyNoticeTitle": "기존 레거시 Skill 감지됨",
-  "antigravity.legacyNoticeDesc": "레거시 Skill(/anthro-plan, /anthro-revise, /anthro-review)은 유지됩니다. Poverello의 표준 명령어는 /pov-plan, /pov-revise, /pov-review 입니다.",
+  "antigravity.legacyNoticeDesc": "레거시 Skill(/anthro-plan, /anthro-revise, /anthro-review)은 유지됩니다. Poverello의 표준 명령어는 /pov-mcp-plan, /pov-mcp-revise, /pov-mcp-review 입니다.",
   "antigravity.mcpLegacyPreserved": "레거시 'anthro-bridge' MCP 서버 설정이 mcp_config.json에 보존되어 있습니다.",
 
   // Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight)

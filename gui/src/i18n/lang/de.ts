@@ -1,4 +1,4 @@
-import type { TranslationMap } from "./en";
+﻿import type { TranslationMap } from "./en";
 
 export const nativeName = "Deutsch";
 
@@ -70,14 +70,24 @@ export const translations: TranslationMap = {
   "antigravity.btnRemove": "Konfiguration entfernen",
   "antigravity.savedMessage": "Gespeichert",
 
-  // Antigravity Commands (/pov-plan, /pov-revise & /pov-review)
-  "antigravity.commandsSectionHeader": "Antigravity Commands (/pov-plan, /pov-revise & /pov-review)",
-  "antigravity.commandsDesc": "Registriert globale Slash-Befehle (/pov-plan, /pov-revise, /pov-review) zum Erstellen und Überarbeiten von Implementierungsplänen in Antigravity.",
-  "antigravity.commandPlanTitle": "/pov-plan",
+  // Antigravity Commands (/pov-mcp-plan, /pov-mcp-revise & /pov-mcp-review)
+  "antigravity.commandsSectionHeader": "Antigravity Commands (6 Skills)",
+  "antigravity.commandsDesc": "Installiert und verwaltet sechs globale Skills.",
+  "antigravity.commandGenericDesc": "Skill für Planungs-, Review- oder Implementierungsabläufe.",
+  "antigravity.globalRulesTitle": "Globale Regeln",
+  "antigravity.globalRulesDiscardChangesConfirm": "Nicht gespeicherte Änderungen verwerfen und eine andere Regeldatei öffnen?",
+  "antigravity.globalRulesSelect": "Regeldatei auswählen",
+  "antigravity.globalRulesEditor": "Globale Markdown-Regel bearbeiten",
+  "antigravity.globalRulesSave": "Regel speichern",
+  "antigravity.btnOpenRulesFolder": "Regelordner öffnen",
+  "antigravity.globalRulesNotCreated": "Die Datei fehlt und wird beim Speichern erstellt.",
+  "antigravity.globalRulesUnsaved": "Ungespeicherte Änderungen",
+  "antigravity.globalRulesSaved": "Regel gespeichert.",
+  "antigravity.commandPlanTitle": "/pov-mcp-plan",
   "antigravity.commandPlanDesc": "Erstellt einen neuen Implementierungsplan von Grund auf.",
-  "antigravity.commandReviseTitle": "/pov-revise",
+  "antigravity.commandReviseTitle": "/pov-mcp-revise",
   "antigravity.commandReviseDesc": "Überarbeitet einen bestehenden Implementierungsplan basierend auf Benutzerfeedback.",
-  "antigravity.commandReviewTitle": "/pov-review",
+  "antigravity.commandReviewTitle": "/pov-mcp-review",
   "antigravity.commandReviewDesc": "Überprüft eine Implementierung anhand des genehmigten Plans und gibt ein 3-stufiges Urteil aus.",
   "antigravity.commandStatusInstalled": "Installiert",
   "antigravity.commandStatusNotInstalled": "Nicht installiert",
@@ -95,7 +105,7 @@ export const translations: TranslationMap = {
   "antigravity.btnOpenSkillsFolder": "Skill-Ordner öffnen",
   "antigravity.commandsMcpWarning": "⚠ Poverello MCP-Server ist nicht in Antigravity registriert. Registrieren Sie MCP oben, um Antigravity Commands zu verwenden.",
   "antigravity.legacyNoticeTitle": "Legacy-Skills erkannt",
-  "antigravity.legacyNoticeDesc": "Legacy-Skills (/anthro-plan, /anthro-revise, /anthro-review) bleiben erhalten. Poverello verwendet /pov-plan, /pov-revise und /pov-review als kanonische Befehle.",
+  "antigravity.legacyNoticeDesc": "Legacy-Skills (/anthro-plan, /anthro-revise, /anthro-review) bleiben erhalten. Poverello verwendet /pov-mcp-plan, /pov-mcp-revise und /pov-mcp-review als kanonische Befehle.",
   "antigravity.mcpLegacyPreserved": "Legacy-Server 'anthro-bridge' wurde erkannt und in mcp_config.json beibehalten.",
 
   // Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight)

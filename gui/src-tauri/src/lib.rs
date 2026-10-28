@@ -19,6 +19,7 @@ mod model_routing;
 mod openrouter;
 pub mod orchestrator;
 mod paths;
+mod antigravity_global_rules;
 pub mod pov_direct;
 pub mod pov_nerf;
 mod proxy;
@@ -6308,112 +6309,11 @@ fn remove_antigravity_mcp() -> Result<AntigravityMcpInfo, String> {
 // and legacy /anthro-plan, /anthro-revise, /anthro-review (Compatibility)
 // ---------------------------------------------------------------------------
 
-pub const ANTIGRAVITY_POV_PLAN_SKILL_MD: &str = r#"---
-name: pov-plan
-description: Create an implementation plan for the user's task using the Poverello external planner without implementing the task.
----
+pub const ANTIGRAVITY_POV_PLAN_SKILL_MD: &str = include_str!("../resources/antigravity-skills/pov-mcp-plan/SKILL.md");
 
-# Pov Plan
+pub const ANTIGRAVITY_POV_REVISE_SKILL_MD: &str = include_str!("../resources/antigravity-skills/pov-mcp-revise/SKILL.md");
 
-Create a comprehensive implementation plan for the requested task using the Poverello external MCP planner.
-
-## Instructions
-1. Inspect the repository and identify only the files and code relevant to the user's request.
-2. Read the relevant implementation, configuration, and tests needed to understand the task.
-3. Summarize only the repository context necessary for implementation planning.
-4. Call `poverello/plan` exactly once with:
-   - the user's task;
-   - the relevant repository context;
-   - important implementation constraints.
-5. Use the returned external-model plan to produce the final comprehensive implementation plan.
-6. Do not edit files.
-7. Do not run implementation commands.
-8. Do not begin implementation.
-9. Stop after presenting the implementation plan.
-"#;
-
-pub const ANTIGRAVITY_POV_REVISE_SKILL_MD: &str = r#"---
-name: pov-revise
-description: Revise the current implementation plan using the Poverello external planner without implementing the task.
----
-
-# Pov Revise
-
-Revise an existing implementation plan based on user feedback using the Poverello external MCP planner.
-
-## Instructions
-1. Identify the implementation plan to revise using the following priority:
-   - Priority 1: An implementation plan present in the active conversation context.
-   - Priority 2: An active implementation plan artifact (e.g. `implementation_plan.md`).
-   - If neither is found, STOP immediately and ask the user to provide or specify the plan to revise. Do not guess from historical transcripts.
-2. Identify the user's requested revisions, feedback, or new constraints.
-3. Inspect additional repository context only if needed.
-4. Call `poverello/revise` exactly once with:
-   - the original task;
-   - the current implementation plan;
-   - the requested revisions and feedback;
-   - newly relevant constraints or repository context.
-5. Produce the revised implementation plan, preserving valid sections of the previous plan unless the revisions require changing them.
-6. Do not edit files.
-7. Do not run implementation commands.
-8. Do not begin implementation.
-9. Stop after presenting the revised implementation plan.
-"#;
-
-pub const ANTIGRAVITY_POV_REVIEW_SKILL_MD: &str = r#"---
-name: pov-review
-description: Review the current implementation against the approved plan using the Poverello external reviewer without editing code or committing.
----
-
-# Pov Review
-
-Review an implementation against its approved implementation plan using the Poverello external MCP review tool.
-
-## Instructions
-1. Identify the approved implementation plan using the following priority:
-   - Priority 1: An approved implementation plan present in the active conversation context.
-   - Priority 2: An active implementation plan artifact (e.g. `implementation_plan.md`).
-   - If neither is found, STOP immediately and ask the user to provide or specify the plan to review. Do not guess from historical transcripts or older plan files (review tool calls = 0).
-2. Collect working tree changes and status:
-   - Inspect git status: run `git status --short`.
-   - Collect tracked changes: run `git diff HEAD` to capture all staged and unstaged modifications from HEAD to the working tree.
-   - Collect untracked changes: for all review-relevant untracked files (source, tests, configs, scripts, resources, docs) appearing as `??` in `git status --short`, read their content and append as synthetic diff blocks:
-     ```text
-     --- UNTRACKED FILE: path/to/file ---
-     <content>
-     ```
-   - For large binary, vendor, or generated files that cannot be transmitted in full, provide explicit metadata instead (path, type, size, omission reason).
-   - Do not silently truncate the review payload. If the complete relevant diff cannot fit within context, STOP and report that the review cannot be performed reliably rather than requesting an approval from incomplete evidence.
-3. Inspect relevant code and bridge context:
-   - Read adjacent source files, contract boundaries, caller/callee invariants, or surrounding repository context when required to understand invariants.
-   - Distill the relevant findings into `additional_context`. Never assume repository files inspected by the host agent are automatically visible to the external reviewer model.
-4. Collect test results:
-   - Local test execution is not subject to the exactly-once rule.
-   - Run targeted tests, regression tests, full test suites, package/build validation (`R CMD check`, `cargo test`, `npm test/build`), statistical-invariance checks, reproducibility checks, RNG/deterministic-seed tests, serial/parallel equivalence checks, or other domain-appropriate verification as many times as necessary to collect sufficient review evidence.
-   - Tests may be run iteratively: results from one test may justify running additional focused checks before the final review evidence is assembled.
-   - For documentation-only changes, testing may be omitted if code logic and packaging invariants are unaffected.
-5. Call `poverello/review`:
-   - The exactly-once rule applies strictly to `poverello/review` tool calls, not to local test execution or evidence collection.
-   - Call `poverello/review` exactly once upon receipt of a usable verdict.
-   - A usable verdict must contain one of the following consistent pairs:
-     - `Decision: Approved` with `Commit readiness: READY`
-     - `Decision: Approved with recommendations` with `Commit readiness: READY`
-     - `Decision: Not approved` with `Commit readiness: NOT READY`
-   - Any response missing these sections, containing an unsupported decision, or presenting contradictory readiness (e.g. `Approved` + `NOT READY`) is unusable.
-   - Duplicate review calls are prohibited once a usable verdict is obtained.
-   - If the tool call itself fails or returns an unusable response (e.g. transport, decoding error, or inconsistent verdict), exactly 1 recovery retry is permitted.
-   - Supply:
-     - `task`: Concise statement of what was implemented.
-     - `approved_plan`: The exact text of the approved plan.
-     - `git_diff`: Tracked diff (`git diff HEAD`) plus review-relevant untracked files.
-     - `git_status`: Output of `git status --short`.
-     - `test_results`: Test summary (if applicable).
-     - `additional_context`: Surrounding contracts or constraints inspected by the host agent.
-6. Present the returned review verdict verbatim (Approved / Approved with recommendations / Not approved) along with the Plan Compliance Matrix and Blocking Issues.
-7. Do not edit files.
-8. Do not create git commits, tags, or releases.
-9. Stop after presenting the review verdict.
-"#;
+pub const ANTIGRAVITY_POV_REVIEW_SKILL_MD: &str = include_str!("../resources/antigravity-skills/pov-mcp-review/SKILL.md");
 
 pub const ANTIGRAVITY_ANTHRO_PLAN_SKILL_MD: &str = r#"---
 name: anthro-plan
@@ -6522,6 +6422,10 @@ Review an implementation against its approved implementation plan using the Pove
 9. Stop after presenting the review verdict.
 "#;
 
+pub const ANTIGRAVITY_POV_FULL_CYCLE_SKILL_MD: &str = include_str!("../resources/antigravity-skills/pov-full-cycle/SKILL.md");
+pub const ANTIGRAVITY_POV_PLAN_ONLY_SKILL_MD: &str = include_str!("../resources/antigravity-skills/pov-plan-only/SKILL.md");
+pub const ANTIGRAVITY_POV_BUILD_REVIEW_SKILL_MD: &str = include_str!("../resources/antigravity-skills/pov-build-review/SKILL.md");
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AntigravitySkillStatus {
@@ -6543,6 +6447,8 @@ pub struct AntigravityCommandItemInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AntigravityCommandsInfo {
     pub skills_dir: String,
+    #[serde(default)]
+    pub commands: Vec<AntigravityCommandItemInfo>,
     pub plan_command: AntigravityCommandItemInfo,
     pub revise_command: AntigravityCommandItemInfo,
     pub review_command: AntigravityCommandItemInfo,
@@ -6623,14 +6529,17 @@ fn ensure_no_link_or_reparse_components(path: &Path) -> Result<(), String> {
 
 pub fn resolve_allowed_antigravity_command(name: &str) -> Result<(&'static str, &'static str, &'static str), String> {
     match name {
-        "pov-plan" => Ok(("pov-plan", "/pov-plan", ANTIGRAVITY_POV_PLAN_SKILL_MD)),
-        "pov-revise" => Ok(("pov-revise", "/pov-revise", ANTIGRAVITY_POV_REVISE_SKILL_MD)),
-        "pov-review" => Ok(("pov-review", "/pov-review", ANTIGRAVITY_POV_REVIEW_SKILL_MD)),
+        "pov-mcp-plan" => Ok(("pov-mcp-plan", "/pov-mcp-plan", ANTIGRAVITY_POV_PLAN_SKILL_MD)),
+        "pov-mcp-revise" => Ok(("pov-mcp-revise", "/pov-mcp-revise", ANTIGRAVITY_POV_REVISE_SKILL_MD)),
+        "pov-mcp-review" => Ok(("pov-mcp-review", "/pov-mcp-review", ANTIGRAVITY_POV_REVIEW_SKILL_MD)),
+        "pov-full-cycle" => Ok(("pov-full-cycle", "/pov-full-cycle", ANTIGRAVITY_POV_FULL_CYCLE_SKILL_MD)),
+        "pov-plan-only" => Ok(("pov-plan-only", "/pov-plan-only", ANTIGRAVITY_POV_PLAN_ONLY_SKILL_MD)),
+        "pov-build-review" => Ok(("pov-build-review", "/pov-build-review", ANTIGRAVITY_POV_BUILD_REVIEW_SKILL_MD)),
         "anthro-plan" => Ok(("anthro-plan", "/anthro-plan", ANTIGRAVITY_ANTHRO_PLAN_SKILL_MD)),
         "anthro-revise" => Ok(("anthro-revise", "/anthro-revise", ANTIGRAVITY_ANTHRO_REVISE_SKILL_MD)),
         "anthro-review" => Ok(("anthro-review", "/anthro-review", ANTIGRAVITY_ANTHRO_REVIEW_SKILL_MD)),
         _ => Err(format!(
-            "Unsupported Antigravity command name: '{name}'. Only canonical ('pov-plan', 'pov-revise', 'pov-review') and legacy ('anthro-plan', 'anthro-revise', 'anthro-review') commands are supported."
+            "Unsupported Antigravity command name: '{name}'. Only the six canonical Poverello Skills and legacy status-only Anthro Skills are supported."
         )),
     }
 }
@@ -6734,7 +6643,65 @@ pub fn install_antigravity_command_at(
     skills_root: &Path,
     name: &str,
 ) -> Result<AntigravityCommandItemInfo, String> {
+    migrate_legacy_mcp_skill_folder(skills_root, name)?;
     install_antigravity_command_with_reader(skills_root, name, &|path| std::fs::read(path))
+}
+
+fn migrate_legacy_mcp_skill_folder(skills_root: &Path, name: &str) -> Result<(), String> {
+    let old = match name {
+        "pov-mcp-plan" => "pov-plan",
+        "pov-mcp-revise" => "pov-revise",
+        "pov-mcp-review" => "pov-review",
+        _ => return Ok(()),
+    };
+    let old_dir = skills_root.join(old);
+    let new_dir = skills_root.join(name);
+    match std::fs::symlink_metadata(&old_dir) {
+        Ok(metadata) if metadata.is_dir() => {}
+        Ok(_) => {
+            return Err(format!(
+                "Legacy Skill path exists but is not a directory; preserved without changes: {}",
+                old_dir.display()
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(format!(
+                "Cannot inspect legacy Skill path; preserved without changes at {}: {error}",
+                old_dir.display()
+            ));
+        }
+    }
+    if new_dir.exists() {
+        return Err(format!("Both legacy and renamed Skill folders exist; neither was changed: {} and {}", old_dir.display(), new_dir.display()));
+    }
+    ensure_no_link_or_reparse_components(&old_dir)?;
+    let old_file = old_dir.join("SKILL.md");
+    ensure_no_link_or_reparse_components(&old_file)?;
+    let bytes = std::fs::read(&old_file).map_err(|e| format!("Cannot read legacy Skill; migration stopped without changing it: {e}"))?;
+    let text = String::from_utf8(bytes).map_err(|_| "Legacy Skill is not UTF-8; migration stopped without changing it".to_string())?;
+    let updated = text
+        .replacen(&format!("name: {old}"), &format!("name: {name}"), 1)
+        .replacen("# Pov Plan", "# Poverello MCP Plan", 1)
+        .replacen("# Pov Revise", "# Poverello MCP Revise", 1)
+        .replacen("# Pov Review", "# Poverello MCP Review", 1)
+        .replacen("description: Create an implementation plan for the user's task using the Poverello external planner without implementing the task.", "description: Poverello MCP経由で、設定されたモデルへ処理を依頼するSkill", 1)
+        .replacen("description: Revise the current implementation plan using the Poverello external planner without implementing the task.", "description: Poverello MCP経由で、設定されたモデルへ処理を依頼するSkill", 1)
+        .replacen("description: Review the current implementation against the approved plan using the Poverello external reviewer without editing code or committing.", "description: Poverello MCP経由で、設定されたモデルへ処理を依頼するSkill", 1);
+    let frontmatter = updated.lines().take(3).collect::<Vec<_>>();
+    let already_migrated = frontmatter.len() == 3
+        && frontmatter[0] == "---"
+        && frontmatter[1] == format!("name: {name}")
+        && frontmatter[2]
+            == "description: Poverello MCP経由で、設定されたモデルへ処理を依頼するSkill";
+    if (updated == text && !already_migrated) || frontmatter.len() < 3 || frontmatter[0] != "---" || frontmatter[1] != format!("name: {name}") {
+        return Err(format!("Legacy Skill frontmatter did not match a known template; preserved at {}", old_dir.display()));
+    }
+    std::fs::write(&old_file, updated).map_err(|e| format!("Failed to update legacy Skill metadata; preserved at {}: {e}", old_dir.display()))?;
+    std::fs::rename(&old_dir, &new_dir).map_err(|e| {
+        let restore = std::fs::write(&old_file, text.as_bytes());
+        format!("Failed to rename legacy Skill folder; original retained at {} (metadata restore: {:?}): {e}", old_dir.display(), restore.err())
+    })
 }
 
 fn install_antigravity_command_with_reader<F>(
@@ -6819,15 +6786,18 @@ where
 }
 
 pub fn get_antigravity_commands_info_at(skills_root: &Path) -> Result<AntigravityCommandsInfo, String> {
-    let plan_command = inspect_antigravity_command_status_at(skills_root, "pov-plan")?;
-    let revise_command = inspect_antigravity_command_status_at(skills_root, "pov-revise")?;
-    let review_command = inspect_antigravity_command_status_at(skills_root, "pov-review")?;
+    const CANONICAL: [&str; 6] = ["pov-mcp-plan", "pov-mcp-revise", "pov-mcp-review", "pov-full-cycle", "pov-plan-only", "pov-build-review"];
+    let commands = CANONICAL.iter().map(|name| inspect_antigravity_command_status_at(skills_root, name)).collect::<Result<Vec<_>, _>>()?;
+    let plan_command = commands[0].clone();
+    let revise_command = commands[1].clone();
+    let review_command = commands[2].clone();
     let legacy_plan_command = Some(inspect_antigravity_command_status_at(skills_root, "anthro-plan")?);
     let legacy_revise_command = Some(inspect_antigravity_command_status_at(skills_root, "anthro-revise")?);
     let legacy_review_command = Some(inspect_antigravity_command_status_at(skills_root, "anthro-review")?);
 
     Ok(AntigravityCommandsInfo {
         skills_dir: skills_root.to_string_lossy().to_string(),
+        commands,
         plan_command,
         revise_command,
         review_command,
@@ -6875,7 +6845,7 @@ fn install_all_antigravity_commands_with<F>(
 where
     F: FnMut(&Path, &str) -> Result<AntigravityCommandItemInfo, String>,
 {
-    const NAMES: [&str; 3] = ["pov-plan", "pov-revise", "pov-review"];
+    const NAMES: [&str; 6] = ["pov-mcp-plan", "pov-mcp-revise", "pov-mcp-review", "pov-full-cycle", "pov-plan-only", "pov-build-review"];
     let preflight = NAMES
         .iter()
         .map(|name| inspect_antigravity_command_status_at(skills_root, name))
@@ -7006,6 +6976,18 @@ fn open_antigravity_rules_folder() -> Result<(), String> {
             .map_err(|e| format!("Failed to create global rules directory: {e}"))?;
     }
     open_path(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn read_antigravity_global_rule(id: String) -> Result<antigravity_global_rules::GlobalRuleStatus, String> {
+    let dir = paths::antigravity_global_rules_dir()?;
+    antigravity_global_rules::read_at(&dir, &id)
+}
+
+#[tauri::command]
+fn save_antigravity_global_rule(request: antigravity_global_rules::SaveGlobalRuleRequest) -> Result<antigravity_global_rules::GlobalRuleStatus, String> {
+    let dir = paths::antigravity_global_rules_dir()?;
+    antigravity_global_rules::save_at(&dir, request)
 }
 
 // ---------------------------------------------------------------------------
@@ -9913,6 +9895,8 @@ pub fn run() {
             get_pov_direct_status,
             save_pov_direct_settings,
             open_antigravity_rules_folder,
+            read_antigravity_global_rule,
+            save_antigravity_global_rule,
             get_pov_nerf_commands_status,
             install_pov_nerf_command,
             update_pov_nerf_command,
@@ -16826,9 +16810,15 @@ mod tests {
         assert!(install_antigravity_command_at(skills_root, "invalid_name").is_err());
         assert!(remove_antigravity_command_at(skills_root, "invalid_name").is_err());
 
-        assert!(resolve_allowed_antigravity_command("pov-plan").is_ok());
-        assert!(resolve_allowed_antigravity_command("pov-revise").is_ok());
-        assert!(resolve_allowed_antigravity_command("pov-review").is_ok());
+        assert!(resolve_allowed_antigravity_command("pov-mcp-plan").is_ok());
+        assert!(resolve_allowed_antigravity_command("pov-mcp-revise").is_ok());
+        assert!(resolve_allowed_antigravity_command("pov-mcp-review").is_ok());
+        assert!(resolve_allowed_antigravity_command("pov-full-cycle").is_ok());
+        assert!(resolve_allowed_antigravity_command("pov-plan-only").is_ok());
+        assert!(resolve_allowed_antigravity_command("pov-build-review").is_ok());
+        assert!(resolve_allowed_antigravity_command("pov-plan").is_err());
+        assert!(resolve_allowed_antigravity_command("pov-revise").is_err());
+        assert!(resolve_allowed_antigravity_command("pov-review").is_err());
         assert!(resolve_allowed_antigravity_command("anthro-plan").is_ok());
         assert!(resolve_allowed_antigravity_command("anthro-revise").is_ok());
         assert!(resolve_allowed_antigravity_command("anthro-review").is_ok());
@@ -16838,21 +16828,22 @@ mod tests {
         assert_eq!(info.plan_command.status, AntigravitySkillStatus::NotInstalled);
         assert_eq!(info.revise_command.status, AntigravitySkillStatus::NotInstalled);
         assert_eq!(info.review_command.status, AntigravitySkillStatus::NotInstalled);
-        assert_eq!(info.plan_command.slash_command, "/pov-plan");
-        assert_eq!(info.revise_command.slash_command, "/pov-revise");
-        assert_eq!(info.review_command.slash_command, "/pov-review");
+        assert_eq!(info.plan_command.slash_command, "/pov-mcp-plan");
+        assert_eq!(info.revise_command.slash_command, "/pov-mcp-revise");
+        assert_eq!(info.review_command.slash_command, "/pov-mcp-review");
+        assert_eq!(info.commands.len(), 6);
 
         assert_eq!(info.legacy_plan_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
         assert_eq!(info.legacy_revise_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
         assert_eq!(info.legacy_review_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
 
-        // 3. Install canonical pov-plan
-        let plan_info = install_antigravity_command_at(skills_root, "pov-plan").unwrap();
+        // 3. Install canonical pov-mcp-plan
+        let plan_info = install_antigravity_command_at(skills_root, "pov-mcp-plan").unwrap();
         assert_eq!(plan_info.status, AntigravitySkillStatus::Installed);
-        let plan_file = skills_root.join("pov-plan").join("SKILL.md");
+        let plan_file = skills_root.join("pov-mcp-plan").join("SKILL.md");
         assert!(plan_file.exists());
         let written = std::fs::read_to_string(&plan_file).unwrap();
-        assert!(written.contains("name: pov-plan"));
+        assert!(written.contains("name: pov-mcp-plan"));
         assert!(written.contains("poverello/plan"));
 
         // Verify legacy anthro-plan remains NotInstalled and absent
@@ -16861,21 +16852,21 @@ mod tests {
         assert_eq!(info.legacy_plan_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
         assert!(!skills_root.join("anthro-plan").exists());
 
-        // 4. Install canonical pov-revise and pov-review
-        let revise_info = install_antigravity_command_at(skills_root, "pov-revise").unwrap();
+        // 4. Install canonical pov-mcp-revise and pov-mcp-review
+        let revise_info = install_antigravity_command_at(skills_root, "pov-mcp-revise").unwrap();
         assert_eq!(revise_info.status, AntigravitySkillStatus::Installed);
-        let revise_file = skills_root.join("pov-revise").join("SKILL.md");
+        let revise_file = skills_root.join("pov-mcp-revise").join("SKILL.md");
         assert!(revise_file.exists());
         let revise_written = std::fs::read_to_string(&revise_file).unwrap();
-        assert!(revise_written.contains("name: pov-revise"));
+        assert!(revise_written.contains("name: pov-mcp-revise"));
         assert!(revise_written.contains("poverello/revise"));
 
-        let review_info = install_antigravity_command_at(skills_root, "pov-review").unwrap();
+        let review_info = install_antigravity_command_at(skills_root, "pov-mcp-review").unwrap();
         assert_eq!(review_info.status, AntigravitySkillStatus::Installed);
-        let review_file = skills_root.join("pov-review").join("SKILL.md");
+        let review_file = skills_root.join("pov-mcp-review").join("SKILL.md");
         assert!(review_file.exists());
         let review_written = std::fs::read_to_string(&review_file).unwrap();
-        assert!(review_written.contains("name: pov-review"));
+        assert!(review_written.contains("name: pov-mcp-review"));
         assert!(review_written.contains("poverello/review"));
         assert!(review_written.contains("git diff HEAD"));
 
@@ -16902,12 +16893,12 @@ mod tests {
 
         // 7. User modifies canonical skill -> Invalid detected, and destructive operations refuse.
         std::fs::write(&plan_file, "# Custom canonical modification").unwrap();
-        let plan_info_mod = inspect_antigravity_command_status_at(skills_root, "pov-plan").unwrap();
+        let plan_info_mod = inspect_antigravity_command_status_at(skills_root, "pov-mcp-plan").unwrap();
         assert_eq!(plan_info_mod.status, AntigravitySkillStatus::Invalid);
         assert!(plan_info_mod.error.as_deref().unwrap().contains("user edits"));
-        assert!(install_antigravity_command_at(skills_root, "pov-plan").is_err());
-        assert!(remove_antigravity_command_at(skills_root, "pov-plan").is_err());
-        let backup_file = skills_root.join("pov-plan").join("SKILL.md.bak");
+        assert!(install_antigravity_command_at(skills_root, "pov-mcp-plan").is_err());
+        assert!(remove_antigravity_command_at(skills_root, "pov-mcp-plan").is_err());
+        let backup_file = skills_root.join("pov-mcp-plan").join("SKILL.md.bak");
         assert!(!backup_file.exists());
         assert_eq!(std::fs::read_to_string(&plan_file).unwrap(), "# Custom canonical modification");
 
@@ -16915,33 +16906,32 @@ mod tests {
         let legacy_content = std::fs::read_to_string(&legacy_plan_file).unwrap();
         assert!(legacy_content.contains("Custom legacy modification"));
 
-        // 9. Add a custom user file to pov-plan directory
-        let user_custom_note = skills_root.join("pov-plan").join("my_notes.txt");
+        // 9. Add a custom user file to pov-mcp-plan directory
+        let user_custom_note = skills_root.join("pov-mcp-plan").join("my_notes.txt");
         std::fs::write(&user_custom_note, "important notes").unwrap();
 
         // 10. Restore the exact canonical bytes, then remove only SKILL.md and preserve sibling/user files.
-        let (_, _, canonical_plan) = resolve_allowed_antigravity_command("pov-plan").unwrap();
+        let (_, _, canonical_plan) = resolve_allowed_antigravity_command("pov-mcp-plan").unwrap();
         std::fs::write(&plan_file, canonical_plan).unwrap();
-        let plan_info_removed = remove_antigravity_command_at(skills_root, "pov-plan").unwrap();
+        let plan_info_removed = remove_antigravity_command_at(skills_root, "pov-mcp-plan").unwrap();
         assert_eq!(plan_info_removed.status, AntigravitySkillStatus::NotInstalled);
         assert!(!plan_file.exists());
         assert!(!backup_file.exists());
         assert!(user_custom_note.exists());
-        assert!(skills_root.join("pov-plan").exists());
+        assert!(skills_root.join("pov-mcp-plan").exists());
         assert!(legacy_plan_file.exists());
         assert!(revise_file.exists());
         assert!(review_file.exists());
 
         // 11. Invalid SKILL.md (directory named SKILL.md)
-        std::fs::create_dir_all(skills_root.join("pov-plan").join("SKILL.md")).unwrap();
-        let info_invalid = inspect_antigravity_command_status_at(skills_root, "pov-plan").unwrap();
+        std::fs::create_dir_all(skills_root.join("pov-mcp-plan").join("SKILL.md")).unwrap();
+        let info_invalid = inspect_antigravity_command_status_at(skills_root, "pov-mcp-plan").unwrap();
         assert_eq!(info_invalid.status, AntigravitySkillStatus::Invalid);
         assert!(info_invalid.error.is_some());
-        assert!(install_antigravity_command_at(skills_root, "pov-plan").is_err());
-        assert!(remove_antigravity_command_at(skills_root, "pov-plan").is_err());
+        assert!(install_antigravity_command_at(skills_root, "pov-mcp-plan").is_err());
+        assert!(remove_antigravity_command_at(skills_root, "pov-mcp-plan").is_err());
 
-        // 12. Backend install_all_antigravity_commands_at verification:
-        // Fresh directory -> call production install_all_antigravity_commands_at -> all 3 canonical commands Installed on disk; legacy absent
+        // 12. Backend install_all_antigravity_commands_at verification: all six canonical commands install.
         let temp_all_dir = tempfile::tempdir().unwrap();
         let all_root = temp_all_dir.path();
 
@@ -16957,6 +16947,8 @@ mod tests {
         assert_eq!(installed_all.revise_command.status, AntigravitySkillStatus::Installed);
         assert_eq!(installed_all.review_command.status, AntigravitySkillStatus::Installed);
         let all_results = installed_all.install_all_results.as_ref().unwrap();
+        assert_eq!(all_results.len(), 6);
+        assert_eq!(installed_all.commands.len(), 6);
         assert!(all_results.iter().all(|r| r.outcome == AntigravityCommandInstallOutcome::Installed));
 
         let repeated_all = install_all_antigravity_commands_at(all_root).unwrap();
@@ -16965,9 +16957,12 @@ mod tests {
         ));
 
         // Verify disk files: only canonical pov-* created, legacy NOT created
-        assert!(all_root.join("pov-plan").join("SKILL.md").exists());
-        assert!(all_root.join("pov-revise").join("SKILL.md").exists());
-        assert!(all_root.join("pov-review").join("SKILL.md").exists());
+        assert!(all_root.join("pov-mcp-plan").join("SKILL.md").exists());
+        assert!(all_root.join("pov-mcp-revise").join("SKILL.md").exists());
+        assert!(all_root.join("pov-mcp-review").join("SKILL.md").exists());
+        assert!(all_root.join("pov-full-cycle").join("SKILL.md").exists());
+        assert!(all_root.join("pov-plan-only").join("SKILL.md").exists());
+        assert!(all_root.join("pov-build-review").join("SKILL.md").exists());
         assert!(!all_root.join("anthro-plan").exists());
         assert!(!all_root.join("anthro-revise").exists());
         assert!(!all_root.join("anthro-review").exists());
@@ -16975,13 +16970,13 @@ mod tests {
         // 13. Unsafe target preflight refuses the batch before installing any absent target.
         let unsafe_dir = tempfile::tempdir().unwrap();
         let unsafe_root = unsafe_dir.path();
-        let modified = unsafe_root.join("pov-revise").join("SKILL.md");
+        let modified = unsafe_root.join("pov-mcp-revise").join("SKILL.md");
         std::fs::create_dir_all(modified.parent().unwrap()).unwrap();
         std::fs::write(&modified, "user-owned revise content").unwrap();
         let preflight_result = install_all_antigravity_commands_at(unsafe_root).unwrap();
-        assert!(!unsafe_root.join("pov-plan").join("SKILL.md").exists());
+        assert!(!unsafe_root.join("pov-mcp-plan").join("SKILL.md").exists());
         assert_eq!(std::fs::read_to_string(&modified).unwrap(), "user-owned revise content");
-        assert!(!unsafe_root.join("pov-review").join("SKILL.md").exists());
+        assert!(!unsafe_root.join("pov-mcp-review").join("SKILL.md").exists());
         let outcomes = preflight_result.install_all_results.unwrap();
         assert_eq!(outcomes[0].outcome, AntigravityCommandInstallOutcome::NotAttempted);
         assert_eq!(outcomes[1].outcome, AntigravityCommandInstallOutcome::Refused);
@@ -16991,7 +16986,7 @@ mod tests {
         let failure_dir = tempfile::tempdir().unwrap();
         let failure_root = failure_dir.path();
         let partial = install_all_antigravity_commands_with(failure_root, |root, name| {
-            if name == "pov-revise" {
+            if name == "pov-mcp-revise" {
                 return Err("injected I/O failure".to_string());
             }
             install_antigravity_command_at(root, name)
@@ -17002,18 +16997,80 @@ mod tests {
         assert_eq!(outcomes[1].outcome, AntigravityCommandInstallOutcome::Failed);
         assert_eq!(outcomes[1].message.as_deref(), Some("injected I/O failure"));
         assert_eq!(outcomes[2].outcome, AntigravityCommandInstallOutcome::NotAttempted);
-        assert!(failure_root.join("pov-plan").join("SKILL.md").exists());
-        assert!(!failure_root.join("pov-revise").join("SKILL.md").exists());
-        assert!(!failure_root.join("pov-review").join("SKILL.md").exists());
+        assert!(failure_root.join("pov-mcp-plan").join("SKILL.md").exists());
+        assert!(!failure_root.join("pov-mcp-revise").join("SKILL.md").exists());
+        assert!(!failure_root.join("pov-mcp-review").join("SKILL.md").exists());
+    }
+
+    #[test]
+    fn test_antigravity_mcp_legacy_folder_migrates_and_preserves_sibling_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let old_dir = dir.path().join("pov-plan");
+        std::fs::create_dir_all(&old_dir).unwrap();
+        let old_body = ANTIGRAVITY_POV_PLAN_SKILL_MD
+            .replace("name: pov-mcp-plan", "name: pov-plan")
+            .replace("description: Poverello MCP経由で、設定されたモデルへ処理を依頼するSkill", "description: Create an implementation plan for the user's task using the Poverello external planner without implementing the task.");
+        std::fs::write(old_dir.join("SKILL.md"), old_body).unwrap();
+        std::fs::write(old_dir.join("notes.txt"), "keep me").unwrap();
+        let installed = install_antigravity_command_at(dir.path(), "pov-mcp-plan").unwrap();
+        assert_eq!(installed.status, AntigravitySkillStatus::Installed);
+        assert!(!old_dir.exists());
+        assert_eq!(std::fs::read_to_string(dir.path().join("pov-mcp-plan/notes.txt")).unwrap(), "keep me");
+        assert!(std::fs::read_to_string(dir.path().join("pov-mcp-plan/SKILL.md")).unwrap().contains("name: pov-mcp-plan"));
+    }
+
+    #[test]
+    fn test_antigravity_mcp_legacy_new_folder_collision_preserves_both() {
+        let dir = tempfile::tempdir().unwrap();
+        let old_dir = dir.path().join("pov-plan");
+        let new_dir = dir.path().join("pov-mcp-plan");
+        std::fs::create_dir_all(&old_dir).unwrap();
+        std::fs::create_dir_all(&new_dir).unwrap();
+        std::fs::write(old_dir.join("SKILL.md"), "old user data").unwrap();
+        std::fs::write(new_dir.join("SKILL.md"), "new user data").unwrap();
+        assert!(install_antigravity_command_at(dir.path(), "pov-mcp-plan").is_err());
+        assert_eq!(std::fs::read_to_string(old_dir.join("SKILL.md")).unwrap(), "old user data");
+        assert_eq!(std::fs::read_to_string(new_dir.join("SKILL.md")).unwrap(), "new user data");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_antigravity_mcp_legacy_dangling_symlink_is_preserved_and_refused() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let old_dir = dir.path().join("pov-plan");
+        symlink(dir.path().join("missing-target"), &old_dir).unwrap();
+
+        assert!(install_antigravity_command_at(dir.path(), "pov-mcp-plan").is_err());
+        assert!(std::fs::symlink_metadata(&old_dir).is_ok());
+        assert!(!dir.path().join("pov-mcp-plan").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_antigravity_mcp_legacy_dangling_reparse_is_preserved_and_refused() {
+        use std::os::windows::fs::symlink_dir;
+
+        let dir = tempfile::tempdir().unwrap();
+        let old_dir = dir.path().join("pov-plan");
+        if symlink_dir(dir.path().join("missing-target"), &old_dir).is_err() {
+            eprintln!("Skipping dangling reparse migration test: Windows symlink creation is not permitted");
+            return;
+        }
+
+        assert!(install_antigravity_command_at(dir.path(), "pov-mcp-plan").is_err());
+        assert!(std::fs::symlink_metadata(&old_dir).is_ok());
+        assert!(!dir.path().join("pov-mcp-plan").exists());
     }
 
     #[test]
     fn test_antigravity_skill_read_error_fails_closed_without_mutation() {
         let dir = tempfile::tempdir().unwrap();
         let skills_root = dir.path();
-        let skill_file = skills_root.join("pov-plan").join("SKILL.md");
+        let skill_file = skills_root.join("pov-mcp-plan").join("SKILL.md");
         std::fs::create_dir_all(skill_file.parent().unwrap()).unwrap();
-        let (_, _, canonical) = resolve_allowed_antigravity_command("pov-plan").unwrap();
+        let (_, _, canonical) = resolve_allowed_antigravity_command("pov-mcp-plan").unwrap();
         std::fs::write(&skill_file, canonical).unwrap();
         let before = std::fs::read(&skill_file).unwrap();
         let deny_read = |_path: &Path| -> std::io::Result<Vec<u8>> {
@@ -17025,15 +17082,15 @@ mod tests {
 
         let status = inspect_antigravity_command_status_with_reader(
             skills_root,
-            "pov-plan",
+            "pov-mcp-plan",
             &deny_read,
         )
         .unwrap();
         assert_eq!(status.status, AntigravitySkillStatus::Invalid);
         assert!(status.error.as_deref().unwrap().contains("injected read denial"));
 
-        assert!(install_antigravity_command_with_reader(skills_root, "pov-plan", &deny_read).is_err());
-        assert!(remove_antigravity_command_with_reader(skills_root, "pov-plan", &deny_read).is_err());
+        assert!(install_antigravity_command_with_reader(skills_root, "pov-mcp-plan", &deny_read).is_err());
+        assert!(remove_antigravity_command_with_reader(skills_root, "pov-mcp-plan", &deny_read).is_err());
         assert_eq!(std::fs::read(&skill_file).unwrap(), before);
         assert!(!skill_file.with_extension("md.bak").exists());
     }
@@ -17045,13 +17102,13 @@ mod tests {
 
         let root_dir = tempfile::tempdir().unwrap();
         let external_dir = tempfile::tempdir().unwrap();
-        let skill_dir = root_dir.path().join("pov-plan");
+        let skill_dir = root_dir.path().join("pov-mcp-plan");
         symlink(external_dir.path(), &skill_dir).unwrap();
 
-        let info = inspect_antigravity_command_status_at(root_dir.path(), "pov-plan").unwrap();
+        let info = inspect_antigravity_command_status_at(root_dir.path(), "pov-mcp-plan").unwrap();
         assert_eq!(info.status, AntigravitySkillStatus::Invalid);
         assert!(info.error.as_deref().unwrap().contains("symlink or reparse point"));
-        assert!(install_antigravity_command_at(root_dir.path(), "pov-plan").is_err());
+        assert!(install_antigravity_command_at(root_dir.path(), "pov-mcp-plan").is_err());
         assert!(!external_dir.path().join("SKILL.md").exists());
     }
 
@@ -17062,16 +17119,16 @@ mod tests {
 
         let root_dir = tempfile::tempdir().unwrap();
         let external_dir = tempfile::tempdir().unwrap();
-        let skill_dir = root_dir.path().join("pov-plan");
+        let skill_dir = root_dir.path().join("pov-mcp-plan");
         if symlink_dir(external_dir.path(), &skill_dir).is_err() {
             eprintln!("Skipping reparse-point test: Windows symlink creation is not permitted");
             return;
         }
 
-        let info = inspect_antigravity_command_status_at(root_dir.path(), "pov-plan").unwrap();
+        let info = inspect_antigravity_command_status_at(root_dir.path(), "pov-mcp-plan").unwrap();
         assert_eq!(info.status, AntigravitySkillStatus::Invalid);
         assert!(info.error.as_deref().unwrap().contains("symlink or reparse point"));
-        assert!(install_antigravity_command_at(root_dir.path(), "pov-plan").is_err());
+        assert!(install_antigravity_command_at(root_dir.path(), "pov-mcp-plan").is_err());
         assert!(!external_dir.path().join("SKILL.md").exists());
     }
 

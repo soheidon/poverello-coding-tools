@@ -1,4 +1,4 @@
-import type { TranslationMap } from "./en";
+﻿import type { TranslationMap } from "./en";
 
 export const nativeName = "日本語";
 
@@ -70,14 +70,24 @@ export const translations: TranslationMap = {
   "antigravity.btnRemove": "設定を解除",
   "antigravity.savedMessage": "保存完了",
 
-  // Antigravity Commands (/pov-plan, /pov-revise & /pov-review)
-  "antigravity.commandsSectionHeader": "Antigravity Commands (/pov-plan, /pov-revise & /pov-review)",
-  "antigravity.commandsDesc": "Antigravity の全ワークスペースから利用できるスラッシュコマンド (/pov-plan, /pov-revise, /pov-review) を登録・管理します。",
-  "antigravity.commandPlanTitle": "/pov-plan",
+  // Antigravity Commands (/pov-mcp-plan, /pov-mcp-revise & /pov-mcp-review)
+  "antigravity.commandsSectionHeader": "Antigravity Commands（6 Skill）",
+  "antigravity.commandsDesc": "6つのグローバルSkillをインストール・管理します。",
+  "antigravity.commandGenericDesc": "計画・レビュー・実装ワークフロー用のSkillです。",
+  "antigravity.globalRulesTitle": "グローバルルール",
+  "antigravity.globalRulesDiscardChangesConfirm": "未保存の変更を破棄して別のルールファイルを開きますか？",
+  "antigravity.globalRulesSelect": "ルールファイルを選択",
+  "antigravity.globalRulesEditor": "グローバルルール本文",
+  "antigravity.globalRulesSave": "保存",
+  "antigravity.btnOpenRulesFolder": "ルールフォルダーを開く",
+  "antigravity.globalRulesNotCreated": "ファイルは未作成です。保存時に作成します。",
+  "antigravity.globalRulesUnsaved": "未保存の変更",
+  "antigravity.globalRulesSaved": "ルールを保存しました。",
+  "antigravity.commandPlanTitle": "/pov-mcp-plan",
   "antigravity.commandPlanDesc": "新しい実装計画を作成します。",
-  "antigravity.commandReviseTitle": "/pov-revise",
+  "antigravity.commandReviseTitle": "/pov-mcp-revise",
   "antigravity.commandReviseDesc": "現在の実装計画に対するフィードバックや修正を反映します。",
-  "antigravity.commandReviewTitle": "/pov-review",
+  "antigravity.commandReviewTitle": "/pov-mcp-review",
   "antigravity.commandReviewDesc": "承認済み計画と実装差分を照合し、3段階の判定（Approved等）を出力します。",
   "antigravity.commandStatusInstalled": "インストール済み",
   "antigravity.commandStatusNotInstalled": "未インストール",
@@ -95,7 +105,7 @@ export const translations: TranslationMap = {
   "antigravity.btnOpenSkillsFolder": "スキルフォルダを開く",
   "antigravity.commandsMcpWarning": "⚠ Poverello MCP サーバーが Antigravity に登録されていません。コマンドを利用する前に上記の MCP 設定を登録してください。",
   "antigravity.legacyNoticeTitle": "互換用旧Skillを検出しました",
-  "antigravity.legacyNoticeDesc": "旧Skill (/anthro-plan, /anthro-revise, /anthro-review) は保持されています。Poverello の正規コマンドは /pov-plan, /pov-revise, /pov-review です。",
+  "antigravity.legacyNoticeDesc": "旧Skill (/anthro-plan, /anthro-revise, /anthro-review) は保持されています。Poverello の正規コマンドは /pov-mcp-plan, /pov-mcp-revise, /pov-mcp-review です。",
   "antigravity.mcpLegacyPreserved": "旧 'anthro-bridge' MCPサーバー設定は mcp_config.json 内で維持されています。",
 
   // Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight)

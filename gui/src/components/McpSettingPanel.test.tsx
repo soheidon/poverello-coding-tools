@@ -581,21 +581,21 @@ describe("McpSettingPanel - Antigravity Integration", () => {
       if (cmd === "get_antigravity_commands_status") {
         return {
           skills_dir: "C:\\skills",
-          plan_command: { name: "pov-plan", slash_command: "/pov-plan", status: "not_installed", skill_path: "", error: null },
-          revise_command: { name: "pov-revise", slash_command: "/pov-revise", status: "invalid", skill_path: "", error: "Modified by user" },
-          review_command: { name: "pov-review", slash_command: "/pov-review", status: "not_installed", skill_path: "", error: null },
+          plan_command: { name: "pov-mcp-plan", slash_command: "/pov-mcp-plan", status: "not_installed", skill_path: "", error: null },
+          revise_command: { name: "pov-mcp-revise", slash_command: "/pov-mcp-revise", status: "invalid", skill_path: "", error: "Modified by user" },
+          review_command: { name: "pov-mcp-review", slash_command: "/pov-mcp-review", status: "not_installed", skill_path: "", error: null },
         };
       }
       if (cmd === "install_all_antigravity_commands") {
         return {
           skills_dir: "C:\\skills",
-          plan_command: { name: "pov-plan", slash_command: "/pov-plan", status: "not_installed", skill_path: "", error: null },
-          revise_command: { name: "pov-revise", slash_command: "/pov-revise", status: "invalid", skill_path: "", error: "Modified by user" },
-          review_command: { name: "pov-review", slash_command: "/pov-review", status: "not_installed", skill_path: "", error: null },
+          plan_command: { name: "pov-mcp-plan", slash_command: "/pov-mcp-plan", status: "not_installed", skill_path: "", error: null },
+          revise_command: { name: "pov-mcp-revise", slash_command: "/pov-mcp-revise", status: "invalid", skill_path: "", error: "Modified by user" },
+          review_command: { name: "pov-mcp-review", slash_command: "/pov-mcp-review", status: "not_installed", skill_path: "", error: null },
           install_all_results: [
-            { name: "pov-plan", outcome: "not_attempted", message: "Skipped because another target failed preflight" },
-            { name: "pov-revise", outcome: "refused", message: "Modified by user" },
-            { name: "pov-review", outcome: "not_attempted", message: "Skipped because another target failed preflight" },
+            { name: "pov-mcp-plan", outcome: "not_attempted", message: "Skipped because another target failed preflight" },
+            { name: "pov-mcp-revise", outcome: "refused", message: "Modified by user" },
+            { name: "pov-mcp-review", outcome: "not_attempted", message: "Skipped because another target failed preflight" },
           ],
         };
       }
@@ -610,12 +610,12 @@ describe("McpSettingPanel - Antigravity Integration", () => {
     await userEvent.click(installAll);
 
     const resultPanel = await screen.findByRole("status");
-    expect(resultPanel.textContent).toContain("pov-plan");
+    expect(resultPanel.textContent).toContain("pov-mcp-plan");
     expect(resultPanel.textContent).toContain("antigravity.commandInstallOutcomeNotAttempted");
-    expect(resultPanel.textContent).toContain("pov-revise");
+    expect(resultPanel.textContent).toContain("pov-mcp-revise");
     expect(resultPanel.textContent).toContain("antigravity.commandInstallOutcomeRefused");
     expect(resultPanel.textContent).toContain("Modified by user");
-    expect(resultPanel.textContent).toContain("pov-review");
+    expect(resultPanel.textContent).toContain("pov-mcp-review");
   });
 
   it("shows MCP warning when MCP is not configured", async () => {
@@ -705,24 +705,24 @@ describe("McpSettingPanel - Antigravity Integration", () => {
         return {
           skills_dir: "C:\\Users\\User\\.gemini\\config\\skills",
           plan_command: {
-            name: "pov-plan",
-            slash_command: "/pov-plan",
+            name: "pov-mcp-plan",
+            slash_command: "/pov-mcp-plan",
             status: "not_installed",
-            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-plan\\SKILL.md",
+            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-mcp-plan\\SKILL.md",
             error: null,
           },
           revise_command: {
-            name: "pov-revise",
-            slash_command: "/pov-revise",
+            name: "pov-mcp-revise",
+            slash_command: "/pov-mcp-revise",
             status: "not_installed",
-            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-revise\\SKILL.md",
+            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-mcp-revise\\SKILL.md",
             error: null,
           },
           review_command: {
-            name: "pov-review",
-            slash_command: "/pov-review",
+            name: "pov-mcp-review",
+            slash_command: "/pov-mcp-review",
             status: "not_installed",
-            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-review\\SKILL.md",
+            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-mcp-review\\SKILL.md",
             error: null,
           },
           legacy_plan_command: {
@@ -746,15 +746,115 @@ describe("McpSettingPanel - Antigravity Integration", () => {
       expect(screen.getByText(/antigravity\.header/i)).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/antigravity\.commandPlanTitle/i)).toBeInTheDocument();
-    expect(screen.getByText(/antigravity\.commandReviseTitle/i)).toBeInTheDocument();
-    expect(screen.getByText(/antigravity\.commandReviewTitle/i)).toBeInTheDocument();
+    expect(screen.getByText("/pov-mcp-plan")).toBeInTheDocument();
+    expect(screen.getByText("/pov-mcp-revise")).toBeInTheDocument();
+    expect(screen.getByText("/pov-mcp-review")).toBeInTheDocument();
     expect(screen.getByText(/antigravity\.legacyNoticeTitle/i)).toBeInTheDocument();
     expect(screen.getByText(/antigravity\.legacyNoticeDesc/i)).toBeInTheDocument();
     expect(screen.getByText(/antigravity\.mcpLegacyPreserved/i)).toBeInTheDocument();
 
     const exeInput = screen.getByDisplayValue("C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe");
     expect(exeInput).toBeInTheDocument();
+  });
+
+  it("lists all six canonical Skills and saves only the selected global rule", async () => {
+    const user = userEvent.setup();
+    invokeMock.mockImplementation(async (cmd: string, args?: { id?: string; request?: { id: string; content: string; expected_hash: string } }) => {
+      if (cmd === "get_mcp_config") return {};
+      if (cmd === "get_antigravity_mcp_status") return { status: "not_configured", config_path: "", config_dir: "", registered_command: null };
+      if (cmd === "get_antigravity_commands_status") return { skills_dir: "", commands: ["pov-mcp-plan", "pov-mcp-revise", "pov-mcp-review", "pov-full-cycle", "pov-plan-only", "pov-build-review"].map((name) => ({ name, slash_command: `/${name}`, status: "not_installed", skill_path: "" })) };
+      if (cmd === "get_pov_nerf_commands_status") return { skills_dir: "", skills: [], legacy_single_skill: null };
+      if (cmd === "read_antigravity_global_rule") return { id: args?.id ?? "deepseek_harness", file_name: "deepseek-harness.md", path: `rules/${args?.id}.md`, exists: true, content: "existing", content_hash: "hash-1" };
+      if (cmd === "save_antigravity_global_rule") return { id: args?.request?.id, file_name: "codex-cli.md", path: "rules/codex-cli.md", exists: true, content: args?.request?.content, content_hash: "hash-2" };
+      return {};
+    });
+    render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+    for (const name of ["pov-mcp-plan", "pov-mcp-revise", "pov-mcp-review", "pov-full-cycle", "pov-plan-only", "pov-build-review"]) {
+      await waitFor(() => expect(screen.getByText(`/${name}`)).toBeInTheDocument());
+    }
+    const editor = screen.getByRole("textbox", { name: /antigravity\.globalRulesEditor/i });
+    await user.clear(editor);
+    await user.type(editor, "updated rule");
+    const confirmDiscard = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    await user.click(screen.getByRole("button", { name: "codex-cli.md" }));
+    expect(confirmDiscard).toHaveBeenCalledOnce();
+    expect(invokeMock).not.toHaveBeenCalledWith("read_antigravity_global_rule", { id: "codex_cli" });
+    expect(editor).toHaveValue("updated rule");
+    await user.click(screen.getByRole("button", { name: "codex-cli.md" }));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("read_antigravity_global_rule", { id: "codex_cli" }));
+    await user.clear(editor);
+    await user.type(editor, "updated rule");
+    await user.click(screen.getByRole("button", { name: /antigravity\.globalRulesSave/i }));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("save_antigravity_global_rule", { request: { id: "codex_cli", content: "updated rule", expected_hash: "hash-1" } }));
+    confirmDiscard.mockRestore();
+  });
+
+  it("preserves the draft and reports a global-rule save conflict", async () => {
+    const user = userEvent.setup();
+    const conflict = "ConcurrentModificationConflict: rule changed on disk";
+    invokeMock.mockImplementation(async (cmd: string, args?: { id?: string; request?: { id: string; content: string; expected_hash: string } }) => {
+      if (cmd === "get_mcp_config") return {};
+      if (cmd === "get_antigravity_mcp_status") return { status: "not_configured", config_path: "", config_dir: "", registered_command: null };
+      if (cmd === "get_antigravity_commands_status") return { skills_dir: "", commands: [] };
+      if (cmd === "get_pov_nerf_commands_status") return { skills_dir: "", skills: [], legacy_single_skill: null };
+      if (cmd === "read_antigravity_global_rule") return { id: args?.id ?? "deepseek_harness", file_name: "deepseek-harness.md", path: "rules/deepseek-harness.md", exists: true, content: "original rule", content_hash: "hash-1" };
+      if (cmd === "save_antigravity_global_rule") throw new Error(conflict);
+      return {};
+    });
+    render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+
+    const editor = await screen.findByRole("textbox", { name: /antigravity\.globalRulesEditor/i });
+    await user.clear(editor);
+    await user.type(editor, "my unsaved draft");
+    await user.click(screen.getByRole("button", { name: /antigravity\.globalRulesSave/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(conflict);
+    expect(editor).toHaveValue("my unsaved draft");
+    expect(screen.queryByText(/antigravity\.globalRulesSaved/i)).not.toBeInTheDocument();
+    expect(invokeMock).toHaveBeenCalledWith("save_antigravity_global_rule", {
+      request: { id: "deepseek_harness", content: "my unsaved draft", expected_hash: "hash-1" },
+    });
+  });
+
+  it("reports a global-rule save failure without marking the draft as saved", async () => {
+    const user = userEvent.setup();
+    const failure = "atomic replacement failed";
+    invokeMock.mockImplementation(async (cmd: string, args?: { id?: string }) => {
+      if (cmd === "get_mcp_config") return {};
+      if (cmd === "get_antigravity_mcp_status") return { status: "not_configured", config_path: "", config_dir: "", registered_command: null };
+      if (cmd === "get_antigravity_commands_status") return { skills_dir: "", commands: [] };
+      if (cmd === "get_pov_nerf_commands_status") return { skills_dir: "", skills: [], legacy_single_skill: null };
+      if (cmd === "read_antigravity_global_rule") return { id: args?.id ?? "deepseek_harness", file_name: "deepseek-harness.md", path: "rules/deepseek-harness.md", exists: true, content: "original rule", content_hash: "hash-1" };
+      if (cmd === "save_antigravity_global_rule") throw new Error(failure);
+      return {};
+    });
+    render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+
+    const editor = await screen.findByRole("textbox", { name: /antigravity\.globalRulesEditor/i });
+    await user.clear(editor);
+    await user.type(editor, "pending draft");
+    await user.click(screen.getByRole("button", { name: /antigravity\.globalRulesSave/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(failure);
+    expect(editor).toHaveValue("pending draft");
+    expect(screen.queryByText(/antigravity\.globalRulesSaved/i)).not.toBeInTheDocument();
+  });
+
+  it("reports a global-rule read failure and does not enable saving", async () => {
+    const failure = "rule file could not be read";
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_mcp_config") return {};
+      if (cmd === "get_antigravity_mcp_status") return { status: "not_configured", config_path: "", config_dir: "", registered_command: null };
+      if (cmd === "get_antigravity_commands_status") return { skills_dir: "", commands: [] };
+      if (cmd === "get_pov_nerf_commands_status") return { skills_dir: "", skills: [], legacy_single_skill: null };
+      if (cmd === "read_antigravity_global_rule") throw new Error(failure);
+      return {};
+    });
+    render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(failure);
+    expect(screen.getByRole("button", { name: /antigravity\.globalRulesSave/i })).toBeDisabled();
+    expect(invokeMock).not.toHaveBeenCalledWith("save_antigravity_global_rule", expect.anything());
   });
 });
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n";
 import type { TranslationKey } from "../i18n/lang/en";
-import type { GatewayConfig, McpConfig, McpTargetConfig, AntigravityMcpInfo, AntigravityCommandsInfo, AntigravityCommandInstallOutcome, PovNerfCommandsInfo, PovNerfSkillId, PovNerfOperationResult } from "../types";
+import type { GatewayConfig, McpConfig, McpTargetConfig, AntigravityMcpInfo, AntigravityCommandsInfo, AntigravityCommandItemInfo, AntigravityCommandInstallOutcome, AntigravityGlobalRuleId, AntigravityGlobalRuleStatus, PovNerfCommandsInfo, PovNerfSkillId, PovNerfOperationResult } from "../types";
 import { getMcpTargetKey } from "../types";
 import { MODEL_CAPABILITIES, MODEL_CATALOG, getProviderModels, isKnownModel, isOpenAiReasoningModel } from "../modelCapabilities";
 import { getModelDisplayName } from "../config/modelDisplayNames";
@@ -69,6 +69,8 @@ function formatEffortLabel(opt: string, t: ReturnType<typeof useTranslation>["t"
 
 export default function McpSettingPanel({ config, refreshConfig }: McpSettingPanelProps) {
   const { t } = useTranslation();
+  const tRef = useRef(t);
+  tRef.current = t;
   const [mcpConfig, setMcpConfig] = useState<McpConfig>({});
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
   const [selectedOrProfileId, setSelectedOrProfileId] = useState<string>("");
@@ -88,6 +90,13 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
   const [commandsLoading, setCommandsLoading] = useState(false);
   const [commandsSavedMessage, setCommandsSavedMessage] = useState(false);
   const [commandsError, setCommandsError] = useState<string | null>(null);
+  const [globalRule, setGlobalRule] = useState<AntigravityGlobalRuleStatus | null>(null);
+  const [globalRuleDraft, setGlobalRuleDraft] = useState("");
+  const [globalRuleLoading, setGlobalRuleLoading] = useState(false);
+  const [globalRuleError, setGlobalRuleError] = useState<string | null>(null);
+  const [globalRuleSaved, setGlobalRuleSaved] = useState(false);
+  const globalRuleEditorRef = useRef({ rule: globalRule, draft: globalRuleDraft });
+  globalRuleEditorRef.current = { rule: globalRule, draft: globalRuleDraft };
 
   // ── Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight) State ──
   const [nerfInfo, setNerfInfo] = useState<PovNerfCommandsInfo | null>(null);
@@ -144,6 +153,36 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
       setCommandsError(String(e));
     }
   }, []);
+
+  const loadGlobalRule = useCallback(async (id: AntigravityGlobalRuleId) => {
+    const { rule, draft } = globalRuleEditorRef.current;
+    if (
+      rule &&
+      rule.id !== id &&
+      draft !== rule.content &&
+      !window.confirm(tRef.current("antigravity.globalRulesDiscardChangesConfirm"))
+    ) {
+      return;
+    }
+    setGlobalRuleLoading(true); setGlobalRuleError(null); setGlobalRuleSaved(false);
+    try {
+      const status = await invoke<AntigravityGlobalRuleStatus>("read_antigravity_global_rule", { id });
+      setGlobalRule(status); setGlobalRuleDraft(status.content);
+    } catch (e: unknown) { setGlobalRuleError(String(e)); }
+    finally { setGlobalRuleLoading(false); }
+  }, []);
+
+  const saveGlobalRule = useCallback(async () => {
+    if (!globalRule) return;
+    setGlobalRuleLoading(true); setGlobalRuleError(null); setGlobalRuleSaved(false);
+    try {
+      const status = await invoke<AntigravityGlobalRuleStatus>("save_antigravity_global_rule", {
+        request: { id: globalRule.id, content: globalRuleDraft, expected_hash: globalRule.content_hash },
+      });
+      setGlobalRule(status); setGlobalRuleDraft(status.content); setGlobalRuleSaved(true);
+    } catch (e: unknown) { setGlobalRuleError(String(e)); }
+    finally { setGlobalRuleLoading(false); }
+  }, [globalRule, globalRuleDraft]);
 
   const refreshMcp = useCallback(async () => {
     try {
@@ -273,8 +312,9 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
     void refreshMcp();
     void refreshAgStatus();
     void refreshAgCommandsStatus();
+    void loadGlobalRule("deepseek_harness");
     void refreshNerfStatus();
-  }, [refreshMcp, refreshAgStatus, refreshAgCommandsStatus, refreshNerfStatus]);
+  }, [refreshMcp, refreshAgStatus, refreshAgCommandsStatus, refreshNerfStatus, loadGlobalRule]);
 
   const handleOpenAgFolder = useCallback(async () => {
     try {
@@ -391,7 +431,8 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
       const updated = await invoke<AntigravityCommandsInfo>("install_all_antigravity_commands");
       setCommandsInfo(updated);
       const outcomes = updated.install_all_results ?? [];
-      const completed = outcomes.length === 3 && outcomes.every(
+      const expectedCount = updated.commands?.length ?? 3; // 3-item fallback is for older serialized test/config payloads.
+      const completed = outcomes.length === expectedCount && outcomes.every(
         (result) => result.outcome === "installed" || result.outcome === "already_current",
       );
       setCommandsSavedMessage(completed);
@@ -1109,9 +1150,7 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                   >
                     {t("antigravity.btnOpenSkillsFolder")}
                   </button>
-                  {((commandsInfo?.plan_command.status !== "installed") ||
-                    (commandsInfo?.revise_command.status !== "installed") ||
-                    (commandsInfo?.review_command.status !== "installed")) && (
+                  {((commandsInfo?.commands ?? [commandsInfo?.plan_command, commandsInfo?.revise_command, commandsInfo?.review_command].filter((item): item is AntigravityCommandItemInfo => Boolean(item))).some((item) => item.status !== "installed") || !commandsInfo) && (
                     <button
                       className="btn btn-primary"
                       style={{ fontSize: 11, padding: "4px 10px" }}
@@ -1171,31 +1210,9 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
 
               {/* Commands List Cards */}
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {[
-                  {
-                    item: commandsInfo?.plan_command,
-                    titleKey: "antigravity.commandPlanTitle" as const,
-                    descKey: "antigravity.commandPlanDesc" as const,
-                    fallbackName: "pov-plan",
-                    fallbackCmd: "/pov-plan",
-                  },
-                  {
-                    item: commandsInfo?.revise_command,
-                    titleKey: "antigravity.commandReviseTitle" as const,
-                    descKey: "antigravity.commandReviseDesc" as const,
-                    fallbackName: "pov-revise",
-                    fallbackCmd: "/pov-revise",
-                  },
-                  {
-                    item: commandsInfo?.review_command,
-                    titleKey: "antigravity.commandReviewTitle" as const,
-                    descKey: "antigravity.commandReviewDesc" as const,
-                    fallbackName: "pov-review",
-                    fallbackCmd: "/pov-review",
-                  },
-                ].map(({ item, titleKey, descKey, fallbackName, fallbackCmd }) => {
-                  const cmdName = item?.name ?? fallbackName;
-                  const slashCmd = item?.slash_command ?? fallbackCmd;
+                {(commandsInfo?.commands ?? [commandsInfo?.plan_command, commandsInfo?.revise_command, commandsInfo?.review_command].filter((item): item is AntigravityCommandItemInfo => Boolean(item))).map((item) => {
+                  const cmdName = item.name;
+                  const slashCmd = item.slash_command;
                   const status = item?.status ?? "not_installed";
 
                   return (
@@ -1216,7 +1233,7 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 700, color: "#1f2937" }}>
-                            {t(titleKey)}
+                            {slashCmd}
                           </span>
                           <div>
                             {status === "invalid" ? (
@@ -1239,7 +1256,7 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                           </div>
                         </div>
                         <div style={{ fontSize: 11, color: "#57606a" }}>
-                          {t(descKey)}
+                          {t("antigravity.commandGenericDesc")}
                         </div>
                         {item?.status === "invalid" && item.error && (
                           <div style={{ fontSize: 11, color: "#cf222e" }}>{item.error}</div>
@@ -1282,6 +1299,22 @@ export default function McpSettingPanel({ config, refreshConfig }: McpSettingPan
                   );
                 })}
               </div>
+            </div>
+
+            <div style={{ marginTop: 16, padding: "12px 14px", background: "#f6f8fa", border: "1px solid #d0d7de", borderRadius: 6 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <strong style={{ fontSize: 12 }}>{t("antigravity.globalRulesTitle")}</strong>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button className="btn" aria-pressed={globalRule?.id === "deepseek_harness"} disabled={globalRuleLoading} onClick={() => void loadGlobalRule("deepseek_harness")}>deepseek-harness.md</button>
+                  <button className="btn" aria-pressed={globalRule?.id === "codex_cli"} disabled={globalRuleLoading} onClick={() => void loadGlobalRule("codex_cli")}>codex-cli.md</button>
+                  <button className="btn" onClick={() => void invoke("open_antigravity_rules_folder")} disabled={globalRuleLoading}>{t("antigravity.btnOpenRulesFolder")}</button>
+                  <button className="btn btn-primary" onClick={() => void saveGlobalRule()} disabled={globalRuleLoading || !globalRule || globalRuleDraft === globalRule.content}>{t("antigravity.globalRulesSave")}</button>
+                </div>
+              </div>
+              {globalRule && <div style={{ fontSize: 11, color: "#656d76", margin: "6px 0" }}>{globalRule.path}{!globalRule.exists ? ` · ${t("antigravity.globalRulesNotCreated")}` : ""}{globalRuleDraft !== globalRule.content ? ` · ${t("antigravity.globalRulesUnsaved")}` : ""}</div>}
+              {globalRuleError && <div role="alert" style={{ color: "#cf222e", fontSize: 11, margin: "6px 0" }}>{globalRuleError}</div>}
+              {globalRuleSaved && <div role="status" style={{ color: "#1a7f37", fontSize: 11, margin: "6px 0" }}>{t("antigravity.globalRulesSaved")}</div>}
+              <textarea aria-label={t("antigravity.globalRulesEditor")} value={globalRuleDraft} onChange={(e) => setGlobalRuleDraft(e.target.value)} disabled={globalRuleLoading} rows={14} spellCheck={false} style={{ width: "100%", boxSizing: "border-box", marginTop: 8, fontFamily: "var(--font-mono)", fontSize: 12, whiteSpace: "pre", resize: "vertical" }} />
             </div>
 
             {/* Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight) */}
