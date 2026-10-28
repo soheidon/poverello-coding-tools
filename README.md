@@ -2,6 +2,8 @@
 
 # Poverello Coding Tools
 
+> **v0.25.1 transition:** Auto-Converge is hidden from the normal app navigation while its implementation is retained. Production dispatch remains disabled, and Stage 2 isolation remains unverified. This is not a release-readiness claim.
+
 **Use Claude Code / Claude Desktop as the coding harness, route inference to third-party LLM APIs, orchestrate bounded multi-agent workflows with cost-estimate tracking, and manage external models and rules for Google Antigravity.**
 
 Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companion application for AI-assisted software development. It supports five core workflows:

@@ -2,6 +2,8 @@
 
 # Poverello Coding Tools
 
+> **v0.25.1 过渡说明：** Auto-Converge 实现保留在代码中，但从应用的常规导航中隐藏。生产 dispatch 仍处于禁用状态，Stage 2 隔离尚未验证。这不代表已具备发布条件。
+
 **以 Claude Code / Claude Desktop 作为编程框架，将推理请求路由至第三方 LLM API，并将外部模型用作 Google Antigravity 的规划器与审查器。**
 
 Poverello Coding Tools（应用内显示名称为 **Poverello**）是一款面向 AI 辅助软件开发的 Windows 配套应用程序，支持五种互补的工作流：

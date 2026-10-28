@@ -9759,6 +9759,14 @@ pub fn run_auto_converge_guard_cli(args: &[String]) -> i32 {
     orchestrator::auto_converge::guards::run_auto_converge_guard_cli(args)
 }
 
+pub fn is_auto_converge_cli_mode(args: &[String]) -> bool {
+    orchestrator::auto_converge::r3_controller::is_auto_converge_cli_mode(args)
+}
+
+pub fn run_auto_converge_cli(args: &[String]) -> i32 {
+    orchestrator::auto_converge::r3_controller::run_auto_converge_cli(args)
+}
+
 pub fn is_mcp_server_mode(args: &[String]) -> bool {
     args.iter().any(|arg| arg == "--mcp-server")
 }

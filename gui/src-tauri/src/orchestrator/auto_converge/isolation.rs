@@ -88,6 +88,9 @@ impl PlatformIsolationGuard {
     /// Executes a live platform isolation probe against disposable temp targets,
     /// verifying that Reviewer execution denies primary checkout writes, snapshot writes,
     /// engine key/state writes, and traversal writes at the OS/process boundary.
+    ///
+    /// Note: Under adopted R0-D design (§207, §208, §209.3 A2), Reviewer isolation operates
+    /// detection-only and skips this OS boundary check. This method remains fail-closed and active for R2 level.
     pub fn verify_reviewer_os_boundary(
         workspace_root: &Path,
         snapshot_dir: &Path,

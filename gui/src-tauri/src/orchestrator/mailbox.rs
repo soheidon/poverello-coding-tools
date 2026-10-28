@@ -31,7 +31,42 @@ use super::types::{
 
 /// Location of the ephemeral session descriptor file.
 pub fn get_session_descriptor_path() -> PathBuf {
+    #[cfg(test)]
+    if let Some(path) =
+        SESSION_DESCRIPTOR_TEST_PATH.with(|override_path| override_path.borrow().clone())
+    {
+        return path;
+    }
     crate::paths::user_data_dir().join("orchestrator_session.json")
+}
+
+#[cfg(test)]
+thread_local! {
+    static SESSION_DESCRIPTOR_TEST_PATH: std::cell::RefCell<Option<PathBuf>> =
+        std::cell::RefCell::new(None);
+}
+
+#[cfg(test)]
+pub(crate) struct ScopedSessionDescriptorPathOverride {
+    previous: Option<PathBuf>,
+}
+
+#[cfg(test)]
+impl Drop for ScopedSessionDescriptorPathOverride {
+    fn drop(&mut self) {
+        SESSION_DESCRIPTOR_TEST_PATH.with(|override_path| {
+            *override_path.borrow_mut() = self.previous.take();
+        });
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn scoped_session_descriptor_path_override(
+    path: PathBuf,
+) -> ScopedSessionDescriptorPathOverride {
+    let previous =
+        SESSION_DESCRIPTOR_TEST_PATH.with(|override_path| override_path.borrow_mut().replace(path));
+    ScopedSessionDescriptorPathOverride { previous }
 }
 
 #[cfg(test)]

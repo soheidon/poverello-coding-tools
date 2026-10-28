@@ -1229,33 +1229,71 @@ fn create_reviewer_config_file(path: &Path, contents: &str) -> Result<(), String
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             let metadata = std::fs::symlink_metadata(path).map_err(|metadata_error| {
-                format!("cannot inspect existing reviewer config.toml: {metadata_error}")
+                format!(
+                    "cannot inspect existing reviewer config file at {}: {metadata_error}",
+                    path.display()
+                )
             })?;
             if metadata.file_type().is_symlink() || !metadata.is_file() {
-                return Err(
-                    "existing reviewer config.toml must be a regular non-symlink file".into(),
-                );
+                return Err(format!(
+                    "existing reviewer config file at {} must be a regular non-symlink file",
+                    path.display()
+                ));
             }
             let existing = std::fs::read(path).map_err(|read_error| {
-                format!("cannot read existing reviewer config.toml: {read_error}")
+                format!(
+                    "cannot read existing reviewer config file at {}: {read_error}",
+                    path.display()
+                )
             })?;
             if existing == contents.as_bytes() {
                 // Reuse only an exact managed configuration; never replace bytes on disk.
                 return Ok(());
             }
-            return Err("existing reviewer config.toml differs from the required managed config; refusing to overwrite".into());
+            return Err(format!(
+                "existing reviewer config file at {} differs from the required managed config; refusing to overwrite",
+                path.display()
+            ));
         }
         Err(error) => {
-            return Err(format!("cannot create reviewer config.toml: {error}"));
+            return Err(format!(
+                "cannot create reviewer config file at {}: {error}",
+                path.display()
+            ));
         }
     };
 
     if let Err(error) = file.write_all(contents.as_bytes()) {
         // Leave the incomplete artifact for diagnosis; the next attempt receives a
         // different invocation root and cannot accidentally consume or replace it.
-        return Err(format!("cannot write reviewer config.toml: {error}"));
+        return Err(format!(
+            "cannot write reviewer config file at {}: {error}",
+            path.display()
+        ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn ambient_temp_dir() -> PathBuf {
+    if let Ok(val) = std::env::var("POVERELLO_TEST_TMP") {
+        let p = PathBuf::from(val);
+        if p.is_absolute() && (p.exists() || std::fs::create_dir_all(&p).is_ok()) {
+            return p;
+        }
+    }
+    let repo_tmp = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("test-tmp");
+    if repo_tmp.exists() || std::fs::create_dir_all(&repo_tmp).is_ok() {
+        return repo_tmp;
+    }
+    std::env::temp_dir()
+}
+
+#[cfg(not(test))]
+pub(crate) fn ambient_temp_dir() -> PathBuf {
+    std::env::temp_dir()
 }
 
 pub(crate) fn build_reviewer_launch_configuration(
@@ -1357,7 +1395,7 @@ fn build_reviewer_launch_configuration_internal(
         if let Some(custom_root) = test_run_root {
             custom_root.to_path_buf()
         } else {
-            std::env::temp_dir()
+            ambient_temp_dir()
                 .join("poverello")
                 .join("reviewer_runs")
                 .join(&run_id)
@@ -1365,7 +1403,7 @@ fn build_reviewer_launch_configuration_internal(
                 .join(uuid::Uuid::new_v4().to_string())
         }
         #[cfg(not(test))]
-        std::env::temp_dir()
+        ambient_temp_dir()
             .join("poverello")
             .join("reviewer_runs")
             .join(&run_id)
@@ -1449,8 +1487,9 @@ fn build_reviewer_launch_configuration_internal(
         }
     }
 
-    // Dedicated managed config.toml in CODEX_HOME
+    // Dedicated managed config.toml and profile file in CODEX_HOME (§209.3 A1 Option 1)
     let config_toml_path = codex_home.join("config.toml");
+    let profile_toml_path = codex_home.join("reviewer.config.toml");
     let canonical_snap = snapshot_dir
         .canonicalize()
         .unwrap_or_else(|_| snapshot_dir.clone());
@@ -1478,6 +1517,7 @@ enabled = false
 "#
     );
     create_reviewer_config_file(&config_toml_path, &config_content)?;
+    create_reviewer_config_file(&profile_toml_path, &config_content)?;
 
     let paths = CodexExecPaths {
         run_root: run_root.clone(),
@@ -1552,28 +1592,44 @@ fn create_implementer_config_file(path: &Path, contents: &str) -> Result<(), Str
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             let metadata = std::fs::symlink_metadata(path).map_err(|metadata_error| {
-                format!("cannot inspect existing implementer config.toml: {metadata_error}")
+                format!(
+                    "cannot inspect existing implementer config file at {}: {metadata_error}",
+                    path.display()
+                )
             })?;
             if metadata.file_type().is_symlink() || !metadata.is_file() {
-                return Err(
-                    "existing implementer config.toml must be a regular non-symlink file".into(),
-                );
+                return Err(format!(
+                    "existing implementer config file at {} must be a regular non-symlink file",
+                    path.display()
+                ));
             }
             let existing = std::fs::read(path).map_err(|read_error| {
-                format!("cannot read existing implementer config.toml: {read_error}")
+                format!(
+                    "cannot read existing implementer config file at {}: {read_error}",
+                    path.display()
+                )
             })?;
             if existing == contents.as_bytes() {
                 return Ok(());
             }
-            return Err("existing implementer config.toml differs from the required managed config; refusing to overwrite".into());
+            return Err(format!(
+                "existing implementer config file at {} differs from the required managed config; refusing to overwrite",
+                path.display()
+            ));
         }
         Err(error) => {
-            return Err(format!("cannot create implementer config.toml: {error}"));
+            return Err(format!(
+                "cannot create implementer config file at {}: {error}",
+                path.display()
+            ));
         }
     };
 
     if let Err(error) = file.write_all(contents.as_bytes()) {
-        return Err(format!("cannot write implementer config.toml: {error}"));
+        return Err(format!(
+            "cannot write implementer config file at {}: {error}",
+            path.display()
+        ));
     }
     Ok(())
 }
@@ -1699,7 +1755,7 @@ fn build_implementer_launch_configuration_internal(
         if let Some(custom_root) = test_run_root {
             custom_root.to_path_buf()
         } else {
-            std::env::temp_dir()
+            ambient_temp_dir()
                 .join("poverello")
                 .join("implementer_runs")
                 .join(&run_id)
@@ -1707,7 +1763,7 @@ fn build_implementer_launch_configuration_internal(
                 .join(uuid::Uuid::new_v4().to_string())
         }
         #[cfg(not(test))]
-        std::env::temp_dir()
+        ambient_temp_dir()
             .join("poverello")
             .join("implementer_runs")
             .join(&run_id)
@@ -1771,6 +1827,7 @@ fn build_implementer_launch_configuration_internal(
     }
 
     let config_toml_path = codex_home.join("config.toml");
+    let profile_toml_path = codex_home.join("implementer.config.toml");
     let cand_str = canonical_candidate
         .to_str()
         .ok_or_else(|| "candidate path must be valid Unicode".to_string())?;
@@ -1795,6 +1852,7 @@ enabled = false
 "#
     );
     create_implementer_config_file(&config_toml_path, &config_content)?;
+    create_implementer_config_file(&profile_toml_path, &config_content)?;
 
     let paths = CodexExecPaths {
         run_root: run_root.clone(),

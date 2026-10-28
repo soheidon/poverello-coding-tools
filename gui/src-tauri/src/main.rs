@@ -6,6 +6,9 @@ fn main() {
     if anthro_bridge_lib::is_auto_converge_guard_mode(&args) {
         std::process::exit(anthro_bridge_lib::run_auto_converge_guard_cli(&args));
     }
+    if anthro_bridge_lib::is_auto_converge_cli_mode(&args) {
+        std::process::exit(anthro_bridge_lib::run_auto_converge_cli(&args));
+    }
     if anthro_bridge_lib::is_mcp_server_mode(&args) {
         if let Err(error) = anthro_bridge_lib::prepare_user_data_dir() {
             eprintln!("[anthro-bridge] Poverello user-data migration failed: {error}");

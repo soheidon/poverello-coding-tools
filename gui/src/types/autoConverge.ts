@@ -189,6 +189,8 @@ export interface AutoConvergeRunConfig {
   force_escalation: boolean;
   require_environment_verification: boolean;
   delivery_phase?: DeliveryPhase;
+  reviewer_level?: "R0-D" | string;
+  r0d_acknowledged?: boolean;
 }
 
 export interface AutoConvergeRunState {

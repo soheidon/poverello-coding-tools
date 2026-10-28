@@ -2,6 +2,8 @@
 
 # Poverello Coding Tools
 
+> **v0.25.1への移行:** Auto-Convergeの実装はコードに保持し、通常のアプリナビゲーションから非表示にしています。本番ディスパッチは無効のままで、Stage 2の隔離は未検証です。リリース可能との判断を意味しません。
+
 **Claude Code / Claude Desktop をコーディングハーネスとして使用し、推論をサードパーティ LLM API にルーティングします。対応済みのマルチエージェント計画・レビューとコスト見積もりを管理し、Google Antigravity の外部モデルやルールを統合管理します。**
 
 Poverello Coding Tools（アプリ内表示名 **Poverello**）は、AI 支援ソフトウェア開発のための Windows コンパニオンアプリケーションです。5 つの主要ワークフローをサポートしています。

@@ -30,6 +30,9 @@ export const translations: TranslationMap = {
   "settings.nav.orchestrator": "協調器",
   "tab.autoConverge": "Auto-Converge",
   "autoConverge.unavailable": "此桌面版本目前無法使用 Auto-Converge。由於未提供 Reviewer 作業系統隔離，執行會在啟動任何代理程序前遭到阻止。",
+  "autoConverge.r0dNotice": "審查者層級 R0-D：僅偵測模式；非預期變更將在快照範圍內被偵測並可復原，但不會被提前阻止寫入。",
+  "autoConverge.r0dAcknowledge": "我了解 R0-D 為僅偵測模式",
+  "autoConverge.startDisabledReason": "等待驗證完成（階段 B–G）",
 
   // MCP Panel
   "mcp.statusHeader": "MCP 伺服器狀態",

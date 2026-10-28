@@ -2,6 +2,8 @@
 
 # SPEC: Poverello Coding Tools
 
+> **v0.25.1 過渡說明：** Auto-Converge 保留在程式碼中，但無法從應用程式的一般導覽開啟。Production dispatch 已停用，Stage 2 隔離尚未驗證。介面是否顯示不代表已獲執行授權或發行核准。
+
 ## 概述
 
 一個輕量級代理 + GUI 管理工具，將 Claude Desktop / Claude Code API 請求路由到多個提供者的 Anthropic 相容端點。

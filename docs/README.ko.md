@@ -2,6 +2,8 @@
 
 # Poverello Coding Tools
 
+> **v0.25.1 전환:** Auto-Converge 구현은 코드에 유지하지만 일반 앱 탐색 메뉴에서는 숨깁니다. 프로덕션 디스패치는 계속 비활성화되며 Stage 2 격리는 검증되지 않았습니다. 출시 준비가 완료되었다는 의미가 아닙니다.
+
 **Claude Code / Claude Desktop를 코딩 하네스로 활용하면서 추론은 서드파티 LLM API로 라우팅하고, 외부 모델을 Google Antigravity의 플래너 및 리뷰어로 사용하세요.**
 
 Poverello Coding Tools(앱 표시 이름 **Poverello**)는 AI 기반 소프트웨어 개발을 위한 Windows 전용 컴패니언 애플리케이션입니다. 다섯 가지 보완적인 워크플로를 지원합니다:

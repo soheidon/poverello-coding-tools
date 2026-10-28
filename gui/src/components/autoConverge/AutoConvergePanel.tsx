@@ -148,6 +148,7 @@ export default function AutoConvergePanel() {
   const [repoRemoteUrl, setRepoRemoteUrl] = useState<string>("origin");
   const [targetBranch, setTargetBranch] = useState<string>("main");
   const [forceEscalation, setForceEscalation] = useState<boolean>(false);
+  const [r0dAcknowledged, setR0dAcknowledged] = useState<boolean>(false);
   const [runState, setRunState] = useState<AutoConvergeRunState | null>(null);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [auditModalOpen, setAuditModalOpen] = useState<boolean>(false);
@@ -241,6 +242,8 @@ export default function AutoConvergePanel() {
       force_escalation: forceEscalation,
       require_environment_verification: false,
       delivery_phase: "PhaseALocalConvergenceMvp",
+      reviewer_level: "R0-D",
+      r0d_acknowledged: r0dAcknowledged,
     };
 
     try {
@@ -259,6 +262,7 @@ export default function AutoConvergePanel() {
     runPermissions,
     releaseIntent,
     forceEscalation,
+    r0dAcknowledged,
   ]);
 
   const handlePauseRun = useCallback(async () => {
@@ -306,14 +310,38 @@ export default function AutoConvergePanel() {
 
   return (
     <div className="auto-converge-panel" data-testid="auto-converge-panel">
-      <p
-        className="auto-converge-unavailable-banner"
+      <div
+        className="auto-converge-r0d-banner"
         role="alert"
-        data-testid="auto-converge-unavailable"
-        style={{ color: "#b42318", background: "#fef3f2", border: "1px solid #fecdca", borderRadius: 6, padding: "10px 12px" }}
+        data-testid="auto-converge-r0d-banner"
+        style={{
+          color: "#b54708",
+          background: "#fffaeb",
+          border: "1px solid #fedf89",
+          borderRadius: 6,
+          padding: "10px 12px",
+          marginBottom: "16px",
+        }}
       >
-        {t("autoConverge.unavailable")}
-      </p>
+        <p style={{ margin: "0 0 8px 0" }}>{t("autoConverge.r0dNotice")}</p>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            cursor: "pointer",
+            fontWeight: 500,
+          }}
+        >
+          <input
+            type="checkbox"
+            data-testid="r0d-acknowledge-checkbox"
+            checked={r0dAcknowledged}
+            onChange={(e) => setR0dAcknowledged(e.target.checked)}
+          />
+          {t("autoConverge.r0dAcknowledge")}
+        </label>
+      </div>
       <div className="auto-converge-header">
         <div>
           <h2>Codex Auto-Converge / Review Orchestrator</h2>
@@ -329,7 +357,7 @@ export default function AutoConvergePanel() {
               onClick={handleStartRun}
               data-testid="start-run-btn"
               disabled
-              title={t("autoConverge.unavailable")}
+              title={t("autoConverge.startDisabledReason")}
             >
               Start Auto-Converge
             </button>

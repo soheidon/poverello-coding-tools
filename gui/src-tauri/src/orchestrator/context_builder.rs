@@ -42,6 +42,8 @@ pub struct ContextBuilder {
     process_runner: ProcessRunner,
     redactor: SecretRedactor,
     token_estimator: TokenEstimator,
+    #[cfg(test)]
+    skip_git_info_for_test: bool,
 }
 
 impl ContextBuilder {
@@ -50,7 +52,15 @@ impl ContextBuilder {
             process_runner: ProcessRunner::new(),
             redactor: SecretRedactor::new(),
             token_estimator: TokenEstimator::new(),
+            #[cfg(test)]
+            skip_git_info_for_test: false,
         }
+    }
+
+    #[cfg(test)]
+    fn without_git_info_for_test(mut self) -> Self {
+        self.skip_git_info_for_test = true;
+        self
     }
 
     /// Resolves the total context window for a given profile.
@@ -197,7 +207,15 @@ impl ContextBuilder {
         }
 
         // 3. Priority 3: Git Status & Git Diff (collected asynchronously via ProcessRunner and filtered for secrets)
-        let (git_status, git_diff) = self.collect_git_info(&canonical_root, cancel_token).await;
+        #[cfg(test)]
+        let (git_status, git_diff) = if self.skip_git_info_for_test {
+            (String::new(), String::new())
+        } else {
+            self.collect_git_info(&canonical_root, cancel_token).await
+        };
+        #[cfg(not(test))]
+        let (git_status, git_diff) =
+            self.collect_git_info(&canonical_root, cancel_token).await;
         let mut p3_git = String::new();
         if !git_status.is_empty() {
             p3_git.push_str(&format!(
@@ -485,13 +503,22 @@ impl ContextBuilder {
     }
 }
 
-fn truncate_with_notice(text: &str, max_chars: usize) -> String {
-    if text.len() <= max_chars {
+fn truncate_with_notice(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
         return text.to_string();
     }
     let notice = "\n[... Content truncated due to context window budget ...]\n";
-    let take_chars = max_chars.saturating_sub(notice.len());
-    let mut truncated = text.chars().take(take_chars).collect::<String>();
+    if max_bytes < notice.len() {
+        return String::new();
+    }
+    let prefix_budget = max_bytes - notice.len();
+    let prefix_end = text
+        .char_indices()
+        .take_while(|(index, character)| index + character.len_utf8() <= prefix_budget)
+        .map(|(index, character)| index + character.len_utf8())
+        .last()
+        .unwrap_or(0);
+    let mut truncated = text[..prefix_end].to_string();
     truncated.push_str(notice);
     truncated
 }
@@ -555,7 +582,7 @@ mod tests {
         )
         .unwrap();
 
-        let builder = ContextBuilder::new();
+        let builder = ContextBuilder::new().without_git_info_for_test();
         let findings = vec![ReviewFinding {
             id: "F-01".to_string(),
             severity: FindingSeverity::High,
@@ -581,7 +608,12 @@ mod tests {
             .unwrap();
 
         assert!(res.prompt.contains("Implement login feature"));
-        assert!(res.prompt.contains("F-01"));
+        assert!(
+            res.prompt.contains("F-01"),
+            "finding omitted from prompt; trim_report={:?}; prompt_bytes={}",
+            res.trim_report,
+            res.prompt.len()
+        );
         assert!(res.prompt.contains("Feature specification"));
         assert!(res.prompt.contains("Project overview"));
         assert!(res.trim_report.task_prompt_retained);
@@ -608,6 +640,22 @@ mod tests {
             .dropped_sections
             .iter()
             .any(|s| s.contains("Priority 5")));
+    }
+
+    #[test]
+    fn truncate_with_notice_never_exceeds_utf8_byte_budget() {
+        let input = "内容を切り詰めるための長いテキスト。".repeat(20);
+        let notice_bytes = "\n[... Content truncated due to context window budget ...]\n".len();
+
+        for budget in [0, 1, notice_bytes - 1, notice_bytes, notice_bytes + 1, 128] {
+            let output = truncate_with_notice(&input, budget);
+            assert!(
+                output.len() <= budget,
+                "output exceeded byte budget: budget={budget}, output_bytes={}",
+                output.len()
+            );
+            assert!(std::str::from_utf8(output.as_bytes()).is_ok());
+        }
     }
 
     #[test]

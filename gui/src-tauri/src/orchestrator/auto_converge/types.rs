@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
 // Permission Bitmask Constants (§9.1, §9.2)
@@ -582,6 +583,41 @@ pub struct UserConfirmationToken {
     pub issued_at: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReviewerLevel {
+    #[serde(rename = "R0-D")]
+    R0D,
+    #[serde(rename = "R2")]
+    R2,
+}
+
+impl ReviewerLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::R0D => "R0-D",
+            Self::R2 => "R2",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self, String> {
+        if s.eq_ignore_ascii_case("R0-D") || s.eq_ignore_ascii_case("R0D") {
+            Ok(Self::R0D)
+        } else if s.eq_ignore_ascii_case("R2") {
+            Ok(Self::R2)
+        } else {
+            Err(format!(
+                "Invalid reviewer level: '{s}'. Expected 'R0-D' or 'R2'"
+            ))
+        }
+    }
+}
+
+impl Default for ReviewerLevel {
+    fn default() -> Self {
+        Self::R2
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AutoConvergeRunConfig {
     pub run_id: Option<String>,
@@ -597,6 +633,20 @@ pub struct AutoConvergeRunConfig {
     pub delivery_phase: DeliveryPhase,
     #[serde(default)]
     pub agent_cli_path: Option<String>,
+    #[serde(default)]
+    pub reviewer_level: Option<ReviewerLevel>,
+    #[serde(default)]
+    pub r0d_acknowledged: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecoverySnapshotBinding {
+    pub root: PathBuf,
+    pub manifest_digest: String,
+    pub git_head: String,
+    pub git_refs_digest: String,
+    pub git_index_entries_digest: String,
+    pub git_index_file_digest: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -642,6 +692,12 @@ pub struct AutoConvergeRunState {
     pub candidate_binding: Option<CandidateBinding>,
     #[serde(default)]
     pub promotion_journal: Option<PromotionJournalBinding>,
+    #[serde(default)]
+    pub reviewer_level: ReviewerLevel,
+    #[serde(default)]
+    pub r0d_acknowledged: bool,
+    #[serde(default)]
+    pub recovery_snapshot: Option<RecoverySnapshotBinding>,
     pub engine_auth_tag: String,
 }
 

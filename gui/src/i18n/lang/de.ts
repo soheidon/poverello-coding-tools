@@ -30,6 +30,9 @@ export const translations: TranslationMap = {
   "settings.nav.orchestrator": "Orchestrator",
   "tab.autoConverge": "Auto-Converge",
   "autoConverge.unavailable": "Auto-Converge ist in diesem Desktop-Build nicht verfügbar. Die OS-Isolierung für Reviewer fehlt; daher werden Läufe blockiert, bevor ein Agent-Prozess gestartet wird.",
+  "autoConverge.r0dNotice": "Reviewer-Stufe R0-D: Nur-Erkennung; unerwartete Änderungen werden innerhalb des Snapshot-Bereichs erkannt und wiederhergestellt, aber nicht verhindert.",
+  "autoConverge.r0dAcknowledge": "Ich verstehe, dass R0-D nur der Erkennung dient",
+  "autoConverge.startDisabledReason": "Ausstehende Verifizierung (Phasen B–G)",
 
   // MCP Panel
   "mcp.statusHeader": "MCP Server Status",

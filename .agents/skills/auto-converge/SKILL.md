@@ -14,12 +14,31 @@ The intended Poverello Auto-Converge convergence lifecycle is:
 
 Always delegate execution to `scripts/converge.ps1`, which acts strictly as a client process runner and delegates all state transitions, cryptographic digest validations, and permission checks to the sole authoritative Rust guard binary:
 
+### R3 CLI Facade (Common Controller)
+
 ```powershell
-pwsh -NoProfile -File .agents/skills/auto-converge/scripts/converge.ps1 -StateFile <path-to-run_state.json> -Action <subcommand>
+# Start a new run via JSON request:
+pwsh -NoProfile -File .agents/skills/auto-converge/scripts/converge.ps1 -Subcommand run -RequestFile <path-to-request.json> -Json
+
+# Query run status:
+pwsh -NoProfile -File .agents/skills/auto-converge/scripts/converge.ps1 -Subcommand status -RunId <run_id> -Json
+
+# Pause execution at a safe step boundary:
+pwsh -NoProfile -File .agents/skills/auto-converge/scripts/converge.ps1 -Subcommand pause -RunId <run_id>
+
+# Resume a paused run:
+pwsh -NoProfile -File .agents/skills/auto-converge/scripts/converge.ps1 -Subcommand resume -RunId <run_id>
+
+# Cancel execution and confirm process quiescence:
+pwsh -NoProfile -File .agents/skills/auto-converge/scripts/converge.ps1 -Subcommand cancel -RunId <run_id>
 ```
 
 Canonical Rust authoritative CLI transport:
 ```powershell
+# R3 Controller Facade:
+anthro-bridge.exe auto-converge <run|status|pause|cancel|resume> [arguments...]
+
+# Mechanical Guard Verification:
 anthro-bridge.exe auto-converge-guard <subcommand> --state-file <path> [arguments...]
 ```
 

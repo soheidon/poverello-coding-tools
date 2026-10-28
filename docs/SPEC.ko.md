@@ -2,6 +2,8 @@
 
 # SPEC: Poverello Coding Tools
 
+> **v0.25.1 전환:** Auto-Converge는 코드에 유지되지만 일반 앱 탐색 메뉴에서는 열 수 없습니다. 프로덕션 디스패치는 비활성화되어 있고 Stage 2 격리는 검증되지 않았습니다. UI 표시 여부가 실행 권한이나 출시 승인을 뜻하지 않습니다.
+
 ## 개요
 
 여러 제공자의 Anthropic 호환 엔드포인트를 통해 Claude Desktop / Claude Code API 요청을 라우팅하는 가벼운 프록시 + GUI 관리 도구입니다.

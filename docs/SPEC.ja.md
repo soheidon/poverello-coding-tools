@@ -2,6 +2,8 @@
 
 # SPEC: Poverello Coding Tools
 
+> **v0.25.1への移行:** Auto-Convergeはコードに保持しますが、通常のアプリナビゲーションから開けません。本番ディスパッチは無効で、Stage 2の隔離は未検証です。画面表示の有無は実行承認やリリース承認を意味しません。
+
 ## 概要
 
 Claude Desktop / Claude Code の API リクエストを、複数プロバイダーの Anthropic 互換エンドポイントへルーティングする薄型プロキシ + GUI 管理ツール。

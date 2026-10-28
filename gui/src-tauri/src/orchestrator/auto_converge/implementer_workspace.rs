@@ -167,7 +167,9 @@ impl ImplementerWorkspace {
         }
         let baseline_digest = digest_json(&baseline)?;
         if baseline_digest != expected_baseline_digest {
-            return Err("existing candidate baseline does not match recorded baseline digest".into());
+            return Err(
+                "existing candidate baseline does not match recorded baseline digest".into(),
+            );
         }
         Ok(Self {
             primary_root: primary,
@@ -360,13 +362,21 @@ impl ImplementerWorkspace {
         let (_initial_path, initial_digest) = persist_journal(&journal_dir, &journal)?;
         let mut latest_journal_digest = initial_digest;
         on_phase(PromotionPhase::Staged, &journal_dir, &latest_journal_digest)?;
-        on_phase(PromotionPhase::Applying, &journal_dir, &latest_journal_digest)?;
+        on_phase(
+            PromotionPhase::Applying,
+            &journal_dir,
+            &latest_journal_digest,
+        )?;
 
         for (index, entry) in journal.entries.iter().enumerate() {
             if fail_after_apply == Some(index) {
                 let reason = "injected promotion failure".to_string();
                 if rollback(&self.primary_root, &journal_dir, &journal, fail_rollback).is_err() {
-                    let _ = on_phase(PromotionPhase::RecoveryRequired, &journal_dir, &latest_journal_digest);
+                    let _ = on_phase(
+                        PromotionPhase::RecoveryRequired,
+                        &journal_dir,
+                        &latest_journal_digest,
+                    );
                     return Ok(PromotionOutcome::RecoveryRequired {
                         journal: journal_dir,
                         reason,
@@ -389,7 +399,11 @@ impl ImplementerWorkspace {
             };
             if let Err(error) = journal_result {
                 if rollback(&self.primary_root, &journal_dir, &journal, fail_rollback).is_err() {
-                    let _ = on_phase(PromotionPhase::RecoveryRequired, &journal_dir, &latest_journal_digest);
+                    let _ = on_phase(
+                        PromotionPhase::RecoveryRequired,
+                        &journal_dir,
+                        &latest_journal_digest,
+                    );
                     return Ok(PromotionOutcome::RecoveryRequired {
                         journal: journal_dir,
                         reason: error,
@@ -401,7 +415,11 @@ impl ImplementerWorkspace {
             }
             if let Some(digest) = new_digest {
                 latest_journal_digest = digest;
-                on_phase(PromotionPhase::Applying, &journal_dir, &latest_journal_digest)?;
+                on_phase(
+                    PromotionPhase::Applying,
+                    &journal_dir,
+                    &latest_journal_digest,
+                )?;
             }
 
             let apply_result = (|| -> Result<(), String> {
@@ -429,7 +447,11 @@ impl ImplementerWorkspace {
             })();
             if let Err(error) = apply_result {
                 if rollback(&self.primary_root, &journal_dir, &journal, false).is_err() {
-                    let _ = on_phase(PromotionPhase::RecoveryRequired, &journal_dir, &latest_journal_digest);
+                    let _ = on_phase(
+                        PromotionPhase::RecoveryRequired,
+                        &journal_dir,
+                        &latest_journal_digest,
+                    );
                     return Ok(PromotionOutcome::RecoveryRequired {
                         journal: journal_dir,
                         reason: error,
@@ -443,7 +465,11 @@ impl ImplementerWorkspace {
         if fail_after_apply == Some(journal.entries.len()) {
             let reason = "injected promotion failure after final apply".to_string();
             if rollback(&self.primary_root, &journal_dir, &journal, fail_rollback).is_err() {
-                let _ = on_phase(PromotionPhase::RecoveryRequired, &journal_dir, &latest_journal_digest);
+                let _ = on_phase(
+                    PromotionPhase::RecoveryRequired,
+                    &journal_dir,
+                    &latest_journal_digest,
+                );
                 return Ok(PromotionOutcome::RecoveryRequired {
                     journal: journal_dir,
                     reason,
@@ -454,11 +480,19 @@ impl ImplementerWorkspace {
             return Err(reason);
         }
 
-        on_phase(PromotionPhase::Applied, &journal_dir, &latest_journal_digest)?;
-        let name = journal_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        on_phase(
+            PromotionPhase::Applied,
+            &journal_dir,
+            &latest_journal_digest,
+        )?;
+        let name = journal_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
         let expected_prefix = format!(".pct-promotion-{}-", run_id);
         if journal_dir.parent() == Some(parent) && name.starts_with(&expected_prefix) {
-            fs::remove_dir_all(&journal_dir).map_err(|e| format!("remove completed journal: {e}"))?;
+            fs::remove_dir_all(&journal_dir)
+                .map_err(|e| format!("remove completed journal: {e}"))?;
         } else {
             return Err("refusing to remove journal: unexpected path or ownership mismatch".into());
         }
@@ -608,11 +642,16 @@ fn canonical_existing_dir(path: &Path, label: &str) -> Result<PathBuf, String> {
 
 fn reject_alias_components(path: &Path) -> Result<(), String> {
     match inspect_path_presence(path) {
-        PathPresence::Absent => return Err(format!("required path does not exist: {}", path.display())),
+        PathPresence::Absent => {
+            return Err(format!("required path does not exist: {}", path.display()))
+        }
         PathPresence::Error(e) => return Err(format!("inspect path {}: {e}", path.display())),
         PathPresence::Present(meta) => {
             if is_path_alias_or_reparse(&meta) {
-                return Err(format!("symlink or reparse component is forbidden: {}", path.display()));
+                return Err(format!(
+                    "symlink or reparse component is forbidden: {}",
+                    path.display()
+                ));
             }
         }
     }
@@ -820,7 +859,6 @@ fn validate_candidate_file_set(root: &Path, allowlist: &[String]) -> Result<(), 
     Ok(())
 }
 
-
 fn digest_json<T: Serialize>(value: &T) -> Result<String, String> {
     let bytes =
         serde_json::to_vec(value).map_err(|e| format!("serialize canonical evidence: {e}"))?;
@@ -931,7 +969,8 @@ pub fn recover_retained_promotion_restore_with_digest(
     };
     Uuid::parse_str(&uuid_str).map_err(|_| "invalid promotion journal identifier")?;
 
-    let (journal_data, latest_count, actual_digest) = load_and_validate_journal_with_digest(&journal)?;
+    let (journal_data, latest_count, actual_digest) =
+        load_and_validate_journal_with_digest(&journal)?;
     if let Some(expected) = expected_digest {
         if actual_digest != expected {
             return Err(format!(
@@ -1146,7 +1185,8 @@ pub fn cleanup_recovered_promotion_journal_authenticated(
     let journal = canonical_existing_dir(journal_dir, "recovery journal")?;
 
     // Reject aliases, symlinks, and reparse points
-    let meta = fs::symlink_metadata(&journal).map_err(|e| format!("read journal symlink metadata: {e}"))?;
+    let meta = fs::symlink_metadata(&journal)
+        .map_err(|e| format!("read journal symlink metadata: {e}"))?;
     if is_path_alias_or_reparse(&meta) {
         return Err("recovery journal directory must not be a symlink or reparse point".into());
     }
@@ -1186,9 +1226,14 @@ pub fn cleanup_recovered_promotion_journal_authenticated(
     // Reject unknown files in journal directory
     for entry in fs::read_dir(&journal).map_err(|e| format!("read journal directory: {e}"))? {
         let entry = entry.map_err(|e| format!("read journal entry: {e}"))?;
-        let file_type = entry.file_type().map_err(|e| format!("read file type: {e}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("read file type: {e}"))?;
         if !file_type.is_file() {
-            return Err(format!("unexpected non-file entry in journal dir: {:?}", entry.file_name()));
+            return Err(format!(
+                "unexpected non-file entry in journal dir: {:?}",
+                entry.file_name()
+            ));
         }
         let fname = entry.file_name();
         let fname_str = fname.to_str().ok_or("journal file name not utf-8")?;
@@ -1197,7 +1242,9 @@ pub fn cleanup_recovered_promotion_journal_authenticated(
             || fname_str.starts_with("backup-")
             || fname_str.starts_with("staged-");
         if !valid {
-            return Err(format!("unexpected foreign file in journal directory: {fname_str}"));
+            return Err(format!(
+                "unexpected foreign file in journal directory: {fname_str}"
+            ));
         }
     }
 
@@ -1350,7 +1397,11 @@ pub fn load_and_validate_journal_with_digest(
             return Err("journal entry path or payload names are invalid".into());
         }
     }
-    let max_count = snapshots.iter().map(|(count, _, _)| *count).max().unwrap_or(0);
+    let max_count = snapshots
+        .iter()
+        .map(|(count, _, _)| *count)
+        .max()
+        .unwrap_or(0);
     let latest = snapshots
         .iter()
         .filter(|(count, _, _)| *count == max_count)
@@ -1408,8 +1459,12 @@ pub fn validate_and_create_candidate_parent(candidate_parent: &Path) -> Result<P
             }
         }
         if cursor.exists() {
-            let meta = fs::symlink_metadata(&cursor)
-                .map_err(|e| format!("inspect candidate parent component {}: {e}", cursor.display()))?;
+            let meta = fs::symlink_metadata(&cursor).map_err(|e| {
+                format!(
+                    "inspect candidate parent component {}: {e}",
+                    cursor.display()
+                )
+            })?;
             if meta.file_type().is_symlink() || is_reparse(&meta) {
                 return Err(format!(
                     "symlink/reparse ancestor is forbidden in candidate parent: {}",
@@ -1423,10 +1478,18 @@ pub fn validate_and_create_candidate_parent(candidate_parent: &Path) -> Result<P
                 ));
             }
         } else {
-            fs::create_dir(&cursor)
-                .map_err(|e| format!("create candidate parent component {}: {e}", cursor.display()))?;
-            let meta = fs::symlink_metadata(&cursor)
-                .map_err(|e| format!("inspect newly created candidate parent component {}: {e}", cursor.display()))?;
+            fs::create_dir(&cursor).map_err(|e| {
+                format!(
+                    "create candidate parent component {}: {e}",
+                    cursor.display()
+                )
+            })?;
+            let meta = fs::symlink_metadata(&cursor).map_err(|e| {
+                format!(
+                    "inspect newly created candidate parent component {}: {e}",
+                    cursor.display()
+                )
+            })?;
             if meta.file_type().is_symlink() || is_reparse(&meta) {
                 return Err(format!(
                     "newly created candidate parent component is reparse/symlink: {}",

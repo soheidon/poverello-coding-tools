@@ -1,5 +1,12 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.25.1 — Work in progress (2026-10-28)
+
+### Auto-Converge transition
+
+- Hid Auto-Converge from the normal app navigation while retaining its implementation, tests, and Skill files.
+- Production dispatch remains disabled, Stage 2 isolation remains unverified, and this transition does not indicate release readiness.
+
 ## v0.24.6 — 2026-10-19
 
 ### Documentation: current DeepSeek API models and pricing

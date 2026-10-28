@@ -30,6 +30,9 @@ export const translations: TranslationMap = {
   "settings.nav.orchestrator": "오케스트레이터",
   "tab.autoConverge": "Auto-Converge",
   "autoConverge.unavailable": "이 데스크톱 빌드에서는 Auto-Converge를 사용할 수 없습니다. Reviewer OS 격리가 제공되지 않아 에이전트 프로세스를 시작하기 전에 실행이 차단됩니다.",
+  "autoConverge.r0dNotice": "리뷰어 레벨 R0-D: 감지 전용 모드입니다. 예기치 않은 변경은 스냅샷 범위 내에서 감지 및 복구되지만, 사전 쓰기 방지는 수행되지 않습니다.",
+  "autoConverge.r0dAcknowledge": "R0-D가 감지 전용임을 이해했습니다",
+  "autoConverge.startDisabledReason": "검증 대기 중 (Phase B–G)",
 
   // MCP Panel
   "mcp.statusHeader": "MCP 서버 상태",

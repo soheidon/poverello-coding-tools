@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import AutoConvergePanel from "./AutoConvergePanel";
 import { invoke } from "@tauri-apps/api/core";
+import * as i18n from "../../i18n";
 import { translations as en } from "../../i18n/lang/en";
 import { translations as ja } from "../../i18n/lang/ja";
 import { translations as de } from "../../i18n/lang/de";
@@ -18,6 +19,10 @@ vi.mock("@tauri-apps/api/core", () => ({
 describe("AutoConvergePanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(i18n, "useTranslation").mockImplementation(() => ({
+      t: (key: string) => (en as Record<string, string>)[key] ?? key,
+      lang: "en",
+    }) as ReturnType<typeof i18n.useTranslation>);
   });
 
   it("renders built-in presets (Fast Local, Balanced, Strict Release) and defaults to Balanced", () => {
@@ -51,12 +56,116 @@ describe("AutoConvergePanel", () => {
     expect(select.value).toBe("balanced");
   });
 
-  it("renders start run button when no run is active", () => {
+  it("renders start run button when no run is active and keeps it strictly disabled in Phase A", () => {
     const mockedInvoke = vi.mocked(invoke);
     mockedInvoke.mockResolvedValueOnce([]);
     render(<AutoConvergePanel />);
-    expect(screen.getByTestId("start-run-btn")).toBeDisabled();
+    const startBtn = screen.getByTestId("start-run-btn");
+    expect(startBtn).toBeDisabled();
+    expect(startBtn).toHaveAttribute("title", en["autoConverge.startDisabledReason"]);
     expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  it("renders R0-D notice banner and allows toggling opt-in checkbox", () => {
+    render(<AutoConvergePanel />);
+    const banner = screen.getByTestId("auto-converge-r0d-banner");
+    expect(banner).toBeInTheDocument();
+    expect(banner).toHaveTextContent(en["autoConverge.r0dNotice"]);
+
+    const checkbox = screen.getByTestId("r0d-acknowledge-checkbox") as HTMLInputElement;
+    expect(checkbox).toBeInTheDocument();
+    expect(checkbox.checked).toBe(false);
+
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(true);
+
+    // Start button must still remain disabled even when acknowledged
+    const startBtn = screen.getByTestId("start-run-btn");
+    expect(startBtn).toBeDisabled();
+    expect(startBtn).toHaveAttribute("title", en["autoConverge.startDisabledReason"]);
+  });
+
+  it("provides the R0-D notice, acknowledge label, and disabled reason in every supported locale", () => {
+    const expectedCopy = [
+      [
+        "en",
+        en["autoConverge.r0dNotice"],
+        "Reviewer Level R0-D: detection-only; unexpected changes are detected and recoverable within the snapshot scope, not prevented.",
+        en["autoConverge.r0dAcknowledge"],
+        "I understand R0-D is detection-only",
+        en["autoConverge.startDisabledReason"],
+        "Verification pending (Phases B–G)",
+      ],
+      [
+        "ja",
+        ja["autoConverge.r0dNotice"],
+        "Reviewer Level R0-D: 検知専用モードです。予期しない変更はスナップショット範囲内で検知・復旧されますが、事前の書き込み防止は行われません。",
+        ja["autoConverge.r0dAcknowledge"],
+        "R0-Dが検知専用であることを理解しました",
+        ja["autoConverge.startDisabledReason"],
+        "検証完了待ち（Phase B–G）",
+      ],
+      [
+        "de",
+        de["autoConverge.r0dNotice"],
+        "Reviewer-Stufe R0-D: Nur-Erkennung; unerwartete Änderungen werden innerhalb des Snapshot-Bereichs erkannt und wiederhergestellt, aber nicht verhindert.",
+        de["autoConverge.r0dAcknowledge"],
+        "Ich verstehe, dass R0-D nur der Erkennung dient",
+        de["autoConverge.startDisabledReason"],
+        "Ausstehende Verifizierung (Phasen B–G)",
+      ],
+      [
+        "es",
+        es["autoConverge.r0dNotice"],
+        "Nivel de revisor R0-D: solo detección; los cambios inesperados se detectan y recuperan dentro del alcance de la instantánea, no se previenen.",
+        es["autoConverge.r0dAcknowledge"],
+        "Entiendo que R0-D es solo de detección",
+        es["autoConverge.startDisabledReason"],
+        "Verificación pendiente (Fases B–G)",
+      ],
+      [
+        "fr",
+        fr["autoConverge.r0dNotice"],
+        "Niveau de réviseur R0-D : détection uniquement ; les modifications inattendues sont détectées et récupérées dans le périmètre de l'instantané, mais ne sont pas empêchées.",
+        fr["autoConverge.r0dAcknowledge"],
+        "Je comprends que le mode R0-D fonctionne en détection uniquement",
+        fr["autoConverge.startDisabledReason"],
+        "Vérification en attente (Phases B–G)",
+      ],
+      [
+        "ko",
+        ko["autoConverge.r0dNotice"],
+        "리뷰어 레벨 R0-D: 감지 전용 모드입니다. 예기치 않은 변경은 스냅샷 범위 내에서 감지 및 복구되지만, 사전 쓰기 방지는 수행되지 않습니다.",
+        ko["autoConverge.r0dAcknowledge"],
+        "R0-D가 감지 전용임을 이해했습니다",
+        ko["autoConverge.startDisabledReason"],
+        "검증 대기 중 (Phase B–G)",
+      ],
+      [
+        "zh-CN",
+        zhCN["autoConverge.r0dNotice"],
+        "审阅者级别 R0-D：仅检测模式；非预期更改将在快照范围内被检测并可恢复，但不会被提前阻止写入。",
+        zhCN["autoConverge.r0dAcknowledge"],
+        "我了解 R0-D 为仅检测模式",
+        zhCN["autoConverge.startDisabledReason"],
+        "等待验证完成（阶段 B–G）",
+      ],
+      [
+        "zh-TW",
+        zhTW["autoConverge.r0dNotice"],
+        "審查者層級 R0-D：僅偵測模式；非預期變更將在快照範圍內被偵測並可復原，但不會被提前阻止寫入。",
+        zhTW["autoConverge.r0dAcknowledge"],
+        "我了解 R0-D 為僅偵測模式",
+        zhTW["autoConverge.startDisabledReason"],
+        "等待驗證完成（階段 B–G）",
+      ],
+    ] as const;
+
+    for (const [locale, notice, expNotice, ack, expAck, reason, expReason] of expectedCopy) {
+      expect(notice, `incorrect r0dNotice for ${locale}`).toBe(expNotice);
+      expect(ack, `incorrect r0dAcknowledge for ${locale}`).toBe(expAck);
+      expect(reason, `incorrect startDisabledReason for ${locale}`).toBe(expReason);
+    }
   });
 
   it("provides the unavailable notice in every supported locale", () => {

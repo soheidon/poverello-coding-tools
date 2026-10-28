@@ -2,6 +2,8 @@
 
 # Poverello Coding Tools
 
+> **Transition vers v0.25.1 :** Auto-Converge est conservé dans le code, mais masqué dans la navigation normale de l’application. Le dispatch de production reste désactivé et l’isolation de Stage 2 n’est pas vérifiée. Cela ne signifie pas que la version est prête à être publiée.
+
 **Utilisez Claude Code / Claude Desktop comme environnement de développement, routez les inférences vers des API LLM tierces, et utilisez des modèles externes comme planificateurs et réviseurs pour Google Antigravity.**
 
 Poverello Coding Tools (affiché dans l’application sous le nom **Poverello**) est une application Windows complémentaire pour le développement logiciel assisté par IA. Elle prend en charge cinq flux de travail complémentaires :

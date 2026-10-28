@@ -19,7 +19,6 @@ import McpSettingPanel from "./components/McpSettingPanel";
 import AntigravityRulesPanel from "./components/AntigravityRulesPanel";
 import OrchestratorPanel from "./components/orchestrator/OrchestratorPanel";
 import OrchestratorSettingsPanel from "./components/orchestrator/OrchestratorSettingsPanel";
-import AutoConvergePanel from "./components/autoConverge/AutoConvergePanel";
 import { useHealthCheck } from "./hooks/useHealthCheck";
 import { useProxyToggle } from "./hooks/useProxyToggle";
 import { LanguageProvider, useTranslation } from "./i18n";
@@ -34,9 +33,11 @@ import {
   calculateInitialWindowHeight,
 } from "./windowSizing";
 
+type MainTab = "gateway" | "mcp" | "orchestrator" | "settings";
+
 function AppContent() {
   const { t } = useTranslation();
-  const [mainTab, setMainTab] = useState<"gateway" | "mcp" | "orchestrator" | "autoConverge" | "settings">("gateway");
+  const [mainTab, setMainTab] = useState<MainTab>("gateway");
   const [settingsTab, setSettingsTab] = useState<"general" | "claudeDesktop" | "antigravity" | "antigravityRules" | "orchestrator">("general");
   const { managedRunning, loading: proxyLoading, error: proxyError, diag: proxyDiag, successMessage, start, stop, clearDiag } = useProxyToggle();
   const { data: health, error: healthError, loading: healthLoading, refresh: healthRefresh } = useHealthCheck(managedRunning);
@@ -238,7 +239,8 @@ function AppContent() {
     [refreshConfig],
   );
 
-  const handleMainTabChange = useCallback((tab: "gateway" | "mcp" | "orchestrator" | "autoConverge" | "settings") => {
+  const handleMainTabChange = useCallback((tab: MainTab | "autoConverge") => {
+    if (tab === "autoConverge") return;
     setMainTab(tab);
   }, []);
 
@@ -259,7 +261,7 @@ function AppContent() {
         onTabChange={handleMainTabChange}
       />
       <Header
-        activeTab={mainTab === "autoConverge" ? "orchestrator" : mainTab}
+        activeTab={mainTab}
         proxyStatus={proxyStatus}
         managedRunning={health?.managed_child_running ?? false}
         proxyLoading={proxyLoading}
@@ -364,8 +366,6 @@ function AppContent() {
         </div>
       ) : mainTab === "mcp" ? (
         <McpPanel config={config} refreshConfig={refreshConfig} />
-      ) : mainTab === "autoConverge" ? (
-        <AutoConvergePanel />
       ) : (
         <OrchestratorPanel />
       )}

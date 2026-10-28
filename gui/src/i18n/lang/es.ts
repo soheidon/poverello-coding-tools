@@ -30,6 +30,9 @@ export const translations: TranslationMap = {
   "settings.nav.orchestrator": "Orquestador",
   "tab.autoConverge": "Auto-Converge",
   "autoConverge.unavailable": "Auto-Converge no está disponible en esta versión de escritorio. No se dispone del aislamiento de SO para el revisor, por lo que las ejecuciones se bloquean antes de iniciar cualquier proceso de agente.",
+  "autoConverge.r0dNotice": "Nivel de revisor R0-D: solo detección; los cambios inesperados se detectan y recuperan dentro del alcance de la instantánea, no se previenen.",
+  "autoConverge.r0dAcknowledge": "Entiendo que R0-D es solo de detección",
+  "autoConverge.startDisabledReason": "Verificación pendiente (Fases B–G)",
 
   // MCP Panel
   "mcp.statusHeader": "Estado del servidor MCP",

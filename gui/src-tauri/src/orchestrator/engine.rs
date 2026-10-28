@@ -2404,8 +2404,23 @@ impl OrchestratorEngine {
                         std::fs::remove_file(&link_path)
                             .map_err(|e| format!("test symlink removal failed: {e}"))?;
                     }
-                    std::os::windows::fs::symlink_dir(&new_target, &link_path)
-                        .map_err(|e| format!("test symlink replacement failed: {e}"))?;
+                    // Directory symlinks require Developer Mode or elevated
+                    // privileges on many Windows hosts. A junction exercises
+                    // the same reparse-point escape boundary without that
+                    // privilege and is rejected by the production path guard.
+                    let output = std::process::Command::new("cmd.exe")
+                        .args(["/D", "/C", "mklink", "/J"])
+                        .arg(&link_path)
+                        .arg(&new_target)
+                        .output()
+                        .map_err(|e| format!("test junction replacement command failed: {e}"))?;
+                    if !output.status.success() {
+                        return Err(format!(
+                            "test junction replacement failed ({}): {}",
+                            output.status,
+                            String::from_utf8_lossy(&output.stderr).trim()
+                        ));
+                    }
                 }
                 #[cfg(unix)]
                 {
@@ -4539,22 +4554,26 @@ fn inventory_submodules_recursive<'a>(
     rel_prefix: &'a str,
     visited: &'a [PathBuf],
     #[cfg(test)] scripted_executor: Option<Arc<ScriptedAdapterExecutor>>,
+    #[cfg(test)] git_dir_override: Option<&'a Path>,
 ) -> std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<Vec<SubmoduleInfo>, String>> + Send + 'a>,
 > {
     Box::pin(async move {
-        let git_dir_out = tokio::process::Command::new("git")
+        let mut git_dir_command = tokio::process::Command::new("git");
+        git_dir_command
             .args(["rev-parse", "--git-dir"])
-            .current_dir(current_repo)
-            .output()
-            .await
-            .map_err(|e| {
-                format!(
-                    "Failed to check git repository at '{}': {}",
-                    current_repo.display(),
-                    e
-                )
-            })?;
+            .current_dir(current_repo);
+        #[cfg(test)]
+        if let Some(git_dir) = git_dir_override {
+            git_dir_command.env("GIT_DIR", git_dir);
+        }
+        let git_dir_out = git_dir_command.output().await.map_err(|e| {
+            format!(
+                "Failed to check git repository at '{}': {}",
+                current_repo.display(),
+                e
+            )
+        })?;
         if !git_dir_out.status.success() {
             let stderr = String::from_utf8_lossy(&git_dir_out.stderr);
             return Err(format!(
@@ -4843,6 +4862,8 @@ fn inventory_submodules_recursive<'a>(
                 &next_visited,
                 #[cfg(test)]
                 scripted_executor.clone(),
+                #[cfg(test)]
+                git_dir_override,
             )
             .await?;
 
@@ -4873,6 +4894,8 @@ pub async fn verify_submodules_for_review(
         &[canonical_root],
         #[cfg(test)]
         None,
+        #[cfg(test)]
+        None,
     )
     .await
 }
@@ -4881,6 +4904,7 @@ pub async fn verify_submodules_for_review(
 async fn verify_submodules_for_review_with_executor(
     project_path: &Path,
     scripted_executor: Option<Arc<ScriptedAdapterExecutor>>,
+    git_dir_override: Option<&Path>,
 ) -> Result<Vec<SubmoduleInfo>, String> {
     let canonical_root = fs::canonicalize(project_path)
         .map_err(|e| format!("Failed to canonicalize project path: {}", e))?;
@@ -4890,6 +4914,7 @@ async fn verify_submodules_for_review_with_executor(
         "",
         &[canonical_root],
         scripted_executor,
+        git_dir_override,
     )
     .await
 }
@@ -4958,6 +4983,7 @@ pub async fn execute_disposable_worktree_review(
     let submodules = verify_submodules_for_review_with_executor(
         project_path,
         engine.scripted_adapter_executor.clone(),
+        None,
     )
     .await?;
     #[cfg(not(test))]
@@ -6512,7 +6538,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn save_time_archive_symlink_escape_fails_before_implementer() {
+    async fn save_time_archive_reparse_escape_fails_before_implementer() {
         let temp = tempfile::tempdir().unwrap();
         let project = temp.path().join("project");
         let outside = temp.path().join("outside");
@@ -7277,8 +7303,23 @@ mod tests {
     async fn test_verify_submodules_for_review_fail_closed() {
         // Non-git directory must fail closed with Err
         let temp_dir = tempfile::tempdir().unwrap();
-        let res = verify_submodules_for_review(temp_dir.path()).await;
-        assert!(res.is_err(), "verify_submodules_for_review must fail closed on invalid/non-git repo: {:?}", res);
+        let invalid_git_dir = temp_dir.path().join("not-a-git-directory");
+        std::fs::write(&invalid_git_dir, "not a git directory").unwrap();
+        let res = verify_submodules_for_review_with_executor(
+            temp_dir.path(),
+            None,
+            Some(&invalid_git_dir),
+        )
+        .await;
+        assert!(
+            res.is_err(),
+            "verify_submodules_for_review must fail closed on invalid/non-git repo: {:?}",
+            res
+        );
+        assert!(
+            res.unwrap_err().contains("not a valid git repository"),
+            "invalid-repository preflight must report the git discovery failure"
+        );
     }
 
     #[tokio::test]
@@ -7676,6 +7717,10 @@ mod tests {
     #[tokio::test]
     async fn test_wait_for_antigravity_submission_budget_exhaustion_task_and_run_scopes() {
         let temp_dir = tempfile::tempdir().unwrap();
+        let _descriptor_override =
+            crate::orchestrator::mailbox::scoped_session_descriptor_path_override(
+                temp_dir.path().join("orchestrator_session.json"),
+            );
         let project_path = temp_dir.path().to_string_lossy().to_string();
         let run_id = "test-budget-engine-run".to_string();
 
@@ -8634,9 +8679,16 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let non_git = temp.path().join("non_git");
         fs::create_dir_all(&non_git).unwrap();
+        // The test runner's temp directory is inside the repository, so an
+        // otherwise empty directory would discover the enclosing .git while
+        // Git walks upward. A malformed local gitfile anchors discovery here.
+        fs::write(non_git.join(".git"), b"gitdir: [invalid\n").unwrap();
 
         let res = capture_repo_fingerprint(&non_git).await;
-        assert!(res.is_err(), "capture_repo_fingerprint must fail closed on non-git directory");
+        assert!(
+            res.is_err(),
+            "capture_repo_fingerprint must fail closed on invalid git metadata: {res:?}"
+        );
     }
 
     #[tokio::test]
@@ -9577,6 +9629,10 @@ mod tests {
     async fn test_production_workflow_run_entry_captures_frozen_snapshot_and_delivers_identical_body_and_digest() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().to_path_buf();
+        let _descriptor_override =
+            crate::orchestrator::mailbox::scoped_session_descriptor_path_override(
+                root.join("orchestrator_session.json"),
+            );
         fs::write(
             root.join("package.json"),
             r#"{"name":"test-proj","version":"0.24.0"}"#,
@@ -9726,6 +9782,10 @@ mod tests {
     async fn test_production_human_gated_workflow_active_run_immutability_and_worker_reclaim_consistency() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().to_path_buf();
+        let _descriptor_override =
+            crate::orchestrator::mailbox::scoped_session_descriptor_path_override(
+                root.join("orchestrator_session.json"),
+            );
         fs::write(
             root.join("package.json"),
             r#"{"name":"test-proj","version":"0.24.0"}"#,

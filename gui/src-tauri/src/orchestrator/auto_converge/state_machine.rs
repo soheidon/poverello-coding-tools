@@ -16,8 +16,8 @@ use super::types::{
     AutoConvergeState, AutoConvergeWorkspaceState, BaselineFileEntry, BaselineFileStatus,
     BlockedContext, BlockedKind, CodexReviewVerdict, CycleCounts, EscalationPolicy,
     EscalationTriggerReason, ExecutionLogEntry, PlanLineage, ReleaseAuthorizationState, ReviewMode,
-    RoleModelConfig, RunDeltaEntry, SessionProvenance, UserConfirmationToken, VerdictDecision,
-    VerificationEvidence, PERM_COMMIT, RELEASE_ACTION_MASK, TAG_OR_RELEASE_MASK,
+    ReviewerLevel, RoleModelConfig, RunDeltaEntry, SessionProvenance, UserConfirmationToken,
+    VerdictDecision, VerificationEvidence, PERM_COMMIT, RELEASE_ACTION_MASK, TAG_OR_RELEASE_MASK,
 };
 
 pub fn default_role_configs() -> Vec<RoleModelConfig> {
@@ -80,6 +80,15 @@ pub fn initialize_run(
     if (config.run_permissions & PERM_COMMIT) != 0 && runner.has_preexisting_staged_work()? {
         return Err(
             "Invariant 10 violation: pre-existing staged work detected in .git/index while commit permission is requested; commit, unstage, or stash index changes first"
+                .to_string(),
+        );
+    }
+
+    // B3: Validate reviewer level and require explicit acknowledgement for R0-D
+    let reviewer_level = config.reviewer_level.unwrap_or(ReviewerLevel::R2);
+    if reviewer_level == ReviewerLevel::R0D && !config.r0d_acknowledged {
+        return Err(
+            "Reviewer Level R0-D requires explicit user acknowledgement (r0d_acknowledged must be true)"
                 .to_string(),
         );
     }
@@ -187,6 +196,9 @@ pub fn initialize_run(
         configured_agent_cli: config.agent_cli_path,
         candidate_binding: None,
         promotion_journal: None,
+        reviewer_level,
+        r0d_acknowledged: config.r0d_acknowledged,
+        recovery_snapshot: None,
         engine_auth_tag: String::new(),
     };
     state.engine_auth_tag = super::guards::compute_engine_state_auth_tag(&state)?;

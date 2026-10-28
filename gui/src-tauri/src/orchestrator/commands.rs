@@ -3545,6 +3545,10 @@ mod tests {
     #[tokio::test]
     async fn adopt_creates_validation_baseline_and_production_resume_revalidates_before_approval() {
         let temp = tempfile::tempdir().unwrap();
+        let _session_descriptor_path =
+            super::super::mailbox::scoped_session_descriptor_path_override(
+                temp.path().join("session.json"),
+            );
         let root = temp.path().join("project");
         init_recovery_test_repository(&root);
         let runs_dir = temp.path().join("runs");
@@ -3554,7 +3558,7 @@ mod tests {
         let store = super::super::checkpoint::CheckpointStore::new(runs_dir);
         let (manifest, reference) = store
             .capture(
-                "adopt-validation-route",
+                "adopt-route",
                 WorkflowState::Implementation,
                 super::super::recovery::CheckpointKind::EntryBaseline,
                 &root,
@@ -3564,7 +3568,7 @@ mod tests {
             .unwrap();
         let journal = super::super::recovery::RunJournal {
             schema_version: super::super::recovery::JOURNAL_SCHEMA_VERSION,
-            run_id: "adopt-validation-route".into(),
+            run_id: "adopt-route".into(),
             workflow_type: "human_gated_loop".into(),
             canonical_project_path: root.to_string_lossy().into_owned(),
             task_prompt: Some("task prompt".into()),
@@ -3707,7 +3711,18 @@ mod tests {
 
         let events = runtime.steps.lock().unwrap().clone();
         let states: Vec<_> = events.iter().map(|event| event.step).collect();
-        assert_eq!(states.first(), Some(&WorkflowState::Validation));
+        let log_messages: Vec<_> = runtime
+            .logs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|entry| entry.message.clone())
+            .collect();
+        assert_eq!(
+            states.first(),
+            Some(&WorkflowState::Validation),
+            "unexpected first resumed workflow step; states={states:?}; logs={log_messages:?}"
+        );
         assert!(states.contains(&WorkflowState::CodeReview));
         assert!(states.contains(&WorkflowState::Fix));
         assert!(states.contains(&WorkflowState::HumanGate));
@@ -3841,6 +3856,10 @@ mod tests {
     async fn explicit_resume_persists_generation_and_enters_implementation_without_replaying_planning(
     ) {
         let temp = tempfile::tempdir().unwrap();
+        let _session_descriptor_path =
+            super::super::mailbox::scoped_session_descriptor_path_override(
+                temp.path().join("session.json"),
+            );
         let root = temp.path().join("project");
         init_recovery_test_repository(&root);
         let runs_dir = temp.path().join("runs");
@@ -3850,7 +3869,7 @@ mod tests {
         let store = super::super::checkpoint::CheckpointStore::new(runs_dir);
         let (manifest, reference) = store
             .capture(
-                "resume-start-test",
+                "resume",
                 WorkflowState::Implementation,
                 super::super::recovery::CheckpointKind::EntryBaseline,
                 &root,
@@ -3860,7 +3879,7 @@ mod tests {
             .unwrap();
         let journal = super::super::recovery::RunJournal {
             schema_version: super::super::recovery::JOURNAL_SCHEMA_VERSION,
-            run_id: "resume-start-test".into(),
+            run_id: "resume".into(),
             workflow_type: "human_gated_loop".into(),
             canonical_project_path: root.to_string_lossy().into_owned(),
             task_prompt: Some("task prompt".into()),
@@ -3944,7 +3963,18 @@ mod tests {
         runtime.join().await;
         let events = runtime.steps.lock().unwrap().clone();
         let states: Vec<_> = events.iter().map(|event| event.step).collect();
-        assert_eq!(states.first(), Some(&WorkflowState::Implementation));
+        let log_messages: Vec<_> = runtime
+            .logs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|entry| entry.message.clone())
+            .collect();
+        assert_eq!(
+            states.first(),
+            Some(&WorkflowState::Implementation),
+            "unexpected first resumed workflow step; states={states:?}; logs={log_messages:?}"
+        );
         assert_eq!(states.last(), Some(&WorkflowState::Complete));
         for skipped in [
             WorkflowState::PlanDraft,
@@ -7514,7 +7544,15 @@ mod tests {
         std::fs::write(&outside, b"# outside\n").unwrap();
         std::fs::remove_file(harness.target_path()).unwrap();
         #[cfg(windows)]
-        std::os::windows::fs::symlink_file(&outside, harness.target_path()).unwrap();
+        if let Err(error) = std::os::windows::fs::symlink_file(&outside, harness.target_path()) {
+            if error.raw_os_error() == Some(1314) {
+                eprintln!(
+                    "[UNVERIFIED] test_symlinked_target_is_rejected_before_write: file symlink unavailable (OS 1314)"
+                );
+                return;
+            }
+            panic!("failed to create file symlink fixture: {error}");
+        }
         #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, harness.target_path()).unwrap();
 

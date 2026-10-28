@@ -3,9 +3,11 @@ pub mod codex_exec;
 pub mod finding_tracker;
 pub mod git_runner;
 pub mod guards;
-pub mod isolation;
 mod implementer_workspace;
+pub mod isolation;
 pub mod profile_store;
+pub mod r3_controller;
+pub mod recovery_snapshot;
 pub mod release_reviewer;
 pub mod state_machine;
 pub mod state_store;
@@ -29,57 +31,19 @@ pub use git_runner::*;
 pub use guards::*;
 pub use isolation::*;
 pub use profile_store::*;
+pub use r3_controller::*;
+pub use recovery_snapshot::*;
 pub use release_reviewer::*;
 pub use state_machine::*;
 pub use state_store::*;
 pub use types::*;
 
 #[cfg(test)]
-thread_local! {
-    static TEST_ENGINE_AUTHORITY_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
-}
-
-#[cfg(test)]
-pub fn set_test_engine_authority_dir(dir: Option<PathBuf>) {
-    TEST_ENGINE_AUTHORITY_DIR.with(|cell| {
-        *cell.borrow_mut() = dir;
-    });
-}
-
-#[cfg(test)]
-pub struct TestEngineAuthorityGuard {
-    prev: Option<PathBuf>,
-}
-
-#[cfg(test)]
-impl TestEngineAuthorityGuard {
-    pub fn enter(dir: PathBuf) -> Self {
-        let prev = TEST_ENGINE_AUTHORITY_DIR.with(|cell| {
-            let p = cell.borrow().clone();
-            *cell.borrow_mut() = Some(dir);
-            p
-        });
-        Self { prev }
-    }
-}
-
-#[cfg(test)]
-impl Drop for TestEngineAuthorityGuard {
-    fn drop(&mut self) {
-        TEST_ENGINE_AUTHORITY_DIR.with(|cell| {
-            *cell.borrow_mut() = self.prev.clone();
-        });
-    }
-}
+pub use state_store::{
+    get_test_engine_authority_dir, set_test_engine_authority_dir, TestEngineAuthorityGuard,
+};
 
 pub fn resolve_engine_authority_dir() -> Result<PathBuf, String> {
-    #[cfg(test)]
-    {
-        let local = TEST_ENGINE_AUTHORITY_DIR.with(|cell| cell.borrow().clone());
-        if let Some(dir) = local {
-            return Ok(dir);
-        }
-    }
     state_store::get_engine_authority_dir().map_err(|e| e.to_string())
 }
 
@@ -88,9 +52,14 @@ pub fn resolve_engine_authority_dir() -> Result<PathBuf, String> {
 pub fn engine_run_state_path(run_id: &str) -> Result<PathBuf, String> {
     let validated =
         state_store::validate_auto_converge_run_id(run_id).map_err(|error| error.to_string())?;
-    state_store::get_engine_runs_dir(&validated)
-        .map(|d| d.join("run_state.json"))
-        .map_err(|e| format!("Failed to access engine runs directory: {e}"))
+    let authority_dir = resolve_engine_authority_dir()?;
+    let base = authority_dir
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("engine_runs");
+    let dir = state_store::engine_run_directory_path(&base, &validated)
+        .map_err(|e| format!("Failed to access engine runs directory: {e}"))?;
+    Ok(dir.join("run_state.json"))
 }
 
 fn prepare_reviewer_snapshot_dir(
@@ -120,10 +89,157 @@ pub fn auto_converge_save_profile(profile: AutoConvergeProfile) -> Result<(), St
     store.save_custom_profile(profile)
 }
 
+/// Global production dispatch gate (§209.1 rule 3, §209.15 B1, §209.17 R1, R3).
+/// Production dispatch remains strictly BLOCKED until Phase G verification and Phase H authorization.
+/// This gate operates independently of the GUI and fails closed before any process, temp directory,
+/// or run state is created.
+pub const PRODUCTION_DISPATCH_ENABLED: bool = false;
+
+#[cfg(test)]
+thread_local! {
+    static TEST_PRODUCTION_DISPATCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(crate) fn set_test_production_dispatch_override(enabled: bool) {
+    TEST_PRODUCTION_DISPATCH_OVERRIDE.with(|cell| cell.set(enabled));
+}
+
+#[cfg(test)]
+pub(crate) fn is_production_dispatch_enabled() -> bool {
+    PRODUCTION_DISPATCH_ENABLED || TEST_PRODUCTION_DISPATCH_OVERRIDE.with(|cell| cell.get())
+}
+
+#[cfg(not(test))]
+pub(crate) fn is_production_dispatch_enabled() -> bool {
+    PRODUCTION_DISPATCH_ENABLED
+}
+
+/// Pure helper determining whether the state's upcoming role requires Reviewer preflight (§209.3 A2).
+/// Only review states require Reviewer preflight; planner and implementer states do not.
+pub(crate) fn next_role_requires_reviewer_preflight(state: &AutoConvergeRunState) -> bool {
+    matches!(
+        state.current_state,
+        AutoConvergeState::PlanReview
+            | AutoConvergeState::ImplementationReview
+            | AutoConvergeState::CorrectivePlanReview
+            | AutoConvergeState::ReleaseReview
+    )
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum RunInitializationOutcome {
+    Committed(AutoConvergeRunState),
+    CommittedAfterReportedError {
+        state: AutoConvergeRunState,
+        reported_error: String,
+    },
+    NotCommitted {
+        save_error: String,
+        cleanup_error: Option<String>,
+        remaining_path: Option<PathBuf>,
+    },
+    Unresolved {
+        save_error: String,
+        read_back_error: String,
+        snapshot_path: PathBuf,
+        recovery_instructions: String,
+    },
+}
+
+pub fn reconcile_run_state_save_error(
+    state_path: &Path,
+    intended_state: &AutoConvergeRunState,
+    snapshot_binding: &recovery_snapshot::RecoverySnapshotBinding,
+    ownership_lease: &recovery_snapshot::SnapshotOwnershipLease,
+    save_error: String,
+) -> RunInitializationOutcome {
+    let read_back_result = guards::load_and_verify_run_state_authenticated(state_path, None);
+    match read_back_result {
+        Ok(persisted_state) => {
+            if persisted_state.run_id == intended_state.run_id
+                && persisted_state.state_sequence == intended_state.state_sequence
+                && persisted_state.engine_auth_tag == intended_state.engine_auth_tag
+                && persisted_state.recovery_snapshot == intended_state.recovery_snapshot
+            {
+                RunInitializationOutcome::CommittedAfterReportedError {
+                    state: persisted_state,
+                    reported_error: save_error,
+                }
+            } else {
+                RunInitializationOutcome::Unresolved {
+                    save_error,
+                    read_back_error: format!(
+                        "Persisted state exists but does not match intended state (run_id: {}, seq: {})",
+                        persisted_state.run_id, persisted_state.state_sequence
+                    ),
+                    snapshot_path: PathBuf::from(&snapshot_binding.root),
+                    recovery_instructions: "Inspect run state and snapshot manually; do not delete snapshot".to_string(),
+                }
+            }
+        }
+        Err(read_err) => {
+            if !state_path.exists() {
+                let cleanup_res =
+                    recovery_snapshot::cleanup_published_snapshot_lease(ownership_lease);
+                match cleanup_res {
+                    Ok(()) => RunInitializationOutcome::NotCommitted {
+                        save_error,
+                        cleanup_error: None,
+                        remaining_path: None,
+                    },
+                    Err(c_err) => RunInitializationOutcome::NotCommitted {
+                        save_error,
+                        cleanup_error: Some(c_err.to_string()),
+                        remaining_path: Some(snapshot_binding.root.clone()),
+                    },
+                }
+            } else {
+                RunInitializationOutcome::Unresolved {
+                    save_error,
+                    read_back_error: format!(
+                        "State file exists but authenticated read-back failed: {read_err}"
+                    ),
+                    snapshot_path: PathBuf::from(&snapshot_binding.root),
+                    recovery_instructions:
+                        "Inspect state file and preserve snapshot for manual recovery".to_string(),
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn prepare_and_bind_recovery_snapshot(
+    state: &mut AutoConvergeRunState,
+    engine_root: &Path,
+    policy: &recovery_snapshot::SnapshotPolicy,
+) -> Result<
+    (
+        recovery_snapshot::RecoverySnapshotBinding,
+        recovery_snapshot::SnapshotOwnershipLease,
+    ),
+    recovery_snapshot::SnapshotError,
+> {
+    let ws_path = PathBuf::from(&state.workspace.working_dir);
+    let (_snapshot, binding, lease) =
+        recovery_snapshot::create_recovery_snapshot(&state.run_id, &ws_path, engine_root, policy)?;
+    state.recovery_snapshot = Some(binding.clone());
+    Ok((binding, lease))
+}
+
 #[tauri::command]
 pub fn auto_converge_start_run(
     mut config: AutoConvergeRunConfig,
 ) -> Result<AutoConvergeRunState, String> {
+    // B1/R1: Explicit backend production dispatch gate (§209.1 rule 3, §209.15 B1, §209.17 R1).
+    // Fails closed immediately before any hash calculation, temp creation, state initialization, or process creation.
+    if !is_production_dispatch_enabled() {
+        return Err(
+            "Production dispatch is blocked pending Phase G verification and Phase H authorization (PRODUCTION_DISPATCH_ENABLED = false)"
+                .to_string(),
+        );
+    }
+
     let requested_run_id = config
         .run_id
         .take()
@@ -135,8 +251,8 @@ pub fn auto_converge_start_run(
     let ws_path = PathBuf::from(&config.working_dir);
     let manifest = capture_baseline_file_manifest(&ws_path, &BTreeMap::new())?;
 
-    // Perform platform OS-boundary isolation preflight (§20.4 B, §23.1.1, §23.4.2)
-    let snapshot_dir = prepare_reviewer_snapshot_dir(&std::env::temp_dir(), &run_id, 0)?;
+    // Perform platform OS-boundary isolation preflight (§20.4 B, §23.1.1, §23.4.2, §209.3 A2)
+    let snapshot_dir = prepare_reviewer_snapshot_dir(&codex_exec::ambient_temp_dir(), &run_id, 0)?;
 
     let git_runner = ProductionGitCommandRunner::new(ws_path.clone());
     let now = chrono::Utc::now().to_rfc3339();
@@ -144,17 +260,81 @@ pub fn auto_converge_start_run(
     let mut state = initialize_run(config, "HEAD", manifest, &git_runner, &now)?;
     let state_path = engine_run_state_path(&state.run_id)?;
 
-    if let Err(e) = PlatformIsolationGuard::verify_reviewer_os_boundary(&ws_path, &snapshot_dir) {
-        halt_blocked(
-            &mut state,
-            BlockedKind::FatalInvariant,
-            &format!("Platform isolation preflight failed: {e}"),
-        );
-        save_run_state_authenticated(&state_path, &mut state)?;
-        return Ok(state);
+    if agent_runner::requires_reviewer_os_boundary_guard(
+        AutoConvergeRole::Reviewer,
+        state.reviewer_level,
+    ) {
+        if let Err(e) = PlatformIsolationGuard::verify_reviewer_os_boundary(&ws_path, &snapshot_dir)
+        {
+            halt_blocked(
+                &mut state,
+                BlockedKind::FatalInvariant,
+                &format!("Platform isolation preflight failed: {e}"),
+            );
+            save_run_state_authenticated(&state_path, &mut state)?;
+            return Ok(state);
+        }
     }
 
-    save_run_state_authenticated(&state_path, &mut state)?;
+    let _run_state_lock = guards::acquire_run_state_lock(&state_path);
+
+    let engine_root = resolve_engine_authority_dir()?;
+    let (snapshot_binding, ownership_lease) = prepare_and_bind_recovery_snapshot(
+        &mut state,
+        &engine_root,
+        &recovery_snapshot::SnapshotPolicy::default(),
+    )
+    .map_err(|e| format!("RecoverySnapshot capture failed: {e}"))?;
+
+    // Single seal contract (§304.3 #4, §306.3 #1):
+    // Increment sequence once and compute auth tag once.
+    // Use the identical sealed state for persistence attempt and read-back reconciliation.
+    guards::seal_run_state_authenticated(&mut state)
+        .map_err(|e| format!("Failed to seal initial run state: {e}"))?;
+    let intended_state = state.clone();
+
+    if let Err(e) = guards::save_sealed_run_state(&state_path, &intended_state) {
+        let outcome = reconcile_run_state_save_error(
+            &state_path,
+            &intended_state,
+            &snapshot_binding,
+            &ownership_lease,
+            e,
+        );
+        match outcome {
+            RunInitializationOutcome::CommittedAfterReportedError {
+                state: committed_state,
+                ..
+            } => {
+                state = committed_state;
+            }
+            RunInitializationOutcome::NotCommitted {
+                save_error,
+                cleanup_error,
+                remaining_path,
+            } => {
+                state.recovery_snapshot = None;
+                let msg = if let Some(c_err) = cleanup_error {
+                    format!("NotCommitted: {save_error}; snapshot compensation cleanup failed at {remaining_path:?}: {c_err}")
+                } else {
+                    format!("NotCommitted: {save_error}")
+                };
+                return Err(msg);
+            }
+            RunInitializationOutcome::Unresolved {
+                save_error,
+                read_back_error,
+                snapshot_path,
+                recovery_instructions,
+            } => {
+                return Err(format!(
+                    "Unresolved: {save_error}; authenticated read-back was ambiguous ({read_back_error}). Snapshot preserved at {}. Instructions: {recovery_instructions}",
+                    snapshot_path.display()
+                ));
+            }
+            RunInitializationOutcome::Committed(_) => unreachable!(),
+        }
+    }
 
     let cli_path = configured_cli
         .map(PathBuf::from)
@@ -171,7 +351,7 @@ pub fn auto_converge_start_run(
                 save_run_state_authenticated(&state_path, &mut state)?;
                 return Ok(state);
             }
-            ProductionAgentRunner::with_cli(path)
+            ProductionAgentRunner::with_cli(path).with_reviewer_level(state.reviewer_level)
         }
         None => {
             halt_blocked(
@@ -221,22 +401,41 @@ pub fn auto_converge_resume_run(
     run_id: String,
     user_confirmation: Option<UserConfirmationToken>,
 ) -> Result<AutoConvergeRunState, String> {
+    // B1/R1: Explicit backend production dispatch gate on resume (§209.1 rule 3, §209.15 B1, §209.17 R1).
+    // Fails closed immediately before state resumption, git operations, or process creation.
+    if !is_production_dispatch_enabled() {
+        return Err(
+            "Production dispatch is blocked pending Phase G verification and Phase H authorization (PRODUCTION_DISPATCH_ENABLED = false)"
+                .to_string(),
+        );
+    }
+
     let state_path = engine_run_state_path(&run_id)?;
     let mut state = load_and_verify_run_state_authenticated(&state_path, None)?;
     let ws_path = PathBuf::from(&state.workspace.working_dir);
 
-    // Verify isolation preflight upon resume (§20.4 B, §23.1.1, §23.4.2)
-    let snapshot_dir =
-        prepare_reviewer_snapshot_dir(&std::env::temp_dir(), &state.run_id, state.state_sequence)?;
+    // Verify isolation preflight upon resume if the upcoming state is a Reviewer role (§20.4 B, §23.1.1, §23.4.2, §209.3 A2)
+    let snapshot_dir = prepare_reviewer_snapshot_dir(
+        &codex_exec::ambient_temp_dir(),
+        &state.run_id,
+        state.state_sequence,
+    )?;
 
-    if let Err(e) = PlatformIsolationGuard::verify_reviewer_os_boundary(&ws_path, &snapshot_dir) {
-        halt_blocked(
-            &mut state,
-            BlockedKind::FatalInvariant,
-            &format!("Platform isolation preflight failed: {e}"),
-        );
-        save_run_state_authenticated(&state_path, &mut state)?;
-        return Ok(state);
+    if agent_runner::requires_reviewer_os_boundary_guard(
+        AutoConvergeRole::Reviewer,
+        state.reviewer_level,
+    ) && next_role_requires_reviewer_preflight(&state)
+    {
+        if let Err(e) = PlatformIsolationGuard::verify_reviewer_os_boundary(&ws_path, &snapshot_dir)
+        {
+            halt_blocked(
+                &mut state,
+                BlockedKind::FatalInvariant,
+                &format!("Platform isolation preflight failed: {e}"),
+            );
+            save_run_state_authenticated(&state_path, &mut state)?;
+            return Ok(state);
+        }
     }
 
     let current_manifest = capture_baseline_file_manifest(&ws_path, &BTreeMap::new())?;
@@ -271,7 +470,7 @@ pub fn auto_converge_resume_run(
                 save_run_state_authenticated(&state_path, &mut state)?;
                 return Ok(state);
             }
-            ProductionAgentRunner::with_cli(path)
+            ProductionAgentRunner::with_cli(path).with_reviewer_level(state.reviewer_level)
         }
         None => {
             halt_blocked(
@@ -1450,16 +1649,17 @@ fn reconcile_interrupted_promotion_on_resume(
             }
 
             // Verify journal snapshot digest matches authenticated binding before attempting recovery
-            let (_journal_data, _count, actual_digest) = match implementer_workspace::load_and_validate_journal_with_digest(&journal_path) {
-                Ok(res) => res,
-                Err(e) => {
-                    let msg = format!("Failed to load promotion journal for recovery: {e}");
-                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
-                    state.is_terminal = false;
-                    save_run_state_authenticated(state_path, state)?;
-                    return Err(msg);
-                }
-            };
+            let (_journal_data, _count, actual_digest) =
+                match implementer_workspace::load_and_validate_journal_with_digest(&journal_path) {
+                    Ok(res) => res,
+                    Err(e) => {
+                        let msg = format!("Failed to load promotion journal for recovery: {e}");
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false;
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                };
 
             if actual_digest != pj.journal_digest {
                 let msg = format!(
@@ -1487,21 +1687,24 @@ fn reconcile_interrupted_promotion_on_resume(
             }
 
             // Re-capture and compare the exact in-scope primary manifest after recovery
-            let current_primary_manifest = match capture_baseline_file_manifest(ws_path, &BTreeMap::new()) {
-                Ok(m) => m,
-                Err(e) => {
-                    let msg = format!("Failed to capture primary manifest after recovery: {e}");
-                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
-                    state.is_terminal = false;
-                    save_run_state_authenticated(state_path, state)?;
-                    return Err(msg);
-                }
-            };
-            let current_primary_digest = compute_baseline_workspace_digest(&current_primary_manifest);
+            let current_primary_manifest =
+                match capture_baseline_file_manifest(ws_path, &BTreeMap::new()) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        let msg = format!("Failed to capture primary manifest after recovery: {e}");
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false;
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                };
+            let current_primary_digest =
+                compute_baseline_workspace_digest(&current_primary_manifest);
             if current_primary_digest != state.workspace.baseline_workspace_digest
                 || current_primary_manifest != state.workspace.baseline_file_manifest
             {
-                let msg = "Recovered primary workspace does not match recorded baseline manifest".to_string();
+                let msg = "Recovered primary workspace does not match recorded baseline manifest"
+                    .to_string();
                 halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                 state.is_terminal = false;
                 save_run_state_authenticated(state_path, state)?;
@@ -1528,14 +1731,16 @@ fn reconcile_interrupted_promotion_on_resume(
                         save_run_state_authenticated(state_path, state)?;
                         return Err(msg);
                     }
-                    if let Err(e) = implementer_workspace::cleanup_recovered_promotion_journal_authenticated(
-                        ws_path,
-                        &journal_path,
-                        &state.run_id,
-                        &cand_path,
-                        PromotionPhase::RecoveryRestored,
-                        &pj.journal_digest,
-                    ) {
+                    if let Err(e) =
+                        implementer_workspace::cleanup_recovered_promotion_journal_authenticated(
+                            ws_path,
+                            &journal_path,
+                            &state.run_id,
+                            &cand_path,
+                            PromotionPhase::RecoveryRestored,
+                            &pj.journal_digest,
+                        )
+                    {
                         let msg = format!("Failed to clean up recovered promotion journal: {e}");
                         halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                         state.is_terminal = false;
@@ -1591,16 +1796,21 @@ fn reconcile_interrupted_promotion_on_resume(
                         save_run_state_authenticated(state_path, state)?;
                         return Err(msg);
                     }
-                    let (_journal_data, _count, actual_digest) = match implementer_workspace::load_and_validate_journal_with_digest(&journal_path) {
-                        Ok(res) => res,
-                        Err(e) => {
-                            let msg = format!("Failed to validate journal in RecoveryRestored phase: {e}");
-                            halt_blocked(state, BlockedKind::FatalInvariant, &msg);
-                            state.is_terminal = false;
-                            save_run_state_authenticated(state_path, state)?;
-                            return Err(msg);
-                        }
-                    };
+                    let (_journal_data, _count, actual_digest) =
+                        match implementer_workspace::load_and_validate_journal_with_digest(
+                            &journal_path,
+                        ) {
+                            Ok(res) => res,
+                            Err(e) => {
+                                let msg = format!(
+                                    "Failed to validate journal in RecoveryRestored phase: {e}"
+                                );
+                                halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                                state.is_terminal = false;
+                                save_run_state_authenticated(state_path, state)?;
+                                return Err(msg);
+                            }
+                        };
                     if actual_digest != pj.journal_digest {
                         let msg = format!(
                             "Journal digest mismatch in RecoveryRestored phase: expected {}, got {}",
@@ -1625,17 +1835,19 @@ fn reconcile_interrupted_promotion_on_resume(
             }
 
             // Verify primary workspace matches recorded baseline BEFORE journal cleanup
-            let current_primary_manifest = match capture_baseline_file_manifest(ws_path, &BTreeMap::new()) {
-                Ok(m) => m,
-                Err(e) => {
-                    let msg = format!("Failed to capture primary manifest after recovery: {e}");
-                    halt_blocked(state, BlockedKind::FatalInvariant, &msg);
-                    state.is_terminal = false;
-                    save_run_state_authenticated(state_path, state)?;
-                    return Err(msg);
-                }
-            };
-            let current_primary_digest = compute_baseline_workspace_digest(&current_primary_manifest);
+            let current_primary_manifest =
+                match capture_baseline_file_manifest(ws_path, &BTreeMap::new()) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        let msg = format!("Failed to capture primary manifest after recovery: {e}");
+                        halt_blocked(state, BlockedKind::FatalInvariant, &msg);
+                        state.is_terminal = false;
+                        save_run_state_authenticated(state_path, state)?;
+                        return Err(msg);
+                    }
+                };
+            let current_primary_digest =
+                compute_baseline_workspace_digest(&current_primary_manifest);
             if current_primary_digest != state.workspace.baseline_workspace_digest
                 || current_primary_manifest != state.workspace.baseline_file_manifest
             {
@@ -1659,14 +1871,16 @@ fn reconcile_interrupted_promotion_on_resume(
                         save_run_state_authenticated(state_path, state)?;
                         return Err(msg);
                     }
-                    if let Err(e) = implementer_workspace::cleanup_recovered_promotion_journal_authenticated(
-                        ws_path,
-                        &journal_path,
-                        &state.run_id,
-                        &cand_path,
-                        PromotionPhase::RecoveryRestored,
-                        &pj.journal_digest,
-                    ) {
+                    if let Err(e) =
+                        implementer_workspace::cleanup_recovered_promotion_journal_authenticated(
+                            ws_path,
+                            &journal_path,
+                            &state.run_id,
+                            &cand_path,
+                            PromotionPhase::RecoveryRestored,
+                            &pj.journal_digest,
+                        )
+                    {
                         let msg = format!("Failed to clean up recovered promotion journal: {e}");
                         halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                         state.is_terminal = false;
@@ -1697,15 +1911,14 @@ fn reconcile_interrupted_promotion_on_resume(
         }
         PromotionPhase::Applied => {
             // For Applied, verify recorded final primary state and approval binding before marking terminal
-            let approval = state
-                .approvals
-                .iter()
-                .rev()
-                .find(|a| !a.invalidated && a.binding.target_type == ApprovalTargetType::ImplementationDiff);
+            let approval = state.approvals.iter().rev().find(|a| {
+                !a.invalidated && a.binding.target_type == ApprovalTargetType::ImplementationDiff
+            });
             let approval = match approval {
                 Some(a) => a,
                 None => {
-                    let msg = "Applied promotion has no valid ImplementationDiff approval record".to_string();
+                    let msg = "Applied promotion has no valid ImplementationDiff approval record"
+                        .to_string();
                     halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                     save_run_state_authenticated(state_path, state)?;
                     return Err(msg);
@@ -1729,7 +1942,9 @@ fn reconcile_interrupted_promotion_on_resume(
                 }
             };
             if approval.engine_auth_tag != expected_tag {
-                let msg = "Approval record authentication failed on resume: invalid engine_auth_tag".to_string();
+                let msg =
+                    "Approval record authentication failed on resume: invalid engine_auth_tag"
+                        .to_string();
                 halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                 save_run_state_authenticated(state_path, state)?;
                 return Err(msg);
@@ -1837,7 +2052,10 @@ fn reconcile_interrupted_promotion_on_resume(
                 let target_bytes = match std::fs::read(&target) {
                     Ok(b) => b,
                     Err(e) => {
-                        let msg = format!("Failed to read primary file {} for applied state verification: {e}", entry.path);
+                        let msg = format!(
+                            "Failed to read primary file {} for applied state verification: {e}",
+                            entry.path
+                        );
                         halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                         save_run_state_authenticated(state_path, state)?;
                         return Err(msg);
@@ -1845,7 +2063,10 @@ fn reconcile_interrupted_promotion_on_resume(
                 };
                 let target_sha = sha256_hex(&target_bytes);
                 if target_sha != entry.current_sha256 {
-                    let msg = format!("Applied state verification failed: digest mismatch for {}", entry.path);
+                    let msg = format!(
+                        "Applied state verification failed: digest mismatch for {}",
+                        entry.path
+                    );
                     halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                     save_run_state_authenticated(state_path, state)?;
                     return Err(msg);
@@ -1868,14 +2089,16 @@ fn reconcile_interrupted_promotion_on_resume(
                         save_run_state_authenticated(state_path, state)?;
                         return Err(msg);
                     }
-                    if let Err(e) = implementer_workspace::cleanup_recovered_promotion_journal_authenticated(
-                        ws_path,
-                        &journal_path,
-                        &state.run_id,
-                        &cand_path,
-                        PromotionPhase::Applied,
-                        &pj.journal_digest,
-                    ) {
+                    if let Err(e) =
+                        implementer_workspace::cleanup_recovered_promotion_journal_authenticated(
+                            ws_path,
+                            &journal_path,
+                            &state.run_id,
+                            &cand_path,
+                            PromotionPhase::Applied,
+                            &pj.journal_digest,
+                        )
+                    {
                         let msg = format!("Failed to clean up applied promotion journal: {e}");
                         halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                         state.is_terminal = false; // §111.4.3: do not mark terminal on cleanup failure
@@ -1980,7 +2203,7 @@ fn run_phase_a_step(
                 state.run_id,
                 state.state_sequence + 1
             );
-            let snapshot_dir = std::env::temp_dir()
+            let snapshot_dir = codex_exec::ambient_temp_dir()
                 .join("poverello")
                 .join("snapshots")
                 .join(&state.run_id)
@@ -2146,11 +2369,13 @@ fn run_phase_a_step(
         AutoConvergeState::Implement | AutoConvergeState::CorrectiveImplement => {
             let session_id = format!("{}-implementer-{}", state.run_id, state.state_sequence + 1);
             let engine_state_root = resolve_engine_authority_dir()?;
-            let candidate_parent_path = std::env::temp_dir()
+            let candidate_parent_path = codex_exec::ambient_temp_dir()
                 .join("poverello")
                 .join("candidate_workspaces")
                 .join(&state.run_id);
-            let candidate_parent = match implementer_workspace::validate_and_create_candidate_parent(&candidate_parent_path) {
+            let candidate_parent = match implementer_workspace::validate_and_create_candidate_parent(
+                &candidate_parent_path,
+            ) {
                 Ok(p) => p,
                 Err(e) => {
                     let msg = format!("Failed to validate candidate parent directory: {e}");
@@ -2159,14 +2384,17 @@ fn run_phase_a_step(
                     return Err(msg);
                 }
             };
-            let candidate_dir = candidate_parent.join(format!("cycle-{}", state.cycle_counts.impl_review_count));
+            let candidate_dir =
+                candidate_parent.join(format!("cycle-{}", state.cycle_counts.impl_review_count));
 
             let candidate_ws = if state.current_state == AutoConvergeState::CorrectiveImplement {
                 // Corrective cycles may reuse candidate ONLY after authenticated binding and tree validation
                 let cb = match state.candidate_binding.as_ref() {
                     Some(b) => b,
                     None => {
-                        let msg = "Corrective cycle missing required candidate_binding in run_state".to_string();
+                        let msg =
+                            "Corrective cycle missing required candidate_binding in run_state"
+                                .to_string();
                         halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                         save_run_state_authenticated(state_path, state)?;
                         return Err(msg);
@@ -2181,11 +2409,14 @@ fn run_phase_a_step(
                 let cand_path = PathBuf::from(&cb.candidate_root);
                 let cand_presence = implementer_workspace::inspect_path_presence(&cand_path);
                 let cand_valid = match cand_presence {
-                    implementer_workspace::PathPresence::Present(ref m) => !implementer_workspace::is_path_alias_or_reparse(m),
+                    implementer_workspace::PathPresence::Present(ref m) => {
+                        !implementer_workspace::is_path_alias_or_reparse(m)
+                    }
                     _ => false,
                 };
                 if cb.run_id != state.run_id
-                    || Some(&cb.approved_plan_digest) != state.plan_lineage.active_plan_digest.as_ref()
+                    || Some(&cb.approved_plan_digest)
+                        != state.plan_lineage.active_plan_digest.as_ref()
                     || Some(&cb.allowlist_digest) != state.allowlist_digest.as_ref()
                     || !cand_valid
                 {
@@ -2247,13 +2478,19 @@ fn run_phase_a_step(
                 cycle: state.cycle_counts.impl_review_count as u64,
                 session_id: session_id.clone(),
                 candidate_root: candidate_ws.candidate_root().to_string_lossy().to_string(),
-                approved_plan_digest: state.plan_lineage.active_plan_digest.clone().unwrap_or_default(),
+                approved_plan_digest: state
+                    .plan_lineage
+                    .active_plan_digest
+                    .clone()
+                    .unwrap_or_default(),
                 run_start_baseline_manifest_digest,
                 allowlist_digest: state.allowlist_digest.clone().unwrap_or_default(),
                 candidate_baseline_digest: candidate_ws.baseline_digest().to_string(),
                 review_bundle_digest: None,
             };
-            candidate_binding.validate().map_err(|e| format!("Invalid candidate binding: {e}"))?;
+            candidate_binding
+                .validate()
+                .map_err(|e| format!("Invalid candidate binding: {e}"))?;
             state.candidate_binding = Some(candidate_binding);
             save_run_state_authenticated(state_path, state)?;
 
@@ -2285,7 +2522,10 @@ fn run_phase_a_step(
                 }
             };
             if resp.exit_code != 0 {
-                let msg = format!("Implementer execution returned nonzero exit code: {}", resp.exit_code);
+                let msg = format!(
+                    "Implementer execution returned nonzero exit code: {}",
+                    resp.exit_code
+                );
                 halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                 save_run_state_authenticated(state_path, state)?;
                 return Err(msg);
@@ -2334,7 +2574,7 @@ fn run_phase_a_step(
                 state.run_id,
                 state.state_sequence + 1
             );
-            let snapshot_dir = std::env::temp_dir()
+            let snapshot_dir = codex_exec::ambient_temp_dir()
                 .join("poverello")
                 .join("snapshots")
                 .join(&state.run_id)
@@ -2548,7 +2788,7 @@ fn run_phase_a_step(
                 state.run_id,
                 state.state_sequence + 1
             );
-            let snapshot_dir = std::env::temp_dir()
+            let snapshot_dir = codex_exec::ambient_temp_dir()
                 .join("poverello")
                 .join("snapshots")
                 .join(&state.run_id)
@@ -2715,7 +2955,10 @@ fn run_phase_a_step(
                 .approvals
                 .iter()
                 .rev()
-                .find(|a| !a.invalidated && a.binding.target_type == ApprovalTargetType::ImplementationDiff)
+                .find(|a| {
+                    !a.invalidated
+                        && a.binding.target_type == ApprovalTargetType::ImplementationDiff
+                })
                 .ok_or_else(|| "No valid ImplementationDiff approval record found".to_string())?;
 
             // Authenticate approval record
@@ -2727,7 +2970,8 @@ fn run_phase_a_step(
                 &approval.binding,
             )?;
             if approval.engine_auth_tag != expected_tag {
-                let msg = "Approval record authentication failed: invalid engine_auth_tag".to_string();
+                let msg =
+                    "Approval record authentication failed: invalid engine_auth_tag".to_string();
                 halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                 save_run_state_authenticated(state_path, state)?;
                 return Err(msg);
@@ -2778,12 +3022,15 @@ fn run_phase_a_step(
             }
 
             // Re-verify primary baseline manifest immediately before promotion
-            let current_primary_manifest = capture_baseline_file_manifest(&ws_path, &BTreeMap::new())?;
-            let current_primary_digest = compute_baseline_workspace_digest(&current_primary_manifest);
+            let current_primary_manifest =
+                capture_baseline_file_manifest(&ws_path, &BTreeMap::new())?;
+            let current_primary_digest =
+                compute_baseline_workspace_digest(&current_primary_manifest);
             if current_primary_digest != state.workspace.baseline_workspace_digest
                 || current_primary_manifest != state.workspace.baseline_file_manifest
             {
-                let msg = "Primary workspace baseline changed concurrently before promotion".to_string();
+                let msg =
+                    "Primary workspace baseline changed concurrently before promotion".to_string();
                 halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                 save_run_state_authenticated(state_path, state)?;
                 return Err(msg);
@@ -2814,10 +3061,9 @@ fn run_phase_a_step(
                 return Err(msg);
             }
             let current_delta_digest = workspace.delta_digest()?;
-            let permit = match workspace.authorize_delta(
-                workspace.baseline_digest(),
-                &current_delta_digest,
-            ) {
+            let permit = match workspace
+                .authorize_delta(workspace.baseline_digest(), &current_delta_digest)
+            {
                 Ok(p) => p,
                 Err(e) => {
                     let msg = format!("Failed to authorize delta for promotion: {e}");
@@ -2855,10 +3101,20 @@ fn run_phase_a_step(
                     state.updated_at = now_iso;
                     save_run_state_authenticated(state_path, state)?;
                 }
-                Ok(implementer_workspace::PromotionOutcome::RecoveryRequired { journal, reason }) => {
-                    let digest = implementer_workspace::load_and_validate_journal_with_digest(&journal)
-                        .map(|(_, _, d)| d)
-                        .unwrap_or_else(|_| state.promotion_journal.as_ref().map(|p| p.journal_digest.clone()).unwrap_or_default());
+                Ok(implementer_workspace::PromotionOutcome::RecoveryRequired {
+                    journal,
+                    reason,
+                }) => {
+                    let digest =
+                        implementer_workspace::load_and_validate_journal_with_digest(&journal)
+                            .map(|(_, _, d)| d)
+                            .unwrap_or_else(|_| {
+                                state
+                                    .promotion_journal
+                                    .as_ref()
+                                    .map(|p| p.journal_digest.clone())
+                                    .unwrap_or_default()
+                            });
                     state.promotion_journal = Some(PromotionJournalBinding {
                         run_id: run_id.clone(),
                         journal_dir: journal.to_string_lossy().to_string(),
@@ -2872,13 +3128,15 @@ fn run_phase_a_step(
                     return Err(msg);
                 }
                 Ok(implementer_workspace::PromotionOutcome::RejectedBaselineChanged) => {
-                    let msg = "Promotion rejected: primary baseline changed concurrently".to_string();
+                    let msg =
+                        "Promotion rejected: primary baseline changed concurrently".to_string();
                     halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                     save_run_state_authenticated(state_path, state)?;
                     return Err(msg);
                 }
                 Ok(implementer_workspace::PromotionOutcome::RejectedCandidateChanged) => {
-                    let msg = "Promotion rejected: candidate files changed after authorization".to_string();
+                    let msg = "Promotion rejected: candidate files changed after authorization"
+                        .to_string();
                     halt_blocked(state, BlockedKind::FatalInvariant, &msg);
                     save_run_state_authenticated(state_path, state)?;
                     return Err(msg);

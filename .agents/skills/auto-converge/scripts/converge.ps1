@@ -1,7 +1,16 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("validate-profile", "verify-verdict", "check-permission", "extract-allowlist", "status")]
+    [ValidateSet("run", "status", "pause", "cancel", "resume", "validate-profile", "verify-verdict", "check-permission", "extract-allowlist")]
     [string]$Subcommand,
+
+    [Parameter(Mandatory = $false)]
+    [string]$RequestFile = "",
+
+    [Parameter(Mandatory = $false)]
+    [string]$RunId = "",
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Json,
 
     [Parameter(Mandatory = $false)]
     [string]$StateFile = "",
@@ -50,24 +59,51 @@ function Resolve-AnthroBridgeBinary {
         return $cmd.Source
     }
 
-    throw "Could not locate anthro-bridge executable for auto-converge-guard."
+    throw "Could not locate anthro-bridge executable."
 }
 
 try {
     $exe = Resolve-AnthroBridgeBinary -ExplicitPath $BinaryPath
-    $cliArgs = @("auto-converge-guard", $Subcommand)
 
-    if (-not [string]::IsNullOrWhiteSpace($StateFile)) {
-        $cliArgs += @("--state-file", $StateFile)
+    $isR3Facade = $false
+    if ($Subcommand -in @("run", "pause", "cancel", "resume")) {
+        $isR3Facade = $true
+    } elseif ($Subcommand -eq "status") {
+        if (-not [string]::IsNullOrWhiteSpace($RunId)) {
+            $isR3Facade = $true
+        } elseif (-not [string]::IsNullOrWhiteSpace($StateFile)) {
+            $isR3Facade = $false
+        } else {
+            # Default to R3 status if neither is set
+            $isR3Facade = $true
+        }
     }
-    if (-not [string]::IsNullOrWhiteSpace($PayloadFile)) {
-        $cliArgs += @("--payload-file", $PayloadFile)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($PayloadJson)) {
-        $cliArgs += @("--payload-json", $PayloadJson)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($ActionBit)) {
-        $cliArgs += @("--action", $ActionBit)
+
+    if ($isR3Facade) {
+        $cliArgs = @("auto-converge", $Subcommand)
+        if (-not [string]::IsNullOrWhiteSpace($RequestFile)) {
+            $cliArgs += @("--request", $RequestFile)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($RunId)) {
+            $cliArgs += @("--run-id", $RunId)
+        }
+        if ($Json) {
+            $cliArgs += @("--json")
+        }
+    } else {
+        $cliArgs = @("auto-converge-guard", $Subcommand)
+        if (-not [string]::IsNullOrWhiteSpace($StateFile)) {
+            $cliArgs += @("--state-file", $StateFile)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($PayloadFile)) {
+            $cliArgs += @("--payload-file", $PayloadFile)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($PayloadJson)) {
+            $cliArgs += @("--payload-json", $PayloadJson)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($ActionBit)) {
+            $cliArgs += @("--action", $ActionBit)
+        }
     }
 
     $output = & $exe @cliArgs 2>&1

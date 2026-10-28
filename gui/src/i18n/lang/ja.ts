@@ -30,6 +30,9 @@ export const translations: TranslationMap = {
   "settings.nav.orchestrator": "オーケストレーター",
   "tab.autoConverge": "Auto-Converge",
   "autoConverge.unavailable": "このデスクトップ版ではAuto-Convergeを利用できません。ReviewerのOS隔離が利用できないため、エージェントプロセスの起動前に実行がブロックされます。",
+  "autoConverge.r0dNotice": "Reviewer Level R0-D: 検知専用モードです。予期しない変更はスナップショット範囲内で検知・復旧されますが、事前の書き込み防止は行われません。",
+  "autoConverge.r0dAcknowledge": "R0-Dが検知専用であることを理解しました",
+  "autoConverge.startDisabledReason": "検証完了待ち（Phase B–G）",
 
   // MCP Panel
   "mcp.statusHeader": "MCP サーバーステータス",

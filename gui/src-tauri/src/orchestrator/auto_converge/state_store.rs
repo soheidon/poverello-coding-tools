@@ -110,8 +110,58 @@ pub fn resolve_engine_authority_dir_path(
     Ok(base.join("poverello").join("engine_authority"))
 }
 
+#[cfg(test)]
+thread_local! {
+    static TEST_ENGINE_AUTHORITY_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub fn set_test_engine_authority_dir(dir: Option<PathBuf>) {
+    TEST_ENGINE_AUTHORITY_DIR.with(|cell| {
+        *cell.borrow_mut() = dir;
+    });
+}
+
+#[cfg(test)]
+pub fn get_test_engine_authority_dir() -> Option<PathBuf> {
+    TEST_ENGINE_AUTHORITY_DIR.with(|cell| cell.borrow().clone())
+}
+
+#[cfg(test)]
+pub struct TestEngineAuthorityGuard {
+    prev: Option<PathBuf>,
+}
+
+#[cfg(test)]
+impl TestEngineAuthorityGuard {
+    pub fn enter(dir: PathBuf) -> Self {
+        let prev = TEST_ENGINE_AUTHORITY_DIR.with(|cell| {
+            let p = cell.borrow().clone();
+            *cell.borrow_mut() = Some(dir);
+            p
+        });
+        Self { prev }
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestEngineAuthorityGuard {
+    fn drop(&mut self) {
+        TEST_ENGINE_AUTHORITY_DIR.with(|cell| {
+            *cell.borrow_mut() = self.prev.clone();
+        });
+    }
+}
+
 /// Resolves the dedicated engine authority directory under AppData, outside any workspace.
 pub fn get_engine_authority_dir() -> Result<PathBuf, StateStoreError> {
+    #[cfg(test)]
+    {
+        if let Some(dir) = get_test_engine_authority_dir() {
+            std::fs::create_dir_all(&dir)?;
+            return Ok(dir);
+        }
+    }
     let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
     let home = std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
@@ -134,7 +184,7 @@ pub fn get_engine_runs_dir(run_id: &str) -> Result<PathBuf, StateStoreError> {
 }
 
 /// Builds one validated per-run path without accessing the filesystem.
-pub(super) fn engine_run_directory_path(
+pub fn engine_run_directory_path(
     engine_runs_root: &Path,
     run_id: &str,
 ) -> Result<PathBuf, StateStoreError> {

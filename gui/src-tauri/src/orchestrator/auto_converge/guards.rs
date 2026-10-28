@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::io::Write;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
+use std::sync::{Condvar, Mutex};
+use std::thread::ThreadId;
 
 use super::finding_tracker::normalize_failure_code;
 use super::profile_store::validate_profile_against_invariants;
@@ -1227,12 +1229,119 @@ pub fn compute_engine_state_auth_tag(state: &AutoConvergeRunState) -> Result<Str
     Ok(key.compute_hmac(json.as_bytes()))
 }
 
-/// Persists `AutoConvergeRunState` atomically (`run_state.json.tmp` -> `sync_all()` -> rename)
-/// while incrementing `state_sequence` and sealing `engine_auth_tag` (§10.1, §16.3).
-pub fn save_run_state_authenticated(
-    state_path: &Path,
-    state: &mut AutoConvergeRunState,
-) -> Result<(), String> {
+struct RunStateLockEntry {
+    holder: ThreadId,
+    count: usize,
+}
+
+static RUN_STATE_LOCKS: std::sync::LazyLock<Mutex<HashMap<PathBuf, RunStateLockEntry>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+static RUN_STATE_CONDVAR: std::sync::LazyLock<Condvar> =
+    std::sync::LazyLock::new(|| Condvar::new());
+
+pub struct RunStateLockGuard {
+    path: PathBuf,
+}
+
+impl Drop for RunStateLockGuard {
+    fn drop(&mut self) {
+        let mut map = RUN_STATE_LOCKS.lock().unwrap();
+        if let Some(entry) = map.get_mut(&self.path) {
+            if entry.count > 1 {
+                entry.count -= 1;
+            } else {
+                map.remove(&self.path);
+                RUN_STATE_CONDVAR.notify_all();
+            }
+        }
+    }
+}
+
+// Test failure injection seams for run-state save (§304.3 #4, §306.3 #2)
+pub static INJECT_PRE_RENAME_SAVE_ERROR: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+pub static INJECT_POST_RENAME_SAVE_ERROR: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Derives a stable, canonical run-state lock key (§304.3 #5, §307.2 #4).
+/// Keys from the canonical existing parent directory plus the fixed state filename,
+/// ensuring the key is identical whether `run_state.json` exists on disk or not.
+pub fn canonical_run_state_lock_key(state_path: &Path) -> PathBuf {
+    let filename = state_path
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("run_state.json"));
+    if let Some(parent) = state_path.parent() {
+        if parent.as_os_str().is_empty() {
+            if let Ok(canon_cur) = Path::new(".").canonicalize() {
+                return canon_cur.join(filename);
+            }
+        } else if let Ok(canon_parent) = parent.canonicalize() {
+            return canon_parent.join(filename);
+        } else {
+            // Walk up ancestors to find deepest existing directory
+            let mut rel_parts = Vec::new();
+            let mut cur = parent;
+            while !cur.as_os_str().is_empty() && !cur.exists() {
+                if let Some(name) = cur.file_name() {
+                    rel_parts.push(name);
+                    match cur.parent() {
+                        Some(p) if p != cur => cur = p,
+                        _ => break,
+                    }
+                } else {
+                    break;
+                }
+            }
+            if let Ok(canon_base) = cur.canonicalize() {
+                let mut full = canon_base;
+                for part in rel_parts.into_iter().rev() {
+                    full.push(part);
+                }
+                return full.join(filename);
+            }
+        }
+    }
+    state_path.to_path_buf()
+}
+
+/// Acquires a re-entrant, serialized per-path run-state lock (§301.2, §301.4 #1, §304.3 #5).
+/// Guarantees that only one thread can mutate or reconcile a given run-state path at a time.
+pub fn acquire_run_state_lock(state_path: &Path) -> RunStateLockGuard {
+    let norm_path = canonical_run_state_lock_key(state_path);
+    let current_thread = std::thread::current().id();
+    let mut map = RUN_STATE_LOCKS.lock().unwrap();
+    loop {
+        if let Some(entry) = map.get_mut(&norm_path) {
+            if entry.holder == current_thread {
+                entry.count += 1;
+                return RunStateLockGuard { path: norm_path };
+            }
+            map = RUN_STATE_CONDVAR.wait(map).unwrap();
+        } else {
+            map.insert(
+                norm_path.clone(),
+                RunStateLockEntry {
+                    holder: current_thread,
+                    count: 1,
+                },
+            );
+            return RunStateLockGuard { path: norm_path };
+        }
+    }
+}
+
+/// Checks if the run state lock for `state_path` is currently held by the calling thread.
+pub fn is_run_state_locked_by_current_thread(state_path: &Path) -> bool {
+    let norm_path = canonical_run_state_lock_key(state_path);
+    let current_thread = std::thread::current().id();
+    let map = RUN_STATE_LOCKS.lock().unwrap();
+    map.get(&norm_path)
+        .map_or(false, |e| e.holder == current_thread)
+}
+
+/// Prepares and seals `AutoConvergeRunState` for persistence (§301.4 #1, §304.3 #3, §306.3 #1).
+/// Increments `state_sequence` once, re-computes `engine_auth_tag` once, and verifies approval tags.
+pub fn seal_run_state_authenticated(state: &mut AutoConvergeRunState) -> Result<(), String> {
     state.state_sequence += 1;
     state.engine_auth_tag = compute_engine_state_auth_tag(state)?;
 
@@ -1251,13 +1360,23 @@ pub fn save_run_state_authenticated(
             );
         }
     }
+    Ok(())
+}
+
+/// Atomically persists an already-sealed `AutoConvergeRunState` to disk (§304.3 #4, §306.3 #1).
+/// Does NOT increment sequence or recompute auth tag.
+pub fn save_sealed_run_state(
+    state_path: &Path,
+    sealed_state: &AutoConvergeRunState,
+) -> Result<(), String> {
+    let _lock_guard = acquire_run_state_lock(state_path);
 
     if let Some(parent) = state_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed creating run state directory: {e}"))?;
     }
 
-    let bytes = serde_json::to_vec_pretty(state)
+    let bytes = serde_json::to_vec_pretty(sealed_state)
         .map_err(|e| format!("Failed serializing run_state.json: {e}"))?;
     let tmp_path = state_path.with_extension("json.tmp");
     {
@@ -1268,9 +1387,34 @@ pub fn save_run_state_authenticated(
         f.sync_all()
             .map_err(|e| format!("Failed flushing temp run_state file: {e}"))?;
     }
+
+    if INJECT_PRE_RENAME_SAVE_ERROR.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err("Injected pre-rename save failure".to_string());
+    }
+
     std::fs::rename(&tmp_path, state_path)
         .map_err(|e| format!("Failed atomic rename of run_state.json: {e}"))?;
+
+    if INJECT_POST_RENAME_SAVE_ERROR.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        return Err(
+            "Injected post-rename reported error (simulated IO/network failure after rename)"
+                .to_string(),
+        );
+    }
+
     Ok(())
+}
+
+/// Persists `AutoConvergeRunState` atomically (`run_state.json.tmp` -> `sync_all()` -> rename)
+/// while incrementing `state_sequence` and sealing `engine_auth_tag` (§10.1, §16.3, §301.4 #1).
+pub fn save_run_state_authenticated(
+    state_path: &Path,
+    state: &mut AutoConvergeRunState,
+) -> Result<(), String> {
+    let _lock_guard = acquire_run_state_lock(state_path);
+    seal_run_state_authenticated(state)?;
+    save_sealed_run_state(state_path, state)
 }
 
 /// Loads `run_state.json` and verifies schema version, `engine_auth_tag`, all approval tags,

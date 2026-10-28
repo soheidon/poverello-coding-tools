@@ -2,6 +2,8 @@
 
 # SPEC: Poverello Coding Tools
 
+> **Transición a v0.25.1:** Auto-Converge permanece en el código, pero no se puede abrir desde la navegación normal de la aplicación. El dispatch de producción está desactivado y el aislamiento de Stage 2 no está verificado. La visibilidad de la interfaz no implica autorización ni aprobación para publicar.
+
 ## Resumen
 
 Una herramienta ligera de proxy + gestión con GUI que enruta solicitudes API de Claude Desktop / Claude Code a través de múltiples proveedores con endpoints compatibles con Anthropic.

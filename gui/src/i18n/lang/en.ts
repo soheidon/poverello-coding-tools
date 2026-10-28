@@ -28,6 +28,9 @@ export const translations = {
   "settings.nav.orchestrator": "Orchestrator",
   "tab.autoConverge": "Auto-Converge",
   "autoConverge.unavailable": "Auto-Converge is unavailable in this desktop build. Reviewer OS isolation is not available, so runs are blocked before any agent process starts.",
+  "autoConverge.r0dNotice": "Reviewer Level R0-D: detection-only; unexpected changes are detected and recoverable within the snapshot scope, not prevented.",
+  "autoConverge.r0dAcknowledge": "I understand R0-D is detection-only",
+  "autoConverge.startDisabledReason": "Verification pending (Phases B–G)",
 
   // MCP Panel
   "mcp.statusHeader": "MCP Server Status",
