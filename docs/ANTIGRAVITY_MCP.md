@@ -55,7 +55,7 @@ using subscription-backed capacity
 
 ### Method 1 — GUI Configuration via Poverello (Recommended)
 
-1. Open Poverello and go to **Settings** (`[Settings]` tab) > **Antigravity** in the left sub-navigation.
+1. Open Poverello and go to the **MCP** tab (or **Settings** > **Antigravity MCP** in the left sub-navigation).
 2. In the **Antigravity Integration** card:
    - **Target Executable**: By default, the currently running `anthro-bridge.exe` path is shown. If you wish to use a different binary (e.g. portable or custom build), click **Change** (`antigravity.btnChangeExe`) and select the executable.
    - **Register / Update**: Click **Update Antigravity Configuration** (`antigravity.btnUpdate`) to safely register or update the `poverello` entry in `%USERPROFILE%\.gemini\config\mcp_config.json`. Existing `anthro-bridge` entries and all other MCP server configurations in that file remain preserved.
@@ -115,12 +115,13 @@ poverello
 
 Poverello clearly separates model selection from detailed parameter management:
 
-1. **Top-Level `MCP` Tab (`MCP for Antigravity`)**:
-   - Displays available providers (DeepSeek, OpenRouter, MiniMax, MiMo (V2.6), Kimi, GLM) and profiles.
-   - Click a provider card to switch the active planner and reviewer destination immediately.
-2. **`Settings` > `Antigravity`**:
-   - **MCP Plan Settings** card: Configure model selection, Thinking mode, and Reasoning Effort per provider/profile. Both `plan` and `review` share the same target configuration.
-   - **Antigravity Integration** card: Manage MCP server registration, Antigravity Commands (Global Skills), and Global Rules (`deepseek-harness.md`, `codex-cli.md`).
+1. **Top-Level `MCP` Tab (`MCP for Antigravity`) / `Settings > Antigravity MCP`**:
+   - Manage MCP server registration, target executable, and MCP Commands (`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`).
+   - Click **Install All** (`antigravity.btnInstallAll`) to install exclusively the 3 MCP skills.
+2. **`Settings` > `Antigravity Skills & Rules`**:
+   - Manage Reviewer Policy (`codex_only` vs `codex_plus_deepseek`) for upper-level workflow skills (`/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`).
+   - Manage protected Global Rules standard templates (`codex-cli.md`, `deepseek-harness.md`) with SHA-256 verification and Windows removal support (`can_remove`).
+   - Configure Coding Behavior (`pov-direct.md`) and Poverello Nerf skills.
 
 > [!NOTE]
 > The Poverello MCP server reads current configuration dynamically on every `plan()` and `review()` tool invocation. You do **not** need to restart the MCP server or Antigravity when changing providers or model settings in the GUI.
@@ -129,7 +130,7 @@ Poverello clearly separates model selection from detailed parameter management:
 
 ## 6. Antigravity Commands (`/pov-mcp-plan`, `/pov-mcp-revise` & `/pov-mcp-review`) (Recommended)
 
-From **Settings > Antigravity > Antigravity Integration**, you can install Global Skills to use slash commands across all Antigravity workspaces (legacy `/anthro-*` commands remain supported for existing workspaces):
+From the **MCP** tab (or **Settings > Antigravity MCP**), you can install Global Skills to use slash commands across all Antigravity workspaces (legacy `/anthro-*` commands remain supported for existing workspaces):
 
 - Click **Install All Commands** (`antigravity.btnInstallAll`) or click **Install** (`antigravity.commandBtnInstall`) next to individual commands.
 
@@ -160,7 +161,7 @@ From **Settings > Antigravity > Antigravity Integration**, you can install Globa
 
 ## 7. Upper-level Antigravity Commands (`/pov-full-cycle`, `/pov-plan-only` & `/pov-build-review`)
 
-In addition to direct MCP skills, Poverello provides three upper-level autonomous workflow skills installed to `~/.gemini/antigravity/skills/`:
+In addition to direct MCP skills, Poverello provides three upper-level autonomous workflow skills installed to `~/.gemini/antigravity/skills/` and managed under **Settings > Antigravity Skills & Rules** with centralized Reviewer Policy control (`codex_only` or `codex_plus_deepseek`):
 
 ### Full-cycle implementation:
 ```text

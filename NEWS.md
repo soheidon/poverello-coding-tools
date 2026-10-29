@@ -1,5 +1,36 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.25.2 — 2026-10-29
+
+### Antigravity Settings & MCP Screen Separation
+
+- Separated Antigravity configuration into dedicated screens:
+  - Top-level **Antigravity MCP** panel is dedicated strictly to Poverello MCP server registration and the three core MCP delegation skills (`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`). The "Install All" action on this screen installs exclusively these 3 MCP skills (`install_all_antigravity_mcp_commands`) without modifying workflow skills.
+  - Dedicated **Antigravity Skills & Rules** panel (`AntigravitySkillsRulesPanel`) in Settings sub-navigation consolidates Reviewer Policy, standard Global Rules templates, Coding Behavior (Direct Coding), and Nerf skills into a unified, modular interface.
+
+### Workflow Skills Reviewer Policy
+
+- Added centralized Reviewer Policy selection for upper-level workflow skills (`/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`):
+  - `codex_only`: Independent reviews executed exclusively by the external Codex CLI (`codex exec` with `gpt-6-luna`, medium reasoning effort, read-only).
+  - `codex_plus_deepseek`: Composite review executed by Codex CLI with conditional DeepSeek Harness consultation.
+- Persists selected policy safely to `~/.gemini/antigravity-ide/pov-reviewer-policy.json`.
+- Automatically detects older v0.25.1 skills lacking policy markers and provides synchronized updates with safe migration guarantees.
+
+### Protected Global Rules Template Management
+
+- Replaced raw GUI markdown textarea editing with guarded installation and removal of official, bundled standard templates: `codex-cli.md` and `deepseek-harness.md`.
+- Enforces SHA-256 hash validation against bundled resources and fail-closed checks before removing or updating files in `%USERPROFILE%\.gemini\config\rules\`.
+- Discloses platform support boundaries: template removal is supported on Windows (`can_remove`), and is safely disabled with informative tooltips on unsupported platforms.
+
+### Coding Behavior UI Harmonization
+
+- Integrated Poverello Direct Coding (`pov-direct.md`) directly as a standard `.settings-tile` card inside "Antigravity Skills & Rules", eliminating standalone page margins, duplicate headings, and nested card borders for a consistent design.
+
+### Settings Navigation Cleanup
+
+- Consolidated the former standalone "Antigravity Rules" tab into "Antigravity Skills & Rules".
+- Hidden the Orchestrator navigation item from Settings sub-navigation while preserving internal engine state, routes, and auto-converge infrastructure.
+
 ## v0.25.1 — 2026-10-28
 
 ### Antigravity Commands & MCP Skills

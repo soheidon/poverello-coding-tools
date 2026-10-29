@@ -10,6 +10,7 @@ description: 承認済み計画に基づく実装・テスト、外部Codex/Deep
 - Antigravity：進行管理、実装、テスト実行、自己レビュー、是正実装、証拠整理を行う。
 - Codex：外部`codex exec`（`gpt-6-luna`、`medium`）で独立実装レビューを行う。
 - DeepSeek：外部`dsh headless`で独立実装レビューを行う。
+- 外部Reviewer構成は、共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json`（他OSでは対応するホームディレクトリ配下）の設定に従う。
 - 実装コード、テスト、設定を変更できるのはAntigravityだけである。外部Reviewerはread-onlyとする。
 - `pov-mcp-plan`、`pov-mcp-review`、`pov-mcp-revise`はPoverello MCP用の別Skillであり、このSkillから呼ばない。
 
@@ -18,7 +19,9 @@ description: 承認済み計画に基づく実装・テスト、外部Codex/Deep
 - 外部CLIは各グローバルルールに従って実行する。内部エージェントで代替しない。
 - 正本計画書は1件だけ使う。別版、レビュー依頼書、修正計画書を作らない。
 - 実装報告、レビュー結果、是正計画、テスト結果、最終判定を正本計画書へ簡潔に記録する。
-- CodexとDeepSeekには同一ハッシュの実装、差分、承認済み計画、実装者テスト証拠を渡し、互いの回答を見せない。
+- レビュー実行前に共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` を読み取る。ファイル不在時は互換既定値 `{"schema_version":1,"policy":"codex_plus_deepseek"}` を適用する。JSON不正、未知version、未知policy値、または読み取り失敗時はReviewerを勝手に選ばず明確なエラーで停止する。
+- `codex_only` では Codex CLI のみを使用し、DeepSeek Harness は起動・待機・比較・Synthesis のいずれにも使用しない。DeepSeek Rule の有無も要求しない。Codex CLI 失敗時に他Reviewerへ暗黙フォールバックしない。
+- `codex_plus_deepseek` では Codex と DeepSeek に同一ハッシュの実装、差分、承認済み計画、実装者テスト証拠を渡し、互いの回答を見せない。
 - Reviewerが自分でテストを再実行していない場合、「テストが通ったことを確認した」と記録せず、「実装者が提示した実行証拠を確認した」と記録する。Reviewer自身が再実行した結果とは明確に分離する。
 - 承認状態は`APPROVED`、`APPROVED_WITH_NON_BLOCKING_FINDINGS`、`REQUEST_CHANGES`、`BLOCKED`の4種だけを使う。「条件付き承認」「完了推奨」等の自由文を自動的に`APPROVED`へ丸めない。
 - blocking findingは、承認済み計画・安全契約・受入条件への具体的な違反であり、再現可能または具体的な失敗シナリオ、必要な最小修正、合否判定可能なテストまたは証拠を伴う場合に限る。
@@ -46,15 +49,22 @@ description: 承認済み計画に基づく実装・テスト、外部Codex/Deep
 ## 3. 独立実装レビュー
 
 1. 現在の実装、正確な差分、承認済み計画、実装者のテスト証拠、未検証事項を固定する。
-2. 同一版をCodex CLIとDeepSeek Harness CLIへ別々に渡す。両者はread-onlyでレビューする。
-3. 各Reviewerは、findingごとに次を示す：対象要件、具体的な失敗条件、severity/blocking、必要な最小修正、合否判定可能なテストまたは証拠。
-4. Reviewer自身がテストを再実行した場合だけ、そのコマンド・終了コード・結果をReviewer実行証拠として記録する。実装者ログを読んだだけならその旨を明記する。
-5. 両Reviewerの判定が同じで、blocking findingがなければ統合判断を行わず、その判定を採用する。
-6. 両Reviewerの判断が異なる、blocking findingの採否が衝突する、または同じ根拠から異なる修正を要求する場合だけ、対象資料と両者の最終結果を外部Codex CLIへ渡してSynthesisする。
-7. Synthesisの出力は`APPROVE`、`APPROVE_WITH_NON_BLOCKING_FINDINGS`、`APPLY_AND_FINALIZE`、`REQUEST_CHANGES`、`BLOCKED`のいずれかとする。
-8. `APPLY_AND_FINALIZE`は、修正が限定的・具体的・機械的に検証可能で、新しい設計判断を必要としない場合だけ使用する。Antigravityが指定修正を適用し、指定テストと差分確認が一致した場合は再度の独立レビューなしで実装レビューを確定できる。
-9. `REQUEST_CHANGES`は設計判断、複数候補、未確定な安全条件、新しいblocking findingが残る場合に使用し、是正後に独立レビューへ戻る。
-10. SynthesisやReviewerは実装コードを変更しない。正本計画書への記録はAntigravityが行い、Reviewer出力を要約して出典を区別する。
+2. 外部Reviewerはread-onlyとする。
+3. 共通設定の `policy` に従ってレビューを実施する：
+   - **`codex_only` の場合**：
+     - 固定した資料を外部 Codex CLI のみへ渡す。
+     - 各findingにつき、対象要件、具体的な失敗条件、severity/blocking、必要な最小修正、合否判定可能なテストまたは証拠を報告させる。
+     - Synthesis は行わず、Codex 単一のレビュー結果に基づき判定を採用する。
+   - **`codex_plus_deepseek` の場合**：
+     - 同一版を Codex CLI と DeepSeek Harness CLI へ別々に渡す。
+     - 各Reviewerは、findingごとに次を示す：対象要件、具体的な失敗条件、severity/blocking、必要な最小修正、合否判定可能なテストまたは証拠。
+     - Reviewer自身がテストを再実行した場合だけ、そのコマンド・終了コード・結果をReviewer実行証拠として記録する。実装者ログを読んだだけならその旨を明記する。
+     - 両Reviewerの判定が同じで、blocking findingがなければ統合判断を行わず、その判定を採用する。
+     - 両Reviewerの判断が異なる、blocking findingの採否が衝突する、または同じ根拠から異なる修正を要求する場合だけ、対象資料と両者の最終結果を外部 Codex CLI へ渡してSynthesisする。
+4. Synthesis（または `codex_only` 時のCodex判定）の出力は`APPROVE`、`APPROVE_WITH_NON_BLOCKING_FINDINGS`、`APPLY_AND_FINALIZE`、`REQUEST_CHANGES`、`BLOCKED`のいずれかとする。
+5. `APPLY_AND_FINALIZE`は、修正が限定的・具体的・機械的に検証可能で、新しい設計判断を必要としない場合だけ使用する。Antigravityが指定修正を適用し、指定テストと差分確認が一致した場合は再度の独立レビューなしで実装レビューを確定できる。
+6. `REQUEST_CHANGES`は設計判断、複数候補、未確定な安全条件、新しいblocking findingが残る場合に使用し、是正後に独立レビューへ戻る。
+7. SynthesisやReviewerは実装コードを変更しない。正本計画書への記録はAntigravityが行い、Reviewer出力を要約して出典を区別する。
 
 ## 4. 是正実装と再レビュー
 

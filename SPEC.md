@@ -2,7 +2,7 @@
 
 # SPEC: Poverello Coding Tools
 
-> **v0.25.1 transition:** Auto-Converge remains in the codebase but is not reachable through normal app navigation. Production dispatch is disabled and Stage 2 isolation is unverified; UI visibility does not imply authorization or release readiness.
+> **v0.25.2 transition:** Auto-Converge remains in the codebase but is not reachable through normal app navigation. Production dispatch is disabled and Stage 2 isolation is unverified; UI visibility does not imply authorization or release readiness.
 
 ## Overview
 
@@ -89,7 +89,11 @@ A thin proxy + GUI management tool that routes Claude Desktop / Claude Code API 
 - **Context capacity registry**: `model_catalog.json` is a static registry of known context capacities covering built-in direct-provider models (DeepSeek, MiniMax, Kimi, MiMo V2.6 and V2.5) and built-in OpenRouter models (Poolside, Tencent, InclusionAI, StepFun, OpenAI GPT-6.1, GPT-6, GPT Astra Latest, GPT-5.6, and Google Gemini). Unknown custom OpenRouter models remain valid route targets but report context management as Incomplete until metadata is added or manual mode is configured.
 - **Google Gemini model support**: OpenRouter profiles can use Gemini 3.1 Pro Preview and Gemini 3.7 Flash as built-in models with pricing and capability data. Gemini 3.7 Flash includes promotional pricing with regular-rate strikethrough display.
 - **GLM (Z.ai) direct provider support**: Sends requests to the configured Z.ai Anthropic-compatible endpoint using the configured `ZAI_API_KEY` (or Poverello key setting). Poverello does not identify key type, Coding Plan purchase history, account allowlisting, or billing eligibility; consult [Z.ai's current setup guidance](https://zcode.z.ai/en/docs/configuration). Four-model catalog (`glm-5.3`, `glm-5.3-flash`, `glm-5.3-flashx`, `glm-5.2`). Always-on thinking for GLM-5.3 series with selectable reasoning effort (`low`, `high`, `max`); Normal/Thinking toggle for GLM-5.2. Strict output validation: empty text / thinking-only responses (e.g. `stop_reason: "max_tokens"` during thinking) fail closed with explicit provider errors across Orchestrator and MCP.
-- **Antigravity Rules Management (Settings > Antigravity Rules)**: Configures and synchronizes lightweight direct coding rules (`pov-direct.md`) for Google Antigravity. Employs a strict single-file state machine managing only the YAML `trigger` scalar and bounded managed block (`<!-- pov-direct:managed:begin -->` ... `<!-- pov-direct:managed:end -->`), preserving all user frontmatter, comments, and skill inclusions. Safety invariants include collision-resistant unpruned backups, pre-replacement SHA-256 and external deletion conflict detection, verified read-back rollback, legacy sidecar folder presence guard, and a 24,000 UTF-8 bytes limit. 8-language localization.
+- **Antigravity Skills & Rules Management (Settings > Antigravity Skills & Rules)**: Centralized management of Reviewer Policy for workflow skills, protected standard Global Rules templates, Coding Behavior (Poverello Direct Coding), and Nerf skills.
+  - **Reviewer Policy**: Centrally configures `/pov-full-cycle`, `/pov-plan-only`, and `/pov-build-review` to use either `codex_only` (Codex CLI alone via `codex exec`) or `codex_plus_deepseek` (Codex CLI + DeepSeek Harness composite). Persists to `~/.gemini/antigravity-ide/pov-reviewer-policy.json`. Detects older v0.25.1 skills and updates them with dynamic synchronization markers.
+  - **Global Rules Template Management**: Provides safe, guarded installation and removal of official bundled templates (`codex-cli.md` and `deepseek-harness.md`) into `%USERPROFILE%\.gemini\config\rules\`. Enforces pre-install/remove SHA-256 validation against bundled resources and fail-closed checks; removal is supported on Windows (`can_remove`) and disabled on other platforms. Replaces the former GUI markdown textarea editor.
+  - **Coding Behavior (Direct Coding)**: Configures lightweight direct-coding behavior (`pov-direct.md`) directly within the unified panel as a `.settings-tile`. State machine manages the YAML `trigger` and bounded marker block, preserving user frontmatter, comments, and skill inclusions with unpruned backups, pre-replacement SHA-256 verification, and rollback.
+  - **Nerf Skills**: Manages installation and removal of lightweight and balanced Nerf skills (`pov-nerf-lightweight`, `pov-nerf-balanced`).
 - **Anthropic Official Direct Provider**: Direct official access to `https://api.anthropic.com` via `ANTHROPIC_API_KEY`. Native Messages protocol forwarding without translation, validated model catalog (`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5`, etc.), streaming and non-streaming token-cap failure diagnostics (`stop_reason: "max_tokens"` with reasoning but no generated text failing closed), and native sampling parameter validation.
 - **Multi-Provider Gateway Profiles (`gateway_profile`)**: Allows configuring independent provider and model bindings for each of the three canonical Claude routes (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`). Stored under `active_provider: "gateway_profile"` and `active_gateway_profile_id`, referencing named profiles in `gateway_profiles`. Integrates per-route capability checking and context capacity calculation for Claude Code auto-compact.
 - **Canonical Poverello Skills & MCP Namespace**: Canonical MCP tools (`poverello/plan`, `poverello/revise`, `poverello/review`) and slash commands (`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`). Poverello registers the `poverello` MCP server key additively in Antigravity's `mcp_config.json`, maintaining `anthro-bridge` and legacy `/anthro-*` skills for backward compatibility. Hardened single-file lifecycle management. Also bundles the upper-level workflow Skills `/pov-full-cycle`, `/pov-plan-only`, and `/pov-build-review` alongside the three direct MCP Skills.
@@ -100,11 +104,9 @@ A thin proxy + GUI management tool that routes Claude Desktop / Claude Code API 
   - Rate schedules with provenance verification: `lookup_and_verify_schedule` requires an exact match across schedule ID, provider ID, model, and currency. Bundled rate schedules: `anthropic:claude-opus-5-5:2026-10:uncached` ($4.00 / $20.00 per MTok) and `anthropic:claude-sonnet-5-5:2026-10:uncached` ($2.00 / $10.00 per MTok). Missing, unknown, or mismatched schedules fail closed as unpriced dispatches.
   - Fail-closed cost summary aggregation (`RunCostSummary`): `Complete` (all dispatches priced with verified rate schedule provenance and single currency), `Partial` (at least one dispatch priced, with unpriced dispatches counted and valid subtotal preserved), or `Unavailable` (no dispatches priced, omitting numeric total and counting unpriced dispatches). Exposes contributing schedule IDs (`schedules`) and calculation method (`method`).
   - Dynamic re-aggregation in `list_journals()`: dynamically recalculates cost summaries from the immutable dispatch records on every read, ensuring stale, unverified on-disk summaries cannot bypass fail-closed verification.
-
-- **Antigravity global rules editor (Settings > Antigravity)**: Select, edit, and save the global Markdown rules `deepseek-harness.md` and `codex-cli.md` from the Antigravity integration panel.
 ### GUI Management Tool
 
-Tauri v2 + React 19 + TypeScript. Top-level navigation: Gateway (Dashboard), MCP, Settings. Settings includes General, Claude Desktop, Antigravity, Antigravity Rules, and Orchestrator sections. The Orchestrator tab is hidden from top-level navigation in v0.25.1; autonomous Antigravity workflows start from slash-command Skills.
+Tauri v2 + React 19 + TypeScript. Top-level navigation: Gateway (Dashboard), MCP, Settings. Settings includes General, Claude Desktop, Antigravity MCP, and Antigravity Skills & Rules sections. Orchestrator settings are hidden from sub-navigation (internal state and routes preserved); autonomous Antigravity workflows start from slash-command Skills.
 
 ```
 +------------------------------------------+
@@ -179,6 +181,13 @@ Settings (=):
 | 38 | `get_pov_direct_status` | sync | Read Antigravity direct coding rules status, hash, and metadata |
 | 39 | `preview_pov_direct_content` | sync | Preview generated `pov-direct.md` content and managed block |
 | 40 | `apply_pov_direct_settings` | sync | Atomically save direct coding rules with backup, conflict detection, and verified rollback |
+| 41 | `get_reviewer_policy` | sync | Read active reviewer policy (`codex_only` or `codex_plus_deepseek`) |
+| 42 | `set_reviewer_policy` | sync | Set active reviewer policy and persist to `~/.gemini/antigravity-ide/pov-reviewer-policy.json` |
+| 43 | `get_workflow_skills_policy_status` | sync | Read workflow skills policy compliance status and details |
+| 44 | `get_antigravity_global_rules_status` | sync | Check global rules installation status, hash validation, and platform removal support (`can_remove`) |
+| 45 | `install_antigravity_global_rule` | sync | Install official bundled global rule template (`codex-cli.md` or `deepseek-harness.md`) |
+| 46 | `remove_antigravity_global_rule` | sync | Remove installed global rule template with SHA-256 verification (Windows-only) |
+| 47 | `install_all_antigravity_mcp_commands` | sync | Batch install exclusively the 3 MCP skills (`pov-mcp-plan`, `pov-mcp-revise`, `pov-mcp-review`) |
 
 ### Proxy Server (proxy.rs)
 

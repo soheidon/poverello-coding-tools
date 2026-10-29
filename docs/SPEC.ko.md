@@ -2,7 +2,7 @@
 
 # SPEC: Poverello Coding Tools
 
-> **v0.25.1 전환:** Auto-Converge는 코드에 유지되지만 일반 앱 탐색 메뉴에서는 열 수 없습니다. 프로덕션 디스패치는 비활성화되어 있고 Stage 2 격리는 검증되지 않았습니다. UI 표시 여부가 실행 권한이나 출시 승인을 뜻하지 않습니다.
+> **v0.25.2 전환:** Auto-Converge는 코드에 유지되지만 일반 앱 탐색 메뉴에서는 열 수 없습니다. 프로덕션 디스패치는 비활성화되어 있고 Stage 2 격리는 검증되지 않았습니다. UI 표시 여부가 실행 권한이나 출시 승인을 뜻하지 않습니다.
 
 ## 개요
 
@@ -88,16 +88,18 @@
 - **컨텍스트 용량 레지스트리**: `model_catalog.json`은 내장된 직접 제공자 모델(DeepSeek, MiniMax, Kimi, MiMo V2.6 및 V2.5)과 내장된 OpenRouter 모델(Poolside, Tencent, InclusionAI, StepFun, OpenAI GPT-6.1, GPT-6, GPT Astra Latest, GPT-5.6 및 Google Gemini)을 포함하는 알려진 컨텍스트 용량의 정적 레지스트리입니다. 알 수 없는 사용자 지정 OpenRouter 모델은 유효한 라우트 대상으로 유지되지만, 메타데이터가 추가되거나 수동 모드가 구성될 때까지 컨텍스트 관리를 Incomplete로 보고합니다.
 - **Google Gemini 모델 지원**: OpenRouter 프로필은 가격 및 기능 데이터가 내장된 Gemini 3.1 Pro Preview와 Gemini 3.7 Flash를 지원합니다. Gemini 3.7 Flash는 프로모션 가격과 취소선으로 표시된 일반 가격을 함께 보여줍니다.
 - **GLM(Z.ai) 직접 제공자 지원**: 설정된 `ZAI_API_KEY`(또는 Poverello 키 설정)를 사용해 Z.ai의 Anthropic 호환 엔드포인트로 요청합니다. Poverello는 키 종류, Coding Plan 구매 이력, 계정 허용 여부 또는 결제 자격을 판별하지 않습니다. 사용 전 [Z.ai 최신 설정 안내](https://zcode.z.ai/en/docs/configuration)를 확인하세요. 모델은 `glm-5.3`, `glm-5.3-flash`, `glm-5.3-flashx`, `glm-5.2`입니다. GLM-5.3 계열은 항상 Thinking이며 추론 강도(`low`, `high`, `max`)를 선택할 수 있고, GLM-5.2는 Normal/Thinking 전환을 지원합니다. 빈 응답 또는 Thinking만 있는 응답은 Orchestrator와 MCP에서 명시적 제공자 오류로 fail-closed 처리됩니다.
-- **Antigravity 규칙 관리 (설정 > Antigravity Rules)**: 설정 섹션은 `pov-direct.md`의 YAML `trigger`와 경계가 지정된 관리 블록만 다루는 상태 머신으로 동기화하며, 사용자 frontmatter, 주석, Skill 포함 항목은 보존합니다. 충돌 방지 백업, 교체 전 SHA-256 및 외부 삭제 충돌 검사, 검증된 롤백, 기존 sidecar 폴더 보호, UTF-8 24,000바이트 제한을 포함하며 8개 언어로 제공됩니다.
+- **Antigravity Skills 및 규칙 관리 (설정 > Antigravity Skills & Rules)**: 워크플로 Skill의 Reviewer Policy, 보호된 전역 규칙 표준 템플릿, 코딩 동작(Poverello Direct Coding) 및 Nerf Skills를 중앙 집중 관리합니다.
+  - **Reviewer Policy**: `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`가 사용할 외부 리뷰어 백엔드로 `codex_only`(`codex exec` 기반 Codex CLI 단독) 또는 `codex_plus_deepseek`(Codex CLI + DeepSeek Harness 복합 리뷰)를 설정합니다. `~/.gemini/antigravity-ide/pov-reviewer-policy.json`에 안전하게 저장됩니다. v0.25.1 레거시 Skill을 자동 감지하고 동적 동기화 마커로 안전하게 업데이트합니다.
+  - **전역 규칙 템플릿 관리**: 제품에 포함된 공식 표준 템플릿(`codex-cli.md`, `deepseek-harness.md`)을 `%USERPROFILE%\.gemini\config\rules\`에 안전하게 설치 및 제거합니다. 리소스 대비 사전 SHA-256 해시 검증 및 보호 검사를 거치며, 제거는 Windows 환경에서만 지원(`can_remove`)되고 다른 플랫폼에서는 비활성화됩니다. 기존 텍스트 영역 직접 편집기를 대체합니다.
+  - **코딩 동작 (Direct Coding)**: 통합 패널 내 `.settings-tile` 카드로 가벼운 Direct Coding(`pov-direct.md`)을 구성합니다. YAML `trigger`와 관리 블록만 조작하며 지속 백업, SHA-256 검사, 롤백을 철저히 수행합니다.
+  - **Nerf Skills**: 가볍고 균형 잡힌 Nerf Skills(`pov-nerf-lightweight`, `pov-nerf-balanced`)의 설치 및 제거를 관리합니다.
 - **Anthropic 공식 직접 제공자**: `ANTHROPIC_API_KEY`로 `https://api.anthropic.com`에 직접 연결하고 네이티브 Messages 프로토콜을 변환 없이 전달합니다. 검증된 모델 카탈로그, 스트리밍/비스트리밍 토큰 한도 진단, 네이티브 샘플링 매개변수 검증을 지원합니다.
 - **멀티 제공자 게이트웨이 프로필(`gateway_profile`)**: 표준 Claude 경로(`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`)마다 독립적인 제공자와 모델을 지정합니다. `active_provider`와 `active_gateway_profile_id`로 활성화하고 `gateway_profiles`에 프로필을 저장하며, 기능 검사와 Claude Code 자동 압축용 컨텍스트 계산에 통합됩니다.
 - **정식 Poverello Skills 및 MCP 네임스페이스**: 정식 도구는 `poverello/plan`, `poverello/revise`, `poverello/review`, 명령은 `/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`입니다. Antigravity에 `poverello` 서버 키를 추가 등록하며, 하위 호환성을 위해 `anthro-bridge`와 기존 `/anthro-*` Skills도 유지합니다. 단일 파일 수명주기를 안전하게 관리합니다. 직접 MCP Skill 3개와 함께 상위 워크플로 Skill `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`도 제공합니다.
 - **Orchestrator 정규화 사용량 및 비용 엔진**: 지원되는 사용량 필드(`input_tokens`, `output_tokens`, `raw_total_tokens`, `cache_read_tokens`, `cache_write_tokens`)를 RunJournal 및 감사 기록에 저장합니다. 누락되거나 잘못된 값은 미상으로 유지하고 캐시 생성량은 `cacheWriteTokens`로 직렬화합니다. 현재 비용 추정은 캐시 버킷이 명시적으로 0인 적격 Anthropic Direct Opus 5.5/Sonnet 5.5 Planner–Reviewer 디스패치에만 적용되며, 다른 경우는 무료가 아니라 미산정입니다. 금액은 정수 나노달러(`amount_nanos: u64`)로 계산해 10진 문자열로 직렬화하고 부동소수점 연산은 사용하지 않습니다. 요금표 ID・제공자・모델・통화를 정확히 검증하고, 불일치는 fail-closed로 미산정 처리합니다. `RunCostSummary`는 `Complete`/`Partial`/`Unavailable`이며 `list_journals()`는 읽을 때마다 불변 디스패치 기록에서 다시 집계합니다.
-
-- **Antigravity 전역 규칙 편집기 (Settings > Antigravity)**: Antigravity 연동 패널에서 전역 Markdown 규칙 `deepseek-harness.md`와 `codex-cli.md`를 선택하고 편집한 뒤 저장할 수 있습니다.
 ### GUI 관리 도구
 
-Tauri v2 + React 19 + TypeScript. 이중 패널 레이아웃: 대시보드 + 설정. 상단 탐색은 Gateway, MCP, Settings로 구성되며 v0.25.1에서는 Orchestrator 탭이 상단 탐색에서 숨겨집니다. Settings에는 General, Claude Desktop, Antigravity, Antigravity Rules, Orchestrator 설정이 포함됩니다.
+Tauri v2 + React 19 + TypeScript. 상단 탐색은 Gateway (대시보드), MCP, Settings로 구성됩니다. Settings에는 General, Claude Desktop, Antigravity MCP, Antigravity Skills & Rules가 포함됩니다. Orchestrator 설정은 하위 탐색에서 숨겨지며(내부 상태 및 경로는 유지됨), 자율 Antigravity 워크플로는 슬래시 명령 Skill에서 시작합니다.
 
 ```
 +------------------------------------------+
@@ -169,6 +171,16 @@ Tauri v2 + React 19 + TypeScript. 이중 패널 레이아웃: 대시보드 + 설
 | 35 | `get_claude_code_config` | sync | Read Claude Code routing, auto_compact, and third_party_provider settings |
 | 36 | `update_claude_code_third_party` | sync | Save Ollama Local configuration (models, thinking_modes, context_windows, show_on_dashboard) |
 | 37 | `set_claude_code_active_route` | sync | Set Claude Code active route (`gateway` or `ollama`) |
+| 38 | `get_pov_direct_status` | sync | Antigravity direct coding 규칙 상태, 해시, 메타데이터 읽기 |
+| 39 | `preview_pov_direct_content` | sync | 생성된 `pov-direct.md` 내용 및 관리 블록 미리보기 |
+| 40 | `apply_pov_direct_settings` | sync | 백업, 충돌 감지, 검증된 롤백과 함께 direct coding 규칙 원자적 저장 |
+| 41 | `get_reviewer_policy` | sync | 활성 Reviewer 정책(`codex_only` 또는 `codex_plus_deepseek`) 읽기 |
+| 42 | `set_reviewer_policy` | sync | 활성 Reviewer 정책 설정 및 `~/.gemini/antigravity-ide/pov-reviewer-policy.json`에 저장 |
+| 43 | `get_workflow_skills_policy_status` | sync | 워크플로 Skill 정책 준수 상태 및 세부정보 읽기 |
+| 44 | `get_antigravity_global_rules_status` | sync | 전역 규칙 설치 상태, 해시 일치, 플랫폼 제거 지원(`can_remove`) 확인 |
+| 45 | `install_antigravity_global_rule` | sync | 공식 포함 표준 전역 규칙 템플릿(`codex-cli.md` 또는 `deepseek-harness.md`) 설치 |
+| 46 | `remove_antigravity_global_rule` | sync | SHA-256 검증과 함께 설치된 표준 템플릿 안전하게 제거 (Windows 전용) |
+| 47 | `install_all_antigravity_mcp_commands` | sync | MCP 화면 전용 3개 MCP Skill(`pov-mcp-plan`, `pov-mcp-revise`, `pov-mcp-review`)만 일괄 설치 |
 
 ### 프록시 서버 (proxy.rs)
 

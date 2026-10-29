@@ -2,7 +2,7 @@
 
 # SPEC: Poverello Coding Tools
 
-> **Transition vers v0.25.1 :** Auto-Converge reste dans le code, mais n’est pas accessible depuis la navigation normale de l’application. Le dispatch de production est désactivé et l’isolation de Stage 2 n’est pas vérifiée. La visibilité de l’interface n’implique ni autorisation ni approbation de publication.
+> **Transition vers v0.25.2 :** Auto-Converge reste dans le code, mais n’est pas accessible depuis la navigation normale de l’application. Le dispatch de production est désactivé et l’isolation de Stage 2 n’est pas vérifiée. La visibilité de l’interface n’implique ni autorisation ni approbation de publication.
 
 ## Aperçu
 
@@ -88,16 +88,18 @@ Un outil léger de proxy + gestion GUI qui route les requêtes API de Claude Des
 - **Registre des capacités de contexte** : `model_catalog.json` est un registre statique des capacités de contexte connues couvrant les modèles intégrés des fournisseurs directs (DeepSeek, MiniMax, Kimi, MiMo V2.6 et V2.5) et les modèles OpenRouter intégrés (Poolside, Tencent, InclusionAI, StepFun, OpenAI GPT-6.1, GPT-6, GPT Astra Latest, GPT-5.6 et Google Gemini). Les modèles OpenRouter personnalisés inconnus restent des cibles de routage valides mais rapportent la gestion du contexte comme Incomplete jusqu'à ce que des métadonnées soient ajoutées ou qu'un mode manuel soit configuré.
 - **Modèles Google Gemini** : Les profils OpenRouter incluent Gemini 3.1 Pro Preview et Gemini 3.7 Flash avec leurs tarifs et capacités intégrés. Gemini 3.7 Flash affiche le tarif promotionnel avec le tarif standard barré.
 - **Fournisseur direct GLM (Z.ai)** : Envoie les requêtes au point de terminaison Z.ai compatible Anthropic avec `ZAI_API_KEY` (ou la clé enregistrée dans Poverello). Poverello ne vérifie ni le type de clé, ni l'achat d'un Coding Plan, ni l'autorisation du compte ou l'éligibilité à la facturation ; consultez le [guide de configuration actuel de Z.ai](https://zcode.z.ai/en/docs/configuration). Catalogue : `glm-5.3`, `glm-5.3-flash`, `glm-5.3-flashx` et `glm-5.2`. GLM-5.3 utilise toujours le thinking avec effort réglable (`low`, `high`, `max`) ; GLM-5.2 propose le commutateur Normal/Thinking. Les réponses vides ou uniquement composées de thinking échouent de manière fermée avec une erreur fournisseur explicite dans Orchestrator et MCP.
-- **Gestion des règles Antigravity (Paramètres > Antigravity Rules)** : Cette section des paramètres gère `pov-direct.md` avec une machine à états qui ne modifie que le scalaire YAML `trigger` et le bloc géré délimité, tout en préservant le frontmatter, les commentaires et les inclusions Skill de l’utilisateur. Protections : sauvegardes conservées et résistantes aux collisions, vérification SHA-256 et des conflits de suppression externe, rollback vérifié, garde contre les anciens dossiers sidecar et limite de 24 000 octets UTF-8. Localisé en huit langues.
+- **Gestion des Skills et règles Antigravity (Paramètres > Antigravity Skills & Rules)** : Gestion centralisée de la politique de révision pour les Skills de workflow, des modèles standards protégés de règles globales, du comportement de codage (Poverello Direct Coding) et des Nerf Skills.
+  - **Politique de révision** : Configure de manière centralisée `/pov-full-cycle`, `/pov-plan-only` et `/pov-build-review` pour utiliser `codex_only` (Codex CLI seul via `codex exec`) ou `codex_plus_deepseek` (revue composite de Codex CLI avec consultation conditionnelle de DeepSeek Harness). Enregistré sous `~/.gemini/antigravity-ide/pov-reviewer-policy.json`. Détecte les anciens Skills v0.25.1 et les met à jour en toute sécurité avec des marqueurs de synchronisation dynamiques.
+  - **Gestion des modèles de règles globales** : Installation et suppression sécurisées des modèles officiels intégrés (`codex-cli.md` et `deepseek-harness.md`) dans `%USERPROFILE%\.gemini\config\rules\`. Validation préalable du hachage SHA-256 par rapport aux ressources incluses ; la suppression est prise en charge uniquement sous Windows (`can_remove`) et désactivée en toute sécurité sur les autres plateformes. Remplace l'ancien éditeur de zone de texte de l'interface.
+  - **Comportement de codage (Direct Coding)** : Configure le direct-coding léger (`pov-direct.md`) directement dans le panneau unifié sous forme de `.settings-tile`. Gère le scalaire YAML `trigger` et le bloc délimité avec sauvegardes persistantes, vérification SHA-256 et restauration.
+  - **Nerf Skills** : Gère l'installation et la suppression des Skills Nerf légers et équilibrés (`pov-nerf-lightweight`, `pov-nerf-balanced`).
 - **Fournisseur direct officiel Anthropic** : Accès direct à `https://api.anthropic.com` avec `ANTHROPIC_API_KEY`, transfert natif du protocole Messages sans traduction, catalogue de modèles validé, diagnostic des limites de jetons en streaming et hors streaming, et validation native des paramètres d’échantillonnage.
 - **Profils de passerelle multi-fournisseurs (`gateway_profile`)** : Associe un fournisseur et un modèle indépendants à chacune des trois routes Claude canoniques (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`). Stockage via `active_provider` et `active_gateway_profile_id`, profils dans `gateway_profiles` ; intégré à la vérification des capacités et au calcul de contexte d’auto-compact de Claude Code.
 - **Espace de noms canonique des Skills et MCP Poverello** : Outils `poverello/plan`, `poverello/revise`, `poverello/review` et commandes `/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`. Le serveur `poverello` est ajouté à Antigravity sans supprimer `anthro-bridge` ni les anciens Skills `/anthro-*`, conservés pour compatibilité. Gestion sécurisée fichier par fichier. Fournit aussi les Skills de workflow `/pov-full-cycle`, `/pov-plan-only` et `/pov-build-review`, en plus des trois Skills MCP directs.
 - **Usage normalisé et moteur financier de coûts Orchestrator** : Les champs d’usage pris en charge (`input_tokens`, `output_tokens`, `raw_total_tokens`, `cache_read_tokens`, `cache_write_tokens`) sont enregistrés dans RunJournal et les audits ; les données absentes ou invalides restent inconnues et l’écriture de cache est sérialisée sous `cacheWriteTokens`. L’estimation actuelle ne couvre que les dispatches Planner–Reviewer admissibles avec Anthropic Direct Opus 5.5/Sonnet 5.5 et des compartiments de cache explicitement à zéro ; les autres cas sont non tarifés, pas gratuits. Montants en nanodollars entiers (`amount_nanos: u64`) sérialisés en chaînes décimales, sans calcul flottant. Vérification exacte de l’ID de tarif, du fournisseur, du modèle et de la devise ; toute incohérence échoue de manière fermée en « unpriced ». `RunCostSummary` est `Complete`, `Partial` ou `Unavailable` ; `list_journals()` recalcule les totaux à chaque lecture depuis les enregistrements de dispatch immuables.
-
-- **Éditeur des règles globales Antigravity (Paramètres > Antigravity)** : Le panneau d’intégration permet de sélectionner, modifier et enregistrer `deepseek-harness.md` et `codex-cli.md`.
 ### Outil de gestion GUI
 
-Tauri v2 + React 19 + TypeScript. Disposition à deux panneaux : Tableau de bord + Paramètres. La navigation supérieure comprend Gateway, MCP et Settings ; dans la version 0.25.1, l’onglet Orchestrator est masqué. Settings conserve General, Claude Desktop, Antigravity, Antigravity Rules et Orchestrator.
+Tauri v2 + React 19 + TypeScript. La navigation supérieure comprend Gateway (Tableau de bord), MCP et Settings. Settings comprend General, Claude Desktop, Antigravity MCP et Antigravity Skills & Rules. Les paramètres Orchestrator sont masqués dans la sous-navigation (l'état interne et les routes sont conservés) ; les flux de travail autonomes Antigravity démarrent via les Skills de commande barre oblique.
 
 ```
 +------------------------------------------+
@@ -169,6 +171,16 @@ Paramètres (=):
 | 35 | `get_claude_code_config` | sync | Read Claude Code routing, auto_compact, and third_party_provider settings |
 | 36 | `update_claude_code_third_party` | sync | Save Ollama Local configuration (models, thinking_modes, context_windows, show_on_dashboard) |
 | 37 | `set_claude_code_active_route` | sync | Set Claude Code active route (`gateway` or `ollama`) |
+| 38 | `get_pov_direct_status` | sync | Lit le statut, le hachage et les métadonnées des règles de direct coding Antigravity |
+| 39 | `preview_pov_direct_content` | sync | Prévisualise le contenu généré de `pov-direct.md` et son bloc géré |
+| 40 | `apply_pov_direct_settings` | sync | Enregistre atomiquement les règles de direct coding avec sauvegarde, détection des conflits et restauration vérifiée |
+| 41 | `get_reviewer_policy` | sync | Lit la politique de révision active (`codex_only` ou `codex_plus_deepseek`) |
+| 42 | `set_reviewer_policy` | sync | Définit la politique de révision active et la persiste dans `~/.gemini/antigravity-ide/pov-reviewer-policy.json` |
+| 43 | `get_workflow_skills_policy_status` | sync | Lit l'état de conformité de la politique des Skills de workflow et leurs détails |
+| 44 | `get_antigravity_global_rules_status` | sync | Vérifie le statut d'installation, la validité du hachage et le support de suppression (`can_remove`) des règles globales |
+| 45 | `install_antigravity_global_rule` | sync | Installe le modèle de règle globale standard officiel (`codex-cli.md` ou `deepseek-harness.md`) |
+| 46 | `remove_antigravity_global_rule` | sync | Supprime le modèle standard installé avec vérification SHA-256 (Windows uniquement) |
+| 47 | `install_all_antigravity_mcp_commands` | sync | Installe en lot exclusivement les 3 Skills MCP (`pov-mcp-plan`, `pov-mcp-revise`, `pov-mcp-review`) |
 
 ### Serveur Proxy (proxy.rs)
 

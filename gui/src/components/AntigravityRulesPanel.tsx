@@ -215,7 +215,7 @@ export default function AntigravityRulesPanel() {
 
   if (loading) {
     return (
-      <div style={{ padding: "24px", color: "#6b7280" }}>
+      <div className="settings-tile" style={{ color: "#656d76", fontSize: 12 }}>
         {t("antigravityRules.loading")}
       </div>
     );
@@ -224,60 +224,72 @@ export default function AntigravityRulesPanel() {
   const isOverByteLimit = status ? status.expanded_byte_size > status.byte_limit : false;
 
   return (
-    <div style={{ padding: "24px", maxWidth: "900px", margin: "0 auto" }}>
+    <div className="settings-tile">
       {/* Header */}
-      <div style={{ marginBottom: "20px" }}>
-        <h2 style={{ fontSize: "20px", fontWeight: 700, margin: 0, color: "#111827" }}>
-          {t("antigravityRules.panelTitle")}
-        </h2>
-        <div style={{ fontSize: "13px", color: "#6b7280", marginTop: "4px" }}>
-          {t("antigravityRules.panelSubtitle")}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text-primary)", display: "inline-flex", alignItems: "center" }}>
+            {t("antigravityRules.panelTitle")}
+            {stateBadge}
+          </h3>
+          {saving && <span style={{ fontSize: 11, color: "#656d76" }}>...</span>}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {successMessage && (
+            <span style={{ fontSize: 12, color: "#1a7f37", fontWeight: 500 }}>
+              ✓ {successMessage}
+            </span>
+          )}
+          <button
+            type="button"
+            className="btn"
+            style={{ fontSize: 11, padding: "4px 10px" }}
+            onClick={handleOpenFolder}
+          >
+            {t("antigravityRules.actions.openFolder")}
+          </button>
+          <button
+            type="button"
+            className="btn"
+            style={{ fontSize: 11, padding: "4px 10px" }}
+            onClick={handleResetDefaults}
+          >
+            {t("antigravityRules.actions.resetDefaults")}
+          </button>
         </div>
       </div>
+
+      <p style={{ margin: "0 0 12px 0", fontSize: 12, color: "#656d76" }}>
+        {t("antigravityRules.panelSubtitle")}
+      </p>
 
       {/* Global Alerts / Messages */}
       {error && (
         <div
           style={{
-            padding: "10px 14px",
-            marginBottom: "16px",
-            backgroundColor: "#fef2f2",
-            border: "1px solid #f87171",
-            borderRadius: "6px",
-            color: "#b91c1c",
-            fontSize: "13px",
+            padding: "8px 12px",
+            marginBottom: 12,
+            backgroundColor: "#ffebe9",
+            border: "1px solid #ff8182",
+            borderRadius: 6,
+            color: "#cf222e",
+            fontSize: 12,
           }}
         >
           {error}
         </div>
       )}
 
-      {successMessage && (
-        <div
-          style={{
-            padding: "10px 14px",
-            marginBottom: "16px",
-            backgroundColor: "#f0fdf4",
-            border: "1px solid #86efac",
-            borderRadius: "6px",
-            color: "#166534",
-            fontSize: "13px",
-          }}
-        >
-          {successMessage}
-        </div>
-      )}
-
       {status?.block_reason && (
         <div
           style={{
-            padding: "10px 14px",
-            marginBottom: "16px",
-            backgroundColor: "#fffbeb",
-            border: "1px solid #fcd34d",
-            borderRadius: "6px",
-            color: "#92400e",
-            fontSize: "13px",
+            padding: "8px 12px",
+            marginBottom: 12,
+            backgroundColor: "#fff8c5",
+            border: "1px solid #d4a72c",
+            borderRadius: 6,
+            color: "#6e4a00",
+            fontSize: 12,
           }}
         >
           {status.block_reason}
@@ -287,318 +299,229 @@ export default function AntigravityRulesPanel() {
       {status?.legacy_sidecar_present && (
         <div
           style={{
-            padding: "10px 14px",
-            marginBottom: "16px",
-            backgroundColor: "#fffbeb",
-            border: "1px solid #fcd34d",
-            borderRadius: "6px",
-            color: "#92400e",
-            fontSize: "13px",
+            padding: "8px 12px",
+            marginBottom: 12,
+            backgroundColor: "#fff8c5",
+            border: "1px solid #d4a72c",
+            borderRadius: 6,
+            color: "#6e4a00",
+            fontSize: 12,
           }}
         >
           {t("antigravityRules.alerts.legacySidecar")}
         </div>
       )}
 
-      {/* Main Settings Card */}
-      <div
-        style={{
-          backgroundColor: "#ffffff",
-          border: "1px solid #e5e7eb",
-          borderRadius: "8px",
-          padding: "20px",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-          marginBottom: "20px",
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+      {/* Setting 1: Auto Activate Toggle */}
+      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <h3 style={{ fontSize: "16px", fontWeight: 600, margin: 0, color: "#111827", display: "inline-flex", alignItems: "center" }}>
-              {t("antigravityRules.panelTitle")}
-              {stateBadge}
-            </h3>
-            <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "4px" }}>
-              {t("antigravityRules.panelSubtitle")}
+            <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f" }}>
+              {t("antigravityRules.autoActivation.title")}
+            </div>
+            <div style={{ fontSize: 12, color: "#57606a", marginTop: 2 }}>
+              {t("antigravityRules.autoActivation.desc")}
             </div>
           </div>
+          <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={draft.auto_activation}
+              onChange={(e) => setDraft({ ...draft, auto_activation: e.target.checked })}
+              style={{ width: 16, height: 16, cursor: "pointer" }}
+            />
+          </label>
         </div>
+      </div>
 
-        {/* Setting 1: Auto Activate Toggle */}
-        <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: "14px", marginBottom: "16px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: "13px", color: "#374151" }}>
-                {t("antigravityRules.autoActivation.title")}
-              </div>
-              <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "2px" }}>
-                {t("antigravityRules.autoActivation.desc")}
-              </div>
-            </div>
-            <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
+      {/* Setting 2: Web Research Radio Group */}
+      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f", marginBottom: 6 }}>
+          {t("antigravityRules.webResearch.title")}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {webResearchOptions.map((opt) => (
+            <label
+              key={opt.value}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 13,
+                color: "#24292f",
+                cursor: "pointer",
+              }}
+            >
               <input
-                type="checkbox"
-                checked={draft.auto_activation}
-                onChange={(e) => setDraft({ ...draft, auto_activation: e.target.checked })}
-                style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                type="radio"
+                name="web_research"
+                value={opt.value}
+                checked={draft.web_research === opt.value}
+                onChange={() => setDraft({ ...draft, web_research: opt.value })}
+                style={{ cursor: "pointer" }}
               />
+              <span style={{ fontWeight: 500 }}>{opt.label}</span>
             </label>
-          </div>
+          ))}
         </div>
+      </div>
 
-        {/* Setting 2: Web Research Radio Group */}
-        <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: "14px", marginBottom: "16px" }}>
-          <div style={{ fontWeight: 600, fontSize: "13px", color: "#374151", marginBottom: "8px" }}>
-            {t("antigravityRules.webResearch.title")}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {webResearchOptions.map((opt) => (
-              <label
+      {/* Setting 3: Response Verbosity Pill Selector */}
+      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f", marginBottom: 6 }}>
+          {t("antigravityRules.verbosity.title")}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {verbosityOptions.map((opt) => {
+            const active = draft.response_verbosity === opt.value;
+            return (
+              <button
                 key={opt.value}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  fontSize: "13px",
-                  color: "#374151",
-                  cursor: "pointer",
-                }}
+                type="button"
+                className={active ? "btn btn-primary" : "btn"}
+                style={{ fontSize: 12, padding: "3px 12px", borderRadius: 16 }}
+                onClick={() => setDraft({ ...draft, response_verbosity: opt.value })}
               >
-                <input
-                  type="radio"
-                  name="web_research"
-                  value={opt.value}
-                  checked={draft.web_research === opt.value}
-                  onChange={() => setDraft({ ...draft, web_research: opt.value })}
-                  style={{ cursor: "pointer" }}
-                />
-                <span style={{ fontWeight: 500 }}>{opt.label}</span>
-              </label>
-            ))}
-          </div>
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
+      </div>
 
-        {/* Setting 3: Response Verbosity Pill Selector */}
-        <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: "14px", marginBottom: "16px" }}>
-          <div style={{ fontWeight: 600, fontSize: "13px", color: "#374151", marginBottom: "8px" }}>
-            {t("antigravityRules.verbosity.title")}
-          </div>
-          <div style={{ display: "flex", gap: "6px" }}>
-            {verbosityOptions.map((opt) => {
-              const active = draft.response_verbosity === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setDraft({ ...draft, response_verbosity: opt.value })}
-                  style={{
-                    padding: "4px 12px",
-                    borderRadius: "16px",
-                    fontSize: "12px",
-                    fontWeight: active ? 600 : 400,
-                    backgroundColor: active ? "#2563eb" : "#f3f4f6",
-                    color: active ? "#ffffff" : "#374151",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
+      {/* Setting 4: Repository Exploration Pill Selector */}
+      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f", marginBottom: 6 }}>
+          {t("antigravityRules.exploration.title")}
         </div>
-
-        {/* Setting 4: Repository Exploration Pill Selector */}
-        <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: "14px", marginBottom: "16px" }}>
-          <div style={{ fontWeight: 600, fontSize: "13px", color: "#374151", marginBottom: "8px" }}>
-            {t("antigravityRules.exploration.title")}
-          </div>
-          <div style={{ display: "flex", gap: "6px" }}>
-            {explorationOptions.map((opt) => {
-              const active = draft.repository_exploration === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setDraft({ ...draft, repository_exploration: opt.value })}
-                  style={{
-                    padding: "4px 12px",
-                    borderRadius: "16px",
-                    fontSize: "12px",
-                    fontWeight: active ? 600 : 400,
-                    backgroundColor: active ? "#2563eb" : "#f3f4f6",
-                    color: active ? "#ffffff" : "#374151",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Setting 5: Verification Scope Pill Selector */}
-        <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: "14px", marginBottom: "16px" }}>
-          <div style={{ fontWeight: 600, fontSize: "13px", color: "#374151", marginBottom: "8px" }}>
-            {t("antigravityRules.verification.title")}
-          </div>
-          <div style={{ display: "flex", gap: "6px" }}>
-            {verificationOptions.map((opt) => {
-              const active = draft.verification === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setDraft({ ...draft, verification: opt.value })}
-                  style={{
-                    padding: "4px 12px",
-                    borderRadius: "16px",
-                    fontSize: "12px",
-                    fontWeight: active ? 600 : 400,
-                    backgroundColor: active ? "#2563eb" : "#f3f4f6",
-                    color: active ? "#ffffff" : "#374151",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Target Rule File Info */}
-        <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: "14px", marginBottom: "16px" }}>
-          <div style={{ fontWeight: 600, fontSize: "13px", color: "#374151", marginBottom: "4px" }}>
-            {t("antigravityRules.ruleFile.title")}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <code
-              style={{
-                fontSize: "12px",
-                color: "#4b5563",
-                backgroundColor: "#f9fafb",
-                padding: "4px 8px",
-                borderRadius: "4px",
-                flex: 1,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {status?.rule_path}
-            </code>
-            <span
-              style={{
-                fontSize: "11px",
-                fontWeight: 600,
-                color: "#2563eb",
-                backgroundColor: "#eff6ff",
-                border: "1px solid #bfdbfe",
-                padding: "2px 6px",
-                borderRadius: "4px",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {t("antigravityRules.ruleFile.managedBadge")}
-            </span>
-          </div>
-        </div>
-
-        {/* Live Settings Preview */}
-        <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: "14px", marginBottom: "16px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-            <div style={{ fontWeight: 600, fontSize: "13px", color: "#374151" }}>
-              {t("antigravityRules.ruleFile.previewTitle")}
-            </div>
-            {status && (
-              <div
-                style={{
-                  fontSize: "11px",
-                  color: isOverByteLimit ? "#ef4444" : "#6b7280",
-                  fontWeight: isOverByteLimit ? 600 : 400,
-                }}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {explorationOptions.map((opt) => {
+            const active = draft.repository_exploration === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                className={active ? "btn btn-primary" : "btn"}
+                style={{ fontSize: 12, padding: "3px 12px", borderRadius: 16 }}
+                onClick={() => setDraft({ ...draft, repository_exploration: opt.value })}
               >
-                {t("antigravityRules.ruleFile.sizeLabel")}: {status.expanded_byte_size.toLocaleString()} /{" "}
-                {status.byte_limit.toLocaleString()} bytes
-              </div>
-            )}
-          </div>
-          <pre
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Setting 5: Verification Scope Pill Selector */}
+      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f", marginBottom: 6 }}>
+          {t("antigravityRules.verification.title")}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {verificationOptions.map((opt) => {
+            const active = draft.verification === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                className={active ? "btn btn-primary" : "btn"}
+                style={{ fontSize: 12, padding: "3px 12px", borderRadius: 16 }}
+                onClick={() => setDraft({ ...draft, verification: opt.value })}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Target Rule File Info */}
+      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f", marginBottom: 4 }}>
+          {t("antigravityRules.ruleFile.title")}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <code
             style={{
-              backgroundColor: "#f8fafc",
-              border: "1px solid #e2e8f0",
-              borderRadius: "6px",
-              padding: "10px 14px",
-              fontSize: "12px",
-              color: "#334155",
-              fontFamily: "monospace",
-              margin: 0,
-              whiteSpace: "pre-wrap",
+              fontSize: 11,
+              fontFamily: "var(--font-mono)",
+              color: "#57606a",
+              backgroundColor: "#f6f8fa",
+              padding: "4px 8px",
+              borderRadius: 4,
+              border: "1px solid #d0d7de",
+              flex: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
           >
-            {previewLines}
-          </pre>
-        </div>
-
-        {/* Action Buttons */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #f3f4f6", paddingTop: "16px" }}>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button
-              type="button"
-              onClick={handleOpenFolder}
-              style={{
-                padding: "6px 14px",
-                borderRadius: "6px",
-                fontSize: "12px",
-                fontWeight: 500,
-                backgroundColor: "#ffffff",
-                color: "#374151",
-                border: "1px solid #d1d5db",
-                cursor: "pointer",
-              }}
-            >
-              {t("antigravityRules.actions.openFolder")}
-            </button>
-            <button
-              type="button"
-              onClick={handleResetDefaults}
-              style={{
-                padding: "6px 14px",
-                borderRadius: "6px",
-                fontSize: "12px",
-                fontWeight: 500,
-                backgroundColor: "#ffffff",
-                color: "#374151",
-                border: "1px solid #d1d5db",
-                cursor: "pointer",
-              }}
-            >
-              {t("antigravityRules.actions.resetDefaults")}
-            </button>
-          </div>
-
-          <button
-            type="button"
-            disabled={saving || !status?.can_apply || isOverByteLimit}
-            onClick={handleSaveClick}
+            {status?.rule_path}
+          </code>
+          <span
             style={{
-              padding: "6px 18px",
-              borderRadius: "6px",
-              fontSize: "13px",
+              fontSize: 11,
               fontWeight: 600,
-              backgroundColor: saving || !status?.can_apply || isOverByteLimit ? "#9ca3af" : "#2563eb",
-              color: "#ffffff",
-              border: "none",
-              cursor: saving || !status?.can_apply || isOverByteLimit ? "not-allowed" : "pointer",
+              color: "#0969da",
+              backgroundColor: "#ddf4ff",
+              border: "1px solid #54aeff66",
+              padding: "2px 6px",
+              borderRadius: 4,
+              whiteSpace: "nowrap",
             }}
           >
-            {saving ? t("antigravityRules.saving") : t("antigravityRules.actions.apply")}
-          </button>
+            {t("antigravityRules.ruleFile.managedBadge")}
+          </span>
         </div>
+      </div>
+
+      {/* Live Settings Preview */}
+      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f" }}>
+            {t("antigravityRules.ruleFile.previewTitle")}
+          </div>
+          {status && (
+            <div
+              style={{
+                fontSize: 11,
+                color: isOverByteLimit ? "#cf222e" : "#57606a",
+                fontWeight: isOverByteLimit ? 600 : 400,
+              }}
+            >
+              {t("antigravityRules.ruleFile.sizeLabel")}: {status.expanded_byte_size.toLocaleString()} /{" "}
+              {status.byte_limit.toLocaleString()} bytes
+            </div>
+          )}
+        </div>
+        <pre
+          style={{
+            backgroundColor: "#f6f8fa",
+            border: "1px solid #d0d7de",
+            borderRadius: 6,
+            padding: "8px 12px",
+            fontSize: 12,
+            color: "#24292f",
+            fontFamily: "var(--font-mono)",
+            margin: 0,
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {previewLines}
+        </pre>
+      </div>
+
+      {/* Action Buttons */}
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", borderTop: "1px solid #e1e4e8", paddingTop: 14 }}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={saving || !status?.can_apply || isOverByteLimit}
+          onClick={handleSaveClick}
+          style={{ fontSize: 12, padding: "5px 16px" }}
+        >
+          {saving ? t("antigravityRules.saving") : t("antigravityRules.actions.apply")}
+        </button>
       </div>
 
       {/* UnmanagedCustom Adopt Confirmation Modal */}

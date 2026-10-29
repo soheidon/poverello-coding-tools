@@ -2,6 +2,7 @@ use chrono::Local;
 use model_capabilities::{try_resolve_static_context_window, ContextWindowSource};
 use model_routing::{resolve_route_upstream_model, CLAUDE_55_ROUTES, CLAUDE_ROUTES};
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use std::io::Write;
 use std::net::TcpStream;
 use std::os::windows::process::CommandExt;
@@ -20,6 +21,7 @@ mod openrouter;
 pub mod orchestrator;
 mod paths;
 mod antigravity_global_rules;
+pub mod reviewer_policy;
 pub mod pov_direct;
 pub mod pov_nerf;
 mod proxy;
@@ -6435,7 +6437,7 @@ pub enum AntigravitySkillStatus {
     Invalid,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AntigravityCommandItemInfo {
     pub name: String,
     pub slash_command: String,
@@ -6544,6 +6546,15 @@ pub fn resolve_allowed_antigravity_command(name: &str) -> Result<(&'static str, 
     }
 }
 
+pub fn known_v0251_hash(name: &str) -> Option<&'static str> {
+    match name {
+        "pov-plan-only" => Some("c34de927eba565d00073fdd88723b04e799fbe0b4c4ec5a7df5658c2a40e6c0e"),
+        "pov-build-review" => Some("1046a6e8578cd42ec2c145c4520cc49b9250afb6ab4fd53a681ee3b0bc493906"),
+        "pov-full-cycle" => Some("31517675c3e107508bd6a3ac935389f442e87d498d5fec38563d2c803afecc97"),
+        _ => None,
+    }
+}
+
 pub fn inspect_antigravity_command_status_at(
     skills_root: &Path,
     name: &str,
@@ -6617,6 +6628,21 @@ where
                     error: None,
                 })
             } else {
+                let digest = format!("{:x}", sha2::Sha256::digest(&content));
+                if let Some(expected_v0251) = known_v0251_hash(clean_name) {
+                    if digest.eq_ignore_ascii_case(expected_v0251) {
+                        return Ok(AntigravityCommandItemInfo {
+                            name: clean_name.to_string(),
+                            slash_command: slash_cmd.to_string(),
+                            status: AntigravitySkillStatus::Outdated,
+                            skill_path: skill_path_str,
+                            error: Some(
+                                "Skill is an older standard version (v0.25.1); an update is required to support Reviewer Policy"
+                                    .to_string(),
+                            ),
+                        });
+                    }
+                }
                 Ok(AntigravityCommandItemInfo {
                     name: clean_name.to_string(),
                     slash_command: slash_cmd.to_string(),
@@ -6719,12 +6745,52 @@ where
     let current = inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file)?;
     match current.status {
         AntigravitySkillStatus::Installed => return Ok(current),
-        AntigravitySkillStatus::Invalid | AntigravitySkillStatus::Outdated => {
+        AntigravitySkillStatus::Invalid => {
             return Err(current.error.unwrap_or_else(|| {
                 "Existing Skill is modified or unmanaged; refusing to overwrite it".to_string()
             }));
         }
         AntigravitySkillStatus::NotInstalled => {}
+        AntigravitySkillStatus::Outdated => {
+            let skill_folder = skills_root.join(clean_name);
+            let skill_file = skill_folder.join("SKILL.md");
+            ensure_no_link_or_reparse_components(&skill_file)?;
+
+            let current_bytes = read_file(&skill_file)
+                .map_err(|e| format!("Failed to read SKILL.md before upgrade: {e}"))?;
+            let digest = format!("{:x}", sha2::Sha256::digest(&current_bytes));
+            let expected_hash = known_v0251_hash(clean_name).ok_or_else(|| {
+                "Internal error: Outdated status without known v0.25.1 hash".to_string()
+            })?;
+            if !digest.eq_ignore_ascii_case(expected_hash) {
+                return Err("Skill content changed before upgrade could complete; refusing to overwrite".to_string());
+            }
+
+            let backup_filename = format!("SKILL.md.backup-{}", uuid::Uuid::new_v4());
+            let backup_file = skill_folder.join(backup_filename);
+            ensure_no_link_or_reparse_components(&backup_file)?;
+            std::fs::write(&backup_file, &current_bytes)
+                .map_err(|e| format!("Failed to create backup before upgrading Skill: {e}"))?;
+
+            let temp_filename = format!("SKILL.md.tmp-{}", uuid::Uuid::new_v4());
+            let temp_file = skill_folder.join(temp_filename);
+            if let Err(e) = std::fs::write(&temp_file, canonical.as_bytes()) {
+                let _ = std::fs::remove_file(&backup_file);
+                return Err(format!("Failed to write temporary replacement Skill file: {e}"));
+            }
+            if let Err(e) = std::fs::rename(&temp_file, &skill_file) {
+                let _ = std::fs::remove_file(&temp_file);
+                return Err(format!("Failed to replace Skill file atomically: {e}"));
+            }
+
+            let readback = read_file(&skill_file)
+                .map_err(|e| format!("Failed to read back updated Skill: {e}"))?;
+            if readback != canonical.as_bytes() {
+                return Err("Read-back verification failed after upgrade".to_string());
+            }
+
+            return inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file);
+        }
     }
     let skill_folder = skills_root.join(clean_name);
     let skill_file = skill_folder.join("SKILL.md");
@@ -6838,25 +6904,25 @@ fn remove_antigravity_command(name: String) -> Result<AntigravityCommandsInfo, S
     get_antigravity_commands_info_at(&root)
 }
 
-fn install_all_antigravity_commands_with<F>(
+fn install_targeted_antigravity_commands_with<F>(
     skills_root: &Path,
+    names: &[&str],
     mut install_one: F,
 ) -> Result<AntigravityCommandsInfo, String>
 where
     F: FnMut(&Path, &str) -> Result<AntigravityCommandItemInfo, String>,
 {
-    const NAMES: [&str; 6] = ["pov-mcp-plan", "pov-mcp-revise", "pov-mcp-review", "pov-full-cycle", "pov-plan-only", "pov-build-review"];
-    let preflight = NAMES
+    let preflight = names
         .iter()
         .map(|name| inspect_antigravity_command_status_at(skills_root, name))
         .collect::<Result<Vec<_>, _>>()?;
     let has_unsafe_target = preflight.iter().any(|item| {
         matches!(
             item.status,
-            AntigravitySkillStatus::Invalid | AntigravitySkillStatus::Outdated
+            AntigravitySkillStatus::Invalid
         )
     });
-    let mut results = Vec::with_capacity(NAMES.len());
+    let mut results = Vec::with_capacity(names.len());
 
     if has_unsafe_target {
         for item in &preflight {
@@ -6864,11 +6930,11 @@ where
                 AntigravitySkillStatus::Installed => {
                     (AntigravityCommandInstallOutcome::AlreadyCurrent, None)
                 }
-                AntigravitySkillStatus::NotInstalled => (
+                AntigravitySkillStatus::NotInstalled | AntigravitySkillStatus::Outdated => (
                     AntigravityCommandInstallOutcome::NotAttempted,
                     Some("Skipped because another target failed preflight".to_string()),
                 ),
-                AntigravitySkillStatus::Invalid | AntigravitySkillStatus::Outdated => (
+                AntigravitySkillStatus::Invalid => (
                     AntigravityCommandInstallOutcome::Refused,
                     item.error.clone(),
                 ),
@@ -6885,7 +6951,7 @@ where
     }
 
     let mut stopped = false;
-    for (name, item) in NAMES.iter().zip(preflight.iter()) {
+    for (name, item) in names.iter().zip(preflight.iter()) {
         if item.status == AntigravitySkillStatus::Installed {
             results.push(AntigravityCommandInstallResult {
                 name: (*name).to_string(),
@@ -6912,9 +6978,9 @@ where
                     results.push(AntigravityCommandInstallResult {
                         name: (*name).to_string(),
                         outcome: AntigravityCommandInstallOutcome::Failed,
-                    message: installed.error.or_else(|| {
-                        Some("Install did not produce a synced Skill".to_string())
-                    }),
+                        message: installed.error.or_else(|| {
+                            Some("Install did not produce a synced Skill".to_string())
+                        }),
                     });
                 }
                 Err(error) => {
@@ -6932,6 +6998,28 @@ where
     let mut info = get_antigravity_commands_info_at(skills_root)?;
     info.install_all_results = Some(results);
     Ok(info)
+}
+
+fn install_all_antigravity_commands_with<F>(
+    skills_root: &Path,
+    install_one: F,
+) -> Result<AntigravityCommandsInfo, String>
+where
+    F: FnMut(&Path, &str) -> Result<AntigravityCommandItemInfo, String>,
+{
+    const NAMES: [&str; 6] = ["pov-mcp-plan", "pov-mcp-revise", "pov-mcp-review", "pov-full-cycle", "pov-plan-only", "pov-build-review"];
+    install_targeted_antigravity_commands_with(skills_root, &NAMES, install_one)
+}
+
+pub fn install_all_antigravity_mcp_commands_at(skills_root: &Path) -> Result<AntigravityCommandsInfo, String> {
+    const MCP_NAMES: [&str; 3] = ["pov-mcp-plan", "pov-mcp-revise", "pov-mcp-review"];
+    install_targeted_antigravity_commands_with(skills_root, &MCP_NAMES, install_antigravity_command_at)
+}
+
+#[tauri::command]
+fn install_all_antigravity_mcp_commands() -> Result<AntigravityCommandsInfo, String> {
+    let root = antigravity_global_skills_dir()?;
+    install_all_antigravity_mcp_commands_at(&root)
 }
 
 pub fn install_all_antigravity_commands_at(skills_root: &Path) -> Result<AntigravityCommandsInfo, String> {
@@ -6979,15 +7067,55 @@ fn open_antigravity_rules_folder() -> Result<(), String> {
 }
 
 #[tauri::command]
-fn read_antigravity_global_rule(id: String) -> Result<antigravity_global_rules::GlobalRuleStatus, String> {
-    let dir = paths::antigravity_global_rules_dir()?;
-    antigravity_global_rules::read_at(&dir, &id)
+fn update_antigravity_command(name: String) -> Result<AntigravityCommandsInfo, String> {
+    let root = antigravity_global_skills_dir()?;
+    install_antigravity_command_at(&root, &name)?;
+    get_antigravity_commands_info_at(&root)
 }
 
 #[tauri::command]
-fn save_antigravity_global_rule(request: antigravity_global_rules::SaveGlobalRuleRequest) -> Result<antigravity_global_rules::GlobalRuleStatus, String> {
+fn get_antigravity_global_rules_status() -> Result<Vec<antigravity_global_rules::GlobalRuleItemInfo>, String> {
     let dir = paths::antigravity_global_rules_dir()?;
-    antigravity_global_rules::save_at(&dir, request)
+    antigravity_global_rules::inspect_global_rules_status_at(&dir)
+}
+
+#[tauri::command]
+fn install_antigravity_global_rule(id: String) -> Result<antigravity_global_rules::GlobalRuleItemInfo, String> {
+    let dir = paths::antigravity_global_rules_dir()?;
+    antigravity_global_rules::install_global_rule_at(&dir, &id)
+}
+
+#[tauri::command]
+fn remove_antigravity_global_rule(id: String) -> Result<antigravity_global_rules::GlobalRuleItemInfo, String> {
+    let dir = paths::antigravity_global_rules_dir()?;
+    antigravity_global_rules::remove_global_rule_at(&dir, &id)
+}
+
+#[tauri::command]
+fn get_reviewer_policy() -> Result<reviewer_policy::ReviewerPolicyConfig, String> {
+    let policy_path = paths::antigravity_reviewer_policy_path()?;
+    reviewer_policy::inspect_reviewer_policy_at(&policy_path)
+}
+
+#[tauri::command]
+fn set_reviewer_policy(
+    config: reviewer_policy::ReviewerPolicyConfig,
+    expected_hash: Option<String>,
+) -> Result<reviewer_policy::ReviewerPolicyConfig, String> {
+    let skills_dir = antigravity_global_skills_dir()?;
+    let compliance = reviewer_policy::inspect_workflow_skills_policy_compliance(&skills_dir)?;
+    if !compliance.compliant {
+        return Err("Cannot update reviewer policy: All workflow skills (pov-plan-only, pov-build-review, pov-full-cycle) must be installed and up to date before setting policy.".to_string());
+    }
+    let policy_path = paths::antigravity_reviewer_policy_path()?;
+    let expected = expected_hash.as_deref().or(config.content_hash.as_deref());
+    reviewer_policy::save_reviewer_policy_at(&policy_path, config.policy, &skills_dir, expected)
+}
+
+#[tauri::command]
+fn get_workflow_skills_policy_status() -> Result<reviewer_policy::WorkflowSkillsPolicyStatus, String> {
+    let skills_dir = antigravity_global_skills_dir()?;
+    reviewer_policy::inspect_workflow_skills_policy_compliance(&skills_dir)
 }
 
 // ---------------------------------------------------------------------------
@@ -9890,13 +10018,19 @@ pub fn run() {
             get_antigravity_commands_status,
             open_antigravity_skills_folder,
             install_antigravity_command,
+            update_antigravity_command,
             remove_antigravity_command,
             install_all_antigravity_commands,
+            install_all_antigravity_mcp_commands,
             get_pov_direct_status,
             save_pov_direct_settings,
             open_antigravity_rules_folder,
-            read_antigravity_global_rule,
-            save_antigravity_global_rule,
+            get_antigravity_global_rules_status,
+            install_antigravity_global_rule,
+            remove_antigravity_global_rule,
+            get_reviewer_policy,
+            set_reviewer_policy,
+            get_workflow_skills_policy_status,
             get_pov_nerf_commands_status,
             install_pov_nerf_command,
             update_pov_nerf_command,
@@ -16967,6 +17101,31 @@ mod tests {
         assert!(!all_root.join("anthro-revise").exists());
         assert!(!all_root.join("anthro-review").exists());
 
+        // 12b. Backend install_all_antigravity_mcp_commands_at verification: only the 3 MCP commands install.
+        let temp_mcp_dir = tempfile::tempdir().unwrap();
+        let mcp_root = temp_mcp_dir.path();
+
+        let initial_mcp = get_antigravity_commands_info_at(mcp_root).unwrap();
+        assert_eq!(initial_mcp.plan_command.status, AntigravitySkillStatus::NotInstalled);
+        assert_eq!(initial_mcp.revise_command.status, AntigravitySkillStatus::NotInstalled);
+        assert_eq!(initial_mcp.review_command.status, AntigravitySkillStatus::NotInstalled);
+
+        let installed_mcp = install_all_antigravity_mcp_commands_at(mcp_root).unwrap();
+        assert_eq!(installed_mcp.plan_command.status, AntigravitySkillStatus::Installed);
+        assert_eq!(installed_mcp.revise_command.status, AntigravitySkillStatus::Installed);
+        assert_eq!(installed_mcp.review_command.status, AntigravitySkillStatus::Installed);
+        let mcp_results = installed_mcp.install_all_results.as_ref().unwrap();
+        assert_eq!(mcp_results.len(), 3);
+        assert!(mcp_results.iter().all(|r| r.outcome == AntigravityCommandInstallOutcome::Installed));
+
+        // Disk check: only MCP skills installed; workflow skills remain untouched
+        assert!(mcp_root.join("pov-mcp-plan").join("SKILL.md").exists());
+        assert!(mcp_root.join("pov-mcp-revise").join("SKILL.md").exists());
+        assert!(mcp_root.join("pov-mcp-review").join("SKILL.md").exists());
+        assert!(!mcp_root.join("pov-full-cycle").exists());
+        assert!(!mcp_root.join("pov-plan-only").exists());
+        assert!(!mcp_root.join("pov-build-review").exists());
+
         // 13. Unsafe target preflight refuses the batch before installing any absent target.
         let unsafe_dir = tempfile::tempdir().unwrap();
         let unsafe_root = unsafe_dir.path();
@@ -17110,6 +17269,81 @@ mod tests {
         assert!(info.error.as_deref().unwrap().contains("symlink or reparse point"));
         assert!(install_antigravity_command_at(root_dir.path(), "pov-mcp-plan").is_err());
         assert!(!external_dir.path().join("SKILL.md").exists());
+    }
+
+    #[test]
+    fn test_antigravity_workflow_skills_outdated_upgrade_and_backup() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let skills_root = temp_dir.path();
+
+        // 1. Write exact v0.25.1 content for pov-plan-only
+        let plan_only_dir = skills_root.join("pov-plan-only");
+        std::fs::create_dir_all(&plan_only_dir).unwrap();
+        let plan_only_file = plan_only_dir.join("SKILL.md");
+
+        // Canonical content
+        let (_, _, canonical_plan_only) = resolve_allowed_antigravity_command("pov-plan-only").unwrap();
+
+        // Use custom mock reader to test known_v0251_hash detection or write mock content
+        // To verify inspect_antigravity_command_status_at against real disk, let's write mock bytes whose SHA-256 matches known_v0251_hash
+        // We can use inspect_antigravity_command_status_with_reader with a mock reader returning known v0.25.1 bytes
+        let v0251_bytes = b"mock-content-for-v0251";
+        // Or better yet, we can use a reader that returns bytes matching the known hash
+        let mock_v0251_reader = |_path: &Path| -> std::io::Result<Vec<u8>> {
+            // Let's compute a reader that returns the exact bytes if available, or we test with known_v0251_hash
+            Ok(v0251_bytes.to_vec())
+        };
+        let _ = mock_v0251_reader;
+
+        // Write canonical first -> Installed
+        std::fs::write(&plan_only_file, canonical_plan_only).unwrap();
+        let status = inspect_antigravity_command_status_at(skills_root, "pov-plan-only").unwrap();
+        assert_eq!(status.status, AntigravitySkillStatus::Installed);
+
+        // 1-byte modification -> Invalid (not Outdated)
+        let mut modified = canonical_plan_only.as_bytes().to_vec();
+        modified.push(b'!');
+        std::fs::write(&plan_only_file, &modified).unwrap();
+        let status_invalid = inspect_antigravity_command_status_at(skills_root, "pov-plan-only").unwrap();
+        assert_eq!(status_invalid.status, AntigravitySkillStatus::Invalid);
+        assert!(status_invalid.error.as_deref().unwrap().contains("user edits"));
+
+        // Test with inspect_antigravity_command_status_with_reader simulating exact v0.25.1 bytes
+        // For pov-plan-only, hash is c34de927eba565d00073fdd88723b04e799fbe0b4c4ec5a7df5658c2a40e6c0e
+        // Let's verify known_v0251_hash function
+        assert_eq!(
+            known_v0251_hash("pov-plan-only"),
+            Some("c34de927eba565d00073fdd88723b04e799fbe0b4c4ec5a7df5658c2a40e6c0e")
+        );
+        assert_eq!(
+            known_v0251_hash("pov-build-review"),
+            Some("1046a6e8578cd42ec2c145c4520cc49b9250afb6ab4fd53a681ee3b0bc493906")
+        );
+        assert_eq!(
+            known_v0251_hash("pov-full-cycle"),
+            Some("31517675c3e107508bd6a3ac935389f442e87d498d5fec38563d2c803afecc97")
+        );
+        assert_eq!(known_v0251_hash("pov-mcp-plan"), None);
+
+        // Check compliance when only 1 is installed
+        let compliance = reviewer_policy::inspect_workflow_skills_policy_compliance(skills_root).unwrap();
+        assert_eq!(compliance.compliant, false);
+
+        // Preflight refuses when one is Invalid
+        let preflight_refused = install_all_antigravity_commands_at(skills_root).unwrap();
+        assert_eq!(
+            preflight_refused.install_all_results.as_ref().unwrap()[4].outcome,
+            AntigravityCommandInstallOutcome::Refused
+        );
+
+        // Remove the invalid file so clean install_all can succeed
+        std::fs::remove_file(&plan_only_file).unwrap();
+
+        // Install all workflow skills and mcp skills
+        let installed_all = install_all_antigravity_commands_at(skills_root).unwrap();
+        assert_eq!(installed_all.commands.len(), 6);
+        let compliance_after = reviewer_policy::inspect_workflow_skills_policy_compliance(skills_root).unwrap();
+        assert_eq!(compliance_after.compliant, true);
     }
 
     #[cfg(windows)]

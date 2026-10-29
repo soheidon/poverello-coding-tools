@@ -463,6 +463,22 @@ pub(crate) fn parse_model_set_number(name: &str) -> Option<u32> {
 // Antigravity rules and Poverello Direct Coding paths
 // ---------------------------------------------------------------------------
 
+pub(crate) fn antigravity_reviewer_policy_path_for(home: &Path) -> PathBuf {
+    home.join(".gemini")
+        .join("antigravity-ide")
+        .join("pov-reviewer-policy.json")
+}
+
+pub(crate) fn antigravity_reviewer_policy_path() -> Result<PathBuf, String> {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map_err(|_| {
+            "Could not resolve user home directory (neither USERPROFILE nor HOME is set)"
+                .to_string()
+        })?;
+    Ok(antigravity_reviewer_policy_path_for(Path::new(&home)))
+}
+
 pub(crate) fn antigravity_global_rules_dir_for(home: &Path) -> PathBuf {
     home.join(".gemini").join("config").join("rules")
 }

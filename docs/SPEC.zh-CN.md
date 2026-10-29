@@ -2,7 +2,7 @@
 
 # SPEC: Poverello Coding Tools
 
-> **v0.25.1 过渡说明：** Auto-Converge 保留在代码中，但无法通过应用的常规导航打开。生产 dispatch 已禁用，Stage 2 隔离尚未验证。界面可见性不代表获得运行授权或发布批准。
+> **v0.25.2 过渡说明：** Auto-Converge 保留在代码中，但无法通过应用的常规导航打开。生产 dispatch 已禁用，Stage 2 隔离尚未验证。界面可见性不代表获得运行授权或发布批准。
 
 ## 概述
 
@@ -88,16 +88,18 @@
 - **上下文容量注册表**: `model_catalog.json` 是已知上下文容量的静态注册表，涵盖内置直连提供商模型（DeepSeek、MiniMax、Kimi、MiMo V2.6 和 V2.5）和内置 OpenRouter 模型（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-6.1、GPT-6、GPT Astra Latest、GPT-5.6 和 Google Gemini）。未知的自定义 OpenRouter 模型仍是有效的路由目标，但会报告上下文管理为 Incomplete，直到添加元数据或配置手动模式。
 - **Google Gemini 模型支持**：OpenRouter 配置支持内置的 Gemini 3.1 Pro Preview 和 Gemini 3.7 Flash，并提供价格与能力数据。Gemini 3.7 Flash 同时显示促销价和带删除线的常规价格。
 - **GLM（Z.ai）直连提供商支持**：使用配置的 `ZAI_API_KEY`（或 Poverello 中保存的密钥）向 Z.ai 的 Anthropic 兼容端点发送请求。Poverello 不判断密钥类型、Coding Plan 购买记录、账户白名单或计费资格；使用前请查看 [Z.ai 当前配置指南](https://zcode.z.ai/en/docs/configuration)。目录包含 `glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx` 和 `glm-5.2`。GLM-5.3 系列始终启用思考并可选推理强度（`low`、`high`、`max`）；GLM-5.2 提供普通/思考切换。空响应或仅含思考内容的响应会在 Orchestrator 与 MCP 中以明确的提供商错误 fail-closed。
-- **Antigravity 规则管理（设置 > Antigravity Rules）**：设置分区通过状态机管理 `pov-direct.md`，仅修改 YAML `trigger` 标量和有边界的受管理区块，同时保留用户 frontmatter、注释和 Skill 引用。安全措施包括防冲突且不自动清理的备份、替换前 SHA-256 与外部删除冲突检测、验证后的回滚、旧 sidecar 文件夹保护，以及 24,000 UTF-8 字节限制；支持 8 种语言。
+- **Antigravity Skills 与规则管理（设置 > Antigravity Skills & Rules）**：集中管理工作流 Skills 的 Reviewer Policy、受保护的标准全局规则模板、编码行为（Poverello Direct Coding）以及 Nerf Skills。
+  - **Reviewer Policy**：集中为 `/pov-full-cycle`、`/pov-plan-only` 和 `/pov-build-review` 配置使用 `codex_only`（基于 `codex exec` 的独立 Codex CLI）或 `codex_plus_deepseek`（Codex CLI 复合审查与 DeepSeek Harness 条件咨询）。安全持久化至 `~/.gemini/antigravity-ide/pov-reviewer-policy.json`。自动检测旧版 v0.25.1 Skills 并带有动态同步标记安全迁移。
+  - **全局规则模板管理**：在 `%USERPROFILE%\.gemini\config\rules\` 中安全安装与移除官方内置的标准模板（`codex-cli.md` 与 `deepseek-harness.md`）。在内置资源基础上有前置 SHA-256 哈希校验与故障闭锁保护；移除操作仅在 Windows 环境受支持（`can_remove`），在其他平台上安全禁用。取代了之前的 GUI 文本域直接编辑。
+  - **编码行为（Direct Coding）**：在统一面板内作为 `.settings-tile` 卡片配置轻量级直接编码（`pov-direct.md`）。仅修改 YAML `trigger` 与受管理区块，提供持久备份、SHA-256 检查和回滚保护。
+  - **Nerf Skills**：管理轻量级与平衡型 Nerf Skills（`pov-nerf-lightweight`、`pov-nerf-balanced`）的安装与移除。
 - **Anthropic 官方直连提供商**：通过 `ANTHROPIC_API_KEY` 直连 `https://api.anthropic.com`，不经协议转换转发原生 Messages 请求；包括已验证模型目录、流式和非流式 token 上限故障诊断，以及原生采样参数验证。
 - **多提供商网关配置（`gateway_profile`）**：可为三个标准 Claude 路由（`claude-opus-5`、`claude-sonnet-5`、`claude-haiku-4-5`）分别指定提供商和模型。由 `active_provider` 与 `active_gateway_profile_id` 激活，配置存放于 `gateway_profiles`，并集成能力检查及 Claude Code 自动压缩的上下文计算。
 - **Poverello Skills 与 MCP 正式命名空间**：正式工具为 `poverello/plan`、`poverello/revise`、`poverello/review`，斜杠命令为 `/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`。Poverello 会在 Antigravity 中增量注册 `poverello` 服务键，同时保留 `anthro-bridge` 和旧 `/anthro-*` Skills 以保持兼容，并安全管理单文件生命周期。 除三个直接 MCP Skills 外，还提供上层工作流 Skills `/pov-full-cycle`、`/pov-plan-only` 和 `/pov-build-review`。
 - **Orchestrator 规范化用量与成本引擎**：支持时将 `input_tokens`、`output_tokens`、`raw_total_tokens`、`cache_read_tokens`、`cache_write_tokens` 写入 RunJournal 和审计记录；缺失或无效值保持未知，缓存创建量序列化为 `cacheWriteTokens`。目前仅估算符合条件且缓存分桶明确为零的 Anthropic Direct Opus 5.5/Sonnet 5.5 Planner–Reviewer dispatch；其他情况是未定价，不代表零成本。金额以整数纳美元（`amount_nanos: u64`）计算并序列化为十进制字符串，禁止浮点运算。严格核对价格表 ID、提供商、模型和币种；未知或不匹配时 fail-closed 并标记未定价。`RunCostSummary` 状态为 `Complete`、`Partial` 或 `Unavailable`；`list_journals()` 每次读取都会根据不可变 dispatch 记录重新聚合。
-
-- **Antigravity 全局规则编辑器（Settings > Antigravity）**：可在 Antigravity 集成面板中选择、编辑并保存全局 Markdown 规则 `deepseek-harness.md` 和 `codex-cli.md`。
 ### GUI 管理工具
 
-Tauri v2 + React 19 + TypeScript。仪表板 + 设置双面板布局。顶部导航包含 Gateway、MCP 和 Settings；v0.25.1 中 Orchestrator 标签页已从顶部导航隐藏。Settings 仍包含 General、Claude Desktop、Antigravity、Antigravity Rules 和 Orchestrator 设置。
+Tauri v2 + React 19 + TypeScript。顶部导航包含 Gateway（仪表板）、MCP 和 Settings。Settings 包含 General、Claude Desktop、Antigravity MCP 以及 Antigravity Skills & Rules。Orchestrator 设置在子导航中隐藏（内部状态与路由保留）；自主 Antigravity 工作流通过斜杠命令 Skills 启动。
 
 ```
 +------------------------------------------+
@@ -169,6 +171,16 @@ Tauri v2 + React 19 + TypeScript。仪表板 + 设置双面板布局。顶部导
 | 35 | `get_claude_code_config` | sync | Read Claude Code routing, auto_compact, and third_party_provider settings |
 | 36 | `update_claude_code_third_party` | sync | Save Ollama Local configuration (models, thinking_modes, context_windows, show_on_dashboard) |
 | 37 | `set_claude_code_active_route` | sync | Set Claude Code active route (`gateway` or `ollama`) |
+| 38 | `get_pov_direct_status` | sync | 读取 Antigravity direct coding 规则状态、哈希与元数据 |
+| 39 | `preview_pov_direct_content` | sync | 预览生成的 `pov-direct.md` 内容及受管理区块 |
+| 40 | `apply_pov_direct_settings` | sync | 原子化保存 direct coding 规则，包含备份、冲突检测与已验证回滚 |
+| 41 | `get_reviewer_policy` | sync | 读取当前活动的 Reviewer Policy（`codex_only` 或 `codex_plus_deepseek`） |
+| 42 | `set_reviewer_policy` | sync | 设置活动的 Reviewer Policy 并持久化至 `~/.gemini/antigravity-ide/pov-reviewer-policy.json` |
+| 43 | `get_workflow_skills_policy_status` | sync | 读取工作流 Skills 的策略合规状态及详情 |
+| 44 | `get_antigravity_global_rules_status` | sync | 检查全局规则安装状态、哈希匹配及平台移除支持（`can_remove`） |
+| 45 | `install_antigravity_global_rule` | sync | 安全安装官方内置的标准全局规则模板（`codex-cli.md` 或 `deepseek-harness.md`） |
+| 46 | `remove_antigravity_global_rule` | sync | 经 SHA-256 校验安全移除已安装的标准全局规则模板（仅限 Windows） |
+| 47 | `install_all_antigravity_mcp_commands` | sync | 仅批量安装 MCP 专属的 3 个 MCP Skills（`/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`） |
 
 ### 代理服务器 (proxy.rs)
 

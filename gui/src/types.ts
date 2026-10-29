@@ -1,4 +1,4 @@
-﻿// ---- Health ----
+// ---- Health ----
 export interface HealthStatus {
   status: string;
   upstream: string;
@@ -238,6 +238,31 @@ export interface AntigravityCommandsInfo {
 }
 
 export type AntigravityGlobalRuleId = "deepseek_harness" | "codex_cli";
+
+export type GlobalRuleTemplateStatus = "not_installed" | "installed" | "modified_or_protected";
+
+export interface GlobalRuleItemInfo {
+  id: string;
+  file_name: string;
+  path: string;
+  status: GlobalRuleTemplateStatus;
+  can_remove: boolean;
+  error?: string | null;
+}
+
+export type ReviewerPolicy = "codex_only" | "codex_plus_deepseek";
+
+export interface ReviewerPolicyConfig {
+  schema_version: number;
+  policy: ReviewerPolicy;
+  content_hash?: string | null;
+}
+
+export interface WorkflowSkillsPolicyStatus {
+  compliant: boolean;
+  details: AntigravityCommandItemInfo[];
+}
+
 export interface AntigravityGlobalRuleStatus {
   id: AntigravityGlobalRuleId;
   file_name: string;

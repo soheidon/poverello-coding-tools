@@ -1,0 +1,676 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.10 [39m[90mC:/Users/Sohei/dev/poverello-coding-tools/gui[39m
+
+ [32m✓[39m src/components/orchestrator/ProfileSelect.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[32m 265[2mms[22m[39m
+ [32m✓[39m src/components/ContextManagementWidget.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 698[2mms[22m[39m
+     [33m[2m✓[22m[39m renders the title with an unchecked switch when globally disabled [33m 329[2mms[22m[39m
+ [32m✓[39m src/components/McpPanel.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 599[2mms[22m[39m
+     [33m[2m✓[22m[39m renders PEAK badge on DeepSeek card during peak hours and not on other providers [33m 357[2mms[22m[39m
+ [32m✓[39m src/components/orchestrator/QuickProfileRoleCard.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 755[2mms[22m[39m
+     [33m[2m✓[22m[39m keeps a hidden but assigned profile visible and marks it as absent from the workspace list [33m 539[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4 Flash reasoning effort > saves reasoning_effort="max" when Max is selected
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/AntigravityRulesPanel.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 1072[2mms[22m[39m
+     [33m[2m✓[22m[39m renders status, badges, settings and preview [33m 344[2mms[22m[39m
+     [33m[2m✓[22m[39m triggers save_pov_direct_settings on Save & Apply click [33m 579[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4 Flash reasoning effort > saves reasoning_effort="low" when Low is selected
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/TitleBar.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 1066[2mms[22m[39m
+     [33m[2m✓[22m[39m renders branding, supported top navigation tabs, and version info [33m 590[2mms[22m[39m
+ [32m✓[39m src/components/orchestrator/PlanWorkspaceSettings.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 1196[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4 Flash reasoning effort > clears the effort to null when switching from Thinking to Normal
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/TimezoneSettingPanel.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 1089[2mms[22m[39m
+     [33m[2m✓[22m[39m renders timezone selector with optgroups and options [33m 1082[2mms[22m[39m
+ [32m✓[39m src/components/Header.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 103[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4 Flash reasoning effort > clears the effort to null when switching from Thinking to Normal
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/ClaudeConfigPanel.launchCommand.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 1477[2mms[22m[39m
+     [33m[2m✓[22m[39m copies the launch command returned by the Tauri command [33m 793[2mms[22m[39m
+     [33m[2m✓[22m[39m copies Claude Desktop config with all 5.5 generation models [32m 300[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4 Flash reasoning effort > defaults to High when enabling Thinking with no prior effort
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/OpenRouterProfileReordering.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 1499[2mms[22m[39m
+     [33m[2m✓[22m[39m renders one accessible drag handle per profile and displays clean model set names [33m 1492[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4 Flash reasoning effort > normalizes a legacy medium to high when switching from Pro to Flash
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/App.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 504[2mms[22m[39m
+     [33m[2m✓[22m[39m renders the normal app and does not expose the retained Auto-Converge panel [33m 496[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4 Flash reasoning effort > preserves low when switching from Pro to Flash
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/autoConverge/AutoConvergePanel.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 726[2mms[22m[39m
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Antigravity Integration > switches to Mismatch state and enables Update button after selecting a different exe
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4 Pro reasoning effort > saves reasoning_effort="high" when High is selected
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/orchestrator/ProjectSelector.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 897[2mms[22m[39m
+stderr | src/components/SettingsSubNav.test.tsx > Settings Sub-Navigation Integration > navigates to Settings and switches between General, Claude Desktop, Antigravity MCP, and Antigravity Skills & Rules (Orchestrator hidden)
+Failed to apply dashboard window size TypeError: appWindow.outerPosition is not a function
+    at C:/Users/Sohei/dev/poverello-coding-tools/gui/src/App.tsx:102:47
+
+     [33m[2m✓[22m[39m fills the project path from the selected folder [33m 552[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4 Pro reasoning effort > saves reasoning_effort="max" when Max is selected
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4 Pro reasoning effort > clears the effort to null when switching from Thinking to Normal
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/OpenRouterModelSetCard.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 2371[2mms[22m[39m
+     [33m[2m✓[22m[39m deletes the profile when Delete is clicked without changing its name [33m 887[2mms[22m[39m
+     [33m[2m✓[22m[39m does not race a pending rename against a confirmed profile deletion [33m 914[2mms[22m[39m
+     [33m[2m✓[22m[39m saves a pending rename if the user cancels deletion after keyboard focus leaves the name field [33m 564[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4 Pro reasoning effort > clears the effort to null when switching from Thinking to Normal
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4 Pro reasoning effort > defaults to High when enabling Thinking with no prior effort
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/SettingsSubNav.test.tsx > Settings Sub-Navigation Integration > navigates to Settings and switches between General, Claude Desktop, Antigravity MCP, and Antigravity Skills & Rules (Orchestrator hidden)
+Each child in a list should have a unique "key" prop.
+
+Check the render method of `LanguageSelector`. See https://react.dev/link/warning-keys for more information.
+
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4 Pro reasoning effort > saves reasoning_effort="low" when Low is selected
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Antigravity Integration > triggers configure_antigravity_mcp with chosen exePath on update click
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4.1 Flash reasoning effort > saves reasoning_effort="low" when Low is selected
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/autoConverge/ExecutionMonitor.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4.1 Flash reasoning effort > saves reasoning_effort="max" when Max is selected
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Antigravity Integration > triggers configure_antigravity_mcp with chosen exePath on update click
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4.1 Flash reasoning effort > clears the effort to null when switching from Thinking to Normal
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/AntigravitySkillsRulesPanel.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 2903[2mms[22m[39m
+     [33m[2m✓[22m[39m renders all 5 cards correctly [33m 1023[2mms[22m[39m
+     [33m[2m✓[22m[39m handles workflow skill actions (Install, Update, Remove) [33m 1115[2mms[22m[39m
+     [33m[2m✓[22m[39m handles global rule Install and Remove [33m 355[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4.1 Flash reasoning effort > clears the effort to null when switching from Thinking to Normal
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > DeepSeek V4.1 Flash reasoning effort > defaults to High when enabling Thinking with no prior effort
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/autoConverge/RunPermissionsPanel.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > Direct DeepSeek model dropdown options and legacy compatibility > does not overwrite legacy model ID when saved without edits
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/reorderProfiles.test.ts > applyProfileReorder > rolls back and returns "save_failed" on invoke rejection
+Failed to save OpenRouter profile order Error: save failed
+    at C:/Users/Sohei/dev/poverello-coding-tools/gui/src/components/reorderProfiles.test.ts:87:38
+    at file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+    at file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26
+    at file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)
+    at file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)
+    at file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64
+
+stderr | src/components/reorderProfiles.test.ts > applyProfileReorder > keeps optimistic order and returns "refresh_failed" when invoke succeeds but refreshConfig fails
+Profile order was saved, but config refresh failed Error: refresh failed
+    at C:/Users/Sohei/dev/poverello-coding-tools/gui/src/components/reorderProfiles.test.ts:101:41
+    at file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+    at file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26
+    at file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)
+    at file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)
+    at file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64
+
+ [32m✓[39m src/components/reorderProfiles.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Antigravity Integration > triggers install_all_antigravity_mcp_commands on Install All click and does not install workflow skills
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/orchestrator/OrchestratorPanel.test.tsx > OrchestratorPanel > preserves a custom archive folder through metadata refresh and resets it when the project changes
+An update to OrchestratorPanel inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to OrchestratorPanel inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+ [32m✓[39m src/components/SettingsSubNav.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 1995[2mms[22m[39m
+     [33m[2m✓[22m[39m navigates to Settings and switches between General, Claude Desktop, Antigravity MCP, and Antigravity Skills & Rules (Orchestrator hidden) [33m 1992[2mms[22m[39m
+ [32m✓[39m src/config/modelCatalog.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m src/types/orchestrator.test.ts [2m([22m[2m32 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m src/components/GatewayProfileSection.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 4185[2mms[22m[39m
+     [33m[2m✓[22m[39m creates a new profile with valid routes and calls save_gateway_profile [33m 480[2mms[22m[39m
+     [33m[2m✓[22m[39m uses the Rust profile_id field and only exposes allowlisted GLM models [33m 1339[2mms[22m[39m
+     [33m[2m✓[22m[39m allows normal mode for glm-5.2, but hides normal and defaults to thinking for glm-5.3 series [33m 342[2mms[22m[39m
+     [33m[2m✓[22m[39m clears invalid provider-specific effort when switching providers [33m 572[2mms[22m[39m
+ [32m✓[39m src/config/orchestratorPresets.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m src/config/modelPricing.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > renders 5 reasoning effort choices and thinking only (no normal toggle) for GPT-6.1 Sol and Sol Pro, defaulting to medium
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > renders 5 reasoning effort choices and thinking only (no normal toggle) for GPT-6.1 Sol and Sol Pro, defaulting to medium
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > renders 5 reasoning effort choices and thinking only (no normal toggle) for GPT-6.1 Sol and Sol Pro, defaulting to medium
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > renders 5 reasoning effort choices and thinking only (no normal toggle) for GPT-6.1 Sol and Sol Pro, defaulting to medium
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6.1-sol' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6.1-sol' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > Direct GLM (zai) provider controls > offers a thinking toggle for GLM-5.2 and hides its effort while thinking is off
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6.1-sol-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6.1-sol-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/config/deepseekSchedule.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-astra' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-astra' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > Direct GLM (zai) provider controls > saves the canonical thinking value for a GLM route model change
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/OpenRouterModelSelector.test.tsx [2m([22m[2m39 tests[22m[2m)[22m[33m 5341[2mms[22m[39m
+     [33m[2m✓[22m[39m cross_route_drain_rollback_does_not_corrupt_new_route [33m 712[2mms[22m[39m
+       [33m[2m✓[22m[39m other_mode_lists_the_z_ai_vendor_as_GLM_openrouter_and_saves_official_ids [33m 332[2mms[22m[39m
+       [33m[2m✓[22m[39m renders each of the 15 catalog IDs with exactly its catalog-declared effort options (§19.4) [33m 436[2mms[22m[39m
+       [33m[2m✓[22m[39m preserves a still-valid selected effort when switching between regular and -pro variants (§19.4) [33m 308[2mms[22m[39m
+       [33m[2m✓[22m[39m keeps a saved effort when switching between Claude 5.5 models [33m 888[2mms[22m[39m
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-astra-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-astra-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/dashboardTiles.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-astra-latest' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-astra-latest' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/config/modelContextWindows.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 38[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > Direct GLM (zai) provider controls > uses the localized GLM key placeholder and saves the API key using provider env_var fallback
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-sol' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-sol' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/orchestrator/convergencePayload.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m src/config/orchestratorProfileDisplayName.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m src/components/ModelPricingAccordion.test.tsx [2m([22m[2m23 tests[22m[2m)[22m[33m 4825[2mms[22m[39m
+     [33m[2m✓[22m[39m renders pricing table unconditionally without accordion toggle [33m 978[2mms[22m[39m
+     [33m[2m✓[22m[39m keeps OpenRouter IDs unique and orders all GPT-5.6 variants [33m 845[2mms[22m[39m
+     [33m[2m✓[22m[39m does not render kimi-code row in pricing accordion and does not display $0.000 for Kimi Code [33m 521[2mms[22m[39m
+       [33m[2m✓[22m[39m refreshes status immediately on returning to foreground (focus / visibilitychange) after date change [33m 361[2mms[22m[39m
+ [32m✓[39m src/types/orchestratorQuickSlots.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-sol-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-sol-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/config/orchestratorProviderGroups.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/config/modelDisplayNames.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/i18n/antigravityRulesParity.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m src/reasoningEffort.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-luna' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-luna' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/windowSizing.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-luna-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-luna-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-sol' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-sol' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-sol-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-sol-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > Direct Anthropic provider controls > saves the API key using ANTHROPIC_API_KEY env_var
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-terra' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-terra' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > reloads and saves reasoning effort for GPT-6.1 Sol regular and Sol Pro
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > reloads and saves reasoning effort for GPT-6.1 Sol regular and Sol Pro
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-terra-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-terra-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6.1-sol' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-luna' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-luna' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6.1-sol-pro' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/orchestrator/OrchestratorSettingsPanel.test.tsx > OrchestratorSettingsPanel > discards detection response when auto-validation is enabled if auto-validation is toggled off before resolution
+An update to OrchestratorSettingsPanel inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-luna-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > OpenRouter OpenAI Model Dropdown & Reasoning > Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-luna-pro' in MCP settings (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-astra' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-astra-pro' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-astra-latest' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-sol' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-sol-pro' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-luna' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-6-luna-pro' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-sol' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/orchestrator/OrchestratorSettingsPanel.test.tsx [2m([22m[2m62 tests[22m[2m)[22m[33m 7167[2mms[22m[39m
+     [33m[2m✓[22m[39m derives profile names instead of exposing an editable field and persists only canonical names on edits [33m 1114[2mms[22m[39m
+     [33m[2m✓[22m[39m refreshes Ollama models from the configured endpoint and lets the user select one [33m 409[2mms[22m[39m
+     [33m[2m✓[22m[39m uses Profile visibility as the only association control and does not duplicate slots [32m 300[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-sol-pro' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-terra' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-terra-pro' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-luna' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven actual UI rendering and persistence across all 15 models (§26) > renders actual effort selector with independent options, medium default, and persists valid effort for 'openai/gpt-5.6-luna-pro' (§26)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > None-supporting OpenAI models persisted load and explicit selection (§27) > preserves persisted 'none' on load without writing and persists 'none' when selected for 'openai/gpt-6-sol' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > None-supporting OpenAI models persisted load and explicit selection (§27) > preserves persisted 'none' on load without writing and persists 'none' when selected for 'openai/gpt-6-sol-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > None-supporting OpenAI models persisted load and explicit selection (§27) > preserves persisted 'none' on load without writing and persists 'none' when selected for 'openai/gpt-6-luna' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > None-supporting OpenAI models persisted load and explicit selection (§27) > preserves persisted 'none' on load without writing and persists 'none' when selected for 'openai/gpt-6-luna-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > None-supporting OpenAI models persisted load and explicit selection (§27) > preserves persisted 'none' on load without writing and persists 'none' when selected for 'openai/gpt-5.6-sol' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > Antigravity MCP executable target recovery (v0.24.4-r2b) > if current-executable discovery fails and only legacy path exists, target remains empty, update is disabled, and error is visible
+Failed to resolve current running executable: Error: Failed to determine current executable path: access denied
+    at C:/Users/Sohei/dev/poverello-coding-tools/gui/src/components/McpSettingPanel.test.tsx:2111:17
+    at Mock (file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/spy/dist/index.js:332:34)
+    at C:/Users/Sohei/dev/poverello-coding-tools/gui/src/components/McpSettingPanel.tsx:113:36
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > None-supporting OpenAI models persisted load and explicit selection (§27) > preserves persisted 'none' on load without writing and persists 'none' when selected for 'openai/gpt-5.6-sol-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > None-supporting OpenAI models persisted load and explicit selection (§27) > preserves persisted 'none' on load without writing and persists 'none' when selected for 'openai/gpt-5.6-terra' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > None-supporting OpenAI models persisted load and explicit selection (§27) > preserves persisted 'none' on load without writing and persists 'none' when selected for 'openai/gpt-5.6-terra-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > None-supporting OpenAI models persisted load and explicit selection (§27) > preserves persisted 'none' on load without writing and persists 'none' when selected for 'openai/gpt-5.6-luna' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > Antigravity MCP executable target recovery (v0.24.4-r2b) > after successful removal, if current-executable lookup fails, target remains empty, update is disabled, actionable error is shown, and legacy path is not selected (§15)
+Failed to resolve current running executable: Error: Failed to determine current executable path: access denied
+    at C:/Users/Sohei/dev/poverello-coding-tools/gui/src/components/McpSettingPanel.test.tsx:2373:19
+    at Mock (file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/spy/dist/index.js:332:34)
+    at C:/Users/Sohei/dev/poverello-coding-tools/gui/src/components/McpSettingPanel.tsx:113:36
+    at C:/Users/Sohei/dev/poverello-coding-tools/gui/src/components/McpSettingPanel.tsx:215:18
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > None-supporting OpenAI models persisted load and explicit selection (§27) > preserves persisted 'none' on load without writing and persists 'none' when selected for 'openai/gpt-5.6-luna-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/McpSettingPanel.test.tsx > McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibility > Antigravity MCP executable target recovery (v0.24.4-r2b) > if remove operation fails, canonical selection and status are preserved and operation error is visible (§15)
+Failed to remove Antigravity MCP configuration: Error: Disk error: permission denied while removing server entry
+    at C:/Users/Sohei/dev/poverello-coding-tools/gui/src/components/McpSettingPanel.test.tsx:2439:17
+    at Mock (file:///C:/Users/Sohei/dev/poverello-coding-tools/gui/node_modules/@vitest/spy/dist/index.js:332:34)
+    at C:/Users/Sohei/dev/poverello-coding-tools/gui/src/components/McpSettingPanel.tsx:214:13
+    at executeDispatch (C:\Users\Sohei\dev\poverello-coding-tools\gui\node_modules\react-dom\cjs\react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (C:\Users\Sohei\dev\poverello-coding-tools\gui\node_modules\react-dom\cjs\react-dom-client.development.js:874:13)
+    at processDispatchQueue (C:\Users\Sohei\dev\poverello-coding-tools\gui\node_modules\react-dom\cjs\react-dom-client.development.js:19166:19)
+    at C:\Users\Sohei\dev\poverello-coding-tools\gui\node_modules\react-dom\cjs\react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (C:\Users\Sohei\dev\poverello-coding-tools\gui\node_modules\react-dom\cjs\react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (C:\Users\Sohei\dev\poverello-coding-tools\gui\node_modules\react-dom\cjs\react-dom-client.development.js:19320:7)
+    at dispatchEvent (C:\Users\Sohei\dev\poverello-coding-tools\gui\node_modules\react-dom\cjs\react-dom-client.development.js:23585:11)
+
+ [32m✓[39m src/components/McpSettingPanel.test.tsx [2m([22m[2m62 tests[22m[2m)[22m[33m 9325[2mms[22m[39m
+     [33m[2m✓[22m[39m renders Not configured state with empty selection, disabled update button, and change button when expanded [33m 1230[2mms[22m[39m
+     [33m[2m✓[22m[39m renders Configured state with registered path, disabled update button, and Remove button when expanded [33m 495[2mms[22m[39m
+     [33m[2m✓[22m[39m switches to Mismatch state and enables Update button after selecting a different exe [33m 453[2mms[22m[39m
+     [33m[2m✓[22m[39m triggers configure_antigravity_mcp with chosen exePath on update click [33m 375[2mms[22m[39m
+       [33m[2m✓[22m[39m renders 5 reasoning effort choices and thinking only (no normal toggle) for GPT-6.1 Sol and Sol Pro, defaulting to medium [33m 305[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > preserves 'none' when switching regular -> pro and pro -> regular for 'openai/gpt-6-sol' <-> 'openai/gpt-6-sol-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > preserves 'none' when switching regular -> pro and pro -> regular for 'openai/gpt-6-sol' <-> 'openai/gpt-6-sol-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > preserves 'none' when switching regular -> pro and pro -> regular for 'openai/gpt-6-luna' <-> 'openai/gpt-6-luna-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > preserves 'none' when switching regular -> pro and pro -> regular for 'openai/gpt-6-luna' <-> 'openai/gpt-6-luna-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > preserves 'none' when switching regular -> pro and pro -> regular for 'openai/gpt-5.6-sol' <-> 'openai/gpt-5.6-sol-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > preserves 'none' when switching regular -> pro and pro -> regular for 'openai/gpt-5.6-sol' <-> 'openai/gpt-5.6-sol-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > preserves 'none' when switching regular -> pro and pro -> regular for 'openai/gpt-5.6-terra' <-> 'openai/gpt-5.6-terra-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > preserves 'none' when switching regular -> pro and pro -> regular for 'openai/gpt-5.6-terra' <-> 'openai/gpt-5.6-terra-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > preserves 'none' when switching regular -> pro and pro -> regular for 'openai/gpt-5.6-luna' <-> 'openai/gpt-5.6-luna-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > preserves 'none' when switching regular -> pro and pro -> regular for 'openai/gpt-5.6-luna' <-> 'openai/gpt-5.6-luna-pro' (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/orchestrator/OrchestratorPanel.test.tsx [2m([22m[2m105 tests[22m[2m)[22m[33m 8937[2mms[22m[39m
+     [33m[2m✓[22m[39m renders OrchestratorPanel and loads initial config [33m 495[2mms[22m[39m
+     [33m[2m✓[22m[39m starts opt-in convergence through Tauri and hides impossible waiting controls [33m 686[2mms[22m[39m
+     [33m[2m✓[22m[39m loads recovery summaries without preflight and requires explicit confirmation before restore [33m 409[2mms[22m[39m
+     [33m[2m✓[22m[39m persists role unassignment without changing peer roles and blocks a required role after reload [33m 490[2mms[22m[39m
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-6-sol' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-6-sol' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-6-sol' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-6-sol' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-6-sol' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-6-luna' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-6-luna' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-6-luna' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-6-luna' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-6-luna' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-sol' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-sol' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-sol' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-sol' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-sol' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-terra' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-terra' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-terra' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-terra' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-terra' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-luna' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-luna' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-luna' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-luna' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+stderr | src/components/ApiKeyPanel.test.tsx > OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13) > Table-driven model-switch coverage for regular/-pro pairs and fallback (§27) > falls back to medium and never serializes none when switching from 'openai/gpt-5.6-luna' to non-none destinations (§27)
+The current testing environment is not configured to support act(...)
+The current testing environment is not configured to support act(...)
+
+ [32m✓[39m src/components/ApiKeyPanel.test.tsx [2m([22m[2m105 tests[22m[2m)[22m[33m 11986[2mms[22m[39m
+     [33m[2m✓[22m[39m saves reasoning_effort="max" when Max is selected [33m 535[2mms[22m[39m
+     [33m[2m✓[22m[39m clears the effort to null when switching from Thinking to Normal [33m 386[2mms[22m[39m
+     [33m[2m✓[22m[39m uses the localized GLM key placeholder and saves the API key using provider env_var fallback [33m 604[2mms[22m[39m
+     [33m[2m✓[22m[39m saves the API key using ANTHROPIC_API_KEY env_var [33m 531[2mms[22m[39m
+       [33m[2m✓[22m[39m falls back to medium and never serializes none when switching from 'openai/gpt-6-sol' to non-none destinations (§27) [33m 356[2mms[22m[39m
+       [33m[2m✓[22m[39m falls back to medium and never serializes none when switching from 'openai/gpt-6-luna' to non-none destinations (§27) [33m 417[2mms[22m[39m
+       [33m[2m✓[22m[39m falls back to medium and never serializes none when switching from 'openai/gpt-5.6-sol' to non-none destinations (§27) [33m 369[2mms[22m[39m
+       [33m[2m✓[22m[39m falls back to medium and never serializes none when switching from 'openai/gpt-5.6-terra' to non-none destinations (§27) [33m 349[2mms[22m[39m
+       [33m[2m✓[22m[39m falls back to medium and never serializes none when switching from 'openai/gpt-5.6-luna' to non-none destinations (§27) [33m 449[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m42 passed[39m[22m[90m (42)[39m
+[2m      Tests [22m [1m[32m680 passed[39m[22m[90m (680)[39m
+[2m   Start at [22m 23:42:15
+[2m   Duration [22m 22.18s[2m (transform 24.40s, setup 36.28s, import 34.75s, tests 71.22s, environment 210.07s)[22m

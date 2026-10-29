@@ -2,7 +2,7 @@
 
 # Poverello Coding Tools
 
-> **v0.25.1への移行:** Auto-Convergeの実装はコードに保持し、通常のアプリナビゲーションから非表示にしています。本番ディスパッチは無効のままで、Stage 2の隔離は未検証です。リリース可能との判断を意味しません。
+> **v0.25.2への移行:** Auto-Convergeの実装はコードベースに保持していますが、通常のアプリナビゲーションからは非表示にしています。本番ディスパッチは無効のままで、Stage 2の隔離は未検証です。これはリリース準備完了の主張ではありません。
 
 **Claude Code / Claude Desktop をコーディングハーネスとして使用し、推論をサードパーティ LLM API にルーティングします。対応済みのマルチエージェント計画・レビューとコスト見積もりを管理し、Google Antigravity の外部モデルやルールを統合管理します。**
 
@@ -12,7 +12,7 @@ Poverello Coding Tools（アプリ内表示名 **Poverello**）は、AI 支援�
 2. **Claude Code 向けローカル LLM（Ollama）** — ローカルモデルを使って、Claude Code をオフラインで実行できます。
 3. **Google Antigravity 向け MCP プランナー & レビュアー** — `poverello/plan`、`poverello/revise`、`poverello/review` MCP ツールを通じて、実装計画と実装後レビューを外部モデルに委任します。
 4. **マルチエージェント開発オーケストレーター** — CLI／APIエージェントを横断して、対応済みの上限付きプラン・レビュー・ワークフローを実行し、正規化トークン使用量とレートスケジュール検証に基づくコスト見積もり（整数ナノドル）を追跡して監査可能なディスパッチジャーナルを維持します。
-5. **Antigravity ルール管理** — Google Antigravity 向けの軽量 Direct Coding ルール（`pov-direct.md`）を設定・プレビューし、安全に同期します。
+5. **Antigravity Skills & ルール管理** — ワークフロースキルの Reviewer Policy（Codex CLI 単独 vs Codex CLI + DeepSeek Harness 複合レビュー）を一括設定し、保護された標準 Global Rules テンプレート（`codex-cli.md`、`deepseek-harness.md`）の管理、Direct Coding 動作（`pov-direct.md`）の調整、および Nerf スキルの管理を行います。
 
 > [!TIP]
 > **新実装の詳細はこちら**: バージョンごとの新機能や詳細な実装仕様・変更履歴については、[NEWS.md (リリースノート)](../NEWS.md) をご覧ください。
@@ -37,8 +37,18 @@ Anthropic Direct / DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo / GLM
 
 ### 2. Claude Code と専用ローカル LLM（Ollama）
 
-Claude Code CLI をローカルの Ollama モデルへ直接接続できます。この経路は 3P Gateway や Antigravity MCP から独立しています。
+```text
+Claude Code CLI
+      ↓ (Loopback ANTHROPIC_BASE_URL)
+Ollama Local (127.0.0.1:11434/v1)
+      ↓
+Gemma 4 / Qwen / Llama 3 / DeepSeek-R1 (Local On-Device)
+```
 
+- **完全無料・オフライン・プライベート**: API キー、利用上限、クラウドデータ送信なしで Claude Code を実行できます。
+- **専用ルーティング & モデル自動検出**: Gateway と Ollama（`active_route: "ollama"`）を切り替え、`/api/tags` からローカルモデルを自動検出します。
+- **思考 & コンテキスト長調整**: エイリアスごとの思考トークンバジェット（1024トークン）およびコンテキスト長上書き（`num_ctx`）を完全サポート。
+- **完全な隔離性**: Claude Desktop、Cowork on 3P、Google Antigravity MCP は独立してクラウドモデルを引き続き利用できます。
 - **セットアップガイド**: [Ollama Local セットアップ](OLLAMA_LOCAL.ja.md)
 
 ### 3. Antigravity と MCP プランナー & レビュアー
@@ -68,7 +78,7 @@ Antigravity がサブスクリプションの処理能力を使って
 - **`/pov-mcp-revise`** (旧 `/anthro-revise`) — 新しいフィードバックや制約に基づいて既存の計画を修正します。
 - **`/pov-mcp-review`** (旧 `/anthro-review`) — コミット前に承認済み計画に対して完成した実装をレビューし、明示的に READY / NOT READY の判定を行います。
 
-自律ワークフロー: `/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`。
+自律ワークフロー: `/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`（**設定 > Antigravity Skills & ルール** で Reviewer Policy と同期管理）。
 
 **推奨ワークフロー:**
 
@@ -109,18 +119,21 @@ Antigravity がサブスクリプションの処理能力を使って
   - UI 上のステータスバッジにより、見積もりの対象範囲が `Complete`、妥当な部分計が `Partial`、または見積もり不可が `Unavailable` であることを識別できます。
   - `list_journals()` 呼び出し時に不変ディスパッチ記録から動的に再集計するため、古い保存データによる検証迂回を防止します。
 
-### 5. Antigravity ルール管理（Poverello Direct Coding）
+### 5. Antigravity Skills & ルール管理
 
 ```text
-Poverello GUI（設定 > Antigravity Rules）
-          ↓（検証付き適用 / ロールバック）
-%USERPROFILE%\.gemini\config\rules\pov-direct.md
-          ↓
-Google Antigravity がスコープを無闇に広げず
-指示通りの直接実装ルールに従う
+Poverello GUI（設定 > Antigravity Skills & ルール）
+          ↓（Reviewer Policy / テンプレート保護 / 検証付きロールバック）
+%USERPROFILE%\.gemini\config\rules\
+  • codex-cli.md / deepseek-harness.md（標準 Global Rule テンプレート）
+  • pov-direct.md（Direct Coding 動作ルール）
+~/.gemini/antigravity/skills/
+  • pov-full-cycle, pov-plan-only, pov-build-review（ポリシー同期ワークフロースキル）
 ```
 
-- **スコープと方針の制御**: Antigravity が局所的な修正タスクに対して自律的に計画立案や不要な大規模リファクタリングを広げないよう、軽量な Direct Coding ルールを構成します。
+- **一元化された Reviewer Policy**: 自律ワークフロースキル（`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`）のレビュー方針を `codex_only`（独立した Codex CLI 単独）と `codex_plus_deepseek`（Codex CLI + DeepSeek Harness 複合レビュー）の間で即座に切り替え、SHA-256 検証とポリシー同期を自動実行します。
+- **保護された Global Rules テンプレート**: SHA-256 ダイジェストで検証された標準 Global Rules テンプレート（`codex-cli.md`、`deepseek-harness.md`）をワンクリックでインストールおよび安全に削除（Windows プラットフォーム保護 `can_remove` 対応）できます。
+- **スコープと方針の制御（Poverello Direct Coding）**: Antigravity が局所的な修正タスクに対して自律的に計画立案や不要な大規模リファクタリングを広げないよう、軽量な Direct Coding ルールを構成します。
 - **単一ファイルの整合性保護**: YAML の `trigger` 条件および管理ブロック（`<!-- pov-direct:managed:begin -->` ... `<!-- pov-direct:managed:end -->`）のみを安全に更新し、ユーザー独自の frontmatter、説明文、Skill インクルードを完全に維持します。
 - **安全な適用保証**: 置換直前の SHA-256 検証、外部削除競合の検出、重複しない保持バックアップ、読み戻し検証失敗時のロールバック、旧 sidecar フォルダの存在チェックにより、安全に書き込みます。
 
@@ -272,20 +285,21 @@ Windowsインストーラーは8言語に対応しています。Poverelloは既
 ### ワークフロー 3: Google Antigravity 向け MCP プランナー & レビュアー
 
 1. Poverello で、選択したプランナー / レビュアーモデルの API キーを設定します。
-2. **MCP** タブを選択し、**Settings > Antigravity > MCP Plan Settings** でモデルを設定します。
+2. **MCP** タブ（または **設定 > Antigravity MCP**）を選択し、**設定 > Antigravity MCP > MCP Plan 詳細設定** でモデルを設定します。
 3. Antigravity の MCP 設定で `anthro-bridge.exe` を `["--mcp-server"]` 付きで登録します（または Poverello の **Configure Automatically** をクリックします）。
 4. `/pov-mcp-plan` で計画を作成し、`/pov-mcp-revise` で計画を更新し、`/pov-mcp-review` でコミット前に実装をレビューします。
 5. 完全な [Antigravity MCP セットアップガイド](ANTIGRAVITY_MCP.ja.md) に従ってください。
 
 ### ワークフロー 4: マルチエージェント開発オーケストレーター
 
-**アクセス方法:** v0.25.1では上部ナビゲーションからOrchestratorタブが非表示です。Antigravityで上記スラッシュコマンドを実行します。
+**アクセスに関する注意:** v0.25.2 では実装を保持したまま、Orchestrator タブを通常のアプリナビゲーションから非表示にしています。Antigravity 内で `/pov-full-cycle`、`/pov-plan-only`、または `/pov-build-review` を使用して自律ワークフローを開始してください。
 
-### ワークフロー 5: Antigravity ルール管理（Poverello Direct Coding）
+### ワークフロー 5: Antigravity Skills & ルール管理
 
-1. **Settings > Antigravity** を開き、**Global rules** を表示します。
-2. `deepseek-harness.md` または `codex-cli.md` を編集して保存します。
-3. 別機能のPoverello Direct Codingルールは、**Settings > Antigravity Rules** で `pov-direct.md` をプレビューして適用します。
+1. **設定 > Antigravity Skills & ルール** を開きます。
+2. Reviewer Policy（`codex_only` または `codex_plus_deepseek`）を選択してワークフロースキルを同期します。
+3. 保護された標準 Global Rules テンプレート（`codex-cli.md`、`deepseek-harness.md`）をインストールまたは管理します。
+4. Poverello Direct Coding のパラメータを設定し、**適用** をクリックして `pov-direct.md` を同期します。
 
 ## API キー
 

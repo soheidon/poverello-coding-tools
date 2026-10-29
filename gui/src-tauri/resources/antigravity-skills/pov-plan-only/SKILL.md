@@ -7,9 +7,10 @@ description: 計画作成と外部Codex/DeepSeek独立計画レビュー専用�
 
 ## 役割
 
-- Antigravity：計画作成、内部レビュー、進行管理、最終整理を行う。
+- Antigravity：進行管理、計画作成、内部レビュー、最終整理を行う。
 - Codex：外部`codex exec`（`gpt-6-luna`、`medium`）で計画をレビューし、計画書を修正する。
 - DeepSeek：外部`dsh headless`で計画をレビューし、計画書を修正する。
+- 外部Reviewer構成は、共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json`（他OSでは対応するホームディレクトリ配下）の設定に従う。
 - コード、テスト、設定は変更しない。
 - `pov-mcp-plan`、`pov-mcp-review`、`pov-mcp-revise`はPoverello MCP用の別Skillであり、このSkillから呼ばない。
 
@@ -18,7 +19,9 @@ description: 計画作成と外部Codex/DeepSeek独立計画レビュー専用�
 - 外部CLIは各グローバルルールに従って実行する。内部エージェントで代替しない。
 - 同一案件では正本計画書を1件だけ使う。別版、レビュー依頼書、修正計画書を作らない。
 - 計画、レビュー結果、修正内容、最終判定を正本計画書へ簡潔に記録する。
-- CodexとDeepSeekには同一ハッシュの資料を渡し、互いの回答を見せない。
+- レビュー実行前に共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` を読み取る。ファイル不在時は互換既定値 `{"schema_version":1,"policy":"codex_plus_deepseek"}` を適用する。JSON不正、未知version、未知policy値、または読み取り失敗時はReviewerを勝手に選ばず明確なエラーで停止する。
+- `codex_only` では Codex CLI のみを使用し、DeepSeek Harness は起動・待機・比較・Synthesis のいずれにも使用しない。DeepSeek Rule の有無も要求しない。Codex CLI 失敗時に他Reviewerへ暗黙フォールバックしない。
+- `codex_plus_deepseek` では Codex と DeepSeek に同一ハッシュの資料を渡し、互いの回答を見せない。
 - 計画書の修正は競合を避けて順番に行う。
 - P2だけで修正・再レビューしない。回数、時間、再試行、停止条件はグローバルルールを適用する。
 - Approvedは実装、commit、push、tag、release、deploy、本番変更の許可ではない。
@@ -45,18 +48,24 @@ description: 計画作成と外部Codex/DeepSeek独立計画レビュー専用�
 ## 2. 独立計画レビュー
 
 1. 現在の計画書と必要なコードを固定する。
-2. 同一版をCodex CLIとDeepSeek Harness CLIへ別々に渡す。
-3. 両レビュー完了後、CodexとDeepSeekが自分の指摘に必要な修正を正本計画書へ順番に反映する。
-4. Antigravityが修正後の計画を確認し、重複、矛盾、範囲逸脱を整理する。blocking findingは「Blocking findingの条件」を満たすものだけ残す。
-5. 判断が一致しない場合だけ、対象資料と両者の最終結果を外部Codex CLIへ渡し、指摘の根拠、重複、矛盾、採否、必要な修正を統合判断させる。
-6. 統合判断は次のいずれかを明示する。
+2. 共通設定の `policy` に従ってレビューを実施する：
+   - **`codex_only` の場合**：
+     - 固定した計画書とコードを外部 Codex CLI のみへ渡す。
+     - Codex が計画レビューを行い、指摘に基づく修正を正本計画書へ反映する。
+     - Synthesis は行わず、Codex 単一のレビュー結果に基づき合否を判断する。
+   - **`codex_plus_deepseek` の場合**：
+     - 同一版を Codex CLI と DeepSeek Harness CLI へ別々に渡す。
+     - 両レビュー完了後、Codex と DeepSeek が自分の指摘に必要な修正を正本計画書へ順番に反映する。
+     - Antigravityが修正後の計画を確認し、重複、矛盾、範囲逸脱を整理する。blocking findingは「Blocking findingの条件」を満たすものだけ残す。
+     - 判断が一致しない場合だけ、対象資料と両者の最終結果を外部 Codex CLI へ渡し、指摘の根拠、重複、矛盾、採否、必要な修正を統合判断させる。
+3. 統合判断（または `codex_only` 時の単独判定）は次のいずれかを明示する。
    - `APPROVE`: 現行計画をそのまま承認する。
    - `APPLY_AND_FINALIZE`: 承認に必要な修正が、具体的・限定的・機械的に適用可能で、新たな設計判断を必要としない場合に限る。統合判断は変更箇所、置換内容または変更条件、確認方法を明示する。
    - `REQUEST_CHANGES`: 設計判断を伴う修正、複数の妥当な選択肢がある修正、または修正後の妥当性を外部独立レビューで再確認すべき場合。
    - `BLOCKED`: 必要資料不足、権限不足、検証不能、またはグローバル停止条件に達した場合。
-7. `APPLY_AND_FINALIZE`の場合、Antigravityは指定された修正だけを正本計画書へ適用し、指定された静的検査・自己整合確認を行う。指定外の設計変更を加えない。確認に合格すれば、外部再レビューへ戻らずApprovedを記録する。確認に失敗した場合はApprovedにせず`REQUEST_CHANGES`として扱う。
-8. `REQUEST_CHANGES`の場合、修正版を作成した後、同一ハッシュの修正版をCodexとDeepSeekへ再度独立レビューさせる。ただし、P2だけでは再レビューせず、グローバルの回数・時間・同一finding上限を超えてはならない。
-9. `APPROVE`または正常に完了した`APPLY_AND_FINALIZE`を最終判断とする。最終判断後は計画レビューへ戻らない。
+4. `APPLY_AND_FINALIZE`の場合、Antigravityは指定された修正だけを正本計画書へ適用し、指定された静的検査・自己整合確認を行う。指定外の設計変更を加えない。確認に合格すれば、外部再レビューへ戻らずApprovedを記録する。確認に失敗した場合はApprovedにせず`REQUEST_CHANGES`として扱う。
+5. `REQUEST_CHANGES`の場合、修正版を作成した後、有効な policy に従って再度レビューさせる。ただし、P2だけでは再レビューせず、グローバルの回数・時間・同一finding上限を超えてはならない。
+6. `APPROVE`または正常に完了した`APPLY_AND_FINALIZE`を最終判断とする。最終判断後は計画レビューへ戻らない。
 
 ## 3. 完了
 

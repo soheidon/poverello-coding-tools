@@ -55,7 +55,7 @@ Antigravity がサブスク枠で
 
 ### 方法 1 — Poverello GUI からの設定（推奨）
 
-1. Poverello を開き、最上部ナビの **設定**（`[設定]` タブ）を開き、左側のサブナビから **Antigravity** を選択します。
+1. Poverello を開き、最上部ナビの **MCP** タブ（または **設定** > **Antigravity MCP**）を開きます。
 2. **Google Antigravity 連携設定** カード内を確認します:
    - **対象実行ファイル**: 通常は現在実行中の `anthro-bridge.exe` のパスが表示されています。ポータブル版や開発ビルドなど別のバイナリを使用したい場合は **変更** (`antigravity.btnChangeExe`) ボタンから実行ファイルを選択します。
    - **登録・更新**: **Antigravityの設定を更新** (`antigravity.btnUpdate`) をクリックすると、`%USERPROFILE%\.gemini\config\mcp_config.json` 内の他の MCP サーバー設定を維持したまま、`anthro-bridge` の設定を安全に追加・更新します。
@@ -114,12 +114,13 @@ anthro-bridge
 
 Poverello では、プランナーの選択と詳細設定の役割が明確に分かれています:
 
-1. **トップレベル `MCP` タブ (`MCP for Antigravity`)**:
-   - 利用可能なプロバイダー（DeepSeek、OpenRouter、MiniMax、MiMo (V2.6)、Kimi、GLM）とプロファイルのカード一覧が表示されます。
-   - カードをクリックすることで、アクティブなプランナー送信先を即座に切り替えます。
-2. **`設定` > `Antigravity`**:
-   - **MCP Plan 詳細設定** カード: プロバイダー/プロファイルごとに、使用モデル、Thinking モード、推論強度 (Reasoning Effort) を詳細に設定できます。
-   - **Google Antigravity 連携設定** カード: MCP サーバー登録状態、Antigravity Commands（Global Skills）、および Global Rules（`deepseek-harness.md`, `codex-cli.md`）の管理・編集を行います。
+1. **トップレベル `MCP` タブ (`MCP for Antigravity`) / `設定 > Antigravity MCP`**:
+   - MCP サーバー登録状態、対象実行ファイル、および MCP Commands（`/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`）を管理します。
+   - **すべてインストール** (`antigravity.btnInstallAll`) をクリックすると、ワークフロースキルに干渉せず MCP Skill 3 件のみを一括インストールします。
+2. **`設定` > `Antigravity Skills & ルール`**:
+   - 上位ワークフロースキル（`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`）の Reviewer Policy（`codex_only` vs `codex_plus_deepseek`）を一括設定・同期します。
+   - 承認済み標準 Global Rules テンプレート（`codex-cli.md`、`deepseek-harness.md`）を SHA-256 検証および Windows 削除ガード付きで管理します。
+   - Coding Behavior（`pov-direct.md`）および Poverello Nerf Skills を設定・管理します。
 
 > [!NOTE]
 > Poverello MCP サーバーは、各 `plan()` ツールの呼び出し時に現在の設定を動的に読み込みます。GUI でプロバイダーやモデル設定を変更した場合でも、MCP サーバーや Antigravity を再起動する必要はありません。
@@ -128,7 +129,7 @@ Poverello では、プランナーの選択と詳細設定の役割が明確に�
 
 ## 6. Antigravity Commands (`/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`) の利用（推奨）
 
-**設定 > Antigravity** の **Google Antigravity 連携設定** カードから Antigravity Commands をインストールすると、すべてのワークスペースからスラッシュコマンドを利用できます:
+**MCP** タブ（または **設定 > Antigravity MCP**）から MCP Commands をインストールすると、すべてのワークスペースからスラッシュコマンドを利用できます:
 
 - **すべてインストール** (`antigravity.btnInstallAll`) をクリックするか、各コマンド横の **インストール** (`antigravity.commandBtnInstall`) をクリックします。
 
@@ -159,7 +160,7 @@ Poverello では、プランナーの選択と詳細設定の役割が明確に�
 
 ## 7. 上位 Antigravity Commands (`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`)
 
-直接的な MCP スキルに加えて、Poverello は `~/.gemini/antigravity/skills/` にインストールされる 3 つの上位自律ワークフロースキルを提供します:
+直接的な MCP スキルに加えて、Poverello は `~/.gemini/antigravity/skills/` にインストールされ、**設定 > Antigravity Skills & ルール** で Reviewer Policy（`codex_only` または `codex_plus_deepseek`）によって一括制御される 3 つの上位自律ワークフロースキルを提供します:
 
 ### フルサイクル開発ライフサイクル:
 ```text

@@ -1,4 +1,4 @@
-﻿import type { TranslationMap } from "./en";
+import type { TranslationMap } from "./en";
 
 export const nativeName = "한국어";
 
@@ -27,6 +27,8 @@ export const translations: TranslationMap = {
   "settings.nav.general": "일반",
   "settings.nav.claudeDesktop": "Claude Desktop",
   "settings.nav.antigravity": "Antigravity",
+  "settings.nav.antigravityMcp": "Antigravity MCP",
+  "settings.nav.antigravitySkillsRules": "Antigravity Skills & 규칙",
   "settings.nav.orchestrator": "오케스트레이터",
   "tab.autoConverge": "Auto-Converge",
   "autoConverge.unavailable": "이 데스크톱 빌드에서는 Auto-Converge를 사용할 수 없습니다. Reviewer OS 격리가 제공되지 않아 에이전트 프로세스를 시작하기 전에 실행이 차단됩니다.",
@@ -72,6 +74,25 @@ export const translations: TranslationMap = {
 
   // Antigravity Commands (/pov-mcp-plan, /pov-mcp-revise & /pov-mcp-review)
   "antigravity.commandsSectionHeader": "Antigravity Commands (6 Skills)",
+  "antigravity.mcpCommandsSectionHeader": "MCP 명령 (3 Skills)",
+  "antigravity.mcpCommandsDesc": "계획 및 검토 위임을 위한 3개의 Poverello MCP 스킬을 설치하고 관리합니다.",
+  "antigravity.workflowCommandsSectionHeader": "워크플로 명령 (3 Skills)",
+  "antigravity.workflowCommandsDesc": "3개의 표준 Poverello 워크플로 스킬을 설치하고 관리합니다.",
+  "antigravity.codingBehaviorHeader": "코딩 동작",
+  "antigravity.taskPresetsHeader": "태스크 프리셋",
+  "antigravity.reviewerPolicyTitle": "외부 검토 구성",
+  "antigravity.reviewerPolicyDesc": "워크플로 스킬(/pov-plan-only, /pov-build-review, /pov-full-cycle)에서 사용하는 외부 검토 모델 엔진을 선택합니다.",
+  "antigravity.reviewerPolicyCodexOnly": "Codex CLI 전용",
+  "antigravity.reviewerPolicyCodexPlusDeepseek": "Codex CLI + DeepSeek Harness",
+  "antigravity.reviewerPolicyUpdateRequiredNotice": "검토자 정책 구성이 비활성화됨: 정책을 변경하기 전에 3개의 워크플로 스킬이 모두 설치되고 최신 상태여야 합니다.",
+  "antigravity.globalRulesFixedHeader": "전역 규칙",
+  "antigravity.globalRulesFixedDesc": "Codex 및 DeepSeek 검토자 도구용 고정 전역 규칙 템플릿입니다.",
+  "antigravity.globalRulesStatusInstalled": "설치됨",
+  "antigravity.globalRulesStatusNotInstalled": "미설치",
+  "antigravity.globalRulesStatusModified": "수정됨 또는 보호됨",
+  "antigravity.globalRulesBtnInstall": "설치",
+  "antigravity.globalRulesBtnRemove": "제거",
+  "antigravity.globalRulesRemovalUnsupported": "이 플랫폼에서는 삭제가 지원되지 않습니다",
   "antigravity.commandsDesc": "6개의 전역 Skill을 설치하고 관리합니다.",
   "antigravity.commandGenericDesc": "계획, 리뷰 또는 구현 워크플로용 Skill입니다.",
   "antigravity.globalRulesTitle": "전역 규칙",

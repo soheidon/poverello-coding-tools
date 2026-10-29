@@ -2,7 +2,7 @@
 
 # Poverello Coding Tools
 
-> **v0.25.1 transition:** Auto-Converge is hidden from the normal app navigation while its implementation is retained. Production dispatch remains disabled, and Stage 2 isolation remains unverified. This is not a release-readiness claim.
+> **v0.25.2 transition:** Auto-Converge remains in the codebase but is hidden from normal app navigation. Production dispatch remains disabled, and Stage 2 isolation remains unverified. This is not a release-readiness claim.
 
 **Use Claude Code / Claude Desktop as the coding harness, route inference to third-party LLM APIs, orchestrate bounded multi-agent workflows with cost-estimate tracking, and manage external models and rules for Google Antigravity.**
 
@@ -12,7 +12,7 @@ Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companio
 2. **Dedicated Local LLMs for Claude Code (Ollama)** — Run Claude Code completely offline with zero API costs using local Ollama models.
 3. **MCP Planner & Reviewer for Google Antigravity** — Delegate implementation planning and post-implementation review to external models via the canonical `poverello/plan`, `poverello/revise`, and `poverello/review` MCP tools (with `anthro-bridge/*` maintained for backward compatibility).
 4. **Multi-Agent Development Orchestrator** — Run supported bounded Planner–Reviewer plan/review workflows across CLI and API agents, track normalized token usage and rate-verified cost estimates (in nano-dollars), and maintain auditable dispatch journals.
-5. **Antigravity Rules Management** — Configure, preview, and safely synchronize lightweight Poverello Direct Coding rules (`pov-direct.md`) for Antigravity.
+5. **Antigravity Skills & Rules Management** — Centrally configure Reviewer Policy for workflow skills (Codex CLI alone vs. Codex CLI + DeepSeek Harness composite), manage protected Global Rules standard templates (`codex-cli.md`, `deepseek-harness.md`), tune Direct Coding behavior (`pov-direct.md`), and manage Nerf skills.
 
 > [!TIP]
 > **What's New:** For version-by-version feature updates, implementation details, and changelogs, see [NEWS.md (Release Notes)](NEWS.md).
@@ -80,7 +80,7 @@ MCP server key and `/anthro-*` skills remain supported for backward compatibilit
 - **`/pov-mcp-revise`** (legacy `/anthro-revise`) — Revise an existing plan based on new feedback or constraints.
 - **`/pov-mcp-review`** (legacy `/anthro-review`) — Review a completed implementation against the approved plan before commit, with explicit READY / NOT READY verdicts.
 
-Complete autonomous workflows: `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`.
+Complete autonomous workflows: `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review` (managed under **Settings > Antigravity Skills & Rules** with Reviewer Policy synchronization).
 
 **Recommended workflow:**
 
@@ -121,18 +121,21 @@ Separate, user-controlled implementation via your coding harness
   - Fail-closed status badges in the UI indicate whether estimate coverage is `Complete`, a valid subtotal is `Partial`, or estimates are `Unavailable`.
   - Recalculates dynamically from immutable dispatch records on every `list_journals()` read, preventing stale saved summaries from bypassing verification.
 
-### 5. Antigravity Rules Management (Poverello Direct Coding)
+### 5. Antigravity Skills & Rules Management
 
 ```text
-Poverello GUI (Settings > Antigravity Rules)
-          ↓ (Verified Apply / Rollback)
-%USERPROFILE%\.gemini\config\rules\pov-direct.md
-          ↓
-Google Antigravity adheres to direct coding rules
-without expanding autonomous scope
+Poverello GUI (Settings > Antigravity Skills & Rules)
+          ↓ (Reviewer Policy / Template Guard / Verified Rollback)
+%USERPROFILE%\.gemini\config\rules\
+  • codex-cli.md / deepseek-harness.md (Standard Global Rule Templates)
+  • pov-direct.md (Direct Coding Behavior)
+~/.gemini/antigravity/skills/
+  • pov-full-cycle, pov-plan-only, pov-build-review (Policy-Synchronized Workflow Skills)
 ```
 
-- **Scope & Direction Control**: Configure lightweight direct-coding behavior for Antigravity, disabling unsolicited multi-agent planning or expanded refactoring for localized implementation tasks.
+- **Centralized Reviewer Policy**: Switch autonomous workflow skills (`/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`) between `codex_only` (independent Codex CLI alone) and `codex_plus_deepseek` (Codex CLI + DeepSeek Harness composite review) with automatic SHA-256 validation and policy synchronization.
+- **Protected Global Rules Templates**: One-click install and safe removal of standard Global Rules templates (`codex-cli.md`, `deepseek-harness.md`) verified by SHA-256 digests, with platform-guarded removal (`can_remove`) on Windows.
+- **Scope & Direction Control (Poverello Direct Coding)**: Configure lightweight direct-coding behavior for Antigravity, disabling unsolicited multi-agent planning or expanded refactoring for localized implementation tasks.
 - **Single-File Integrity**: Safely manages the YAML `trigger` condition and bounded managed marker block while strictly preserving user-defined frontmatter, custom descriptions, and skill inclusions.
 - **Fail-Safe Application**: Protected by pre-replacement SHA-256 validation, external deletion conflict checks, collision-resistant unpruned backups, verified read-back rollback, and legacy sidecar folder guards.
 
@@ -286,20 +289,21 @@ The Windows installer supports 8 languages. Poverello keeps the existing applica
 ### Workflow 3: MCP Planner & Reviewer for Google Antigravity
 
 1. Configure an API key for your chosen planner/reviewer model in Poverello.
-2. Select the **MCP** tab and configure your model in **Settings > Antigravity > MCP Plan Settings**.
+2. Select the **MCP** tab (or **Settings > Antigravity MCP**) and configure your model in **Settings > Antigravity MCP > MCP Plan Settings**.
 3. Register `anthro-bridge.exe` with `["--mcp-server"]` under server key `poverello` in Antigravity's MCP configuration (or click **Configure Automatically** in Poverello).
 4. Use `/pov-mcp-plan` to design plans, `/pov-mcp-revise` to update plans, and `/pov-mcp-review` to review implementations before commit (legacy `/anthro-*` commands remain recognized).
 5. Follow the complete [Antigravity MCP Setup Guide](docs/ANTIGRAVITY_MCP.md).
 
 ### Workflow 4: Multi-Agent Development Orchestrator
 
-**Access note:** v0.25.1 hides the Orchestrator tab from top navigation. Start autonomous workflows in Antigravity with `/pov-full-cycle`, `/pov-plan-only`, or `/pov-build-review`.
+**Access note:** v0.25.2 hides the Orchestrator tab from normal app navigation while its implementation is retained. Start autonomous workflows in Antigravity with `/pov-full-cycle`, `/pov-plan-only`, or `/pov-build-review`.
 
-### Workflow 5: Antigravity Rules Management (Poverello Direct Coding)
+### Workflow 5: Antigravity Skills & Rules Management
 
-1. Open **Settings > Antigravity** and find **Global rules**.
-2. Edit and save `deepseek-harness.md` or `codex-cli.md`.
-3. For the separate Poverello Direct Coding rule, use **Settings > Antigravity Rules** to preview and apply `pov-direct.md`.
+1. Open **Settings > Antigravity Skills & Rules**.
+2. Select your Reviewer Policy (`codex_only` or `codex_plus_deepseek`) to synchronize workflow skills.
+3. Install or manage protected standard Global Rules templates (`codex-cli.md`, `deepseek-harness.md`).
+4. Configure Poverello Direct Coding parameters and click **Apply** to synchronize `pov-direct.md`.
 
 ## API Keys
 

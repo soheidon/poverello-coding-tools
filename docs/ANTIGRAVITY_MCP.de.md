@@ -55,7 +55,7 @@ Builds und Tests über das Abonnement aus
 
 ### Methode 1 — GUI-Konfiguration über Poverello (Empfohlen)
 
-1. Öffnen Sie Poverello und wechseln Sie zu **Einstellungen** (Reiter `[Einstellungen]`) > linke Sub-Navigation **Antigravity**.
+1. Öffnen Sie Poverello und wechseln Sie zum Reiter **MCP** (oder **Einstellungen** > **Antigravity MCP** in der linken Sub-Navigation).
 2. Überprüfen Sie die Karte **Google Antigravity Integration**:
    - **Ziel-Programmdatei**: Zeigt standardmäßig den Pfad der aktuell laufenden `anthro-bridge.exe` an. Um eine andere Binärdatei zu verwenden (z. B. portable oder eigene Builds), klicken Sie auf **Ändern** (`antigravity.btnChangeExe`) und wählen die Datei aus.
    - **Registrieren / Aktualisieren**: Klicken Sie auf **Antigravity-Konfiguration aktualisieren** (`antigravity.btnUpdate`), um den `anthro-bridge`-Eintrag in `%USERPROFILE%\.gemini\config\mcp_config.json` sicher einzutragen oder zu aktualisieren, während alle anderen MCP-Server erhalten bleiben.
@@ -113,12 +113,13 @@ anthro-bridge
 
 Poverello trennt die Planerauswahl klar von der detaillierten Parameterverwaltung:
 
-1. **Oberster Reiter `MCP` (`MCP for Antigravity`)**:
-   - Zeigt verfügbare Anbieter (DeepSeek, OpenRouter, MiniMax, MiMo (V2.6), Kimi und GLM) sowie Profile als Kacheln an.
-   - Ein Klick auf eine Kachel wechselt das aktive Planer-Ziel sofort.
-2. **`Einstellungen` > `Antigravity`**:
-   - Karte **MCP Plan Detaileinstellungen**: Konfigurieren Sie Modell, Thinking-Modus und Reasoning Effort pro Anbieter/Profil.
-   - Karte **Google Antigravity Integration**: Verwalten Sie die MCP-Serverregistrierung, die Antigravity Commands (Global Skills) und globale Regeln (`deepseek-harness.md`, `codex-cli.md`).
+1. **Oberster Reiter `MCP` (`MCP for Antigravity`) / `Einstellungen > Antigravity MCP`**:
+   - Verwalten Sie MCP-Serverregistrierung, Ziel-Programmdatei und MCP Commands (`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`).
+   - Klicken Sie auf **Alle installieren** (`antigravity.btnInstallAll`), um ausschließlich die 3 MCP-Skills zu installieren.
+2. **`Einstellungen` > `Antigravity Skills & Rules`**:
+   - Verwalten Sie die Reviewer Policy (`codex_only` vs. `codex_plus_deepseek`) für übergeordnete Workflow-Skills (`/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`).
+   - Verwalten Sie geschützte Standardvorlagen für globale Regeln (`codex-cli.md`, `deepseek-harness.md`) mit SHA-256-Verifikation und Entfernungsunterstützung unter Windows (`can_remove`).
+   - Konfigurieren Sie Coding-Verhalten (`pov-direct.md`) und Poverello Nerf-Skills.
 
 > [!NOTE]
 > Der Poverello MCP-Server liest die aktuelle Konfiguration bei jedem `plan()`-Toolaufruf dynamisch ein. Sie müssen den MCP-Server oder Antigravity **nicht** neu starten, wenn Sie Einstellungen in der GUI ändern.
@@ -127,7 +128,7 @@ Poverello trennt die Planerauswahl klar von der detaillierten Parameterverwaltun
 
 ## 6. Antigravity Commands (`/pov-mcp-plan`, `/pov-mcp-revise` & `/pov-mcp-review`) verwenden (Empfohlen)
 
-Über **Einstellungen > Antigravity > Google Antigravity Integration** können Sie Global Skills installieren, um Slash-Befehle in jedem Antigravity-Workspace zu nutzen:
+Über den Reiter **MCP** (oder **Einstellungen > Antigravity MCP**) können Sie Global Skills installieren, um Slash-Befehle in jedem Antigravity-Workspace zu nutzen:
 
 - Klicken Sie auf **Alle installieren** (`antigravity.btnInstallAll`) oder auf **Installieren** (`antigravity.commandBtnInstall`) neben dem jeweiligen Befehl.
 
@@ -158,7 +159,7 @@ Poverello trennt die Planerauswahl klar von der detaillierten Parameterverwaltun
 
 ## 7. Übergeordnete Antigravity Commands (`/pov-full-cycle`, `/pov-plan-only` & `/pov-build-review`)
 
-Zusätzlich zu den direkten MCP-Skills stellt Poverello drei übergeordnete autonome Workflow-Skills bereit, die in `~/.gemini/antigravity/skills/` installiert werden:
+Zusätzlich zu den direkten MCP-Skills stellt Poverello drei übergeordnete autonome Workflow-Skills bereit, die in `~/.gemini/antigravity/skills/` installiert und unter **Einstellungen > Antigravity Skills & Rules** über die zentrale Reviewer Policy (`codex_only` oder `codex_plus_deepseek`) gesteuert werden:
 
 ### Vollzyklus-Entwicklung:
 ```text

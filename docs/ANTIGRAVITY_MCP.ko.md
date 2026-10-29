@@ -55,7 +55,7 @@ Antigravity가 구독 용량으로
 
 ### 방법 1 — Poverello GUI를 통한 구성 (권장)
 
-1. Poverello를 열고 상단 탐색의 **설정**(`[설정]` 탭) > 좌측 하위 탐색의 **Antigravity**를 선택합니다.
+1. Poverello를 열고 상단 탐색의 **MCP** 탭(또는 **설정** > **Antigravity MCP**)을 선택합니다.
 2. **Google Antigravity 연동** 카드를 확인합니다:
    - **대상 실행 파일**: 기본적으로 현재 실행 중인 `anthro-bridge.exe` 경로가 표시됩니다. 포터블 버전이나 커스텀 빌드 등 다른 바이너리를 사용하려면 **변경** (`antigravity.btnChangeExe`) 버튼을 눌러 선택합니다.
    - **등록 / 업데이트**: **Antigravity 설정 업데이트** (`antigravity.btnUpdate`)를 클릭하면 `%USERPROFILE%\.gemini\config\mcp_config.json` 내의 다른 MCP 서버 항목을 그대로 보존하면서 `anthro-bridge`를 안전하게 등록하거나 업데이트합니다.
@@ -113,12 +113,13 @@ anthro-bridge
 
 Poverello는 플래너 선택과 상세 파라미터 관리의 역할을 명확히 구분합니다:
 
-1. **최상위 `MCP` 탭 (`MCP for Antigravity`)**:
-   - 사용 가능한 제공업체(DeepSeek, OpenRouter, MiniMax, MiMo (V2.6), Kimi, GLM)와 프로필 카드 목록이 표시됩니다.
-   - 카드를 클릭하여 활성 플래너 대상을 즉시 전환합니다.
-2. **`설정` > `Antigravity`**:
-   - **MCP Plan 상세 설정** 카드: 제공업체/프로필별로 모델, Thinking 모드, 추론 강도(Reasoning Effort)를 상세히 설정합니다.
-   - **Google Antigravity 연동** 카드: MCP 서버 등록 상태, Antigravity Commands(전역 스킬), 및 전역 규칙(`deepseek-harness.md`, `codex-cli.md`)을 관리·편집합니다.
+1. **최상위 `MCP` 탭 (`MCP for Antigravity`) / `설정 > Antigravity MCP`**:
+   - MCP 서버 등록 상태, 대상 실행 파일, 및 MCP Commands(`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`)를 관리합니다.
+   - **모두 설치** (`antigravity.btnInstallAll`)를 클릭하여 상위 워크플로 스킬에 영향을 주지 않고 MCP Skill 3개만 일괄 설치합니다.
+2. **`설정` > `Antigravity Skills & Rules`**:
+   - 상위 워크플로 스킬(`/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`)의 Reviewer Policy(`codex_only` vs `codex_plus_deepseek`)를 일괄 제어하고 동기화합니다.
+   - 승인된 표준 Global Rules 템플릿(`codex-cli.md`, `deepseek-harness.md`)을 SHA-256 검증 및 Windows 삭제 지원(`can_remove`)과 함께 관리합니다.
+   - 코딩 동작 모드(`pov-direct.md`) 및 Poverello Nerf 스킬을 구성하고 관리합니다.
 
 > [!NOTE]
 > Poverello MCP 서버는 각 `plan()` 도구 호출 시 현재 구성을 동적으로 읽습니다. GUI에서 플래너 제공업체나 모델 설정을 변경하더라도 MCP 서버나 Antigravity를 다시 시작할 필요가 없습니다.
@@ -127,7 +128,7 @@ Poverello는 플래너 선택과 상세 파라미터 관리의 역할을 명확�
 
 ## 6. Antigravity Commands (`/pov-mcp-plan`, `/pov-mcp-revise` & `/pov-mcp-review`) 활용 (권장)
 
-**설정 > Antigravity**의 **Google Antigravity 연동** 카드에서 전역 스킬을 설치하면 모든 Antigravity 워크스페이스에서 슬래시 명령어를 사용할 수 있습니다:
+**MCP** 탭(또는 **설정 > Antigravity MCP**)에서 전역 스킬을 설치하면 모든 Antigravity 워크스페이스에서 슬래시 명령어를 사용할 수 있습니다:
 
 - **모두 설치** (`antigravity.btnInstallAll`)를 클릭하거나 각 명령어 옆의 **설치** (`antigravity.commandBtnInstall`)를 클릭합니다.
 
@@ -158,7 +159,7 @@ Poverello는 플래너 선택과 상세 파라미터 관리의 역할을 명확�
 
 ## 7. 상위 Antigravity Commands (`/pov-full-cycle`, `/pov-plan-only` & `/pov-build-review`)
 
-직접적인 MCP 스킬 외에도 Poverello는 `~/.gemini/antigravity/skills/`에 설치되는 3개의 상위 자율 워크플로 스킬을 제공합니다:
+직접적인 MCP 스킬 외에도 Poverello는 `~/.gemini/antigravity/skills/`에 설치되고 **설정 > Antigravity Skills & Rules**에서 Reviewer Policy(`codex_only` 또는 `codex_plus_deepseek`)로 일괄 제어되는 3개의 상위 자율 워크플로 스킬을 제공합니다:
 
 ### 풀 사이클 개발 라이프사이클:
 ```text

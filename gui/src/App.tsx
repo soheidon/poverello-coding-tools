@@ -16,7 +16,7 @@ import LanguageSelector from "./components/LanguageSelector";
 import FirstRunLanguagePicker from "./components/FirstRunLanguagePicker";
 import McpPanel from "./components/McpPanel";
 import McpSettingPanel from "./components/McpSettingPanel";
-import AntigravityRulesPanel from "./components/AntigravityRulesPanel";
+import AntigravitySkillsRulesPanel from "./components/AntigravitySkillsRulesPanel";
 import OrchestratorPanel from "./components/orchestrator/OrchestratorPanel";
 import OrchestratorSettingsPanel from "./components/orchestrator/OrchestratorSettingsPanel";
 import { useHealthCheck } from "./hooks/useHealthCheck";
@@ -38,7 +38,7 @@ type MainTab = "gateway" | "mcp" | "orchestrator" | "settings";
 function AppContent() {
   const { t } = useTranslation();
   const [mainTab, setMainTab] = useState<MainTab>("gateway");
-  const [settingsTab, setSettingsTab] = useState<"general" | "claudeDesktop" | "antigravity" | "antigravityRules" | "orchestrator">("general");
+  const [settingsTab, setSettingsTab] = useState<"general" | "claudeDesktop" | "antigravityMcp" | "antigravitySkillsRules" | "orchestrator">("general");
   const { managedRunning, loading: proxyLoading, error: proxyError, diag: proxyDiag, successMessage, start, stop, clearDiag } = useProxyToggle();
   const { data: health, error: healthError, loading: healthLoading, refresh: healthRefresh } = useHealthCheck(managedRunning);
 
@@ -295,24 +295,17 @@ function AppContent() {
             </button>
             <button
               type="button"
-              className={`settings-nav-item ${settingsTab === "antigravity" ? "active" : ""}`}
-              onClick={() => setSettingsTab("antigravity")}
+              className={`settings-nav-item ${settingsTab === "antigravityMcp" ? "active" : ""}`}
+              onClick={() => setSettingsTab("antigravityMcp")}
             >
-              {t("settings.nav.antigravity")}
+              {t("settings.nav.antigravityMcp")}
             </button>
             <button
               type="button"
-              className={`settings-nav-item ${settingsTab === "antigravityRules" ? "active" : ""}`}
-              onClick={() => setSettingsTab("antigravityRules")}
+              className={`settings-nav-item ${settingsTab === "antigravitySkillsRules" ? "active" : ""}`}
+              onClick={() => setSettingsTab("antigravitySkillsRules")}
             >
-              {t("antigravityRules.tabTitle")}
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-item ${settingsTab === "orchestrator" ? "active" : ""}`}
-              onClick={() => setSettingsTab("orchestrator")}
-            >
-              Orchestrator
+              {t("settings.nav.antigravitySkillsRules")}
             </button>
           </nav>
           <main className="settings-content">
@@ -347,11 +340,11 @@ function AppContent() {
                 <ConfigPanelContent />
               </>
             )}
-            {settingsTab === "antigravity" && (
+            {settingsTab === "antigravityMcp" && (
               <McpSettingPanel config={config} refreshConfig={refreshConfig} />
             )}
-            {settingsTab === "antigravityRules" && (
-              <AntigravityRulesPanel />
+            {settingsTab === "antigravitySkillsRules" && (
+              <AntigravitySkillsRulesPanel />
             )}
             {settingsTab === "orchestrator" && (
               <OrchestratorSettingsPanel t={t} onChanged={refreshConfig} />

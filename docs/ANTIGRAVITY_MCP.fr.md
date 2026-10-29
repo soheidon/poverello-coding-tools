@@ -51,7 +51,7 @@ la compilation et les tests via son abonnement
 
 ### Méthode 1 — Configuration via l'interface GUI d'Poverello (Recommandée)
 
-1. Ouvrez Poverello et accédez à **Paramètres** (onglet `[Paramètres]`) > sous-navigation gauche **Antigravity**.
+1. Ouvrez Poverello et accédez à l'onglet **MCP** (ou **Paramètres** > **Antigravity MCP** dans la sous-navigation gauche).
 2. Dans la carte **Intégration Google Antigravity** :
    - **Exécutable cible** : Affiche par défaut le chemin de l'exécutable `anthro-bridge.exe` en cours. Pour utiliser un autre binaire (build portable ou personnalisé), cliquez sur **Modifier** (`antigravity.btnChangeExe`) et sélectionnez l'exécutable.
    - **Enregistrer / Mettre à jour** : Cliquez sur **Mettre à jour la configuration Antigravity** (`antigravity.btnUpdate`) pour enregistrer ou mettre à jour en toute sécurité l'entrée `anthro-bridge` dans `%USERPROFILE%\.gemini\config\mcp_config.json`, tout en conservant intacts les autres serveurs MCP.
@@ -109,12 +109,13 @@ anthro-bridge
 
 Poverello sépare clairement le choix du planificateur de la gestion détaillée des paramètres :
 
-1. **Onglet de premier niveau `MCP` (`MCP for Antigravity`)** :
-   - Affiche les cartes des fournisseurs disponibles (DeepSeek, OpenRouter, MiniMax, MiMo (V2.6), Kimi et GLM), ainsi que les profils.
-   - Cliquez sur une carte pour basculer instantanément le planificateur actif.
-2. **`Paramètres` > `Antigravity`** :
-   - Carte **Paramètres détaillés du plan MCP** : Configurez le modèle, le mode Thinking et le niveau Reasoning Effort par fournisseur/profil.
-   - Carte **Intégration Google Antigravity** : Gérez l'enregistrement du serveur MCP, les commandes Antigravity (Global Skills) et les règles globales (`deepseek-harness.md`, `codex-cli.md`).
+1. **Onglet de premier niveau `MCP` (`MCP for Antigravity`) / `Paramètres > Antigravity MCP`** :
+   - Gérez l'enregistrement du serveur MCP, l'exécutable cible et les commandes MCP (`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`).
+   - Cliquez sur **Tout installer** (`antigravity.btnInstallAll`) pour installer exclusivement les 3 compétences MCP.
+2. **`Paramètres` > `Antigravity Skills & Rules`** :
+   - Gérez la politique Reviewer Policy (`codex_only` vs `codex_plus_deepseek`) pour les compétences de flux de travail de niveau supérieur (`/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`).
+   - Gérez les modèles standard protégés de règles globales (`codex-cli.md`, `deepseek-harness.md`) avec vérification SHA-256 et prise en charge de la suppression sous Windows (`can_remove`).
+   - Configurez le comportement de programmation (`pov-direct.md`) et les compétences Poverello Nerf.
 
 > [!NOTE]
 > Le serveur MCP recharge dynamiquement la configuration à chaque appel de l'outil `plan()`. Vous **n'avez pas** besoin de redémarrer le serveur MCP ou Antigravity lors de la modification des paramètres dans l'interface GUI.
@@ -123,7 +124,7 @@ Poverello sépare clairement le choix du planificateur de la gestion détaillée
 
 ## 6. Utilisation des commandes Antigravity (`/pov-mcp-plan`, `/pov-mcp-revise` & `/pov-mcp-review`) (Recommandé)
 
-Depuis **Paramètres > Antigravity > Intégration Google Antigravity**, installez les compétences globales pour utiliser les commandes slash dans tous vos espaces de travail Antigravity :
+Depuis l'onglet **MCP** (ou **Paramètres > Antigravity MCP**), installez les compétences globales pour utiliser les commandes slash dans tous vos espaces de travail Antigravity :
 
 - Cliquez sur **Tout installer** (`antigravity.btnInstallAll`) ou sur **Installer** (`antigravity.commandBtnInstall`) à côté de chaque commande.
 
@@ -154,7 +155,7 @@ Depuis **Paramètres > Antigravity > Intégration Google Antigravity**, installe
 
 ## 7. Commandes Antigravity de niveau supérieur (`/pov-full-cycle`, `/pov-plan-only` & `/pov-build-review`)
 
-En plus des compétences MCP directes, Poverello fournit trois compétences de flux de travail autonomes de niveau supérieur installées dans `~/.gemini/antigravity/skills/` :
+En plus des compétences MCP directes, Poverello fournit trois compétences de flux de travail autonomes de niveau supérieur installées dans `~/.gemini/antigravity/skills/` et gérées sous **Paramètres > Antigravity Skills & Rules** avec un contrôle centralisé de Reviewer Policy (`codex_only` ou `codex_plus_deepseek`) :
 
 ### Développement en cycle complet :
 ```text

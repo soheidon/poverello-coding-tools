@@ -1,4 +1,4 @@
-﻿import type { TranslationMap } from "./en";
+import type { TranslationMap } from "./en";
 
 export const nativeName = "日本語";
 
@@ -27,6 +27,8 @@ export const translations: TranslationMap = {
   "settings.nav.general": "全般",
   "settings.nav.claudeDesktop": "Claude Desktop",
   "settings.nav.antigravity": "Antigravity",
+  "settings.nav.antigravityMcp": "Antigravity MCP",
+  "settings.nav.antigravitySkillsRules": "Antigravity Skills & ルール",
   "settings.nav.orchestrator": "オーケストレーター",
   "tab.autoConverge": "Auto-Converge",
   "autoConverge.unavailable": "このデスクトップ版ではAuto-Convergeを利用できません。ReviewerのOS隔離が利用できないため、エージェントプロセスの起動前に実行がブロックされます。",
@@ -72,6 +74,25 @@ export const translations: TranslationMap = {
 
   // Antigravity Commands (/pov-mcp-plan, /pov-mcp-revise & /pov-mcp-review)
   "antigravity.commandsSectionHeader": "Antigravity Commands（6 Skill）",
+  "antigravity.mcpCommandsSectionHeader": "MCP Commands（3 Skill）",
+  "antigravity.mcpCommandsDesc": "計画・レビューを委託する3つのPoverello MCP Skillをインストール・管理します。",
+  "antigravity.workflowCommandsSectionHeader": "ワークフローコマンド（3 Skill）",
+  "antigravity.workflowCommandsDesc": "Poverelloの3つの正規ワークフロースキルをインストール・管理します。",
+  "antigravity.codingBehaviorHeader": "コーディング動作",
+  "antigravity.taskPresetsHeader": "タスクプリセット",
+  "antigravity.reviewerPolicyTitle": "外部レビュー構成",
+  "antigravity.reviewerPolicyDesc": "ワークフロースキル（/pov-plan-only、/pov-build-review、/pov-full-cycle）で使用する外部レビューモデル構成を選択します。",
+  "antigravity.reviewerPolicyCodexOnly": "Codex CLI のみ",
+  "antigravity.reviewerPolicyCodexPlusDeepseek": "Codex CLI + DeepSeek Harness",
+  "antigravity.reviewerPolicyUpdateRequiredNotice": "Reviewer Policyの設定は無効化されています：ポリシーを変更する前に、3つのワークフロースキル（/pov-plan-only、/pov-build-review、/pov-full-cycle）がすべてインストールされ、最新版に更新されている必要があります。",
+  "antigravity.globalRulesFixedHeader": "グローバルルール",
+  "antigravity.globalRulesFixedDesc": "CodexおよびDeepSeek reviewerハーネス用の固定グローバルルールテンプレートです。",
+  "antigravity.globalRulesStatusInstalled": "インストール済み",
+  "antigravity.globalRulesStatusNotInstalled": "未インストール",
+  "antigravity.globalRulesStatusModified": "変更済み / 保護",
+  "antigravity.globalRulesBtnInstall": "インストール",
+  "antigravity.globalRulesBtnRemove": "削除",
+  "antigravity.globalRulesRemovalUnsupported": "このプラットフォームでは削除はサポートされていません",
   "antigravity.commandsDesc": "6つのグローバルSkillをインストール・管理します。",
   "antigravity.commandGenericDesc": "計画・レビュー・実装ワークフロー用のSkillです。",
   "antigravity.globalRulesTitle": "グローバルルール",

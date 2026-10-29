@@ -481,7 +481,7 @@ describe("McpSettingPanel - Antigravity Integration", () => {
     expect(screen.queryByRole("button", { name: /antigravity\.btnInstallAll/i })).not.toBeInTheDocument();
   });
 
-  it("triggers install_all_antigravity_commands on Install All click", async () => {
+  it("triggers install_all_antigravity_mcp_commands on Install All click and does not install workflow skills", async () => {
     invokeMock.mockImplementation(async (cmd: string) => {
       if (cmd === "get_mcp_config") {
         return {
@@ -505,50 +505,50 @@ describe("McpSettingPanel - Antigravity Integration", () => {
         return {
           skills_dir: "C:\\Users\\User\\.gemini\\config\\skills",
           plan_command: {
-            name: "anthro-plan",
-            slash_command: "/anthro-plan",
+            name: "pov-mcp-plan",
+            slash_command: "/pov-mcp-plan",
             status: "not_installed",
-            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\anthro-plan\\SKILL.md",
+            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-mcp-plan\\SKILL.md",
             error: null,
           },
           revise_command: {
-            name: "anthro-revise",
-            slash_command: "/anthro-revise",
+            name: "pov-mcp-revise",
+            slash_command: "/pov-mcp-revise",
             status: "not_installed",
-            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\anthro-revise\\SKILL.md",
+            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-mcp-revise\\SKILL.md",
             error: null,
           },
           review_command: {
-            name: "anthro-review",
-            slash_command: "/anthro-review",
+            name: "pov-mcp-review",
+            slash_command: "/pov-mcp-review",
             status: "not_installed",
-            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\anthro-review\\SKILL.md",
+            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-mcp-review\\SKILL.md",
             error: null,
           },
         };
       }
-      if (cmd === "install_all_antigravity_commands") {
+      if (cmd === "install_all_antigravity_mcp_commands") {
         return {
           skills_dir: "C:\\Users\\User\\.gemini\\config\\skills",
           plan_command: {
-            name: "anthro-plan",
-            slash_command: "/anthro-plan",
+            name: "pov-mcp-plan",
+            slash_command: "/pov-mcp-plan",
             status: "installed",
-            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\anthro-plan\\SKILL.md",
+            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-mcp-plan\\SKILL.md",
             error: null,
           },
           revise_command: {
-            name: "anthro-revise",
-            slash_command: "/anthro-revise",
+            name: "pov-mcp-revise",
+            slash_command: "/pov-mcp-revise",
             status: "installed",
-            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\anthro-revise\\SKILL.md",
+            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-mcp-revise\\SKILL.md",
             error: null,
           },
           review_command: {
-            name: "anthro-review",
-            slash_command: "/anthro-review",
+            name: "pov-mcp-review",
+            slash_command: "/pov-mcp-review",
             status: "installed",
-            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\anthro-review\\SKILL.md",
+            skill_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-mcp-review\\SKILL.md",
             error: null,
           },
         };
@@ -562,13 +562,15 @@ describe("McpSettingPanel - Antigravity Integration", () => {
       expect(screen.getByText(/antigravity\.header/i)).toBeInTheDocument();
     });
 
-
-
     await act(async () => {
       await userEvent.click(screen.getByRole("button", { name: /antigravity\.btnInstallAll/i }));
     });
 
-    expect(invokeMock).toHaveBeenCalledWith("install_all_antigravity_commands");
+    expect(invokeMock).toHaveBeenCalledWith("install_all_antigravity_mcp_commands");
+    expect(invokeMock).not.toHaveBeenCalledWith("install_all_antigravity_commands");
+    expect(invokeMock).not.toHaveBeenCalledWith("install_antigravity_command", { name: "pov-plan-only" });
+    expect(invokeMock).not.toHaveBeenCalledWith("install_antigravity_command", { name: "pov-build-review" });
+    expect(invokeMock).not.toHaveBeenCalledWith("install_antigravity_command", { name: "pov-full-cycle" });
     await waitFor(() => {
       expect(screen.getAllByText(/antigravity\.commandStatusInstalled/i).length).toBe(3);
     });
@@ -586,7 +588,7 @@ describe("McpSettingPanel - Antigravity Integration", () => {
           review_command: { name: "pov-mcp-review", slash_command: "/pov-mcp-review", status: "not_installed", skill_path: "", error: null },
         };
       }
-      if (cmd === "install_all_antigravity_commands") {
+      if (cmd === "install_all_antigravity_mcp_commands") {
         return {
           skills_dir: "C:\\skills",
           plan_command: { name: "pov-mcp-plan", slash_command: "/pov-mcp-plan", status: "not_installed", skill_path: "", error: null },
@@ -757,104 +759,56 @@ describe("McpSettingPanel - Antigravity Integration", () => {
     expect(exeInput).toBeInTheDocument();
   });
 
-  it("lists all six canonical Skills and saves only the selected global rule", async () => {
-    const user = userEvent.setup();
-    invokeMock.mockImplementation(async (cmd: string, args?: { id?: string; request?: { id: string; content: string; expected_hash: string } }) => {
-      if (cmd === "get_mcp_config") return {};
-      if (cmd === "get_antigravity_mcp_status") return { status: "not_configured", config_path: "", config_dir: "", registered_command: null };
-      if (cmd === "get_antigravity_commands_status") return { skills_dir: "", commands: ["pov-mcp-plan", "pov-mcp-revise", "pov-mcp-review", "pov-full-cycle", "pov-plan-only", "pov-build-review"].map((name) => ({ name, slash_command: `/${name}`, status: "not_installed", skill_path: "" })) };
-      if (cmd === "get_pov_nerf_commands_status") return { skills_dir: "", skills: [], legacy_single_skill: null };
-      if (cmd === "read_antigravity_global_rule") return { id: args?.id ?? "deepseek_harness", file_name: "deepseek-harness.md", path: `rules/${args?.id}.md`, exists: true, content: "existing", content_hash: "hash-1" };
-      if (cmd === "save_antigravity_global_rule") return { id: args?.request?.id, file_name: "codex-cli.md", path: "rules/codex-cli.md", exists: true, content: args?.request?.content, content_hash: "hash-2" };
-      return {};
-    });
-    render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-    for (const name of ["pov-mcp-plan", "pov-mcp-revise", "pov-mcp-review", "pov-full-cycle", "pov-plan-only", "pov-build-review"]) {
-      await waitFor(() => expect(screen.getByText(`/${name}`)).toBeInTheDocument());
-    }
-    const editor = screen.getByRole("textbox", { name: /antigravity\.globalRulesEditor/i });
-    await user.clear(editor);
-    await user.type(editor, "updated rule");
-    const confirmDiscard = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
-    await user.click(screen.getByRole("button", { name: "codex-cli.md" }));
-    expect(confirmDiscard).toHaveBeenCalledOnce();
-    expect(invokeMock).not.toHaveBeenCalledWith("read_antigravity_global_rule", { id: "codex_cli" });
-    expect(editor).toHaveValue("updated rule");
-    await user.click(screen.getByRole("button", { name: "codex-cli.md" }));
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("read_antigravity_global_rule", { id: "codex_cli" }));
-    await user.clear(editor);
-    await user.type(editor, "updated rule");
-    await user.click(screen.getByRole("button", { name: /antigravity\.globalRulesSave/i }));
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("save_antigravity_global_rule", { request: { id: "codex_cli", content: "updated rule", expected_hash: "hash-1" } }));
-    confirmDiscard.mockRestore();
-  });
-
-  it("preserves the draft and reports a global-rule save conflict", async () => {
-    const user = userEvent.setup();
-    const conflict = "ConcurrentModificationConflict: rule changed on disk";
-    invokeMock.mockImplementation(async (cmd: string, args?: { id?: string; request?: { id: string; content: string; expected_hash: string } }) => {
-      if (cmd === "get_mcp_config") return {};
-      if (cmd === "get_antigravity_mcp_status") return { status: "not_configured", config_path: "", config_dir: "", registered_command: null };
-      if (cmd === "get_antigravity_commands_status") return { skills_dir: "", commands: [] };
-      if (cmd === "get_pov_nerf_commands_status") return { skills_dir: "", skills: [], legacy_single_skill: null };
-      if (cmd === "read_antigravity_global_rule") return { id: args?.id ?? "deepseek_harness", file_name: "deepseek-harness.md", path: "rules/deepseek-harness.md", exists: true, content: "original rule", content_hash: "hash-1" };
-      if (cmd === "save_antigravity_global_rule") throw new Error(conflict);
-      return {};
-    });
-    render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-    const editor = await screen.findByRole("textbox", { name: /antigravity\.globalRulesEditor/i });
-    await user.clear(editor);
-    await user.type(editor, "my unsaved draft");
-    await user.click(screen.getByRole("button", { name: /antigravity\.globalRulesSave/i }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(conflict);
-    expect(editor).toHaveValue("my unsaved draft");
-    expect(screen.queryByText(/antigravity\.globalRulesSaved/i)).not.toBeInTheDocument();
-    expect(invokeMock).toHaveBeenCalledWith("save_antigravity_global_rule", {
-      request: { id: "deepseek_harness", content: "my unsaved draft", expected_hash: "hash-1" },
-    });
-  });
-
-  it("reports a global-rule save failure without marking the draft as saved", async () => {
-    const user = userEvent.setup();
-    const failure = "atomic replacement failed";
-    invokeMock.mockImplementation(async (cmd: string, args?: { id?: string }) => {
-      if (cmd === "get_mcp_config") return {};
-      if (cmd === "get_antigravity_mcp_status") return { status: "not_configured", config_path: "", config_dir: "", registered_command: null };
-      if (cmd === "get_antigravity_commands_status") return { skills_dir: "", commands: [] };
-      if (cmd === "get_pov_nerf_commands_status") return { skills_dir: "", skills: [], legacy_single_skill: null };
-      if (cmd === "read_antigravity_global_rule") return { id: args?.id ?? "deepseek_harness", file_name: "deepseek-harness.md", path: "rules/deepseek-harness.md", exists: true, content: "original rule", content_hash: "hash-1" };
-      if (cmd === "save_antigravity_global_rule") throw new Error(failure);
-      return {};
-    });
-    render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-    const editor = await screen.findByRole("textbox", { name: /antigravity\.globalRulesEditor/i });
-    await user.clear(editor);
-    await user.type(editor, "pending draft");
-    await user.click(screen.getByRole("button", { name: /antigravity\.globalRulesSave/i }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(failure);
-    expect(editor).toHaveValue("pending draft");
-    expect(screen.queryByText(/antigravity\.globalRulesSaved/i)).not.toBeInTheDocument();
-  });
-
-  it("reports a global-rule read failure and does not enable saving", async () => {
-    const failure = "rule file could not be read";
+  it("does not render workflow skills (/pov-plan-only, /pov-build-review, /pov-full-cycle) in McpSettingPanel", async () => {
+    invokeMock.mockReset();
     invokeMock.mockImplementation(async (cmd: string) => {
-      if (cmd === "get_mcp_config") return {};
-      if (cmd === "get_antigravity_mcp_status") return { status: "not_configured", config_path: "", config_dir: "", registered_command: null };
-      if (cmd === "get_antigravity_commands_status") return { skills_dir: "", commands: [] };
-      if (cmd === "get_pov_nerf_commands_status") return { skills_dir: "", skills: [], legacy_single_skill: null };
-      if (cmd === "read_antigravity_global_rule") throw new Error(failure);
-      return {};
+      if (cmd === "get_mcp_config") {
+        return {
+          provider: "deepseek",
+          model: "deepseek-chat",
+        };
+      }
+      if (cmd === "get_antigravity_mcp_status") {
+        return {
+          status: "configured",
+          config_path: "C:\\Users\\User\\.gemini\\config\\mcp_config.json",
+          config_dir: "C:\\Users\\User\\.gemini\\config",
+          registered_command: "C:\\Users\\User\\AppData\\Local\\Poverello\\anthro-bridge.exe",
+          registered_args: ["--mcp-server"],
+          error: null,
+        } as AntigravityMcpInfo;
+      }
+      if (cmd === "get_antigravity_commands_status") {
+        return {
+          skills_dir: "C:\\Users\\User\\.gemini\\config\\skills",
+          commands: [
+            { name: "pov-mcp-plan", slash_command: "/pov-mcp-plan", status: "installed", skill_path: "", error: null },
+            { name: "pov-mcp-revise", slash_command: "/pov-mcp-revise", status: "installed", skill_path: "", error: null },
+            { name: "pov-mcp-review", slash_command: "/pov-mcp-review", status: "installed", skill_path: "", error: null },
+            { name: "pov-full-cycle", slash_command: "/pov-full-cycle", status: "installed", skill_path: "", error: null },
+            { name: "pov-plan-only", slash_command: "/pov-plan-only", status: "outdated", skill_path: "", error: null },
+            { name: "pov-build-review", slash_command: "/pov-build-review", status: "outdated", skill_path: "", error: null },
+          ],
+          plan_command: { name: "pov-mcp-plan", slash_command: "/pov-mcp-plan", status: "installed", skill_path: "", error: null },
+          revise_command: { name: "pov-mcp-revise", slash_command: "/pov-mcp-revise", status: "installed", skill_path: "", error: null },
+          review_command: { name: "pov-mcp-review", slash_command: "/pov-mcp-review", status: "installed", skill_path: "", error: null },
+        } as AntigravityCommandsInfo;
+      }
+      return null;
     });
+
     render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(failure);
-    expect(screen.getByRole("button", { name: /antigravity\.globalRulesSave/i })).toBeDisabled();
-    expect(invokeMock).not.toHaveBeenCalledWith("save_antigravity_global_rule", expect.anything());
+    await waitFor(() => {
+      expect(screen.getByText("/pov-mcp-plan")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("/pov-mcp-revise")).toBeInTheDocument();
+    expect(screen.getByText("/pov-mcp-review")).toBeInTheDocument();
+
+    expect(screen.queryByText("/pov-plan-only")).not.toBeInTheDocument();
+    expect(screen.queryByText("/pov-build-review")).not.toBeInTheDocument();
+    expect(screen.queryByText("/pov-full-cycle")).not.toBeInTheDocument();
   });
 });
 
@@ -1876,994 +1830,6 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
     });
   });
 
-  describe("Antigravity Nerf Commands (/pov-nerf-balanced & /pov-nerf-lightweight)", () => {
-    it("renders both Balanced and Lightweight cards with initial not_installed status", async () => {
-      invokeMock.mockImplementation(async (cmd: string) => {
-        if (cmd === "get_pov_nerf_commands_status") {
-          return {
-            skills_dir: "C:\\skills",
-            skills: [
-              {
-                skill_id: "balanced",
-                skill_name: "pov-nerf-balanced",
-                slash_command: "/pov-nerf-balanced",
-                target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-                state: "not_installed",
-                permitted_actions: ["install"],
-                diagnostic_reason: null,
-              },
-              {
-                skill_id: "lightweight",
-                skill_name: "pov-nerf-lightweight",
-                slash_command: "/pov-nerf-lightweight",
-                target_path: "C:\\skills\\pov-nerf-lightweight\\SKILL.md",
-                state: "not_installed",
-                permitted_actions: ["install"],
-                diagnostic_reason: null,
-              },
-            ],
-            legacy_single_skill: null,
-          };
-        }
-        if (cmd === "get_mcp_config") return {};
-        if (cmd === "get_antigravity_mcp_status") return { status: "not_configured" };
-        if (cmd === "get_antigravity_commands_status") return {
-          skills_dir: "C:\\skills",
-          plan_command: { name: "anthro-plan", slash_command: "/anthro-plan", status: "installed", skill_path: "", error: null },
-          revise_command: { name: "anthro-revise", slash_command: "/anthro-revise", status: "installed", skill_path: "", error: null },
-          review_command: { name: "anthro-review", slash_command: "/anthro-review", status: "installed", skill_path: "", error: null },
-        };
-        return {};
-      });
-
-      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/antigravity\.nerfSectionHeader/i)).toBeInTheDocument();
-      });
-
-      expect(screen.getByText(/antigravity\.nerfBalancedTitle/i)).toBeInTheDocument();
-      expect(screen.getByText(/antigravity\.nerfLightweightTitle/i)).toBeInTheDocument();
-      const notInstalledBadges = screen.getAllByText(/antigravity\.commandStatusNotInstalled/i);
-      expect(notInstalledBadges.length).toBeGreaterThanOrEqual(2);
-    });
-
-    it("allows installing Balanced command independently", async () => {
-      let installCalledWith: any = null;
-      let statusCalled = 0;
-      invokeMock.mockImplementation(async (cmd: string, args?: any) => {
-        if (cmd === "get_pov_nerf_commands_status") {
-          statusCalled++;
-          return {
-            skills_dir: "C:\\skills",
-            skills: [
-              {
-                skill_id: "balanced",
-                skill_name: "pov-nerf-balanced",
-                slash_command: "/pov-nerf-balanced",
-                target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-                state: statusCalled > 1 ? "installed" : "not_installed",
-                permitted_actions: statusCalled > 1 ? ["remove"] : ["install"],
-                diagnostic_reason: null,
-              },
-              {
-                skill_id: "lightweight",
-                skill_name: "pov-nerf-lightweight",
-                slash_command: "/pov-nerf-lightweight",
-                target_path: "C:\\skills\\pov-nerf-lightweight\\SKILL.md",
-                state: "not_installed",
-                permitted_actions: ["install"],
-                diagnostic_reason: null,
-              },
-            ],
-            legacy_single_skill: null,
-          };
-        }
-        if (cmd === "install_pov_nerf_command") {
-          installCalledWith = args;
-          return {
-            outcome: "success",
-            skill: {
-              skill_id: args?.skillId,
-              skill_name: `pov-nerf-${args?.skillId}`,
-              slash_command: `/pov-nerf-${args?.skillId}`,
-              target_path: `C:\\skills\\pov-nerf-${args?.skillId}\\SKILL.md`,
-              state: "installed",
-              permitted_actions: ["remove"],
-              diagnostic_reason: null,
-            },
-            message: null,
-          };
-        }
-        if (cmd === "get_mcp_config") return {};
-        if (cmd === "get_antigravity_mcp_status") return { status: "not_configured" };
-        if (cmd === "get_antigravity_commands_status") return {
-          skills_dir: "C:\\skills",
-          plan_command: { name: "anthro-plan", slash_command: "/anthro-plan", status: "installed", skill_path: "", error: null },
-          revise_command: { name: "anthro-revise", slash_command: "/anthro-revise", status: "installed", skill_path: "", error: null },
-          review_command: { name: "anthro-review", slash_command: "/anthro-review", status: "installed", skill_path: "", error: null },
-        };
-        return {};
-      });
-
-      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/antigravity\.nerfBalancedTitle/i)).toBeInTheDocument();
-      });
-
-      const installBtns = screen.getAllByRole("button", { name: /antigravity\.commandBtnInstall/i });
-      await act(async () => {
-        installBtns[0].click();
-      });
-
-      expect(installCalledWith).toEqual({ skillId: "balanced" });
-      await waitFor(() => {
-        expect(screen.getAllByText(/antigravity\.commandStatusInstalled/i).length).toBeGreaterThanOrEqual(1);
-      });
-    });
-
-    it("displays legacy warning when legacy_single_skill is present", async () => {
-      invokeMock.mockImplementation(async (cmd: string) => {
-        if (cmd === "get_pov_nerf_commands_status") {
-          return {
-            skills_dir: "C:\\skills",
-            skills: [
-              {
-                skill_id: "balanced",
-                skill_name: "pov-nerf-balanced",
-                slash_command: "/pov-nerf-balanced",
-                target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-                state: "not_installed",
-                permitted_actions: ["install"],
-                diagnostic_reason: null,
-              },
-              {
-                skill_id: "lightweight",
-                skill_name: "pov-nerf-lightweight",
-                slash_command: "/pov-nerf-lightweight",
-                target_path: "C:\\skills\\pov-nerf-lightweight\\SKILL.md",
-                state: "not_installed",
-                permitted_actions: ["install"],
-                diagnostic_reason: null,
-              },
-            ],
-            legacy_single_skill: {
-              present: true,
-              path: "C:\\skills\\pov-nerf\\SKILL.md",
-              message: "A legacy /pov-nerf Skill was detected. It is left untouched.",
-            },
-          };
-        }
-        if (cmd === "get_mcp_config") return {};
-        if (cmd === "get_antigravity_mcp_status") return { status: "not_configured" };
-        if (cmd === "get_antigravity_commands_status") return {
-          skills_dir: "C:\\skills",
-          plan_command: { name: "anthro-plan", slash_command: "/anthro-plan", status: "installed", skill_path: "", error: null },
-          revise_command: { name: "anthro-revise", slash_command: "/anthro-revise", status: "installed", skill_path: "", error: null },
-          review_command: { name: "anthro-review", slash_command: "/anthro-review", status: "installed", skill_path: "", error: null },
-        };
-        return {};
-      });
-
-      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/A legacy \/pov-nerf Skill was detected/i)).toBeInTheDocument();
-      });
-      expect(screen.getByText(/C:\\skills\\pov-nerf\\SKILL\.md/i)).toBeInTheDocument();
-    });
-
-    it("handles modified skill state safely without action buttons", async () => {
-      invokeMock.mockImplementation(async (cmd: string) => {
-        if (cmd === "get_pov_nerf_commands_status") {
-          return {
-            skills_dir: "C:\\skills",
-            skills: [
-              {
-                skill_id: "balanced",
-                skill_name: "pov-nerf-balanced",
-                slash_command: "/pov-nerf-balanced",
-                target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-                state: "modified",
-                permitted_actions: [],
-                diagnostic_reason: "File content or digest does not match the canonical template.",
-              },
-              {
-                skill_id: "lightweight",
-                skill_name: "pov-nerf-lightweight",
-                slash_command: "/pov-nerf-lightweight",
-                target_path: "C:\\skills\\pov-nerf-lightweight\\SKILL.md",
-                state: "installed",
-                permitted_actions: ["remove"],
-                diagnostic_reason: null,
-              },
-            ],
-            legacy_single_skill: null,
-          };
-        }
-        if (cmd === "get_mcp_config") return {};
-        if (cmd === "get_antigravity_mcp_status") return { status: "not_configured" };
-        if (cmd === "get_antigravity_commands_status") return {
-          skills_dir: "C:\\skills",
-          plan_command: { name: "anthro-plan", slash_command: "/anthro-plan", status: "installed", skill_path: "", error: null },
-          revise_command: { name: "anthro-revise", slash_command: "/anthro-revise", status: "installed", skill_path: "", error: null },
-          review_command: { name: "anthro-review", slash_command: "/anthro-review", status: "installed", skill_path: "", error: null },
-        };
-        return {};
-      });
-
-      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/antigravity\.nerfStatusModified/i)).toBeInTheDocument();
-      });
-      expect(screen.getByText(/File content or digest does not match the canonical template/i)).toBeInTheDocument();
-    });
-
-    it("handles invalid skill state safely with diagnostic reason and no action buttons", async () => {
-      invokeMock.mockImplementation(async (cmd: string) => {
-        if (cmd === "get_pov_nerf_commands_status") {
-          return {
-            skills_dir: "C:\\skills",
-            skills: [
-              {
-                skill_id: "balanced",
-                skill_name: "pov-nerf-balanced",
-                slash_command: "/pov-nerf-balanced",
-                target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-                state: "invalid",
-                permitted_actions: [],
-                diagnostic_reason: "Target component is a symlink",
-              },
-              {
-                skill_id: "lightweight",
-                skill_name: "pov-nerf-lightweight",
-                slash_command: "/pov-nerf-lightweight",
-                target_path: "C:\\skills\\pov-nerf-lightweight\\SKILL.md",
-                state: "installed",
-                permitted_actions: ["remove"],
-                diagnostic_reason: null,
-              },
-            ],
-            legacy_single_skill: null,
-          };
-        }
-        if (cmd === "get_mcp_config") return {};
-        if (cmd === "get_antigravity_mcp_status") return { status: "not_configured" };
-        if (cmd === "get_antigravity_commands_status") return {
-          skills_dir: "C:\\skills",
-          plan_command: { name: "anthro-plan", slash_command: "/anthro-plan", status: "installed", skill_path: "", error: null },
-          revise_command: { name: "anthro-revise", slash_command: "/anthro-revise", status: "installed", skill_path: "", error: null },
-          review_command: { name: "anthro-review", slash_command: "/anthro-review", status: "installed", skill_path: "", error: null },
-        };
-        return {};
-      });
-
-      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/Target component is a symlink/i)).toBeInTheDocument();
-      });
-      expect(screen.getByText(/antigravity\.commandStatusInvalid/i)).toBeInTheDocument();
-    });
-
-    it("fails closed on same-mounted component on refresh failure after valid status and recovers on retry without remount", async () => {
-      let failStatus = false;
-      let installCount = 0;
-
-      invokeMock.mockImplementation(async (cmd: string) => {
-        if (cmd === "get_pov_nerf_commands_status") {
-          if (failStatus) {
-            throw new Error("I/O error reading skills folder");
-          }
-          return {
-            skills_dir: "C:\\skills",
-            skills: [
-              {
-                skill_id: "balanced",
-                skill_name: "pov-nerf-balanced",
-                slash_command: "/pov-nerf-balanced",
-                target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-                state: installCount > 0 ? "installed" : "not_installed",
-                permitted_actions: installCount > 0 ? ["remove"] : ["install"],
-                diagnostic_reason: null,
-              },
-              {
-                skill_id: "lightweight",
-                skill_name: "pov-nerf-lightweight",
-                slash_command: "/pov-nerf-lightweight",
-                target_path: "C:\\skills\\pov-nerf-lightweight\\SKILL.md",
-                state: "not_installed",
-                permitted_actions: ["install"],
-                diagnostic_reason: null,
-              },
-            ],
-            legacy_single_skill: null,
-          };
-        }
-        if (cmd === "install_pov_nerf_command") {
-          installCount++;
-          failStatus = true;
-          return {
-            outcome: "success",
-            skill: {
-              skill_id: "balanced",
-              skill_name: "pov-nerf-balanced",
-              slash_command: "/pov-nerf-balanced",
-              target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-              state: "installed",
-              permitted_actions: ["remove"],
-              diagnostic_reason: null,
-            },
-            message: null,
-          };
-        }
-        if (cmd === "get_mcp_config") return {};
-        if (cmd === "get_antigravity_mcp_status") return { status: "not_configured" };
-        if (cmd === "get_antigravity_commands_status") return {
-          skills_dir: "C:\\skills",
-          plan_command: { name: "anthro-plan", slash_command: "/anthro-plan", status: "installed", skill_path: "", error: null },
-          revise_command: { name: "anthro-revise", slash_command: "/anthro-revise", status: "installed", skill_path: "", error: null },
-          review_command: { name: "anthro-review", slash_command: "/anthro-review", status: "installed", skill_path: "", error: null },
-        };
-        return {};
-      });
-
-      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-      // Step 1: Initial valid load shows cards and install buttons
-      await waitFor(() => {
-        expect(screen.getByText(/antigravity\.nerfBalancedTitle|\/pov-nerf-balanced/i)).toBeInTheDocument();
-      });
-
-      const installButtons = screen.getAllByRole("button", { name: /antigravity\.commandBtnInstall|インストール|Install/i });
-      expect(installButtons.length).toBeGreaterThan(0);
-
-      // Step 2: Trigger mutation; its subsequent refresh fails on the SAME mounted component
-      await act(async () => {
-        await userEvent.click(installButtons[0]);
-      });
-
-      // Stale cards and action buttons must be cleared/hidden, error and localized retry must be visible
-      await waitFor(() => {
-        expect(screen.getByText(/I\/O error reading skills folder/i)).toBeInTheDocument();
-      });
-
-      expect(screen.queryByText(/antigravity\.nerfBalancedTitle|\/pov-nerf-balanced/i)).not.toBeInTheDocument();
-      expect(screen.queryByText(/antigravity\.nerfLightweightTitle|\/pov-nerf-lightweight/i)).not.toBeInTheDocument();
-      // Only the 3 general commands Remove buttons exist; Nerf remove button is unmounted
-      expect(screen.getAllByRole("button", { name: /antigravity\.commandBtnRemove|削除|Remove/i })).toHaveLength(3);
-
-      const retryBtn = screen.getByRole("button", { name: /antigravity\.nerfRetryStatus|再試行|Retry/i });
-      expect(retryBtn).toBeInTheDocument();
-
-      // Step 3: Trigger Retry on same mounted component; fresh valid response restores controls
-      failStatus = false;
-      await act(async () => {
-        await userEvent.click(retryBtn);
-      });
-
-      await waitFor(() => {
-        expect(screen.queryByText(/I\/O error reading skills folder/i)).not.toBeInTheDocument();
-        expect(screen.getByText(/antigravity\.nerfBalancedTitle|\/pov-nerf-balanced/i)).toBeInTheDocument();
-      });
-
-      // 3 general commands + 1 balanced Nerf command = 4 Remove buttons
-      expect(screen.getAllByRole("button", { name: /antigravity\.commandBtnRemove|削除|Remove/i })).toHaveLength(4);
-    });
-
-    it("discards stale responses when status refreshes race: newer request response wins even if older finishes later", async () => {
-      type Deferred<T> = {
-        promise: Promise<T>;
-        resolve: (val: T) => void;
-        reject: (err: unknown) => void;
-      };
-      function createDeferred<T>(): Deferred<T> {
-        let resolve!: (val: T) => void;
-        let reject!: (err: unknown) => void;
-        const promise = new Promise<T>((res, rej) => {
-          resolve = res;
-          reject = rej;
-        });
-        return { promise, resolve, reject };
-      }
-
-      const deferred1 = createDeferred<unknown>();
-      const deferred2 = createDeferred<unknown>();
-      let callCount = 0;
-
-      invokeMock.mockImplementation(async (cmd: string) => {
-        if (cmd === "get_pov_nerf_commands_status") {
-          callCount++;
-          if (callCount === 1) {
-            // First mount: return immediate error to show retry control
-            throw new Error("Initial failure to show retry");
-          }
-          if (callCount === 2) {
-            return deferred1.promise;
-          }
-          return deferred2.promise;
-        }
-        if (cmd === "get_mcp_config") return {};
-        if (cmd === "get_antigravity_mcp_status") return { status: "not_configured" };
-        if (cmd === "get_antigravity_commands_status") return {
-          skills_dir: "C:\\skills",
-          plan_command: { name: "anthro-plan", slash_command: "/anthro-plan", status: "not_installed", skill_path: "", error: null },
-          revise_command: { name: "anthro-revise", slash_command: "/anthro-revise", status: "not_installed", skill_path: "", error: null },
-          review_command: { name: "anthro-review", slash_command: "/anthro-review", status: "not_installed", skill_path: "", error: null },
-        };
-        return {};
-      });
-
-      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/Initial failure to show retry/i)).toBeInTheDocument();
-      });
-
-      const retryBtn = screen.getByRole("button", { name: /antigravity\.nerfRetryStatus|再試行|Retry/i });
-
-      // Click Retry once -> triggers callCount 2 (deferred1)
-      await act(async () => {
-        await userEvent.click(retryBtn);
-      });
-      expect(callCount).toBe(2);
-
-      // Click Retry second time -> triggers callCount 3 (deferred2)
-      await act(async () => {
-        await userEvent.click(retryBtn);
-      });
-      expect(callCount).toBe(3);
-
-      // Resolve Call 2 FIRST with fresh valid status
-      await act(async () => {
-        deferred2.resolve({
-          skills_dir: "C:\\skills",
-          skills: [
-            {
-              skill_id: "balanced",
-              skill_name: "pov-nerf-balanced",
-              slash_command: "/pov-nerf-balanced",
-              target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-              state: "installed",
-              permitted_actions: ["remove"],
-              diagnostic_reason: null,
-            },
-            {
-              skill_id: "lightweight",
-              skill_name: "pov-nerf-lightweight",
-              slash_command: "/pov-nerf-lightweight",
-              target_path: "C:\\skills\\pov-nerf-lightweight\\SKILL.md",
-              state: "not_installed",
-              permitted_actions: ["install"],
-              diagnostic_reason: null,
-            },
-          ],
-          legacy_single_skill: null,
-        });
-      });
-
-      await waitFor(() => {
-        expect(screen.queryByText(/Initial failure to show retry/i)).not.toBeInTheDocument();
-        expect(screen.getByText(/antigravity\.nerfBalancedTitle|\/pov-nerf-balanced/i)).toBeInTheDocument();
-      });
-
-      // Now resolve Call 1 SECOND with a stale failure (inverted completion order)
-      await act(async () => {
-        deferred1.reject(new Error("Stale slow network error from request 1"));
-      });
-
-      // The stale response must NOT overwrite the newer state
-      expect(screen.queryByText(/Stale slow network error from request 1/i)).not.toBeInTheDocument();
-      expect(screen.getByText(/antigravity\.nerfBalancedTitle|\/pov-nerf-balanced/i)).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /antigravity\.commandBtnRemove|削除|Remove/i })).toBeInTheDocument();
-    });
-
-    it("disables operation buttons and prevents operation execution while status is loading", async () => {
-      type Deferred<T> = {
-        promise: Promise<T>;
-        resolve: (val: T) => void;
-        reject: (err: unknown) => void;
-      };
-      function createDeferred<T>(): Deferred<T> {
-        let resolve!: (val: T) => void;
-        let reject!: (err: unknown) => void;
-        const promise = new Promise<T>((res, rej) => {
-          resolve = res;
-          reject = rej;
-        });
-        return { promise, resolve, reject };
-      }
-
-      const deferred = createDeferred<unknown>();
-      let callCount = 0;
-      let installCommandCalls = 0;
-
-      invokeMock.mockImplementation(async (cmd: string) => {
-        if (cmd === "get_pov_nerf_commands_status") {
-          callCount++;
-          if (callCount === 1) {
-            return {
-              skills_dir: "C:\\skills",
-              skills: [
-                {
-                  skill_id: "balanced",
-                  skill_name: "pov-nerf-balanced",
-                  slash_command: "/pov-nerf-balanced",
-                  target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-                  state: "installed",
-                  permitted_actions: ["remove"],
-                  diagnostic_reason: null,
-                },
-                {
-                  skill_id: "lightweight",
-                  skill_name: "pov-nerf-lightweight",
-                  slash_command: "/pov-nerf-lightweight",
-                  target_path: "C:\\skills\\pov-nerf-lightweight\\SKILL.md",
-                  state: "not_installed",
-                  permitted_actions: ["install"],
-                  diagnostic_reason: null,
-                },
-              ],
-              legacy_single_skill: null,
-            };
-          }
-          return deferred.promise;
-        }
-        if (cmd === "remove_pov_nerf_command") {
-          return { outcome: "success", skill: null, message: null };
-        }
-        if (cmd === "install_pov_nerf_command") {
-          installCommandCalls++;
-          return { outcome: "success", skill: null, message: null };
-        }
-        if (cmd === "get_mcp_config") return {};
-        if (cmd === "get_antigravity_mcp_status") return { status: "not_configured" };
-        if (cmd === "get_antigravity_commands_status") return {
-          skills_dir: "C:\\skills",
-          plan_command: { name: "anthro-plan", slash_command: "/anthro-plan", status: "not_installed", skill_path: "", error: null },
-          revise_command: { name: "anthro-revise", slash_command: "/anthro-revise", status: "not_installed", skill_path: "", error: null },
-          review_command: { name: "anthro-review", slash_command: "/anthro-review", status: "not_installed", skill_path: "", error: null },
-        };
-        return {};
-      });
-
-      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/antigravity\.nerfBalancedTitle|\/pov-nerf-balanced/i)).toBeInTheDocument();
-      });
-
-      const removeButtons = screen.getAllByRole("button", { name: /antigravity\.commandBtnRemove|削除|Remove/i });
-      const nerfRemoveBtn = removeButtons[removeButtons.length - 1];
-      const installButtons = screen.getAllByRole("button", { name: /antigravity\.commandBtnInstall|インストール|Install/i });
-      const nerfInstallBtn = installButtons[installButtons.length - 1];
-
-      expect(nerfRemoveBtn).toBeEnabled();
-      expect(nerfInstallBtn).toBeEnabled();
-
-      // Trigger remove operation; its post-operation status refresh hangs on deferred promise
-      await act(async () => {
-        await userEvent.click(nerfRemoveBtn);
-      });
-
-      // While status refresh is loading, buttons must be disabled
-      expect(nerfInstallBtn).toBeDisabled();
-
-      // Attempting to click disabled install button does not execute install
-      await act(async () => {
-        await userEvent.click(nerfInstallBtn);
-      });
-      expect(installCommandCalls).toBe(0);
-
-      // Resolve the pending status refresh
-      await act(async () => {
-        deferred.resolve({
-          skills_dir: "C:\\skills",
-          skills: [
-            {
-              skill_id: "balanced",
-              skill_name: "pov-nerf-balanced",
-              slash_command: "/pov-nerf-balanced",
-              target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-              state: "not_installed",
-              permitted_actions: ["install"],
-              diagnostic_reason: null,
-            },
-            {
-              skill_id: "lightweight",
-              skill_name: "pov-nerf-lightweight",
-              slash_command: "/pov-nerf-lightweight",
-              target_path: "C:\\skills\\pov-nerf-lightweight\\SKILL.md",
-              state: "not_installed",
-              permitted_actions: ["install"],
-              diagnostic_reason: null,
-            },
-          ],
-          legacy_single_skill: null,
-        });
-      });
-
-      await waitFor(() => {
-        const refreshedInstalls = screen.getAllByRole("button", { name: /antigravity\.commandBtnInstall|インストール|Install/i });
-        expect(refreshedInstalls[refreshedInstalls.length - 1]).toBeEnabled();
-      });
-    });
-
-    it("retains operation error when operation fails but subsequent status refresh succeeds, without showing retry", async () => {
-      invokeMock.mockImplementation(async (cmd: string) => {
-        if (cmd === "get_pov_nerf_commands_status") {
-          return {
-            skills_dir: "C:\\skills",
-            skills: [
-              {
-                skill_id: "balanced",
-                skill_name: "pov-nerf-balanced",
-                slash_command: "/pov-nerf-balanced",
-                target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-                state: "installed",
-                permitted_actions: ["remove"],
-                diagnostic_reason: null,
-              },
-              {
-                skill_id: "lightweight",
-                skill_name: "pov-nerf-lightweight",
-                slash_command: "/pov-nerf-lightweight",
-                target_path: "C:\\skills\\pov-nerf-lightweight\\SKILL.md",
-                state: "not_installed",
-                permitted_actions: ["install"],
-                diagnostic_reason: null,
-              },
-            ],
-            legacy_single_skill: null,
-          };
-        }
-        if (cmd === "remove_pov_nerf_command") {
-          return {
-            outcome: "refused",
-            skill: null,
-            message: "Target file modified by external editor; refusing removal",
-          };
-        }
-        if (cmd === "get_mcp_config") return {};
-        if (cmd === "get_antigravity_mcp_status") return { status: "not_configured" };
-        if (cmd === "get_antigravity_commands_status") return {
-          skills_dir: "C:\\skills",
-          plan_command: { name: "anthro-plan", slash_command: "/anthro-plan", status: "not_installed", skill_path: "", error: null },
-          revise_command: { name: "anthro-revise", slash_command: "/anthro-revise", status: "not_installed", skill_path: "", error: null },
-          review_command: { name: "anthro-review", slash_command: "/anthro-review", status: "not_installed", skill_path: "", error: null },
-        };
-        return {};
-      });
-
-      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/antigravity\.nerfBalancedTitle|\/pov-nerf-balanced/i)).toBeInTheDocument();
-      });
-
-      const removeButtons = screen.getAllByRole("button", { name: /antigravity\.commandBtnRemove|削除|Remove/i });
-      const nerfRemoveBtn = removeButtons[removeButtons.length - 1];
-
-      await act(async () => {
-        await userEvent.click(nerfRemoveBtn);
-      });
-
-      // Operation error remains visible
-      await waitFor(() => {
-        expect(screen.getByText(/Target file modified by external editor; refusing removal/i)).toBeInTheDocument();
-      });
-
-      // Status refresh succeeded, so status Retry button is NOT displayed
-      expect(screen.queryByRole("button", { name: /antigravity\.nerfRetryStatus|再試行|Retry/i })).not.toBeInTheDocument();
-    });
-
-    it("retains operation error when operation invoke rejects with diagnostic error but subsequent status refresh succeeds, without showing retry", async () => {
-      invokeMock.mockImplementation(async (cmd: string) => {
-        if (cmd === "get_pov_nerf_commands_status") {
-          return {
-            skills_dir: "C:\\skills",
-            skills: [
-              {
-                skill_id: "balanced",
-                skill_name: "pov-nerf-balanced",
-                slash_command: "/pov-nerf-balanced",
-                target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-                state: "installed",
-                permitted_actions: ["remove"],
-                diagnostic_reason: null,
-              },
-              {
-                skill_id: "lightweight",
-                skill_name: "pov-nerf-lightweight",
-                slash_command: "/pov-nerf-lightweight",
-                target_path: "C:\\skills\\pov-nerf-lightweight\\SKILL.md",
-                state: "not_installed",
-                permitted_actions: ["install"],
-                diagnostic_reason: null,
-              },
-            ],
-            legacy_single_skill: null,
-          };
-        }
-        if (cmd === "remove_pov_nerf_command") {
-          throw new Error("IPC transport error: connection broken during removal");
-        }
-        if (cmd === "get_mcp_config") return {};
-        if (cmd === "get_antigravity_mcp_status") return { status: "not_configured" };
-        if (cmd === "get_antigravity_commands_status") return {
-          skills_dir: "C:\\skills",
-          plan_command: { name: "anthro-plan", slash_command: "/anthro-plan", status: "not_installed", skill_path: "", error: null },
-          revise_command: { name: "anthro-revise", slash_command: "/anthro-revise", status: "not_installed", skill_path: "", error: null },
-          review_command: { name: "anthro-review", slash_command: "/anthro-review", status: "not_installed", skill_path: "", error: null },
-        };
-        return {};
-      });
-
-      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/antigravity\.nerfBalancedTitle|\/pov-nerf-balanced/i)).toBeInTheDocument();
-      });
-
-      const removeButtons = screen.getAllByRole("button", { name: /antigravity\.commandBtnRemove|削除|Remove/i });
-      const nerfRemoveBtn = removeButtons[removeButtons.length - 1];
-
-      await act(async () => {
-        await userEvent.click(nerfRemoveBtn);
-      });
-
-      // Operation error from rejected invocation remains visible
-      await waitFor(() => {
-        expect(screen.getByText(/IPC transport error: connection broken during removal/i)).toBeInTheDocument();
-      });
-
-      // Status refresh succeeded, so status Retry button is absent
-      expect(screen.queryByRole("button", { name: /antigravity\.nerfRetryStatus|再試行|Retry/i })).not.toBeInTheDocument();
-
-      // Cards remain visible because status refresh succeeded
-      expect(screen.getByText(/antigravity\.nerfBalancedTitle|\/pov-nerf-balanced/i)).toBeInTheDocument();
-    });
-
-    it("displays both operation and status errors when both fail; retry re-runs only status refresh and keeps operation error", async () => {
-      let removeCalls = 0;
-      let failStatus = false;
-
-      invokeMock.mockImplementation(async (cmd: string) => {
-        if (cmd === "get_pov_nerf_commands_status") {
-          if (failStatus) {
-            throw new Error("Disk read failure during status inspection");
-          }
-          return {
-            skills_dir: "C:\\skills",
-            skills: [
-              {
-                skill_id: "balanced",
-                skill_name: "pov-nerf-balanced",
-                slash_command: "/pov-nerf-balanced",
-                target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-                state: "installed",
-                permitted_actions: ["remove"],
-                diagnostic_reason: null,
-              },
-              {
-                skill_id: "lightweight",
-                skill_name: "pov-nerf-lightweight",
-                slash_command: "/pov-nerf-lightweight",
-                target_path: "C:\\skills\\pov-nerf-lightweight\\SKILL.md",
-                state: "not_installed",
-                permitted_actions: ["install"],
-                diagnostic_reason: null,
-              },
-            ],
-            legacy_single_skill: null,
-          };
-        }
-        if (cmd === "remove_pov_nerf_command") {
-          removeCalls++;
-          failStatus = true;
-          return {
-            outcome: "refused",
-            skill: null,
-            message: "Pre-delete recheck failed: target file identity changed",
-          };
-        }
-        if (cmd === "get_mcp_config") return {};
-        if (cmd === "get_antigravity_mcp_status") return { status: "not_configured" };
-        if (cmd === "get_antigravity_commands_status") return {
-          skills_dir: "C:\\skills",
-          plan_command: { name: "anthro-plan", slash_command: "/anthro-plan", status: "not_installed", skill_path: "", error: null },
-          revise_command: { name: "anthro-revise", slash_command: "/anthro-revise", status: "not_installed", skill_path: "", error: null },
-          review_command: { name: "anthro-review", slash_command: "/anthro-review", status: "not_installed", skill_path: "", error: null },
-        };
-        return {};
-      });
-
-      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/antigravity\.nerfBalancedTitle|\/pov-nerf-balanced/i)).toBeInTheDocument();
-      });
-
-      const removeButtons = screen.getAllByRole("button", { name: /antigravity\.commandBtnRemove|削除|Remove/i });
-      const nerfRemoveBtn = removeButtons[removeButtons.length - 1];
-
-      await act(async () => {
-        await userEvent.click(nerfRemoveBtn);
-      });
-
-      // Both diagnostics must be displayed
-      await waitFor(() => {
-        expect(screen.getByText(/Pre-delete recheck failed: target file identity changed/i)).toBeInTheDocument();
-        expect(screen.getByText(/Disk read failure during status inspection/i)).toBeInTheDocument();
-      });
-
-      // Retry button is visible for status error
-      const retryBtn = screen.getByRole("button", { name: /antigravity\.nerfRetryStatus|再試行|Retry/i });
-      expect(retryBtn).toBeInTheDocument();
-      expect(removeCalls).toBe(1);
-
-      // Now configure status refresh to succeed on retry
-      failStatus = false;
-      await act(async () => {
-        await userEvent.click(retryBtn);
-      });
-
-      // After retry: status error disappears, but operation error remains
-      await waitFor(() => {
-        expect(screen.queryByText(/Disk read failure during status inspection/i)).not.toBeInTheDocument();
-        expect(screen.getByText(/Pre-delete recheck failed: target file identity changed/i)).toBeInTheDocument();
-      });
-
-      // Retry button disappears because status fetch succeeded
-      expect(screen.queryByRole("button", { name: /antigravity\.nerfRetryStatus|再試行|Retry/i })).not.toBeInTheDocument();
-
-      // Operation (remove_pov_nerf_command) was NOT re-executed
-      expect(removeCalls).toBe(1);
-    });
-
-    it("discards stale successful status response when preceded by a newer failing status request", async () => {
-      type Deferred<T> = {
-        promise: Promise<T>;
-        resolve: (val: T) => void;
-        reject: (err: unknown) => void;
-      };
-      function createDeferred<T>(): Deferred<T> {
-        let resolve!: (val: T) => void;
-        let reject!: (err: unknown) => void;
-        const promise = new Promise<T>((res, rej) => {
-          resolve = res;
-          reject = rej;
-        });
-        return { promise, resolve, reject };
-      }
-
-      const deferredA = createDeferred<unknown>();
-      const deferredB = createDeferred<unknown>();
-      let callCount = 0;
-
-      invokeMock.mockImplementation(async (cmd: string) => {
-        if (cmd === "get_pov_nerf_commands_status") {
-          callCount++;
-          if (callCount === 1) {
-            // Initial mount failure to reveal retry button
-            throw new Error("Initial failure to show retry");
-          }
-          if (callCount === 2) {
-            // Request A
-            return deferredA.promise;
-          }
-          // Request B
-          return deferredB.promise;
-        }
-        if (cmd === "get_mcp_config") return {};
-        if (cmd === "get_antigravity_mcp_status") return { status: "not_configured" };
-        if (cmd === "get_antigravity_commands_status") return {
-          skills_dir: "C:\\skills",
-          plan_command: { name: "anthro-plan", slash_command: "/anthro-plan", status: "not_installed", skill_path: "", error: null },
-          revise_command: { name: "anthro-revise", slash_command: "/anthro-revise", status: "not_installed", skill_path: "", error: null },
-          review_command: { name: "anthro-review", slash_command: "/anthro-review", status: "not_installed", skill_path: "", error: null },
-        };
-        return {};
-      });
-
-      render(<McpSettingPanel config={dummyConfig} refreshConfig={vi.fn()} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/Initial failure to show retry/i)).toBeInTheDocument();
-      });
-
-      const retryBtn = screen.getByRole("button", { name: /antigravity\.nerfRetryStatus|再試行|Retry/i });
-
-      // Click Retry 1st time -> triggers Request A (callCount = 2, deferredA)
-      await act(async () => {
-        await userEvent.click(retryBtn);
-      });
-      expect(callCount).toBe(2);
-
-      // Click Retry 2nd time -> triggers Request B (callCount = 3, deferredB)
-      await act(async () => {
-        await userEvent.click(retryBtn);
-      });
-      expect(callCount).toBe(3);
-
-      // Settle Request B FIRST with failure
-      await act(async () => {
-        deferredB.reject(new Error("Newer error from request B"));
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText(/Newer error from request B/i)).toBeInTheDocument();
-      });
-
-      // Cards/actions remain unavailable, and the loading indicator is cleared while A remains pending
-      expect(screen.queryByText(/antigravity\.nerfBalancedTitle|\/pov-nerf-balanced/i)).not.toBeInTheDocument();
-      expect(screen.queryByText(/antigravity\.nerfLightweightTitle|\/pov-nerf-lightweight/i)).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /antigravity\.commandBtnRemove|削除|Remove/i })).not.toBeInTheDocument();
-      // Only the 3 general commands install buttons exist; Nerf install button is absent
-      expect(screen.getAllByRole("button", { name: /antigravity\.commandBtnInstall/i })).toHaveLength(3);
-      expect(screen.queryByText("...")).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /antigravity\.nerfRetryStatus|再試行|Retry/i })).toBeEnabled();
-
-      // Settle Request A SECOND with a stale success
-      await act(async () => {
-        deferredA.resolve({
-          skills_dir: "C:\\skills",
-          skills: [
-            {
-              skill_id: "balanced",
-              skill_name: "pov-nerf-balanced",
-              slash_command: "/pov-nerf-balanced",
-              target_path: "C:\\skills\\pov-nerf-balanced\\SKILL.md",
-              state: "installed",
-              permitted_actions: ["remove"],
-              diagnostic_reason: null,
-            },
-            {
-              skill_id: "lightweight",
-              skill_name: "pov-nerf-lightweight",
-              slash_command: "/pov-nerf-lightweight",
-              target_path: "C:\\skills\\pov-nerf-lightweight\\SKILL.md",
-              state: "not_installed",
-              permitted_actions: ["install"],
-              diagnostic_reason: null,
-            },
-          ],
-          legacy_single_skill: null,
-        });
-      });
-
-      // The stale success of Request A cannot replace B's error, restore cards/actions, or change loading back to active
-      expect(screen.getByText(/Newer error from request B/i)).toBeInTheDocument();
-      expect(screen.queryByText(/antigravity\.nerfBalancedTitle|\/pov-nerf-balanced/i)).not.toBeInTheDocument();
-      expect(screen.queryByText(/antigravity\.nerfLightweightTitle|\/pov-nerf-lightweight/i)).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /antigravity\.commandBtnRemove|削除|Remove/i })).not.toBeInTheDocument();
-      expect(screen.getAllByRole("button", { name: /antigravity\.commandBtnInstall/i })).toHaveLength(3);
-      expect(screen.queryByText("...")).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /antigravity\.nerfRetryStatus|再試行|Retry/i })).toBeEnabled();
-    });
-
-    it("contains antigravity.nerfRetryStatus in all eight locale dictionaries exactly once and renders it on retry control", () => {
-      const locales = [
-        { code: "en", map: en },
-        { code: "ja", map: ja },
-        { code: "de", map: de },
-        { code: "es", map: es },
-        { code: "fr", map: fr },
-        { code: "ko", map: ko },
-        { code: "zh-CN", map: zhCN },
-        { code: "zh-TW", map: zhTW },
-      ];
-      for (const { code, map } of locales) {
-        const val = (map as Record<string, string>)["antigravity.nerfRetryStatus"];
-        expect(val, `Missing or empty antigravity.nerfRetryStatus in ${code}`).toBeTruthy();
-        expect(typeof val).toBe("string");
-        expect(val.trim().length).toBeGreaterThan(0);
-      }
-    });
-  });
-
   describe("Direct MiMo Model Dropdown & Reasoning", () => {
     const mimoConfig: GatewayConfig = {
       active_provider: "mimo",
@@ -3071,7 +2037,7 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
       });
 
       // Target executable input should contain currentPoverelloExe, not staleLegacyExe
-      const targetInput = screen.getByDisplayValue(currentPoverelloExe);
+      const targetInput = await screen.findByDisplayValue(currentPoverelloExe);
       expect(targetInput).toBeInTheDocument();
       expect(screen.queryByDisplayValue(staleLegacyExe)).not.toBeInTheDocument();
 

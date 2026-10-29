@@ -1,4 +1,4 @@
-﻿import type { TranslationMap } from "./en";
+import type { TranslationMap } from "./en";
 
 export const nativeName = "Español";
 
@@ -27,6 +27,8 @@ export const translations: TranslationMap = {
   "settings.nav.general": "General",
   "settings.nav.claudeDesktop": "Claude Desktop",
   "settings.nav.antigravity": "Antigravity",
+  "settings.nav.antigravityMcp": "Antigravity MCP",
+  "settings.nav.antigravitySkillsRules": "Antigravity Skills & Reglas",
   "settings.nav.orchestrator": "Orquestador",
   "tab.autoConverge": "Auto-Converge",
   "autoConverge.unavailable": "Auto-Converge no está disponible en esta versión de escritorio. No se dispone del aislamiento de SO para el revisor, por lo que las ejecuciones se bloquean antes de iniciar cualquier proceso de agente.",
@@ -72,6 +74,25 @@ export const translations: TranslationMap = {
 
   // Antigravity Commands (/pov-mcp-plan, /pov-mcp-revise & /pov-mcp-review)
   "antigravity.commandsSectionHeader": "Antigravity Commands (6 Skills)",
+  "antigravity.mcpCommandsSectionHeader": "Comandos MCP (3 Skills)",
+  "antigravity.mcpCommandsDesc": "Instale y administre las 3 habilidades Poverello MCP para planificación y revisión.",
+  "antigravity.workflowCommandsSectionHeader": "Comandos de flujo de trabajo (3 Skills)",
+  "antigravity.workflowCommandsDesc": "Instale y administre las 3 habilidades canónicas de flujo de trabajo de Poverello.",
+  "antigravity.codingBehaviorHeader": "Comportamiento de codificación",
+  "antigravity.taskPresetsHeader": "Ajustes preestablecidos de tareas",
+  "antigravity.reviewerPolicyTitle": "Configuración de revisión externa",
+  "antigravity.reviewerPolicyDesc": "Seleccione el motor del modelo de revisión externa utilizado por las habilidades del flujo de trabajo (/pov-plan-only, /pov-build-review, /pov-full-cycle).",
+  "antigravity.reviewerPolicyCodexOnly": "Solo Codex CLI",
+  "antigravity.reviewerPolicyCodexPlusDeepseek": "Codex CLI + DeepSeek Harness",
+  "antigravity.reviewerPolicyUpdateRequiredNotice": "Configuración de política deshabilitada: las 3 habilidades de flujo de trabajo deben estar instaladas y actualizadas antes de cambiar la política.",
+  "antigravity.globalRulesFixedHeader": "Reglas globales",
+  "antigravity.globalRulesFixedDesc": "Plantillas de reglas globales fijas para los entornos de revisor Codex y DeepSeek.",
+  "antigravity.globalRulesStatusInstalled": "Instalado",
+  "antigravity.globalRulesStatusNotInstalled": "No instalado",
+  "antigravity.globalRulesStatusModified": "Modificado o protegido",
+  "antigravity.globalRulesBtnInstall": "Instalar",
+  "antigravity.globalRulesBtnRemove": "Eliminar",
+  "antigravity.globalRulesRemovalUnsupported": "La eliminación no es compatible en esta plataforma",
   "antigravity.commandsDesc": "Instala y administra seis Skills globales.",
   "antigravity.commandGenericDesc": "Skill para flujos de planificación, revisión o implementación.",
   "antigravity.globalRulesTitle": "Reglas globales",

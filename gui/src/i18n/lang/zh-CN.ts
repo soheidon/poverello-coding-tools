@@ -1,4 +1,4 @@
-﻿import type { TranslationMap } from "./en";
+import type { TranslationMap } from "./en";
 
 export const nativeName = "中文(简体)";
 
@@ -27,6 +27,8 @@ export const translations: TranslationMap = {
   "settings.nav.general": "常规",
   "settings.nav.claudeDesktop": "Claude Desktop",
   "settings.nav.antigravity": "Antigravity",
+  "settings.nav.antigravityMcp": "Antigravity MCP",
+  "settings.nav.antigravitySkillsRules": "Antigravity Skills & 规则",
   "settings.nav.orchestrator": "编排器",
   "tab.autoConverge": "Auto-Converge",
   "autoConverge.unavailable": "此桌面版本暂不可使用 Auto-Converge。由于未提供 Reviewer 操作系统隔离，运行会在启动任何代理进程前被阻止。",
@@ -72,6 +74,25 @@ export const translations: TranslationMap = {
 
   // Antigravity Commands (/pov-mcp-plan, /pov-mcp-revise & /pov-mcp-review)
   "antigravity.commandsSectionHeader": "Antigravity Commands（6 个 Skill）",
+  "antigravity.mcpCommandsSectionHeader": "MCP 命令 (3 Skills)",
+  "antigravity.mcpCommandsDesc": "安装和管理3个用于计划和审查委托的Poverello MCP技能。",
+  "antigravity.workflowCommandsSectionHeader": "工作流命令 (3 Skills)",
+  "antigravity.workflowCommandsDesc": "安装和管理3个规范的Poverello工作流技能。",
+  "antigravity.codingBehaviorHeader": "编码行为",
+  "antigravity.taskPresetsHeader": "任务预设",
+  "antigravity.reviewerPolicyTitle": "外部审查配置",
+  "antigravity.reviewerPolicyDesc": "选择工作流技能（/pov-plan-only、/pov-build-review、/pov-full-cycle）使用的外部审查模型引擎。",
+  "antigravity.reviewerPolicyCodexOnly": "仅 Codex CLI",
+  "antigravity.reviewerPolicyCodexPlusDeepseek": "Codex CLI + DeepSeek Harness",
+  "antigravity.reviewerPolicyUpdateRequiredNotice": "审查策略配置已禁用：在更改审查策略之前，必须安装所有3个工作流技能并更新至最新版本。",
+  "antigravity.globalRulesFixedHeader": "全局规则",
+  "antigravity.globalRulesFixedDesc": "用于 Codex 和 DeepSeek 审查工具包的固定全局规则模板。",
+  "antigravity.globalRulesStatusInstalled": "已安装",
+  "antigravity.globalRulesStatusNotInstalled": "未安装",
+  "antigravity.globalRulesStatusModified": "已修改或受保护",
+  "antigravity.globalRulesBtnInstall": "安装",
+  "antigravity.globalRulesBtnRemove": "删除",
+  "antigravity.globalRulesRemovalUnsupported": "此平台不支持删除",
   "antigravity.commandsDesc": "安装和管理 6 个全局 Skill。",
   "antigravity.commandGenericDesc": "用于计划、审查或实现工作流的 Skill。",
   "antigravity.globalRulesTitle": "全局规则",

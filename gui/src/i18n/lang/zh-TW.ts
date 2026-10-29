@@ -1,4 +1,4 @@
-﻿import type { TranslationMap } from "./en";
+import type { TranslationMap } from "./en";
 
 export const nativeName = "中文(繁體)";
 
@@ -27,6 +27,8 @@ export const translations: TranslationMap = {
   "settings.nav.general": "一般",
   "settings.nav.claudeDesktop": "Claude Desktop",
   "settings.nav.antigravity": "Antigravity",
+  "settings.nav.antigravityMcp": "Antigravity MCP",
+  "settings.nav.antigravitySkillsRules": "Antigravity Skills & 規則",
   "settings.nav.orchestrator": "協調器",
   "tab.autoConverge": "Auto-Converge",
   "autoConverge.unavailable": "此桌面版本目前無法使用 Auto-Converge。由於未提供 Reviewer 作業系統隔離，執行會在啟動任何代理程序前遭到阻止。",
@@ -72,6 +74,25 @@ export const translations: TranslationMap = {
 
   // Antigravity Commands (/pov-mcp-plan, /pov-mcp-revise & /pov-mcp-review)
   "antigravity.commandsSectionHeader": "Antigravity Commands（6 個 Skill）",
+  "antigravity.mcpCommandsSectionHeader": "MCP 命令 (3 Skills)",
+  "antigravity.mcpCommandsDesc": "安裝和管理3個用於計畫和審查委託的Poverello MCP技能。",
+  "antigravity.workflowCommandsSectionHeader": "工作流程命令 (3 Skills)",
+  "antigravity.workflowCommandsDesc": "安裝和管理3個規範的Poverello工作流程技能。",
+  "antigravity.codingBehaviorHeader": "編碼行為",
+  "antigravity.taskPresetsHeader": "任務預設",
+  "antigravity.reviewerPolicyTitle": "外部審查配置",
+  "antigravity.reviewerPolicyDesc": "選擇工作流程技能（/pov-plan-only、/pov-build-review、/pov-full-cycle）使用的外部審查模型引擎。",
+  "antigravity.reviewerPolicyCodexOnly": "僅 Codex CLI",
+  "antigravity.reviewerPolicyCodexPlusDeepseek": "Codex CLI + DeepSeek Harness",
+  "antigravity.reviewerPolicyUpdateRequiredNotice": "審查策略配置已禁用：在更改審查策略之前，必須安裝所有3個工作流程技能並更新至最新版本。",
+  "antigravity.globalRulesFixedHeader": "全域規則",
+  "antigravity.globalRulesFixedDesc": "用於 Codex 和 DeepSeek 審查工具包的固定全域規則範本。",
+  "antigravity.globalRulesStatusInstalled": "已安裝",
+  "antigravity.globalRulesStatusNotInstalled": "未安裝",
+  "antigravity.globalRulesStatusModified": "已修改或受保護",
+  "antigravity.globalRulesBtnInstall": "安裝",
+  "antigravity.globalRulesBtnRemove": "刪除",
+  "antigravity.globalRulesRemovalUnsupported": "此平台不支援刪除",
   "antigravity.commandsDesc": "安裝並管理 6 個全域 Skill。",
   "antigravity.commandGenericDesc": "用於規劃、審查或實作工作流程的 Skill。",
   "antigravity.globalRulesTitle": "全域規則",

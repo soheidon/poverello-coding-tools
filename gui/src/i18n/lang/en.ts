@@ -1,4 +1,4 @@
-﻿export const nativeName = "English";
+export const nativeName = "English";
 
 export const translations = {
   // Header
@@ -25,6 +25,8 @@ export const translations = {
   "settings.nav.general": "General",
   "settings.nav.claudeDesktop": "Claude Desktop",
   "settings.nav.antigravity": "Antigravity",
+  "settings.nav.antigravityMcp": "Antigravity MCP",
+  "settings.nav.antigravitySkillsRules": "Antigravity Skills & Rules",
   "settings.nav.orchestrator": "Orchestrator",
   "tab.autoConverge": "Auto-Converge",
   "autoConverge.unavailable": "Auto-Converge is unavailable in this desktop build. Reviewer OS isolation is not available, so runs are blocked before any agent process starts.",
@@ -70,6 +72,25 @@ export const translations = {
 
   // Antigravity Commands (/pov-mcp-plan, /pov-mcp-revise & /pov-mcp-review)
   "antigravity.commandsSectionHeader": "Antigravity Commands (6 Skills)",
+  "antigravity.mcpCommandsSectionHeader": "MCP Commands (3 Skills)",
+  "antigravity.mcpCommandsDesc": "Install and manage the 3 Poverello MCP skills for planning and review delegation.",
+  "antigravity.workflowCommandsSectionHeader": "Workflow Commands (3 Skills)",
+  "antigravity.workflowCommandsDesc": "Install and manage the 3 canonical Poverello workflow skills.",
+  "antigravity.codingBehaviorHeader": "Coding Behavior",
+  "antigravity.taskPresetsHeader": "Task Presets",
+  "antigravity.reviewerPolicyTitle": "External Review Configuration",
+  "antigravity.reviewerPolicyDesc": "Select the external reviewer model engine used by workflow skills (/pov-plan-only, /pov-build-review, /pov-full-cycle).",
+  "antigravity.reviewerPolicyCodexOnly": "Codex CLI only",
+  "antigravity.reviewerPolicyCodexPlusDeepseek": "Codex CLI + DeepSeek Harness",
+  "antigravity.reviewerPolicyUpdateRequiredNotice": "Reviewer Policy configuration is disabled: All 3 workflow skills (/pov-plan-only, /pov-build-review, /pov-full-cycle) must be installed and up to date before changing reviewer policy.",
+  "antigravity.globalRulesFixedHeader": "Global Rules",
+  "antigravity.globalRulesFixedDesc": "Fixed global rule templates for Codex and DeepSeek reviewer harnesses.",
+  "antigravity.globalRulesStatusInstalled": "Installed",
+  "antigravity.globalRulesStatusNotInstalled": "Not installed",
+  "antigravity.globalRulesStatusModified": "Modified or protected",
+  "antigravity.globalRulesBtnInstall": "Install",
+  "antigravity.globalRulesBtnRemove": "Remove",
+  "antigravity.globalRulesRemovalUnsupported": "Removal is not supported on this platform",
   "antigravity.commandsDesc": "Install and manage six global Skills.",
   "antigravity.commandGenericDesc": "Skill for a planning, review, or implementation workflow.",
   "antigravity.globalRulesTitle": "Global rules",

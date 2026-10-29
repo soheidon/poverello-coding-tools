@@ -1,4 +1,4 @@
-﻿import type { TranslationMap } from "./en";
+import type { TranslationMap } from "./en";
 
 export const nativeName = "Deutsch";
 
@@ -27,6 +27,8 @@ export const translations: TranslationMap = {
   "settings.nav.general": "Allgemein",
   "settings.nav.claudeDesktop": "Claude Desktop",
   "settings.nav.antigravity": "Antigravity",
+  "settings.nav.antigravityMcp": "Antigravity MCP",
+  "settings.nav.antigravitySkillsRules": "Antigravity Skills & Regeln",
   "settings.nav.orchestrator": "Orchestrator",
   "tab.autoConverge": "Auto-Converge",
   "autoConverge.unavailable": "Auto-Converge ist in diesem Desktop-Build nicht verfügbar. Die OS-Isolierung für Reviewer fehlt; daher werden Läufe blockiert, bevor ein Agent-Prozess gestartet wird.",
@@ -72,6 +74,25 @@ export const translations: TranslationMap = {
 
   // Antigravity Commands (/pov-mcp-plan, /pov-mcp-revise & /pov-mcp-review)
   "antigravity.commandsSectionHeader": "Antigravity Commands (6 Skills)",
+  "antigravity.mcpCommandsSectionHeader": "MCP-Befehle (3 Skills)",
+  "antigravity.mcpCommandsDesc": "Installieren und verwalten Sie die 3 Poverello MCP-Skills für Planung und Überprüfung.",
+  "antigravity.workflowCommandsSectionHeader": "Workflow-Befehle (3 Skills)",
+  "antigravity.workflowCommandsDesc": "Installieren und verwalten Sie die 3 kanonischen Poverello-Workflow-Skills.",
+  "antigravity.codingBehaviorHeader": "Codierungsverhalten",
+  "antigravity.taskPresetsHeader": "Aufgaben-Voreinstellungen",
+  "antigravity.reviewerPolicyTitle": "Externe Überprüfungskonfiguration",
+  "antigravity.reviewerPolicyDesc": "Wählen Sie die externe Überprüfungsmodell-Engine aus, die von Workflow-Skills (/pov-plan-only, /pov-build-review, /pov-full-cycle) verwendet wird.",
+  "antigravity.reviewerPolicyCodexOnly": "Nur Codex CLI",
+  "antigravity.reviewerPolicyCodexPlusDeepseek": "Codex CLI + DeepSeek Harness",
+  "antigravity.reviewerPolicyUpdateRequiredNotice": "Überprüfer-Richtlinienkonfiguration deaktiviert: Alle 3 Workflow-Skills müssen installiert und aktuell sein, bevor die Richtlinie geändert werden kann.",
+  "antigravity.globalRulesFixedHeader": "Globale Regeln",
+  "antigravity.globalRulesFixedDesc": "Feste globale Regelvorlagen für Codex- und DeepSeek-Prüfmodule.",
+  "antigravity.globalRulesStatusInstalled": "Installiert",
+  "antigravity.globalRulesStatusNotInstalled": "Nicht installiert",
+  "antigravity.globalRulesStatusModified": "Geändert oder geschützt",
+  "antigravity.globalRulesBtnInstall": "Installieren",
+  "antigravity.globalRulesBtnRemove": "Entfernen",
+  "antigravity.globalRulesRemovalUnsupported": "Das Entfernen wird auf dieser Plattform nicht unterstützt",
   "antigravity.commandsDesc": "Installiert und verwaltet sechs globale Skills.",
   "antigravity.commandGenericDesc": "Skill für Planungs-, Review- oder Implementierungsabläufe.",
   "antigravity.globalRulesTitle": "Globale Regeln",

@@ -2,18 +2,19 @@
 
 # Poverello Coding Tools
 
-> **v0.25.1 过渡说明：** Auto-Converge 实现保留在代码中，但从应用的常规导航中隐藏。生产 dispatch 仍处于禁用状态，Stage 2 隔离尚未验证。这不代表已具备发布条件。
+> **v0.25.2 过渡说明：** Auto-Converge 实现保留在代码库中，但从应用的常规导航中隐藏。生产 dispatch 仍处于禁用状态，Stage 2 隔离尚未验证。这不代表已具备发布条件。
 
-**以 Claude Code / Claude Desktop 作为编程框架，将推理请求路由至第三方 LLM API，并将外部模型用作 Google Antigravity 的规划器与审查器。**
+**以 Claude Code / Claude Desktop 作为编程框架，将推理请求路由至第三方 LLM API，编排带有成本估算跟踪的有界多智能体工作流，并统一管理 Google Antigravity 的外部模型与规则。**
 
 Poverello Coding Tools（应用内显示名称为 **Poverello**）是一款面向 AI 辅助软件开发的 Windows 配套应用程序，支持五种互补的工作流：
 
 1. **面向 Claude Code / Claude Desktop 的第三方推理网关** — 保留 Claude 的代码仓库探索、工具调用、文件编辑和测试执行能力，同时将推理请求路由至第三方提供商。
-2. **Claude Code 专用本地 LLM（Ollama）** — 使用本地模型离线运行 Claude Code。
+2. **Claude Code 专用本地 LLM（Ollama）** — 使用本地模型离线运行 Claude Code，零 API 成本。
 3. **面向 Google Antigravity 的 MCP 规划器与审查器** — 通过 `poverello/plan`、`poverello/revise` 和 `poverello/review` MCP 工具，将实现规划、计划修订和实现后审查委托给外部模型。
 4. **多智能体开发 Orchestrator** — 执行当前支持的有界 Planner–Reviewer 工作流，并记录标准化 token 用量和基于已核验供应商费率的成本估算。
-5. **Antigravity 规则管理** — 为 Antigravity 配置、预览并安全同步 Poverello Direct Coding 规则（`pov-direct.md`）。
+5. **Antigravity Skills & 规则管理** — 集中统一配置工作流技能的审查策略 Reviewer Policy（独立 Codex CLI 单独对比 Codex CLI + DeepSeek Harness 复合审查），管理受保护的全局规则标准模板（`codex-cli.md`、`deepseek-harness.md`），调整 Direct Coding 行为模式（`pov-direct.md`）以及管理 Nerf 技能。
 
+> [!TIP]
 > **最新动态：** 请参阅 [NEWS.md（发行说明）](../NEWS.md)，了解各版本的功能、实现细节和变更记录。
 
 ---
@@ -79,7 +80,7 @@ Antigravity 的规范命令为 `/pov-mcp-plan`、`/pov-mcp-revise` 和 `/pov-mcp
 - **`/pov-mcp-revise`** — 根据新的反馈或约束条件修订现有计划。
 - **`/pov-mcp-review`** — 在提交前，针对已批准的计划审查已完成的实现，并给出明确的 READY / NOT READY 结论。
 
-自主工作流：`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`。
+自主工作流：`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`（在 **设置 > Antigravity Skills & 规则** 中与 Reviewer Policy 集中同步管理）。
 
 **推荐工作流：**
 
@@ -87,15 +88,49 @@ Antigravity 的规范命令为 `/pov-mcp-plan`、`/pov-mcp-revise` 和 `/pov-mcp
 /pov-mcp-plan → 实现与测试 → /pov-mcp-review → 提交
 ```
 
----
+### 4. 多智能体开发 Orchestrator（有界工作流与成本估算）
 
-### 4. 多智能体开发 Orchestrator（有界工作流与成本）
+```text
+任务 / 需求
+        ↓
++-------------------------------------------------------------+
+| Poverello Orchestrator                                      |
+|                                                             |
+|  [Planner 配置文件]  ⇄  [Reviewer 配置文件]                 |
+|  （生成 / 修订）         （验证 / 审计判定）                |
+|                                                             |
+|  • 有界规划 / 审查循环（可配置轮次上限）                    |
+|  • 完整调度日志（%APPDATA%\Poverello\runs\*.json）          |
+|  • 整数纳诺美元成本估算与来源校验                           |
+|  • 故障关闭状态徽章（Complete / Partial / N/A）             |
++-------------------------------------------------------------+
+        ↓
+已批准计划 / 审计日志
+        ↓
+通过所选编程框架独立、由用户掌控地实现
+```
 
-Orchestrator 使用可配置的角色配置和迭代上限执行当前支持的 Planner–Reviewer 工作流。创建新的主计划始终需要用户明确确认。`%APPDATA%\Poverello\runs\` 中的运行日志会记录可用的标准化用量、审计元数据和基于已核验费率的成本估算。估算不等同于供应商账单；不支持的路由不会计算成本。
+- **有界 Orchestrator 工作流**：为支持的 Orchestrator 工作流配置代理配置文件和迭代上限。
+- **安全不变量与人工审核**：需要批准的操作遵循明确的审批关卡；提议新的主计划始终需要明确的人工确认。
+- **可审计运行日志**：`%APPDATA%\Poverello\runs\<run_id>.json` 记录运行配置、可选的任务提示词、调度元数据、负载摘要、标准化用量与成本估算。
+- **标准化用量与费率验证成本估算**：采用整数纳诺美元（`u64 amount_nanos`）计算，严格禁止浮动点舍入偏差，不匹配费率故障关闭。
 
-### 5. Antigravity 规则管理（Poverello Direct Coding）
+### 5. Antigravity Skills & 规则管理
 
-可在 GUI 中配置、预览并同步 `pov-direct.md`。应用会保留用户自定义的 frontmatter 和注释，并提供经过验证的应用、备份及回滚保护。
+```text
+Poverello GUI（设置 > Antigravity Skills & 规则）
+          ↓（审查策略 / 模板保护 / 校验回滚）
+%USERPROFILE%\.gemini\config\rules\
+  • codex-cli.md / deepseek-harness.md（标准全局规则模板）
+  • pov-direct.md（Direct Coding 行为规则）
+~/.gemini/antigravity/skills/
+  • pov-full-cycle, pov-plan-only, pov-build-review（策略同步工作流技能）
+```
+
+- **集中化 Reviewer Policy**：在 `codex_only`（独立 Codex CLI 单独审查）与 `codex_plus_deepseek`（Codex CLI + DeepSeek Harness 复合审查）之间即时切换上层工作流技能（`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`），并自动同步 SHA-256 校验。
+- **受保护的全局规则模板**：一键安装并安全移除经 SHA-256 校验的标准全局规则模板（`codex-cli.md`、`deepseek-harness.md`），在 Windows 下受平台防护（`can_remove`）支持。
+- **范围与方向控制（Poverello Direct Coding）**：为 Antigravity 配置轻量级直接编码规则，防止对局部实现任务自主扩大规划范围或重构。
+- **单文件完整性与安全应用**：通过替换前 SHA-256 校验、冲突检查和回滚保护，安全管理 YAML 触发条件与标记块。
 
 ## 支持的提供商
 
@@ -229,20 +264,21 @@ Windows 安装程序支持 8 种语言。Poverello 保留现有应用标识，�
 ### 工作流 3：面向 Google Antigravity 的 MCP 规划器与审查器
 
 1. 在 Poverello 中为所选规划器/审查器模型配置 API 密钥。
-2. 选择 **MCP** 标签页，并在 **Settings > Antigravity > MCP Plan Settings** 中配置模型。
-3. 在 Antigravity 的 MCP 配置中注册 `anthro-bridge.exe`，并附加参数 `["--mcp-server"]`（或在 Poverello 中点击 **Configure Automatically**）。
+2. 选择 **MCP** 选项卡（或 **设置 > Antigravity MCP**），并在 **设置 > Antigravity MCP > MCP Plan 详细设置** 中配置模型。
+3. 在 Antigravity 的 MCP 配置中注册 `anthro-bridge.exe`，并附加参数 `["--mcp-server"]`，服务键为 `poverello`（或在 Poverello 中点击 **自动配置**）。
 4. 使用 `/pov-mcp-plan` 制定计划，使用 `/pov-mcp-revise` 更新计划，使用 `/pov-mcp-review` 在提交前审查实现。
 5. 请参阅完整的 [Antigravity MCP 配置指南](ANTIGRAVITY_MCP.zh-CN.md)。
 
 ### 工作流 4：多智能体开发 Orchestrator
 
-**访问方式：** v0.25.1 已从顶部导航隐藏 Orchestrator 标签页。请在 Antigravity 中运行上述斜杠命令。
+**访问说明：** v0.25.2 已从常规应用导航中隐藏 Orchestrator 选项卡，但保留其底层实现。请在 Antigravity 中使用 `/pov-full-cycle`、`/pov-plan-only` 或 `/pov-build-review` 启动自主工作流。
 
-### 工作流 5：Antigravity 规则管理
+### 工作流 5：Antigravity Skills & 规则管理
 
-1. 打开 **Settings > Antigravity** 并找到 **Global rules**。
-2. 编辑并保存 `deepseek-harness.md` 或 `codex-cli.md`。
-3. 独立的 Poverello Direct Coding 规则可在 **Settings > Antigravity Rules** 中预览并应用 `pov-direct.md`。
+1. 打开 **设置 > Antigravity Skills & 规则**。
+2. 选择审查策略 Reviewer Policy（`codex_only` 或 `codex_plus_deepseek`）以同步工作流技能。
+3. 安装或管理受保护的标准全局规则模板（`codex-cli.md`、`deepseek-harness.md`）。
+4. 配置 Poverello Direct Coding 参数并点击 **应用** 以同步 `pov-direct.md`。
 
 ## API 密钥
 

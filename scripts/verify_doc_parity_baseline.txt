@@ -1,0 +1,184 @@
+=== Step 1: Target Files Existence & Non-Emptiness ===
+Total documentation files to verify: 26 (expected 26)
+Total version metadata files: 3 (expected 3)
+Total targets: 29 (expected 29)
+[PASS] All 29 targets exist and are non-empty.
+
+=== Step 2: Encoding (Strict Valid UTF-8 without BOM) and Line Endings (Strict LF) ===
+[FAIL] File contains CRLF line endings (strict LF required): docs/README.ja.md
+[FAIL] File contains CRLF line endings (strict LF required): docs/README.de.md
+[FAIL] File contains CRLF line endings (strict LF required): docs/README.es.md
+[FAIL] File contains CRLF line endings (strict LF required): docs/README.fr.md
+[FAIL] File contains CRLF line endings (strict LF required): docs/README.ko.md
+[FAIL] File contains CRLF line endings (strict LF required): docs/ANTIGRAVITY_MCP.ko.md
+[FAIL] File contains CRLF line endings (strict LF required): docs/ANTIGRAVITY_MCP.zh-CN.md
+[FAIL] File contains CRLF line endings (strict LF required): docs/ANTIGRAVITY_MCP.zh-TW.md
+[FAIL] File contains CRLF line endings (strict LF required): NEWS.md
+[FAIL] File has UTF-8 BOM: docs/DEVELOPMENT.md
+
+=== Step 3: Relative Document Links Resolution Across All Documents ===
+[PASS] README.md relative links verified (28 total links found).
+[PASS] docs/README.ja.md relative links verified (26 total links found).
+[PASS] docs/README.de.md relative links verified (27 total links found).
+[PASS] docs/README.es.md relative links verified (26 total links found).
+[PASS] docs/README.fr.md relative links verified (26 total links found).
+[PASS] docs/README.ko.md relative links verified (25 total links found).
+[PASS] docs/README.zh-CN.md relative links verified (25 total links found).
+[PASS] docs/README.zh-TW.md relative links verified (25 total links found).
+[PASS] SPEC.md relative links verified (11 total links found).
+[PASS] docs/SPEC.ja.md relative links verified (11 total links found).
+[PASS] docs/SPEC.de.md relative links verified (11 total links found).
+[PASS] docs/SPEC.es.md relative links verified (11 total links found).
+[PASS] docs/SPEC.fr.md relative links verified (11 total links found).
+[PASS] docs/SPEC.ko.md relative links verified (11 total links found).
+[PASS] docs/SPEC.zh-CN.md relative links verified (11 total links found).
+[PASS] docs/SPEC.zh-TW.md relative links verified (11 total links found).
+[PASS] docs/ANTIGRAVITY_MCP.md relative links verified (10 total links found).
+[PASS] docs/ANTIGRAVITY_MCP.ja.md relative links verified (10 total links found).
+[PASS] docs/ANTIGRAVITY_MCP.de.md relative links verified (10 total links found).
+[PASS] docs/ANTIGRAVITY_MCP.es.md relative links verified (10 total links found).
+[PASS] docs/ANTIGRAVITY_MCP.fr.md relative links verified (10 total links found).
+[PASS] docs/ANTIGRAVITY_MCP.ko.md relative links verified (10 total links found).
+[PASS] docs/ANTIGRAVITY_MCP.zh-CN.md relative links verified (10 total links found).
+[PASS] docs/ANTIGRAVITY_MCP.zh-TW.md relative links verified (10 total links found).
+[PASS] NEWS.md relative links verified (4 total links found).
+[PASS] docs/DEVELOPMENT.md relative links verified (0 total links found).
+
+=== Step 4: Multilingual Parity Checks (Structure, Callouts, Tables, Language Bar, Identifiers) ===
+
+Family [README.md]: 30 headings, 14 code blocks, 1 callouts, 4 tables
+[PASS] README.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/README.ja.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/README.ja.md heading level sequence (30 headings) matches canonical.
+[FAIL] docs/README.ja.md code block count (12) does not match canonical (14)
+[PASS] docs/README.ja.md callout count (1) matches canonical.
+[PASS] docs/README.ja.md table column structure (4 tables) matches canonical.
+[PASS] docs/README.ja.md contains all required untranslated identifiers.
+[PASS] docs/README.de.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/README.de.md heading level sequence (30 headings) matches canonical.
+[FAIL] docs/README.de.md code block count (10) does not match canonical (14)
+[FAIL] docs/README.de.md callout count (0) does not match canonical (1)
+[PASS] docs/README.de.md table column structure (4 tables) matches canonical.
+[PASS] docs/README.de.md contains all required untranslated identifiers.
+[PASS] docs/README.es.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/README.es.md heading level sequence (30 headings) matches canonical.
+[FAIL] docs/README.es.md code block count (10) does not match canonical (14)
+[FAIL] docs/README.es.md callout count (0) does not match canonical (1)
+[PASS] docs/README.es.md table column structure (4 tables) matches canonical.
+[PASS] docs/README.es.md contains all required untranslated identifiers.
+[PASS] docs/README.fr.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/README.fr.md heading level sequence (30 headings) matches canonical.
+[FAIL] docs/README.fr.md code block count (10) does not match canonical (14)
+[FAIL] docs/README.fr.md callout count (0) does not match canonical (1)
+[PASS] docs/README.fr.md table column structure (4 tables) matches canonical.
+[PASS] docs/README.fr.md contains all required untranslated identifiers.
+[PASS] docs/README.ko.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/README.ko.md heading level sequence (30 headings) matches canonical.
+[FAIL] docs/README.ko.md code block count (8) does not match canonical (14)
+[FAIL] docs/README.ko.md callout count (0) does not match canonical (1)
+[PASS] docs/README.ko.md table column structure (4 tables) matches canonical.
+[PASS] docs/README.ko.md contains all required untranslated identifiers.
+[PASS] docs/README.zh-CN.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/README.zh-CN.md heading level sequence (30 headings) matches canonical.
+[FAIL] docs/README.zh-CN.md code block count (10) does not match canonical (14)
+[FAIL] docs/README.zh-CN.md callout count (0) does not match canonical (1)
+[PASS] docs/README.zh-CN.md table column structure (4 tables) matches canonical.
+[PASS] docs/README.zh-CN.md contains all required untranslated identifiers.
+[PASS] docs/README.zh-TW.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/README.zh-TW.md heading level sequence (30 headings) matches canonical.
+[FAIL] docs/README.zh-TW.md code block count (10) does not match canonical (14)
+[FAIL] docs/README.zh-TW.md callout count (0) does not match canonical (1)
+[PASS] docs/README.zh-TW.md table column structure (4 tables) matches canonical.
+[PASS] docs/README.zh-TW.md contains all required untranslated identifiers.
+
+Family [SPEC.md]: 16 headings, 14 code blocks, 0 callouts, 2 tables
+[PASS] SPEC.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/SPEC.ja.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/SPEC.ja.md heading level sequence (16 headings) matches canonical.
+[PASS] docs/SPEC.ja.md code block count (14) matches canonical.
+[PASS] docs/SPEC.ja.md callout count (0) matches canonical.
+[PASS] docs/SPEC.ja.md table column structure (2 tables) matches canonical.
+[PASS] docs/SPEC.ja.md contains all required untranslated identifiers.
+[PASS] docs/SPEC.de.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/SPEC.de.md heading level sequence (16 headings) matches canonical.
+[PASS] docs/SPEC.de.md code block count (14) matches canonical.
+[PASS] docs/SPEC.de.md callout count (0) matches canonical.
+[PASS] docs/SPEC.de.md table column structure (2 tables) matches canonical.
+[PASS] docs/SPEC.de.md contains all required untranslated identifiers.
+[PASS] docs/SPEC.es.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/SPEC.es.md heading level sequence (16 headings) matches canonical.
+[PASS] docs/SPEC.es.md code block count (14) matches canonical.
+[PASS] docs/SPEC.es.md callout count (0) matches canonical.
+[PASS] docs/SPEC.es.md table column structure (2 tables) matches canonical.
+[PASS] docs/SPEC.es.md contains all required untranslated identifiers.
+[PASS] docs/SPEC.fr.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/SPEC.fr.md heading level sequence (16 headings) matches canonical.
+[PASS] docs/SPEC.fr.md code block count (14) matches canonical.
+[PASS] docs/SPEC.fr.md callout count (0) matches canonical.
+[PASS] docs/SPEC.fr.md table column structure (2 tables) matches canonical.
+[PASS] docs/SPEC.fr.md contains all required untranslated identifiers.
+[PASS] docs/SPEC.ko.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/SPEC.ko.md heading level sequence (16 headings) matches canonical.
+[PASS] docs/SPEC.ko.md code block count (14) matches canonical.
+[PASS] docs/SPEC.ko.md callout count (0) matches canonical.
+[PASS] docs/SPEC.ko.md table column structure (2 tables) matches canonical.
+[PASS] docs/SPEC.ko.md contains all required untranslated identifiers.
+[PASS] docs/SPEC.zh-CN.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/SPEC.zh-CN.md heading level sequence (16 headings) matches canonical.
+[PASS] docs/SPEC.zh-CN.md code block count (14) matches canonical.
+[PASS] docs/SPEC.zh-CN.md callout count (0) matches canonical.
+[PASS] docs/SPEC.zh-CN.md table column structure (2 tables) matches canonical.
+[PASS] docs/SPEC.zh-CN.md contains all required untranslated identifiers.
+[PASS] docs/SPEC.zh-TW.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/SPEC.zh-TW.md heading level sequence (16 headings) matches canonical.
+[PASS] docs/SPEC.zh-TW.md code block count (14) matches canonical.
+[PASS] docs/SPEC.zh-TW.md callout count (0) matches canonical.
+[PASS] docs/SPEC.zh-TW.md table column structure (2 tables) matches canonical.
+[PASS] docs/SPEC.zh-TW.md contains all required untranslated identifiers.
+
+Family [docs/ANTIGRAVITY_MCP.md]: 21 headings, 26 code blocks, 4 callouts, 0 tables
+[PASS] docs/ANTIGRAVITY_MCP.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/ANTIGRAVITY_MCP.ja.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/ANTIGRAVITY_MCP.ja.md heading level sequence (21 headings) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.ja.md code block count (26) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.ja.md callout count (4) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.ja.md table column structure (0 tables) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.ja.md contains all required untranslated identifiers.
+[PASS] docs/ANTIGRAVITY_MCP.de.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/ANTIGRAVITY_MCP.de.md heading level sequence (21 headings) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.de.md code block count (26) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.de.md callout count (4) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.de.md table column structure (0 tables) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.de.md contains all required untranslated identifiers.
+[PASS] docs/ANTIGRAVITY_MCP.es.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/ANTIGRAVITY_MCP.es.md heading level sequence (21 headings) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.es.md code block count (26) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.es.md callout count (4) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.es.md table column structure (0 tables) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.es.md contains all required untranslated identifiers.
+[PASS] docs/ANTIGRAVITY_MCP.fr.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/ANTIGRAVITY_MCP.fr.md heading level sequence (21 headings) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.fr.md code block count (26) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.fr.md callout count (4) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.fr.md table column structure (0 tables) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.fr.md contains all required untranslated identifiers.
+[PASS] docs/ANTIGRAVITY_MCP.ko.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/ANTIGRAVITY_MCP.ko.md heading level sequence (21 headings) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.ko.md code block count (26) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.ko.md callout count (4) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.ko.md table column structure (0 tables) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.ko.md contains all required untranslated identifiers.
+[PASS] docs/ANTIGRAVITY_MCP.zh-CN.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/ANTIGRAVITY_MCP.zh-CN.md heading level sequence (21 headings) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.zh-CN.md code block count (26) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.zh-CN.md callout count (4) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.zh-CN.md table column structure (0 tables) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.zh-CN.md contains all required untranslated identifiers.
+[PASS] docs/ANTIGRAVITY_MCP.zh-TW.md line 1 language switch bar verified (8 languages + destination match).
+[PASS] docs/ANTIGRAVITY_MCP.zh-TW.md heading level sequence (21 headings) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.zh-TW.md code block count (26) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.zh-TW.md callout count (4) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.zh-TW.md table column structure (0 tables) matches canonical.
+[PASS] docs/ANTIGRAVITY_MCP.zh-TW.md contains all required untranslated identifiers.
+
+Parity verification finished with errors.

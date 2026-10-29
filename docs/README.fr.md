@@ -2,18 +2,19 @@
 
 # Poverello Coding Tools
 
-> **Transition vers v0.25.1 :** Auto-Converge est conservé dans le code, mais masqué dans la navigation normale de l’application. Le dispatch de production reste désactivé et l’isolation de Stage 2 n’est pas vérifiée. Cela ne signifie pas que la version est prête à être publiée.
+> **Transition vers v0.25.2 :** Auto-Converge est conservé dans le code source, mais masqué dans la navigation normale de l’application. Le dispatch de production reste désactivé et l’isolation de Stage 2 n’est pas vérifiée. Cela ne signifie pas que la version est prête à être publiée.
 
-**Utilisez Claude Code / Claude Desktop comme environnement de développement, routez les inférences vers des API LLM tierces, et utilisez des modèles externes comme planificateurs et réviseurs pour Google Antigravity.**
+**Utilisez Claude Code / Claude Desktop comme environnement de développement, routez les inférences vers des API LLM tierces, orchestrez des flux multi-agents bornés avec suivi des estimations de coût et gérez de façon centralisée les modèles externes et règles pour Google Antigravity.**
 
 Poverello Coding Tools (affiché dans l’application sous le nom **Poverello**) est une application Windows complémentaire pour le développement logiciel assisté par IA. Elle prend en charge cinq flux de travail complémentaires :
 
 1. **Passerelle 3P pour Claude Code / Claude Desktop** — Conservez l'exploration de dépôts, l'utilisation d'outils, l'édition de fichiers et l'exécution de tests de Claude tout en routant les inférences vers des fournisseurs tiers.
-2. **LLM local dédié à Claude Code (Ollama)** — Exécutez Claude Code hors ligne avec des modèles locaux.
+2. **LLM local dédié à Claude Code (Ollama)** — Exécutez Claude Code hors ligne avec des modèles locaux sans aucun coût d'API.
 3. **Planificateur & Réviseur MCP pour Google Antigravity** — Déléguez la planification, la révision des plans et la revue post-implémentation à des modèles externes via les outils MCP `poverello/plan`, `poverello/revise` et `poverello/review`.
 4. **Orchestrateur de développement multi-agents** — Exécutez les workflows Planner–Reviewer limités actuellement pris en charge et suivez l'utilisation normalisée des jetons ainsi que les estimations de coût vérifiées.
-5. **Gestion des règles Antigravity** — Configurez, prévisualisez et synchronisez en toute sécurité les règles Poverello Direct Coding (`pov-direct.md`) pour Antigravity.
+5. **Gestion des Antigravity Skills & Règles** — Configurez de manière centralisée la politique Reviewer Policy pour les compétences de flux de travail (Codex CLI seul vs revue composite Codex CLI + DeepSeek Harness), gérez les modèles standard protégés de règles globales (`codex-cli.md`, `deepseek-harness.md`), ajustez le comportement Direct Coding (`pov-direct.md`) et gérez les compétences Nerf.
 
+> [!TIP]
 > **Nouveautés :** Consultez [NEWS.md (notes de version)](../NEWS.md) pour les fonctionnalités, détails d'implémentation et changements de chaque version.
 
 ---
@@ -79,7 +80,7 @@ Les commandes Antigravity canoniques sont `/pov-mcp-plan`, `/pov-mcp-revise` et 
 - **`/pov-mcp-revise`** — Révise un plan existant en fonction de nouveaux retours ou contraintes.
 - **`/pov-mcp-review`** — Révise une implémentation terminée par rapport au plan approuvé avant le commit, avec des verdicts explicites READY / NOT READY.
 
-Workflows autonomes : `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`.
+Workflows autonomes : `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review` (gérés sous **Paramètres > Antigravity Skills & Rules** avec synchronisation de la Reviewer Policy).
 
 **Flux de travail recommandé :**
 
@@ -87,15 +88,49 @@ Workflows autonomes : `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`.
 /pov-mcp-plan → Implémentation & Tests → /pov-mcp-review → Commit
 ```
 
----
-
 ### 4. Orchestrateur de développement multi-agents (workflows limités et coûts)
 
-L'Orchestrator exécute des boucles Planner–Reviewer limitées avec des profils et des bornes d'itération configurables. Tout nouveau plan principal nécessite toujours une confirmation humaine explicite. Les journaux de `%APPDATA%\Poverello\runs\` contiennent les données d'utilisation normalisées disponibles, les métadonnées d'audit et les estimations de coût vérifiées. Il s'agit d'estimations, pas de factures ; les routes non prises en charge ne sont pas chiffrées.
+```text
+Tâche / Spécification
+        ↓
++-------------------------------------------------------------+
+| Poverello Orchestrator                                      |
+|                                                             |
+|  [Profil Planner]  ⇄  [Profil Reviewer]                     |
+|  (Générer / Réviser)    (Vérifier / Verdicts)               |
+|                                                             |
+|  • Boucle plan/revue bornée (limite de tours)               |
+|  • Journaux complets (%APPDATA%\Poverello\runs\*.json)      |
+|  • Estimations en nano-dollars entiers & vérification       |
+|  • Badges à sûreté intégrée (Complete / Partial / N/A)      |
++-------------------------------------------------------------+
+        ↓
+Plan Approuvé / Journal d'Audit
+        ↓
+Implémentation séparée et contrôlée par l'utilisateur
+```
 
-### 5. Gestion des règles Antigravity (Poverello Direct Coding)
+- **Workflows d'orchestration bornés** : Configurez les profils d'agents et les plafonds d'itération pour les flux pris en charge.
+- **Invariants de sécurité et validation humaine** : Les actions nécessitant une approbation respectent des points de contrôle stricts ; tout nouveau plan principal requiert une confirmation humaine explicite.
+- **Journaux d'exécution vérifiables** : `%APPDATA%\Poverello\runs\<run_id>.json` consigne la configuration, le prompt, les métadonnées, l'utilisation normalisée et les estimations de coût.
+- **Utilisation normalisée et estimations vérifiées** : Calculs en nano-dollars entiers (`u64 amount_nanos`) sans approximations flottantes, avec rejet sécurisé en cas de tarification inconnue.
 
-Configurez, prévisualisez et synchronisez `pov-direct.md` depuis l'interface graphique. L'application préserve les champs frontmatter et commentaires personnalisés, avec application vérifiée, sauvegardes et protection par rollback.
+### 5. Gestion des Antigravity Skills & Règles
+
+```text
+Poverello GUI (Paramètres > Antigravity Skills & Rules)
+          ↓ (Reviewer Policy / Protection de Modèles / Rollback)
+%USERPROFILE%\.gemini\config\rules\
+  • codex-cli.md / deepseek-harness.md (Modèles Standard de Règles Globales)
+  • pov-direct.md (Comportement Direct Coding)
+~/.gemini/antigravity/skills/
+  • pov-full-cycle, pov-plan-only, pov-build-review (Compétences Synchronisées)
+```
+
+- **Politique Reviewer Policy centralisée** : Basculez instantanément les compétences autonomes (`/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`) entre `codex_only` (Codex CLI indépendant seul) et `codex_plus_deepseek` (revue composite Codex CLI + DeepSeek Harness) avec vérification SHA-256 et synchronisation automatique.
+- **Modèles protégés de règles globales** : Installation en un clic et suppression sécurisée des modèles standard (`codex-cli.md`, `deepseek-harness.md`) vérifiés par SHA-256, avec protection de plateforme (`can_remove`) sous Windows.
+- **Contrôle de portée et de direction (Poverello Direct Coding)** : Configurez des règles légères pour éviter toute expansion non sollicitée du périmètre ou refactorisation excessive.
+- **Intégrité de fichier unique et application sécurisée** : Protégé par vérification préalable SHA-256, détection des conflits de suppression et restauration vérifiée.
 
 ## Fournisseurs pris en charge
 
@@ -229,20 +264,21 @@ L’installateur Windows prend en charge 8 langues. Poverello conserve l’ident
 ### Flux de travail 3 : Planificateur & Réviseur MCP pour Google Antigravity
 
 1. Configurez une clé API pour le modèle planificateur/réviseur choisi dans Poverello.
-2. Sélectionnez l'onglet **MCP** et configurez votre modèle dans **Paramètres > Antigravity > MCP Plan Settings**.
-3. Enregistrez `anthro-bridge.exe` avec `["--mcp-server"]` dans la configuration MCP d'Antigravity (ou cliquez sur **Configure Automatically** dans Poverello).
+2. Sélectionnez l'onglet **MCP** (ou **Paramètres > Antigravity MCP**) et configurez votre modèle dans **Paramètres > Antigravity MCP > Paramètres détaillés du plan MCP**.
+3. Enregistrez `anthro-bridge.exe` avec `["--mcp-server"]` sous la clé de serveur `poverello` dans la configuration MCP d'Antigravity (ou cliquez sur **Configurer automatiquement** dans Poverello).
 4. Utilisez `/pov-mcp-plan` pour concevoir des plans, `/pov-mcp-revise` pour mettre à jour des plans, et `/pov-mcp-review` pour réviser les implémentations avant le commit.
 5. Suivez le [Guide complet de configuration du MCP Antigravity](ANTIGRAVITY_MCP.fr.md).
 
 ### Flux de travail 4 : Orchestrateur de développement multi-agents
 
-**Accès :** Dans la version 0.25.1, l’onglet Orchestrator est masqué dans la navigation supérieure. Lancez les commandes ci-dessus dans Antigravity.
+**Note d'accès :** Dans la version 0.25.2, l’onglet Orchestrator est masqué dans la navigation habituelle tout en conservant son implémentation sous-jacente. Lancez les workflows autonomes dans Antigravity avec `/pov-full-cycle`, `/pov-plan-only` ou `/pov-build-review`.
 
-### Flux de travail 5 : Gestion des règles Antigravity
+### Flux de travail 5 : Gestion des Antigravity Skills & Règles
 
-1. Ouvrez **Paramètres > Antigravity** et repérez **Global rules**.
-2. Modifiez et enregistrez `deepseek-harness.md` ou `codex-cli.md`.
-3. Pour la règle Poverello Direct Coding distincte, prévisualisez et appliquez `pov-direct.md` dans **Paramètres > Antigravity Rules**.
+1. Ouvrez **Paramètres > Antigravity Skills & Rules**.
+2. Sélectionnez votre politique Reviewer Policy (`codex_only` ou `codex_plus_deepseek`) pour synchroniser les compétences.
+3. Installez ou gérez les modèles standard protégés de règles globales (`codex-cli.md`, `deepseek-harness.md`).
+4. Configurez les paramètres Direct Coding et cliquez sur **Appliquer** pour synchroniser `pov-direct.md`.
 
 ## Clés API
 

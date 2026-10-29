@@ -1,4 +1,4 @@
-﻿# Development & Verification Guide
+# Development & Verification Guide
 
 This document contains instructions for building, developing, testing, and verifying Poverello.
 
@@ -20,6 +20,9 @@ poverello-coding-tools/
 ├── gui/
 │   ├── src/
 │   │   ├── components/
+│   │   │   ├── AntigravitySkillsRulesPanel.tsx
+│   │   │   ├── AntigravityRulesPanel.tsx
+│   │   │   └── McpSettingPanel.tsx
 │   │   ├── config/
 │   │   ├── hooks/
 │   │   └── i18n/
@@ -29,8 +32,13 @@ poverello-coding-tools/
 │   │   │   ├── main.rs
 │   │   │   ├── proxy.rs
 │   │   │   ├── openrouter.rs
+│   │   │   ├── reviewer_policy.rs
+│   │   │   ├── antigravity_global_rules.rs
 │   │   │   └── model_capabilities.rs
 │   │   └── resources/
+│   │       ├── antigravity-global-rules/
+│   │       │   ├── codex-cli.md
+│   │       │   └── deepseek-harness.md
 │   │       └── antigravity-skills/
 │   │           ├── pov-mcp-plan/SKILL.md
 │   │           ├── pov-mcp-review/SKILL.md
@@ -45,6 +53,8 @@ poverello-coding-tools/
 │   │   ├── main.rs
 │   │   └── provider/
 │   └── Cargo.toml
+├── scripts/
+│   └── verify_doc_parity.ps1
 └── LICENSE
 ```
 
@@ -112,6 +122,12 @@ cargo test
 # MCP Server tests
 cd mcp-server
 cargo test
+```
+
+### Multilingual Documentation Parity
+
+```powershell
+pwsh -File scripts/verify_doc_parity.ps1
 ```
 
 ---

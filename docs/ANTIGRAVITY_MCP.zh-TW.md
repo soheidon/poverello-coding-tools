@@ -55,7 +55,7 @@ Antigravity 使用訂閱額度
 
 ### 方法 1 — 透過 Poverello GUI 設定（推薦）
 
-1. 開啟 Poverello，進入頂部導覽的 **設定**（`[設定]` 標籤頁）> 左側子導覽的 **Antigravity**。
+1. 開啟 Poverello，進入頂部導覽的 **MCP** 標籤頁（或 **設定** > **Antigravity MCP**）。
 2. 檢視 **Google Antigravity 整合** 卡片：
    - **目標執行檔**：預設顯示目前正在執行的 `anthro-bridge.exe` 路徑。若想使用其他二進位檔（如可攜版或自訂建置版），點擊 **變更** (`antigravity.btnChangeExe`) 選擇執行檔。
    - **註冊 / 更新**：點擊 **更新 Antigravity 設定** (`antigravity.btnUpdate`)，即可在保留 `%USERPROFILE%\.gemini\config\mcp_config.json` 中其他 MCP 伺服器設定的前提下，安全地註冊或更新 `anthro-bridge`。
@@ -113,12 +113,13 @@ anthro-bridge
 
 Poverello 明確劃分了規劃器選擇與詳細參數管理的職責：
 
-1. **頂層 `MCP` 標籤頁 (`MCP for Antigravity`)**：
-   - 顯示可用提供者（DeepSeek、OpenRouter、MiniMax、MiMo (V2.6)、Kimi、GLM）與設定檔的卡片清單。
-   - 點擊卡片即可立即切換生效的規劃器目標。
-2. **`設定` > `Antigravity`**：
-   - **MCP Plan 詳細設定** 卡片：按提供者/設定檔詳細設定所選模型、思考模式 (Thinking Mode) 及推論強度 (Reasoning Effort)。
-   - **Google Antigravity 整合** 卡片：管理 MCP 伺服器註冊狀態、Antigravity Commands（全域技能）以及全域規則（`deepseek-harness.md`、`codex-cli.md`）。
+1. **頂層 `MCP` 標籤頁 (`MCP for Antigravity`) / `設定 > Antigravity MCP`**：
+   - 管理 MCP 伺服器註冊狀態、目標執行檔以及 MCP Commands（`/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`）。
+   - 點擊 **全部安裝** (`antigravity.btnInstallAll`)，僅批次安裝 3 個 MCP 技能，不干擾上層工作流程技能。
+2. **`設定` > `Antigravity Skills & 規則`**：
+   - 集中統一設定與同步上層工作流程技能（`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`）的審查策略 Reviewer Policy（`codex_only` 對比 `codex_plus_deepseek`）。
+   - 管理受保護的全域規則標準範本（`codex-cli.md`、`deepseek-harness.md`），提供 SHA-256 驗證與 Windows 移除支援（`can_remove`）。
+   - 設定編碼行為模式（`pov-direct.md`）與 Poverello Nerf 技能。
 
 > [!NOTE]
 > Poverello MCP 伺服器在每次呼叫 `plan()` 工具時都會動態讀取目前設定。在 GUI 中變更規劃器提供者或模型參數時，**無需**重啟 MCP 伺服器或 Antigravity。
@@ -127,7 +128,7 @@ Poverello 明確劃分了規劃器選擇與詳細參數管理的職責：
 
 ## 6. 使用 Antigravity Commands (`/pov-mcp-plan`、`/pov-mcp-revise` 與 `/pov-mcp-review`)（推薦）
 
-在 **設定 > Antigravity** 的 **Google Antigravity 整合** 卡片中安裝全域技能後，可在所有 Antigravity 工作區中使用斜線指令：
+在 **MCP** 標籤頁（或 **設定 > Antigravity MCP**）中安裝全域技能後，可在所有 Antigravity 工作區中使用斜線指令：
 
 - 點擊 **全部安裝** (`antigravity.btnInstallAll`) 或點擊指令旁的 **安裝** (`antigravity.commandBtnInstall`)。
 
@@ -158,7 +159,7 @@ Poverello 明確劃分了規劃器選擇與詳細參數管理的職責：
 
 ## 7. Antigravity 上層指令（`/pov-full-cycle`、`/pov-plan-only` 與 `/pov-build-review`）
 
-除直接的 MCP 技能外，Poverello 亦提供安裝至 `~/.gemini/antigravity/skills/` 的 3 個上層自主工作流程技能：
+除直接的 MCP 技能外，Poverello 亦提供安裝至 `~/.gemini/antigravity/skills/` 並在 **設定 > Antigravity Skills & 規則** 中透過審查策略 Reviewer Policy（`codex_only` 或 `codex_plus_deepseek`）統一控管的 3 個上層自主工作流程技能：
 
 ### 全週期自主開發：
 ```text
