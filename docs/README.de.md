@@ -272,7 +272,7 @@ Das Windows-Installationsprogramm unterstützt 8 Sprachen. Poverello behält die
 
 ### Arbeitsablauf 4: Multi-Agent Development Orchestrator
 
-**Zugriffshinweis:** In v0.25.2 ist die Orchestrator-Registerkarte in der normalen Navigation ausgeblendet, während die Implementierung erhalten bleibt. Starten Sie autonome Workflows in Antigravity mit `/pov-full-cycle`, `/pov-plan-only` oder `/pov-build-review`.
+**Zugriffshinweis:** In v0.25.2 ist der Orchestrator-Eintrag in der Settings-Unternavigation ausgeblendet; Implementierung und interne Routen bleiben erhalten. Starten Sie autonome Workflows in Antigravity mit `/pov-full-cycle`, `/pov-plan-only` oder `/pov-build-review`.
 
 ### Arbeitsablauf 5: Verwaltung von Antigravity Skills & Regeln
 

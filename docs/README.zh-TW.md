@@ -271,7 +271,7 @@ Windows 安裝程式支援 8 種語言。Poverello 保留既有應用程式識�
 
 ### 工作流程 4：多代理開發 Orchestrator
 
-**使用說明：** v0.25.2 已從一般應用程式導覽中隱藏 Orchestrator 標籤頁，但保留其底層實作。請在 Antigravity 中使用 `/pov-full-cycle`、`/pov-plan-only` 或 `/pov-build-review` 啟動自主工作流程。
+**使用說明：** v0.25.2 已從 Settings 子導覽中隱藏 Orchestrator 項目，但保留其實作與內部路由。請在 Antigravity 中使用 `/pov-full-cycle`、`/pov-plan-only` 或 `/pov-build-review` 啟動自主工作流程。
 
 ### 工作流程 5：Antigravity Skills & 規則管理
 

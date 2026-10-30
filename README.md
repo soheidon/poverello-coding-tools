@@ -296,7 +296,7 @@ The Windows installer supports 8 languages. Poverello keeps the existing applica
 
 ### Workflow 4: Multi-Agent Development Orchestrator
 
-**Access note:** v0.25.2 hides the Orchestrator tab from normal app navigation while its implementation is retained. Start autonomous workflows in Antigravity with `/pov-full-cycle`, `/pov-plan-only`, or `/pov-build-review`.
+**Access note:** v0.25.2 hides the Orchestrator entry from the Settings sub-navigation while retaining its implementation and internal routes. Start autonomous workflows in Antigravity with `/pov-full-cycle`, `/pov-plan-only`, or `/pov-build-review`.
 
 ### Workflow 5: Antigravity Skills & Rules Management
 

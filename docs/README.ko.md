@@ -271,7 +271,7 @@ Windows 설치 프로그램은 8개 언어를 지원합니다. Poverello는 기�
 
 ### 워크플로 4: 멀티 에이전트 개발 오케스트레이터
 
-**접근 안내:** v0.25.2에서는 구현을 유지하면서 상단 탐색에서 Orchestrator 탭을 숨깁니다. Antigravity에서 `/pov-full-cycle`, `/pov-plan-only`, 또는 `/pov-build-review`를 사용하여 자율 워크플로를 시작하세요.
+**접근 안내:** v0.25.2에서는 구현과 내부 경로를 유지하면서 Settings 하위 탐색 메뉴에서 Orchestrator 항목을 숨깁니다. Antigravity에서 `/pov-full-cycle`, `/pov-plan-only`, 또는 `/pov-build-review`를 사용하여 자율 워크플로를 시작하세요.
 
 ### 워크플로 5: Antigravity Skills & Rules 관리
 

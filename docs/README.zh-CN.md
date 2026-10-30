@@ -271,7 +271,7 @@ Windows 安装程序支持 8 种语言。Poverello 保留现有应用标识，�
 
 ### 工作流 4：多智能体开发 Orchestrator
 
-**访问说明：** v0.25.2 已从常规应用导航中隐藏 Orchestrator 选项卡，但保留其底层实现。请在 Antigravity 中使用 `/pov-full-cycle`、`/pov-plan-only` 或 `/pov-build-review` 启动自主工作流。
+**访问说明：** v0.25.2 已从 Settings 子导航中隐藏 Orchestrator 项，但保留其实现和内部路由。请在 Antigravity 中使用 `/pov-full-cycle`、`/pov-plan-only` 或 `/pov-build-review` 启动自主工作流。
 
 ### 工作流 5：Antigravity Skills & 规则管理
 

@@ -292,7 +292,7 @@ Windowsインストーラーは8言語に対応しています。Poverelloは既
 
 ### ワークフロー 4: マルチエージェント開発オーケストレーター
 
-**アクセスに関する注意:** v0.25.2 では実装を保持したまま、Orchestrator タブを通常のアプリナビゲーションから非表示にしています。Antigravity 内で `/pov-full-cycle`、`/pov-plan-only`、または `/pov-build-review` を使用して自律ワークフローを開始してください。
+**アクセスに関する注意:** v0.25.2 では実装と内部ルートを保持したまま、Settings のサブナビゲーションから Orchestrator 項目を非表示にしています。Antigravity 内で `/pov-full-cycle`、`/pov-plan-only`、または `/pov-build-review` を使用して自律ワークフローを開始してください。
 
 ### ワークフロー 5: Antigravity Skills & ルール管理
 

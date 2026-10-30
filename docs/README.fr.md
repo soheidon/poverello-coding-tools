@@ -271,7 +271,7 @@ L’installateur Windows prend en charge 8 langues. Poverello conserve l’ident
 
 ### Flux de travail 4 : Orchestrateur de développement multi-agents
 
-**Note d'accès :** Dans la version 0.25.2, l’onglet Orchestrator est masqué dans la navigation habituelle tout en conservant son implémentation sous-jacente. Lancez les workflows autonomes dans Antigravity avec `/pov-full-cycle`, `/pov-plan-only` ou `/pov-build-review`.
+**Note d'accès :** Dans la version 0.25.2, l’entrée Orchestrator est masquée dans la sous-navigation Settings, tandis que l’implémentation et les routes internes sont conservées. Lancez les workflows autonomes dans Antigravity avec `/pov-full-cycle`, `/pov-plan-only` ou `/pov-build-review`.
 
 ### Flux de travail 5 : Gestion des Antigravity Skills & Règles
 
