@@ -98,6 +98,13 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   },
 
   // ── MiniMax ──
+  "MiniMax-M3.1-Flash": {
+    inputPerMillionUsd: 0.15,
+    outputPerMillionUsd: 0.60,
+    cachedInputPerMillionUsd: 0.015,
+    verifiedAt: "2026-10-31",
+    sourceUrl: "https://www.minimax.io/blog/minimax-m31f",
+  },
   "MiniMax-M3": {
     inputPerMillionUsd: 0.30,
     outputPerMillionUsd: 1.20,
@@ -123,12 +130,29 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   },
 
   // ── Kimi / Moonshot ──
+  // K3.1 Pro / Highspeed USD values are reference display values derived from the official CNY tariff; they are not provider-billed USD list prices.
+  "kimi-k3.1-pro": {
+    inputPerMillionUsd: 1.949,
+    outputPerMillionUsd: 10.195,
+    cachedInputPerMillionUsd: 0.195,
+    pricingNoteKey: "modelPricing.notes.cnyReference",
+    verifiedAt: "2026-10-31",
+    sourceUrl: "https://platform.kimi.com",
+  },
+  "kimi-k3.1-pro-highspeed": {
+    inputPerMillionUsd: 3.898,
+    outputPerMillionUsd: 20.391,
+    cachedInputPerMillionUsd: 0.195,
+    pricingNoteKey: "modelPricing.notes.cnyReference",
+    verifiedAt: "2026-10-31",
+    sourceUrl: "https://platform.kimi.com",
+  },
   "kimi-k3": {
     inputPerMillionUsd: 3.00,
     outputPerMillionUsd: 15.00,
     cachedInputPerMillionUsd: 0.30,
     pricingNoteKey: "modelPricing.notes.kimiK3",
-    verifiedAt: "2026-10-13",
+    verifiedAt: "2026-10-31",
     sourceUrl: "https://platform.moonshot.cn/docs/pricing",
   },
   "kimi-k2.7-code": {
@@ -166,21 +190,21 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     inputPerMillionUsd: 1.40,
     outputPerMillionUsd: 4.40,
     cachedInputPerMillionUsd: 0.26,
-    verifiedAt: "2026-10-12",
+    verifiedAt: "2026-10-31",
     sourceUrl: "https://docs.z.ai/guides/overview/pricing",
   },
   "zai:glm-5.3-flash": {
     inputPerMillionUsd: 0.15,
     outputPerMillionUsd: 0.50,
     cachedInputPerMillionUsd: 0.03,
-    verifiedAt: "2026-10-12",
+    verifiedAt: "2026-10-31",
     sourceUrl: "https://docs.z.ai/guides/overview/pricing",
   },
   "zai:glm-5.3-flashx": {
     inputPerMillionUsd: 0.37,
     outputPerMillionUsd: 1.25,
     cachedInputPerMillionUsd: 0.075,
-    verifiedAt: "2026-10-12",
+    verifiedAt: "2026-10-31",
     sourceUrl: "https://docs.z.ai/guides/overview/pricing",
   },
 

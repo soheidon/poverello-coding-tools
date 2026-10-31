@@ -18,10 +18,12 @@ const ALL_LOCALES = [
   { code: "ko", map: ko },
 ];
 
-describe("Antigravity Rules i18n Key Parity", () => {
-  const jaKeys = Object.keys(ja).filter((k) => k.startsWith("antigravityRules."));
+describe("Antigravity Rules and Reviewer Policy i18n Key Parity", () => {
+  const jaKeys = Object.keys(ja).filter(
+    (k) => k.startsWith("antigravityRules.") || k.startsWith("antigravity.reviewerPolicy")
+  );
 
-  it("should have antigravityRules keys defined in ja source", () => {
+  it("should have antigravityRules and reviewerPolicy keys defined in ja source", () => {
     expect(jaKeys.length).toBeGreaterThan(0);
   });
 

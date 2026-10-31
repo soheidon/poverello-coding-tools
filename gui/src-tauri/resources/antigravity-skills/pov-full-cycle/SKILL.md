@@ -19,7 +19,10 @@ description: 計画作成、外部Codex/DeepSeek独立計画レビュー、実�
 - 外部CLIは各グローバルルールに従って実行する。内部エージェントで代替しない。
 - 同一案件では正本計画書を1件だけ使う。別版、レビュー依頼書、修正計画書を作らない。
 - 計画、レビュー結果、実装報告、是正計画、テスト結果、最終判定を正本計画書へ簡潔に記録する。
-- レビュー実行前に共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` を読み取る。ファイル不在時は互換既定値 `{"schema_version":1,"policy":"codex_plus_deepseek"}` を適用する。JSON不正、未知version、未知policy値、または読み取り失敗時はReviewerを勝手に選ばず明確なエラーで停止する。
+- レビュー実行前に実効ポリシー（評価優先順位: Evaluation Precedence）を決定する:
+  1. **実行時明示指定:** コマンドライン引数（`--review none` 等）またはユーザープロンプト内の明示指示（「Codex CLI や DeepSeek Harness によるレビューは不要」「外部レビュー不要」等）が存在する場合は、最優先でその値を実効ポリシーとする。
+  2. **GUI設定ファイル:** 実行時指定がない場合、共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` を読み取る。`policy` が `"none"`、`"codex_only"`、`"codex_plus_deepseek"` のいずれかであればその値を採用する（`schema_version: 1` の場合はマイグレーション規約により `none`）。
+  3. **安全側既定値 (Fail-Safe):** ファイル不在、構文エラー、未知の policy 値、未対応 schema_version、書込障害等の例外時は、安全側既定値 `none` (`Disabled`) を適用する。
 - `codex_only` では Codex CLI のみを使用し、DeepSeek Harness は起動・待機・比較・Synthesis のいずれにも使用しない。DeepSeek Rule の有無も要求しない。Codex CLI 失敗時に他Reviewerへ暗黙フォールバックしない。
 - `codex_plus_deepseek` では Codex と DeepSeek に同一ハッシュの資料（計画書・コード・差分・テスト証拠）を渡し、互いの回答を見せない。
 - Reviewerが自分でテストを再実行していない場合、「テストが通ったことを確認した」と記録せず、「実装者が提示した実行証拠を確認した」と記録する。Reviewer自身が再実行した結果とは明確に分離する。
@@ -51,6 +54,11 @@ description: 計画作成、外部Codex/DeepSeek独立計画レビュー、実�
 
 1. 現在の計画書と必要なコードを固定する。外部Reviewerはread-onlyとする。
 2. 共通設定の `policy` に従ってレビューを実施する：
+   - **`none` の場合（外部レビュー無効）**：
+     - 外部レビューア呼出コマンド（`codex exec`, `poverello/review` 等）を一切生成・実行しない（呼出数厳密に 0）。
+     - 独立レビューループを開始しない。
+     - 計画フェーズ完了後、`PLAN COMPLETE — EXTERNAL REVIEW DISABLED (Awaiting user approval)` を記録して停止し、ユーザーの明示的承認を待つ（自動で実装フェーズへ突入しない）。
+     - **No-Fallback 原則:** レビューア利用不可・エラー等のいかなる例外状況下でも、Codex や DeepSeek へのフォールバック呼出を絶対に実行しない。
    - **`codex_only` の場合**：
      - 固定した計画書とコードを外部 Codex CLI のみへ渡す。
      - 各findingにつき、対象要件、具体的な失敗条件、severity/blocking、必要な最小修正、合否判定可能なtestまたは証拠を報告させる。
@@ -88,6 +96,11 @@ description: 計画作成、外部Codex/DeepSeek独立計画レビュー、実�
 1. 現在の実装、正確な差分、承認済み計画、実装者のテスト証拠、未検証事項を固定する。
 2. 外部Reviewerはread-onlyとする。
 3. 共通設定の `policy` に従ってレビューを実施する：
+   - **`none` の場合（外部レビュー無効）**：
+     - 外部レビューア呼出コマンド（`codex exec`, `poverello/review`, DeepSeek Harness 等）を一切生成・実行しない（呼出数厳密に 0）。
+     - 独立レビューループを開始しない。
+     - 実装・検証テスト完了後、外部実装レビューを行わずに `FULL CYCLE COMPLETE — EXTERNAL REVIEW DISABLED` として停止する。
+     - **No-Fallback 原則:** レビューア利用不可・エラー等のいかなる例外状況下でも、Codex や DeepSeek へのフォールバック呼出を絶対に実行しない。
    - **`codex_only` の場合**：
      - 固定した資料を外部 Codex CLI のみへ渡す。
      - 各Reviewerは、findingごとに次を示す：対象要件、具体的な失敗条件、severity/blocking、必要な最小修正、合否判定可能なtestまたは証拠。

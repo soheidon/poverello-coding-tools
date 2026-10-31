@@ -6,7 +6,10 @@ import { LanguageContext } from "../i18n";
 import App from "../App";
 import { DEFAULT_ORCHESTRATOR_PROFILES, DEFAULT_ORCHESTRATOR_QUICK_SLOTS, DEFAULT_VALIDATION_GATES, DEFAULT_ITERATION_LIMITS } from "../config/orchestratorPresets";
 
-const invokeMock = invoke as unknown as ReturnType<typeof vi.fn>;
+const invokeMock = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
+}));
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
@@ -201,11 +204,11 @@ describe("Settings Sub-Navigation Integration", () => {
     expect(screen.queryByText(/antigravity\.header/i)).not.toBeInTheDocument();
 
     // Verify Direct Coding persisted values from backend are loaded rather than component defaults (§47)
-    const autoActivationCheckbox = screen.getByRole("checkbox");
-    expect(autoActivationCheckbox).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Disabled" })).toHaveClass("active");
+    expect(screen.getByRole("button", { name: "Requested Only" })).toHaveClass("active");
 
-    const requestedOnlyRadio = screen.getAllByRole("radio").find((r) => (r as HTMLInputElement).value === "requested_only");
-    expect(requestedOnlyRadio).toBeChecked();
+    // Open Advanced Details accordion to view preview
+    await user.click(screen.getByRole("button", { name: /Advanced Details/i }));
 
     expect(screen.getByText(/Automatic activation: Disabled/i)).toBeInTheDocument();
     expect(screen.getByText(/Web research: When requested only/i)).toBeInTheDocument();

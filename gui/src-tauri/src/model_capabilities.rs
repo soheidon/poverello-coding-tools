@@ -399,6 +399,37 @@ pub fn is_openrouter_deepseek_model(model: &str) -> bool {
     )
 }
 
+/// Check if a model is one of the 8 designated thinking-only models (v0.25.3).
+pub fn is_thinking_only_model(model: &str) -> bool {
+    matches!(
+        model,
+        "MiniMax-M3.1-Flash"
+            | "kimi-k3.1-pro"
+            | "kimi-k3.1-pro-highspeed"
+            | "k3.1-pro"
+            | "k3.1-pro-highspeed"
+            | "glm-5.3"
+            | "glm-5.3-flash"
+            | "glm-5.3-flashx"
+    )
+}
+
+/// Normalizes compatible effort input for Kimi Code models.
+/// - medium -> high
+/// - xhigh -> max
+/// - low -> low, high -> high, max -> max
+pub fn normalize_kimi_code_reasoning_effort(effort: &str) -> Option<&'static str> {
+    match effort {
+        "low" => Some("low"),
+        "medium" => Some("high"),
+        "high" => Some("high"),
+        "xhigh" => Some("max"),
+        "max" => Some("max"),
+        _ => None,
+    }
+}
+
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1201,4 +1232,101 @@ mod tests {
         // Unknown custom model
         assert!(try_resolve_static_model_capabilities("mimo-custom-unknown").is_none());
     }
+
+    #[test]
+    fn v0253_thinking_only_models_classification() {
+        let thinking_only = [
+            "MiniMax-M3.1-Flash",
+            "kimi-k3.1-pro",
+            "kimi-k3.1-pro-highspeed",
+            "k3.1-pro",
+            "k3.1-pro-highspeed",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "glm-5.3-flashx",
+        ];
+        for model in &thinking_only {
+            assert!(is_thinking_only_model(model), "{model} must be thinking only");
+        }
+
+        let non_thinking_only = [
+            "MiniMax-M3",
+            "MiniMax-M2.7",
+            "kimi-k2.7-code",
+            "glm-5.2",
+            "claude-opus-5-5",
+            "deepseek-flash",
+        ];
+        for model in &non_thinking_only {
+            assert!(!is_thinking_only_model(model), "{model} must not be thinking only");
+        }
+    }
+
+    #[test]
+    fn v0253_kimi_code_effort_normalization() {
+        assert_eq!(normalize_kimi_code_reasoning_effort("medium"), Some("high"));
+        assert_eq!(normalize_kimi_code_reasoning_effort("xhigh"), Some("max"));
+        assert_eq!(normalize_kimi_code_reasoning_effort("low"), Some("low"));
+        assert_eq!(normalize_kimi_code_reasoning_effort("high"), Some("high"));
+        assert_eq!(normalize_kimi_code_reasoning_effort("max"), Some("max"));
+        assert_eq!(normalize_kimi_code_reasoning_effort("unknown"), None);
+        assert_eq!(normalize_kimi_code_reasoning_effort("off"), None);
+    }
+
+    #[test]
+    fn v0253_static_context_window_resolution_all_8_models() {
+        assert_eq!(
+            try_resolve_static_context_window("zai", "glm-5.3").unwrap().context_length,
+            1_048_576
+        );
+        assert_eq!(
+            try_resolve_static_context_window("zai", "glm-5.3-flash").unwrap().context_length,
+            1_048_576
+        );
+        assert_eq!(
+            try_resolve_static_context_window("zai", "glm-5.3-flashx").unwrap().context_length,
+            1_048_576
+        );
+        assert_eq!(
+            try_resolve_static_context_window("minimax", "MiniMax-M3.1-Flash").unwrap().context_length,
+            1_048_576
+        );
+        assert_eq!(
+            try_resolve_static_context_window("kimi", "kimi-k3.1-pro").unwrap().context_length,
+            1_048_576
+        );
+        assert_eq!(
+            try_resolve_static_context_window("kimi", "kimi-k3.1-pro-highspeed").unwrap().context_length,
+            1_048_576
+        );
+        assert_eq!(
+            try_resolve_static_context_window("kimi-code", "k3.1-pro").unwrap().context_length,
+            262_144
+        );
+        assert_eq!(
+            try_resolve_static_context_window("kimi-code", "k3.1-pro-highspeed").unwrap().context_length,
+            1_048_576
+        );
+    }
+
+    #[test]
+    fn v0253_static_capabilities_and_effort_non_fixed() {
+        let models = [
+            "MiniMax-M3.1-Flash",
+            "kimi-k3.1-pro",
+            "kimi-k3.1-pro-highspeed",
+            "k3.1-pro",
+            "k3.1-pro-highspeed",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "glm-5.3-flashx",
+        ];
+        for model in &models {
+            let caps = try_resolve_static_model_capabilities(model)
+                .unwrap_or_else(|| panic!("failed to resolve static caps for {model}"));
+            assert!(caps.force_thinking, "{model} must force thinking");
+            assert!(caps.forced_reasoning_effort.is_none(), "{model} forced_reasoning_effort must be None (non-fixed)");
+        }
+    }
+
 }

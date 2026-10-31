@@ -250,7 +250,7 @@ export interface GlobalRuleItemInfo {
   error?: string | null;
 }
 
-export type ReviewerPolicy = "codex_only" | "codex_plus_deepseek";
+export type ReviewerPolicy = "none" | "codex_only" | "codex_plus_deepseek";
 
 export interface ReviewerPolicyConfig {
   schema_version: number;

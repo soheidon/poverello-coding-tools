@@ -19,7 +19,10 @@ description: 計画作成と外部Codex/DeepSeek独立計画レビュー専用�
 - 外部CLIは各グローバルルールに従って実行する。内部エージェントで代替しない。
 - 同一案件では正本計画書を1件だけ使う。別版、レビュー依頼書、修正計画書を作らない。
 - 計画、レビュー結果、修正内容、最終判定を正本計画書へ簡潔に記録する。
-- レビュー実行前に共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` を読み取る。ファイル不在時は互換既定値 `{"schema_version":1,"policy":"codex_plus_deepseek"}` を適用する。JSON不正、未知version、未知policy値、または読み取り失敗時はReviewerを勝手に選ばず明確なエラーで停止する。
+- レビュー実行前に実効ポリシー（評価優先順位: Evaluation Precedence）を決定する:
+  1. **実行時明示指定:** コマンドライン引数（`--review none` 等）またはユーザープロンプト内の明示指示（「Codex CLI や DeepSeek Harness によるレビューは不要」「外部レビュー不要」等）が存在する場合は、最優先でその値を実効ポリシーとする。
+  2. **GUI設定ファイル:** 実行時指定がない場合、共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` を読み取る。`policy` が `"none"`、`"codex_only"`、`"codex_plus_deepseek"` のいずれかであればその値を採用する（`schema_version: 1` の場合はマイグレーション規約により `none`）。
+  3. **安全側既定値 (Fail-Safe):** ファイル不在、構文エラー、未知の policy 値、未対応 schema_version、書込障害等の例外時は、安全側既定値 `none` (`Disabled`) を適用する。
 - `codex_only` では Codex CLI のみを使用し、DeepSeek Harness は起動・待機・比較・Synthesis のいずれにも使用しない。DeepSeek Rule の有無も要求しない。Codex CLI 失敗時に他Reviewerへ暗黙フォールバックしない。
 - `codex_plus_deepseek` では Codex と DeepSeek に同一ハッシュの資料を渡し、互いの回答を見せない。
 - 計画書の修正は競合を避けて順番に行う。
@@ -49,6 +52,12 @@ description: 計画作成と外部Codex/DeepSeek独立計画レビュー専用�
 
 1. 現在の計画書と必要なコードを固定する。
 2. 共通設定の `policy` に従ってレビューを実施する：
+   - **`none` の場合（外部レビュー無効）**：
+     - 外部レビューア呼出コマンド（`codex exec`, `poverello/review` 等）を一切生成・実行しない（呼出数厳密に 0）。
+     - 独立レビューループを開始しない。
+     - 計画書のドラフト作成および要件反映の完了後、計画書ヘッダーおよびレビュー履歴を `PLAN COMPLETE — EXTERNAL REVIEW DISABLED (Awaiting user approval)` として記録する。
+     - 計画概要をチャットに提示して直ちに実行を停止し、ユーザーの明示的な計画承認を待つ。
+     - **No-Fallback 原則:** レビューア利用不可・エラー等のいかなる例外状況下でも、Codex や DeepSeek へのフォールバック呼出を絶対に実行しない。
    - **`codex_only` の場合**：
      - 固定した計画書とコードを外部 Codex CLI のみへ渡す。
      - Codex が計画レビューを行い、指摘に基づく修正を正本計画書へ反映する。
@@ -69,6 +78,6 @@ description: 計画作成と外部Codex/DeepSeek独立計画レビュー専用�
 
 ## 3. 完了
 
-- Approvedなら計画承認を記録し、実装せず停止する。
-- Not Approvedなら未解決P0・P1と停止理由を記録し、ユーザーへ報告して停止する。
+- 外部レビュー無効時 (`none`): 計画書の要件反映完了後、`PLAN COMPLETE — EXTERNAL REVIEW DISABLED (Awaiting user approval)` を記録し、ユーザー確認待ちとして安全に停止する。ユーザー承認を受領した時点で `APPROVED BY USER` となる。
+- 外部レビュー有効時 (`codex_only` / `codex_plus_deepseek`): Approvedなら計画承認を記録し、実装せず停止する。Not Approvedなら未解決P0・P1と停止理由を記録し、ユーザーへ報告して停止する。
 - commit、release、deployを行わない。

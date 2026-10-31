@@ -2,9 +2,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
+pub const CURRENT_REVIEWER_POLICY_SCHEMA_VERSION: u32 = 2;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewerPolicy {
+    None,
     CodexOnly,
     CodexPlusDeepseek,
 }
@@ -20,8 +23,8 @@ pub struct ReviewerPolicyConfig {
 impl Default for ReviewerPolicyConfig {
     fn default() -> Self {
         Self {
-            schema_version: 1,
-            policy: ReviewerPolicy::CodexPlusDeepseek,
+            schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
+            policy: ReviewerPolicy::None,
             content_hash: None,
         }
     }
@@ -86,6 +89,52 @@ pub fn inspect_workflow_skills_policy_compliance(
     })
 }
 
+fn try_migrate_v1_to_v2_at(policy_path: &Path) -> Result<String, String> {
+    let parent = policy_path
+        .parent()
+        .ok_or_else(|| "Policy path has no parent directory".to_string())?;
+
+    ensure_no_reparse(parent)?;
+    ensure_no_reparse(policy_path)?;
+
+    let config_to_write = ReviewerPolicyConfig {
+        schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
+        policy: ReviewerPolicy::None,
+        content_hash: None,
+    };
+
+    let serialized = serde_json::to_vec_pretty(&config_to_write)
+        .map_err(|e| format!("Failed to serialize migrated reviewer policy: {e}"))?;
+
+    let temp_name = format!(
+        ".pov-reviewer-policy.json.tmp-mig-{}",
+        uuid::Uuid::new_v4()
+    );
+    let temp_path = parent.join(&temp_name);
+
+    let write_res: Result<(), std::io::Error> = (|| {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)?;
+        use std::io::Write;
+        file.write_all(&serialized)?;
+        file.sync_all()?;
+        drop(file);
+
+        ensure_no_reparse(policy_path).map_err(std::io::Error::other)?;
+        std::fs::rename(&temp_path, policy_path)?;
+        Ok(())
+    })();
+
+    if let Err(e) = write_res {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(format!("Cannot atomically write migrated policy: {e}"));
+    }
+
+    let hash = format!("{:x}", Sha256::digest(&serialized));
+    Ok(hash)
+}
 pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyConfig, String> {
     if let Some(parent) = policy_path.parent() {
         if parent.exists() {
@@ -96,7 +145,7 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
     let meta = match std::fs::symlink_metadata(policy_path) {
         Ok(m) => m,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            // Missing file returns safe backward-compatible default
+            // Missing file returns safe default (none)
             return Ok(ReviewerPolicyConfig::default());
         }
         Err(e) => return Err(format!("Cannot inspect policy file metadata: {e}")),
@@ -108,38 +157,81 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
 
     ensure_no_reparse(policy_path)?;
 
-    let bytes = std::fs::read(policy_path)
-        .map_err(|e| format!("Cannot read reviewer policy file: {e}"))?;
+    let bytes = match std::fs::read(policy_path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("Warning: Cannot read reviewer policy file at {}: {e}", policy_path.display());
+            return Ok(ReviewerPolicyConfig::default());
+        }
+    };
 
     let hash = format!("{:x}", Sha256::digest(&bytes));
 
-    let parsed: serde_json::Value = serde_json::from_slice(&bytes)
-        .map_err(|e| format!("Malformed reviewer policy JSON: {e}"))?;
+    let parsed: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Warning: Malformed reviewer policy JSON at {}: {e}", policy_path.display());
+            return Ok(ReviewerPolicyConfig::default());
+        }
+    };
 
-    let version = parsed
-        .get("schema_version")
-        .and_then(|v| v.as_u64())
-        .ok_or_else(|| "Missing or invalid 'schema_version' in reviewer policy".to_string())?;
+    let version = match parsed.get("schema_version").and_then(|v| v.as_u64()) {
+        Some(v) => v,
+        None => {
+            eprintln!("Warning: Missing or invalid schema_version in reviewer policy at {}", policy_path.display());
+            return Ok(ReviewerPolicyConfig::default());
+        }
+    };
 
-    if version != 1 {
-        return Err(format!(
-            "Unsupported reviewer policy schema_version: {version}. Expected 1."
-        ));
+    if version == 1 {
+        // Safe v1 -> v2 migration: Reset to None and persist to disk (best-effort)
+        match try_migrate_v1_to_v2_at(policy_path) {
+            Ok(new_hash) => {
+                return Ok(ReviewerPolicyConfig {
+                    schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
+                    policy: ReviewerPolicy::None,
+                    content_hash: Some(new_hash),
+                });
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to persist migrated v2 policy to {}: {e}", policy_path.display());
+                return Ok(ReviewerPolicyConfig {
+                    schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
+                    policy: ReviewerPolicy::None,
+                    content_hash: None,
+                });
+            }
+        }
     }
 
-    let policy_str = parsed
-        .get("policy")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "Missing or invalid 'policy' field in reviewer policy".to_string())?;
+    if version != CURRENT_REVIEWER_POLICY_SCHEMA_VERSION as u64 {
+        eprintln!(
+            "Warning: Unsupported reviewer policy schema_version: {version} at {}. Falling back to default none.",
+            policy_path.display()
+        );
+        return Ok(ReviewerPolicyConfig::default());
+    }
+
+    let policy_str = match parsed.get("policy").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => {
+            eprintln!("Warning: Missing policy field at {}. Falling back to default none.", policy_path.display());
+            return Ok(ReviewerPolicyConfig::default());
+        }
+    };
 
     let policy = match policy_str {
+        "none" => ReviewerPolicy::None,
         "codex_only" => ReviewerPolicy::CodexOnly,
         "codex_plus_deepseek" => ReviewerPolicy::CodexPlusDeepseek,
-        other => return Err(format!("Unknown reviewer policy value: '{other}'")),
+        other => {
+            eprintln!("Warning: Unknown reviewer policy value '{other}' at {}. Falling back to default none.", policy_path.display());
+            ReviewerPolicy::None
+        }
     };
 
     Ok(ReviewerPolicyConfig {
-        schema_version: 1,
+        schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
         policy,
         content_hash: Some(hash),
     })
@@ -209,7 +301,7 @@ where
     ensure_no_reparse(policy_path)?;
 
     let config_to_write = ReviewerPolicyConfig {
-        schema_version: 1,
+        schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
         policy,
         content_hash: None,
     };
@@ -223,7 +315,7 @@ where
     );
     let temp_path = parent.join(&temp_name);
 
-    let write_res = (|| {
+    let write_res: Result<(), std::io::Error> = (|| {
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -328,7 +420,7 @@ where
     }
 
     let read_back = inspect_reviewer_policy_at(policy_path)?;
-    if read_back.schema_version != 1 || read_back.policy != policy {
+    if read_back.schema_version != CURRENT_REVIEWER_POLICY_SCHEMA_VERSION || read_back.policy != policy {
         return Err("Policy written but read-back verification failed".to_string());
     }
 
@@ -580,55 +672,154 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_policy_returns_default() {
+    fn workflow_skills_static_contract_inspection() {
+        let skills = [
+            crate::ANTIGRAVITY_POV_PLAN_ONLY_SKILL_MD,
+            crate::ANTIGRAVITY_POV_BUILD_REVIEW_SKILL_MD,
+            crate::ANTIGRAVITY_POV_FULL_CYCLE_SKILL_MD,
+        ];
+
+        for skill_content in skills {
+            // 1. Must NOT contain legacy schema_version 1 default
+            assert!(!skill_content.contains(r#"{"schema_version":1,"policy":"codex_plus_deepseek"}"#));
+
+            // 2. Must contain Evaluation Precedence logic
+            assert!(skill_content.contains("Evaluation Precedence"));
+            assert!(skill_content.contains("実行時明示指定"));
+            assert!(skill_content.contains("pov-reviewer-policy.json"));
+
+            // 3. Must contain none policy contract with zero external calls and safe halt
+            assert!(skill_content.contains("`none` の場合（外部レビュー無効）"));
+            assert!(skill_content.contains("呼出数厳密に 0"));
+            assert!(skill_content.contains("EXTERNAL REVIEW DISABLED"));
+
+            // 4. Must specify No-Fallback principle
+            assert!(skill_content.contains("No-Fallback"));
+        }
+    }
+
+    #[test]
+    fn missing_policy_returns_default_none() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pov-reviewer-policy.json");
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
         assert_eq!(loaded, ReviewerPolicyConfig::default());
-        assert_eq!(loaded.schema_version, 1);
-        assert_eq!(loaded.policy, ReviewerPolicy::CodexPlusDeepseek);
+        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.policy, ReviewerPolicy::None);
+        assert_eq!(loaded.content_hash, None);
     }
 
     #[test]
     fn valid_policy_round_trips() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pov-reviewer-policy.json");
-        let content = r#"{"schema_version":1,"policy":"codex_only"}"#;
+        let content = r#"{"schema_version":2,"policy":"codex_only"}"#;
         std::fs::write(&path, content).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 1);
+        assert_eq!(loaded.schema_version, 2);
         assert_eq!(loaded.policy, ReviewerPolicy::CodexOnly);
+        assert!(loaded.content_hash.is_some());
+
+        let content_none = r#"{"schema_version":2,"policy":"none"}"#;
+        std::fs::write(&path, content_none).unwrap();
+        let loaded_none = inspect_reviewer_policy_at(&path).unwrap();
+        assert_eq!(loaded_none.schema_version, 2);
+        assert_eq!(loaded_none.policy, ReviewerPolicy::None);
     }
 
     #[test]
-    fn malformed_json_fails_closed() {
+    fn v1_policy_migrates_to_v2_none_and_persists() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("pov-reviewer-policy.json");
+        std::fs::write(&path, r#"{"schema_version":1,"policy":"codex_only"}"#).unwrap();
+
+        let loaded = inspect_reviewer_policy_at(&path).unwrap();
+        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.policy, ReviewerPolicy::None);
+        assert!(loaded.content_hash.is_some());
+
+        // Verify on-disk file was atomically updated to v2 and none
+        let on_disk_str = std::fs::read_to_string(&path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&on_disk_str).unwrap();
+        assert_eq!(parsed["schema_version"], 2);
+        assert_eq!(parsed["policy"], "none");
+
+        // Subsequent read reloads v2 none directly
+        let reloaded = inspect_reviewer_policy_at(&path).unwrap();
+        assert_eq!(reloaded.schema_version, 2);
+        assert_eq!(reloaded.policy, ReviewerPolicy::None);
+    }
+
+    #[test]
+    fn v1_migration_write_failure_falls_back_to_in_memory_none_and_preserves_disk_v1() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("pov-reviewer-policy.json");
+        std::fs::write(&path, r#"{"schema_version":1,"policy":"codex_only"}"#).unwrap();
+
+        // Make file read-only on Windows so atomic rename replacement fails
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&path, perms).unwrap();
+
+        let loaded = inspect_reviewer_policy_at(&path).unwrap();
+        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.policy, ReviewerPolicy::None);
+        assert_eq!(loaded.content_hash, None);
+
+        // Verify original file on disk remains v1 and untampered
+        let disk_content = std::fs::read_to_string(&path).unwrap();
+        assert!(disk_content.contains(r#""schema_version":1"#));
+
+        // Restore write permissions for cleanup
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_readonly(false);
+        std::fs::set_permissions(&path, perms).unwrap();
+    }
+
+    #[test]
+    fn malformed_json_fails_safe_to_none() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pov-reviewer-policy.json");
         std::fs::write(&path, "{not-json}").unwrap();
 
-        let err = inspect_reviewer_policy_at(&path).unwrap_err();
-        assert!(err.contains("Malformed reviewer policy JSON"));
+        let loaded = inspect_reviewer_policy_at(&path).unwrap();
+        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.policy, ReviewerPolicy::None);
+        assert_eq!(loaded.content_hash, None);
     }
 
     #[test]
-    fn unknown_version_fails_closed() {
+    fn unknown_version_fails_safe_to_none() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pov-reviewer-policy.json");
         std::fs::write(&path, r#"{"schema_version":99,"policy":"codex_only"}"#).unwrap();
 
-        let err = inspect_reviewer_policy_at(&path).unwrap_err();
-        assert!(err.contains("Unsupported reviewer policy schema_version"));
+        let loaded = inspect_reviewer_policy_at(&path).unwrap();
+        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.policy, ReviewerPolicy::None);
     }
 
     #[test]
-    fn unknown_policy_fails_closed() {
+    fn missing_policy_field_fails_safe_to_none() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pov-reviewer-policy.json");
-        std::fs::write(&path, r#"{"schema_version":1,"policy":"claude_super"}"#).unwrap();
+        std::fs::write(&path, r#"{"schema_version":2}"#).unwrap();
 
-        let err = inspect_reviewer_policy_at(&path).unwrap_err();
-        assert!(err.contains("Unknown reviewer policy value"));
+        let loaded = inspect_reviewer_policy_at(&path).unwrap();
+        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.policy, ReviewerPolicy::None);
+    }
+
+    #[test]
+    fn unknown_policy_value_fails_safe_to_none() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("pov-reviewer-policy.json");
+        std::fs::write(&path, r#"{"schema_version":2,"policy":"claude_super"}"#).unwrap();
+
+        let loaded = inspect_reviewer_policy_at(&path).unwrap();
+        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.policy, ReviewerPolicy::None);
     }
 
     #[test]
@@ -655,14 +846,19 @@ mod tests {
             crate::install_antigravity_command_at(temp_skills.path(), name).unwrap();
         }
 
-        let saved = save_reviewer_policy_at(&policy_path, ReviewerPolicy::CodexOnly, temp_skills.path(), None)
+        let saved = save_reviewer_policy_at(&policy_path, ReviewerPolicy::None, temp_skills.path(), None)
             .unwrap();
-        assert_eq!(saved.policy, ReviewerPolicy::CodexOnly);
-        assert_eq!(saved.schema_version, 1);
+        assert_eq!(saved.policy, ReviewerPolicy::None);
+        assert_eq!(saved.schema_version, 2);
         assert!(saved.content_hash.is_some());
 
         let reloaded = inspect_reviewer_policy_at(&policy_path).unwrap();
         assert_eq!(reloaded, saved);
+
+        let saved_codex = save_reviewer_policy_at(&policy_path, ReviewerPolicy::CodexOnly, temp_skills.path(), saved.content_hash.as_deref())
+            .unwrap();
+        assert_eq!(saved_codex.policy, ReviewerPolicy::CodexOnly);
+        assert_eq!(saved_codex.schema_version, 2);
     }
 
     #[test]
@@ -676,7 +872,7 @@ mod tests {
         }
 
         // 1. Initial save without expected_hash when file is absent succeeds
-        let initial = save_reviewer_policy_at(&policy_path, ReviewerPolicy::CodexOnly, temp_skills.path(), None)
+        let initial = save_reviewer_policy_at(&policy_path, ReviewerPolicy::None, temp_skills.path(), None)
             .unwrap();
         let hash1 = initial.content_hash.expect("must have content hash");
 
@@ -734,11 +930,11 @@ mod tests {
         }
 
         // Save initial policy
-        let initial = save_reviewer_policy_at(&policy_path, ReviewerPolicy::CodexOnly, temp_skills.path(), None)
+        let initial = save_reviewer_policy_at(&policy_path, ReviewerPolicy::None, temp_skills.path(), None)
             .unwrap();
         let initial_hash = initial.content_hash.unwrap();
 
-        let intervening_content = r#"{"schema_version":1,"policy":"codex_only","tampered":true}"#;
+        let intervening_content = r#"{"schema_version":2,"policy":"codex_only","tampered":true}"#;
 
         // Try saving with expected_hash, but an intervening modification happens between initial check and replace
         let err = save_reviewer_policy_internal(
@@ -769,12 +965,12 @@ mod tests {
             crate::install_antigravity_command_at(temp_skills.path(), name).unwrap();
         }
 
-        let created_concurrently = r#"{"schema_version":1,"policy":"codex_plus_deepseek","created":true}"#;
+        let created_concurrently = r#"{"schema_version":2,"policy":"codex_plus_deepseek","created":true}"#;
 
         // Target does not exist initially (expected_hash = None), but is created concurrently before replace
         let err = save_reviewer_policy_internal(
             &policy_path,
-            ReviewerPolicy::CodexOnly,
+            ReviewerPolicy::None,
             temp_skills.path(),
             None,
             || {

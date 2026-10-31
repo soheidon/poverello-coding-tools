@@ -19,7 +19,10 @@ description: 承認済み計画に基づく実装・テスト、外部Codex/Deep
 - 外部CLIは各グローバルルールに従って実行する。内部エージェントで代替しない。
 - 正本計画書は1件だけ使う。別版、レビュー依頼書、修正計画書を作らない。
 - 実装報告、レビュー結果、是正計画、テスト結果、最終判定を正本計画書へ簡潔に記録する。
-- レビュー実行前に共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` を読み取る。ファイル不在時は互換既定値 `{"schema_version":1,"policy":"codex_plus_deepseek"}` を適用する。JSON不正、未知version、未知policy値、または読み取り失敗時はReviewerを勝手に選ばず明確なエラーで停止する。
+- レビュー実行前に実効ポリシー（評価優先順位: Evaluation Precedence）を決定する:
+  1. **実行時明示指定:** コマンドライン引数（`--review none` 等）またはユーザープロンプト内の明示指示（「Codex CLI や DeepSeek Harness によるレビューは不要」「外部レビュー不要」等）が存在する場合は、最優先でその値を実効ポリシーとする。
+  2. **GUI設定ファイル:** 実行時指定がない場合、共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` を読み取る。`policy` が `"none"`、`"codex_only"`、`"codex_plus_deepseek"` のいずれかであればその値を採用する（`schema_version: 1` の場合はマイグレーション規約により `none`）。
+  3. **安全側既定値 (Fail-Safe):** ファイル不在、構文エラー、未知の policy 値、未対応 schema_version、書込障害等の例外時は、安全側既定値 `none` (`Disabled`) を適用する。
 - `codex_only` では Codex CLI のみを使用し、DeepSeek Harness は起動・待機・比較・Synthesis のいずれにも使用しない。DeepSeek Rule の有無も要求しない。Codex CLI 失敗時に他Reviewerへ暗黙フォールバックしない。
 - `codex_plus_deepseek` では Codex と DeepSeek に同一ハッシュの実装、差分、承認済み計画、実装者テスト証拠を渡し、互いの回答を見せない。
 - Reviewerが自分でテストを再実行していない場合、「テストが通ったことを確認した」と記録せず、「実装者が提示した実行証拠を確認した」と記録する。Reviewer自身が再実行した結果とは明確に分離する。
@@ -51,6 +54,11 @@ description: 承認済み計画に基づく実装・テスト、外部Codex/Deep
 1. 現在の実装、正確な差分、承認済み計画、実装者のテスト証拠、未検証事項を固定する。
 2. 外部Reviewerはread-onlyとする。
 3. 共通設定の `policy` に従ってレビューを実施する：
+   - **`none` の場合（外部レビュー無効）**：
+     - 外部レビューア呼出コマンド（`codex exec`, `poverello/review`, DeepSeek Harness 等）を一切生成・実行しない（呼出数厳密に 0）。
+     - 独立レビューループを開始しない。
+     - 実装・テスト完了後、外部実装レビューを行わずに `BUILD COMPLETE — EXTERNAL REVIEW DISABLED (Awaiting user review)` として停止し、ユーザー確認を待つ。
+     - **No-Fallback 原則:** レビューア利用不可・エラー等のいかなる例外状況下でも、Codex や DeepSeek へのフォールバック呼出を絶対に実行しない。
    - **`codex_only` の場合**：
      - 固定した資料を外部 Codex CLI のみへ渡す。
      - 各findingにつき、対象要件、具体的な失敗条件、severity/blocking、必要な最小修正、合否判定可能なテストまたは証拠を報告させる。
@@ -77,6 +85,7 @@ description: 承認済み計画に基づく実装・テスト、外部Codex/Deep
 
 ## 5. 完了判定
 
+0. 外部レビュー無効時 (`none`): 必須自動検証完了後、`BUILD COMPLETE — EXTERNAL REVIEW DISABLED (Awaiting user review)` を記録し、ユーザー確認待ちとして安全に停止する。
 1. `APPROVED`：blocking finding 0件、承認済み実装範囲と必須自動検証が完了している。
 2. `APPROVED_WITH_NON_BLOCKING_FINDINGS`：blocking finding 0件だが、将来改善や残存リスクがある。非blocking findingを明示する。
 3. `REQUEST_CHANGES`：blocking findingが残り、承認済み範囲内で是正可能である。

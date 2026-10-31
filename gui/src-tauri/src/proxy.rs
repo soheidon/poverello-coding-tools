@@ -96,8 +96,8 @@ pub fn resolve_model_capabilities(upstream_model: &str) -> ModelCapabilities {
 use model_capabilities::{
     is_gemini_model, is_inclusionai_model, is_ling_free_model, is_ling_non_thinking_model,
     is_openai_model, is_openrouter_deepseek_model, is_poolside_reasoning_model,
-    is_stepfun_model, is_tencent_hy3, is_tencent_hy4, is_tencent_model,
-    lookup_catalog_reasoning,
+    is_stepfun_model, is_tencent_hy4, is_tencent_model,
+    is_thinking_only_model, normalize_kimi_code_reasoning_effort, lookup_catalog_reasoning,
 };
 
 // ---------------------------------------------------------------------------
@@ -1436,6 +1436,50 @@ fn apply_route_request_transforms(body: &mut serde_json::Value, entry: &ModelRou
 
     if entry.provider_id == "deepseek" {
         apply_deepseek_reasoning_effort(body, entry.reasoning_effort.as_deref());
+    } else if entry.provider_id == "kimi-code"
+        || matches!(entry.upstream_model.as_str(), "k3.1-pro" | "k3.1-pro-highspeed")
+    {
+        let client_effort = body
+            .get("output_config")
+            .and_then(|oc| oc.get("effort"))
+            .and_then(Value::as_str)
+            .or_else(|| body.get("reasoning_effort").and_then(Value::as_str));
+        let raw_effort = entry
+            .reasoning_effort
+            .as_deref()
+            .or(client_effort)
+            .unwrap_or("high");
+        let norm_effort = normalize_kimi_code_reasoning_effort(raw_effort).unwrap_or("high");
+        body["reasoning_effort"] = json!(norm_effort);
+        if let Some(obj) = body.as_object_mut() {
+            obj.remove("thinking");
+        }
+    } else if entry.provider_id == "minimax" && entry.upstream_model == "MiniMax-M3.1-Flash" {
+        let client_effort = body
+            .get("output_config")
+            .and_then(|oc| oc.get("effort"))
+            .and_then(Value::as_str)
+            .or_else(|| body.get("reasoning_effort").and_then(Value::as_str));
+        let effort = entry.reasoning_effort.as_deref().or(client_effort).unwrap_or("max");
+        body["reasoning_effort"] = json!(effort);
+    } else if entry.provider_id == crate::ZAI_PROVIDER_ID {
+        let is_disabled = matches!(
+            body.get("thinking"),
+            Some(v) if v.get("type").and_then(|t| t.as_str()) == Some("disabled")
+        );
+        if !is_disabled {
+            let client_effort = body
+                .get("output_config")
+                .and_then(|oc| oc.get("effort"))
+                .and_then(Value::as_str)
+                .or_else(|| body.get("reasoning_effort").and_then(Value::as_str));
+            let eff = entry.reasoning_effort.as_deref().or(client_effort);
+            if let Some(effort) = eff {
+                body["reasoning_effort"] = json!(effort);
+            } else if matches!(entry.upstream_model.as_str(), "glm-5.3" | "glm-5.3-flash" | "glm-5.3-flashx") {
+                body["reasoning_effort"] = json!("max");
+            }
+        }
     } else if entry.provider_id != "openrouter" {
         apply_direct_provider_reasoning_effort(body, entry.reasoning_effort.as_deref());
     }
@@ -1924,6 +1968,12 @@ impl Stream for SseModelNormalizationStream {
                     }
                 }
 
+                let frame = if self.log_context.upstream_model == "MiniMax-M3.1-Flash" {
+                    transform_minimax_reasoning_frame(&frame).unwrap_or(frame)
+                } else {
+                    frame
+                };
+
                 // Try to transform; if not applicable, pass through unchanged
                 let transformed =
                     transform_complete_sse_frame(&frame, &self.log_context.canonical_gateway_model);
@@ -2199,6 +2249,172 @@ fn validate_anthropic_request(entry: &ModelRouteEntry, body: &Value) -> Result<(
     )?;
 
     Ok(())
+}
+
+
+/// Returns true if the client request contains any of the 27 independent disabling patterns
+/// specified in Section 4.3(4) and Section 7.2 of the plan.
+/// Only inspects the 6 recognized control paths (`thinking`, `thinking_mode`, `chat_template_kwargs.thinking`,
+/// `reasoning_effort`, `output_config.effort`, `effort`) and strictly avoids touching `messages`, `system`,
+/// `tools`, or `tool_choice`.
+pub fn client_disables_thinking_27_cases(body: &Value) -> bool {
+    // 1..7: body["thinking"]
+    if let Some(thinking) = body.get("thinking") {
+        if let Some(obj) = thinking.as_object() {
+            if let Some(t) = obj.get("type").and_then(Value::as_str) {
+                // 1. type == "disabled"
+                // 2. type == "off"
+                // 3. type == "none"
+                if matches!(t, "disabled" | "off" | "none") {
+                    return true;
+                }
+            }
+        } else if let Some(s) = thinking.as_str() {
+            // 4. "disabled"
+            // 5. "off"
+            // 6. "none"
+            if matches!(s, "disabled" | "off" | "none") {
+                return true;
+            }
+        } else if let Some(b) = thinking.as_bool() {
+            // 7. false
+            if !b {
+                return true;
+            }
+        }
+    }
+
+    // 8..11: body["thinking_mode"]
+    if let Some(mode) = body.get("thinking_mode").and_then(Value::as_str) {
+        // 8. "normal"
+        // 9. "off"
+        // 10. "none"
+        // 11. "disabled"
+        if matches!(mode, "normal" | "off" | "none" | "disabled") {
+            return true;
+        }
+    }
+
+    // 12..15: body["chat_template_kwargs"]["thinking"]
+    if let Some(kwargs) = body.get("chat_template_kwargs").and_then(Value::as_object) {
+        if let Some(val) = kwargs.get("thinking") {
+            if val.as_bool() == Some(false) {
+                // 12. false
+                return true;
+            } else if let Some(s) = val.as_str() {
+                // 13. "off"
+                // 14. "none"
+                // 15. "disabled"
+                if matches!(s, "off" | "none" | "disabled") {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // 16..19: body["reasoning_effort"]
+    if let Some(re) = body.get("reasoning_effort") {
+        if let Some(s) = re.as_str() {
+            // 16. "off"
+            // 17. "none"
+            // 18. "disabled"
+            if matches!(s, "off" | "none" | "disabled") {
+                return true;
+            }
+        } else if re.as_bool() == Some(false) {
+            // 19. false
+            return true;
+        }
+    }
+
+    // 20..23: body["output_config"]["effort"]
+    if let Some(oc) = body.get("output_config").and_then(Value::as_object) {
+        if let Some(val) = oc.get("effort") {
+            if let Some(s) = val.as_str() {
+                // 20. "off"
+                // 21. "none"
+                // 22. "disabled"
+                if matches!(s, "off" | "none" | "disabled") {
+                    return true;
+                }
+            } else if val.as_bool() == Some(false) {
+                // 23. false
+                return true;
+            }
+        }
+    }
+
+    // 24..27: body["effort"]
+    if let Some(eff) = body.get("effort") {
+        if let Some(s) = eff.as_str() {
+            // 24. "off"
+            // 25. "none"
+            // 26. "disabled"
+            if matches!(s, "off" | "none" | "disabled") {
+                return true;
+            }
+        } else if eff.as_bool() == Some(false) {
+            // 27. false
+            return true;
+        }
+    }
+
+    false
+}
+
+pub fn transform_minimax_reasoning_frame(frame: &[u8]) -> Option<Vec<u8>> {
+    let range = find_single_sse_data_value(frame)?;
+    let data_bytes = &frame[range.clone()];
+    let data_str = std::str::from_utf8(data_bytes).ok()?;
+    let trimmed = data_str.trim();
+    if trimmed.is_empty() || trimmed == "[DONE]" {
+        return None;
+    }
+
+    let mut event: Value = serde_json::from_str(trimmed).ok()?;
+    let mut modified = false;
+
+    if let Some(delta) = event.get_mut("delta").and_then(Value::as_object_mut) {
+        if let Some(reasoning) = delta.remove("reasoning_content") {
+            delta.insert("type".to_string(), json!("thinking_delta"));
+            delta.insert("thinking".to_string(), reasoning);
+            modified = true;
+        }
+    }
+
+    if let Some(block) = event.get_mut("content_block").and_then(Value::as_object_mut) {
+        if block.get("type").and_then(Value::as_str) == Some("reasoning") {
+            block.insert("type".to_string(), json!("thinking"));
+            if !block.contains_key("thinking") {
+                block.insert("thinking".to_string(), json!(""));
+            }
+            modified = true;
+        }
+    }
+
+    if let Some(choice) = event
+        .get_mut("choices")
+        .and_then(|c| c.as_array_mut())
+        .and_then(|arr| arr.get_mut(0))
+    {
+        if let Some(delta) = choice.get_mut("delta").and_then(Value::as_object_mut) {
+            if let Some(reasoning) = delta.remove("reasoning_content") {
+                delta.insert("thinking".to_string(), reasoning);
+                modified = true;
+            }
+        }
+    }
+
+    if !modified {
+        return None;
+    }
+
+    let new_json = serde_json::to_vec(&event).ok()?;
+    let mut result = Vec::with_capacity(frame.len() + new_json.len());
+    result.extend_from_slice(&frame[..range.start]);
+    result.extend_from_slice(&new_json);
+    result.extend_from_slice(&frame[range.end..]);
+    Some(result)
 }
 
 fn validate_thinking_conflicts(entry: &ModelRouteEntry, body: &Value) -> Result<(), String> {
@@ -2756,6 +2972,21 @@ async fn proxy_count_tokens(
     let model_in = body["model"].as_str().unwrap_or("").to_string();
     let (entry, route) = resolve_model(&model_in, &config, is_claude_code_3p)?;
 
+    if (is_thinking_only_model(&entry.upstream_model) || is_thinking_only_model(&model_in))
+        && client_disables_thinking_27_cases(&body)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "Thinking cannot be disabled for thinking-only models"
+                }
+            })),
+        ));
+    }
+
     if let Err(reason) = validate_thinking_conflicts(entry, &body) {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -2908,6 +3139,21 @@ async fn proxy_messages(
 
     let model_in = body["model"].as_str().unwrap_or("").to_string();
     let (entry, route) = resolve_model(&model_in, &config, is_claude_code_3p)?;
+
+    if (is_thinking_only_model(&entry.upstream_model) || is_thinking_only_model(&model_in))
+        && client_disables_thinking_27_cases(&body)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "Thinking cannot be disabled for thinking-only models"
+                }
+            })),
+        ));
+    }
 
     if let Err(reason) = validate_thinking_conflicts(entry, &body) {
         return Err((
@@ -3870,6 +4116,7 @@ fn apply_openrouter_deepseek_reasoning(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model_capabilities::is_tencent_hy3;
     use crate::ModelEntry;
     use futures::TryStreamExt;
     use std::collections::HashMap;
@@ -8599,5 +8846,722 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         assert_eq!(send_count(&sends), 0);
         assert!(requests.lock().expect("requests").is_empty());
+    }
+
+    // =========================================================================
+    // v0.25.3 Verification Tests (Section 7.2)
+    // =========================================================================
+
+    fn v0253_cfg_for(model: &str, fixture_url: &str) -> crate::GatewayConfigResponse {
+        let (provider_id, display_name, env_key) = match model {
+            "MiniMax-M3.1-Flash" => ("minimax", "MiniMax", "_TEST_GW_MINIMAX_KEY"),
+            "kimi-k3.1-pro" | "kimi-k3.1-pro-highspeed" => ("moonshot", "Moonshot", "_TEST_GW_KIMI_KEY"),
+            "k3.1-pro" | "k3.1-pro-highspeed" => ("kimi-code", "Kimi Code", "_TEST_GW_KIMI_CODE_KEY"),
+            "glm-5.3" | "glm-5.3-flash" | "glm-5.3-flashx" => ("zai", "GLM", "_TEST_GW_ZAI_KEY"),
+            _ => panic!("unknown v0253 model: {}", model),
+        };
+
+        std::env::set_var(env_key, "sk-test-key");
+
+        let models = make_models(vec![
+            (model, model, None),
+        ]);
+        let provider = crate::ProviderConfig {
+            display_name: display_name.to_string(),
+            upstream_url: fixture_url.to_string(),
+            api_key_env: env_key.to_string(),
+            default_model: model.to_string(),
+            force_anthropic_version: None,
+            supports_count_tokens: true,
+            supports_vision: true,
+            supports_video: false,
+            supports_thinking: true,
+            model_map: HashMap::new(),
+            visible_models: vec![model.to_string()],
+            models: Some(models),
+            openrouter_profiles: vec![],
+            claude_code: None,
+            zai: None,
+            hidden: false,
+        };
+        let mut providers = indexmap::IndexMap::new();
+        providers.insert(provider_id.to_string(), provider);
+
+        crate::GatewayConfigResponse {
+            config_version: "1.0".to_string(),
+            active_provider: Some(provider_id.to_string()),
+            active_openrouter_profile_id: None,
+            active_gateway_profile_id: None,
+            gateway_profiles: vec![],
+            providers,
+            server: crate::ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 4000,
+                enable_cors: false,
+            },
+            non_vision_image_policy: "replace".to_string(),
+            normalize_response_model_identity: true,
+            claude_code: None,
+            mcp: None,
+            orchestrator: None,
+            orchestrator_provider_seed_version: None,
+        }
+    }
+
+    fn v0253_generate_27_disabling_fragments() -> Vec<(&'static str, Value)> {
+        vec![
+            ("1. thinking.type = disabled", json!({"thinking": {"type": "disabled"}})),
+            ("2. thinking.type = off", json!({"thinking": {"type": "off"}})),
+            ("3. thinking.type = none", json!({"thinking": {"type": "none"}})),
+            ("4. thinking = disabled", json!({"thinking": "disabled"})),
+            ("5. thinking = off", json!({"thinking": "off"})),
+            ("6. thinking = none", json!({"thinking": "none"})),
+            ("7. thinking = false", json!({"thinking": false})),
+            ("8. thinking_mode = normal", json!({"thinking_mode": "normal"})),
+            ("9. thinking_mode = off", json!({"thinking_mode": "off"})),
+            ("10. thinking_mode = none", json!({"thinking_mode": "none"})),
+            ("11. thinking_mode = disabled", json!({"thinking_mode": "disabled"})),
+            ("12. chat_template_kwargs.thinking = false", json!({"chat_template_kwargs": {"thinking": false}})),
+            ("13. chat_template_kwargs.thinking = off", json!({"chat_template_kwargs": {"thinking": "off"}})),
+            ("14. chat_template_kwargs.thinking = none", json!({"chat_template_kwargs": {"thinking": "none"}})),
+            ("15. chat_template_kwargs.thinking = disabled", json!({"chat_template_kwargs": {"thinking": "disabled"}})),
+            ("16. reasoning_effort = off", json!({"reasoning_effort": "off"})),
+            ("17. reasoning_effort = none", json!({"reasoning_effort": "none"})),
+            ("18. reasoning_effort = disabled", json!({"reasoning_effort": "disabled"})),
+            ("19. reasoning_effort = false", json!({"reasoning_effort": false})),
+            ("20. output_config.effort = off", json!({"output_config": {"effort": "off"}})),
+            ("21. output_config.effort = none", json!({"output_config": {"effort": "none"}})),
+            ("22. output_config.effort = disabled", json!({"output_config": {"effort": "disabled"}})),
+            ("23. output_config.effort = false", json!({"output_config": {"effort": false}})),
+            ("24. effort = off", json!({"effort": "off"})),
+            ("25. effort = none", json!({"effort": "none"})),
+            ("26. effort = disabled", json!({"effort": "disabled"})),
+            ("27. effort = false", json!({"effort": false})),
+        ]
+    }
+
+    #[test]
+    fn v0253_client_disables_thinking_27_cases_unit() {
+        let cases = v0253_generate_27_disabling_fragments();
+        assert_eq!(cases.len(), 27);
+        for (desc, fragment) in cases {
+            assert!(
+                client_disables_thinking_27_cases(&fragment),
+                "Expected client_disables_thinking_27_cases to be true for: {}",
+                desc
+            );
+        }
+
+        // Positive/neutral cases should return false
+        assert!(!client_disables_thinking_27_cases(&json!({"thinking": {"type": "enabled", "budget_tokens": 1024}})));
+        assert!(!client_disables_thinking_27_cases(&json!({"thinking": true})));
+        assert!(!client_disables_thinking_27_cases(&json!({"thinking_mode": "thinking"})));
+        assert!(!client_disables_thinking_27_cases(&json!({"reasoning_effort": "high"})));
+        assert!(!client_disables_thinking_27_cases(&json!({"output_config": {"effort": "medium"}})));
+        assert!(!client_disables_thinking_27_cases(&json!({"effort": "max"})));
+    }
+
+    #[tokio::test]
+    async fn v0253_thinking_only_models_refuse_disabling_216_cases() {
+        let models = [
+            "MiniMax-M3.1-Flash",
+            "kimi-k3.1-pro",
+            "kimi-k3.1-pro-highspeed",
+            "k3.1-pro",
+            "k3.1-pro-highspeed",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "glm-5.3-flashx",
+        ];
+
+        let disabling_fragments = v0253_generate_27_disabling_fragments();
+        assert_eq!(models.len(), 8);
+        assert_eq!(disabling_fragments.len(), 27);
+
+        let mut total_cases = 0;
+
+        for model in &models {
+            let (fixture, requests) = serve_zai_fixture(
+                r#"{"id":"1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}"#,
+                "application/json",
+                200,
+            )
+            .await;
+
+            let cfg = v0253_cfg_for(model, &fixture);
+            let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+                .expect("resolve_proxy_config");
+            let sends = install_send_observer(&mut proxy_cfg);
+            let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+            for (desc, fragment) in &disabling_fragments {
+                total_cases += 1;
+                let mut body = json!({
+                    "model": model,
+                    "max_tokens": 64,
+                    "messages": [{"role": "user", "content": "Hello"}]
+                });
+
+                if let Some(obj) = fragment.as_object() {
+                    for (k, v) in obj {
+                        body[k] = v.clone();
+                    }
+                }
+
+                let resp = post_messages(&base, body.to_string()).await;
+                assert_eq!(
+                    resp.status(),
+                    StatusCode::BAD_REQUEST,
+                    "Model {} with {} should return 400 Bad Request",
+                    model,
+                    desc
+                );
+
+                let resp_body: Value = resp.json().await.expect("json body");
+                let err_msg = resp_body
+                    .get("error")
+                    .and_then(|e| e.get("message"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                assert_eq!(
+                    err_msg,
+                    "Thinking cannot be disabled for thinking-only models",
+                    "Model {} with {} mismatch error message",
+                    model,
+                    desc
+                );
+
+                assert_eq!(
+                    send_count(&sends),
+                    0,
+                    "Send count must be 0 for model {} with {}",
+                    model,
+                    desc
+                );
+            }
+
+            assert!(
+                requests.lock().expect("requests").is_empty(),
+                "Upstream mock must have received 0 requests for model {}",
+                model
+            );
+        }
+
+        assert_eq!(total_cases, 216);
+    }
+
+    fn v0253_generate_non_control_payloads_openai() -> Vec<(&'static str, Value)> {
+        let mut variations = Vec::new();
+        // 29 variations covering user/assistant/system messages, tools descriptions, etc.
+        let texts = [
+            "turn off the lights",
+            "status: disabled",
+            "result is none",
+            "mode: normal",
+            "set to off",
+            "disabled account",
+            "none of the above",
+            "it is false that...",
+            "false statement",
+        ];
+
+        for t in &texts {
+            variations.push((
+                "user message text",
+                json!([{"role": "user", "content": t}]),
+            ));
+        }
+
+        let assistant_texts = [
+            "I will turn off the heater",
+            "Feature disabled by user",
+            "Returned none for key",
+            "The flag is false",
+        ];
+        for t in &assistant_texts {
+            variations.push((
+                "assistant message text",
+                json!([{"role": "assistant", "content": t}]),
+            ));
+        }
+
+        // Content parts
+        variations.push((
+            "content array text off",
+            json!([{"role": "user", "content": [{"type": "text", "text": "please turn off"}]}]),
+        ));
+        variations.push((
+            "content array text disabled",
+            json!([{"role": "user", "content": [{"type": "text", "text": "is disabled"}]}]),
+        ));
+        variations.push((
+            "content array text none",
+            json!([{"role": "user", "content": [{"type": "text", "text": "value: none"}]}]),
+        ));
+        variations.push((
+            "content array text normal",
+            json!([{"role": "user", "content": [{"type": "text", "text": "mode normal"}]}]),
+        ));
+
+        // System messages
+        let system_texts = [
+            "You are an assistant. Do not turn off safety.",
+            "System status: disabled",
+            "Default mode: none",
+            "Strictness: normal",
+        ];
+        for t in &system_texts {
+            variations.push((
+                "system message text",
+                json!([{"role": "system", "content": t}, {"role": "user", "content": "hi"}]),
+            ));
+        }
+
+        // Multi-turn
+        variations.push((
+            "multi-turn with off",
+            json!([{"role": "user", "content": "off"}, {"role": "assistant", "content": "acknowledged"}]),
+        ));
+        variations.push((
+            "multi-turn with none",
+            json!([{"role": "user", "content": "none"}, {"role": "assistant", "content": "ok"}]),
+        ));
+        variations.push((
+            "multi-turn with disabled",
+            json!([{"role": "user", "content": "disabled"}, {"role": "assistant", "content": "ok"}]),
+        ));
+        variations.push((
+            "multi-turn with normal",
+            json!([{"role": "user", "content": "normal"}, {"role": "assistant", "content": "ok"}]),
+        ));
+        variations.push((
+            "multi-turn with false",
+            json!([{"role": "user", "content": "false"}, {"role": "assistant", "content": "ok"}]),
+        ));
+        variations.push((
+            "multi-turn user sentence",
+            json!([{"role": "user", "content": "tell me why disabled is common"}]),
+        ));
+        variations.push((
+            "multi-turn assistant code block",
+            json!([{"role": "assistant", "content": "let x = 'off';"}]),
+        ));
+        variations.push((
+            "user json literal text",
+            json!([{"role": "user", "content": r#"{"thinking": false}"#}]),
+        ));
+
+        assert_eq!(variations.len(), 29);
+        variations
+    }
+
+    fn v0253_generate_non_control_payloads_anthropic() -> Vec<(&'static str, Value, Option<Value>)> {
+        let mut variations = Vec::new();
+        // 32 variations: messages + system + tools
+        let texts = [
+            "turn off the lights",
+            "status: disabled",
+            "result is none",
+            "mode: normal",
+            "set to off",
+            "disabled account",
+            "none of the above",
+            "it is false that...",
+            "false statement",
+            "user asks: off",
+            "user asks: none",
+            "user asks: disabled",
+            "user asks: normal",
+            "user asks: false",
+        ];
+
+        for t in &texts {
+            variations.push((
+                "user text",
+                json!([{"role": "user", "content": t}]),
+                None,
+            ));
+        }
+
+        // assistant text
+        let ast_texts = [
+            "off mode activated",
+            "disabled in config",
+            "none was found",
+            "normal operation",
+            "false positive",
+        ];
+        for t in &ast_texts {
+            variations.push((
+                "assistant text",
+                json!([{"role": "assistant", "content": t}]),
+                None,
+            ));
+        }
+
+        // system variations
+        let system_texts = [
+            "Safety: do not turn off",
+            "Debug mode: disabled",
+            "Fallback: none",
+            "Operating mode: normal",
+        ];
+        for t in &system_texts {
+            variations.push((
+                "with system",
+                json!([{"role": "user", "content": "run"}]),
+                Some(json!(t)),
+            ));
+        }
+
+        // Tools variations
+        let tool_names = ["turn_off", "set_disabled", "get_none", "mode_normal", "check_false"];
+        for name in &tool_names {
+            variations.push((
+                "with tool name",
+                json!([{"role": "user", "content": "execute"}]),
+                Some(json!([{"name": name, "description": format!("Operation {}", name), "input_schema": {"type": "object"}}])),
+            ));
+        }
+
+        // Complex block
+        variations.push((
+            "content block text with off",
+            json!([{"role": "user", "content": [{"type": "text", "text": "please turn off"}]}]),
+            None,
+        ));
+        variations.push((
+            "content block text with disabled",
+            json!([{"role": "user", "content": [{"type": "text", "text": "now disabled"}]}]),
+            None,
+        ));
+        variations.push((
+            "content block text with none",
+            json!([{"role": "user", "content": [{"type": "text", "text": "item is none"}]}]),
+            None,
+        ));
+        variations.push((
+            "content block text with normal",
+            json!([{"role": "user", "content": [{"type": "text", "text": "keep it normal"}]}]),
+            None,
+        ));
+
+        assert_eq!(variations.len(), 32);
+        variations
+    }
+
+    #[tokio::test]
+    async fn v0253_non_control_data_protected_positions_241_cases() {
+        // 5 OpenAI models x 29 variations = 145 cases
+        let openai_models = [
+            "k3.1-pro",
+            "k3.1-pro-highspeed",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "glm-5.3-flashx",
+        ];
+        let openai_variations = v0253_generate_non_control_payloads_openai();
+        assert_eq!(openai_variations.len(), 29);
+
+        let mut openai_count = 0;
+        for model in &openai_models {
+            let (fixture, requests) = serve_zai_fixture(
+                r#"{"id":"1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}"#,
+                "application/json",
+                200,
+            )
+            .await;
+
+            let cfg = v0253_cfg_for(model, &fixture);
+            let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+                .expect("resolve_proxy_config");
+            let sends = install_send_observer(&mut proxy_cfg);
+            let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+            for (desc, messages) in &openai_variations {
+                openai_count += 1;
+                let body = json!({
+                    "model": model,
+                    "max_tokens": 64,
+                    "messages": messages
+                });
+
+                assert!(
+                    !client_disables_thinking_27_cases(&body),
+                    "OpenAI model {} with non-control payload {} must not be flagged by client_disables_thinking_27_cases",
+                    model,
+                    desc
+                );
+
+                let resp = post_messages(&base, body.to_string()).await;
+                assert_eq!(
+                    resp.status(),
+                    StatusCode::OK,
+                    "OpenAI model {} with non-control payload {} must succeed with 200 OK",
+                    model,
+                    desc
+                );
+            }
+
+            assert_eq!(send_count(&sends), 29);
+            assert_eq!(requests.lock().expect("requests").len(), 29);
+        }
+        assert_eq!(openai_count, 145);
+
+        // 3 Anthropic models x 32 variations = 96 cases
+        let anthropic_models = [
+            "MiniMax-M3.1-Flash",
+            "kimi-k3.1-pro",
+            "kimi-k3.1-pro-highspeed",
+        ];
+        let anthropic_variations = v0253_generate_non_control_payloads_anthropic();
+        assert_eq!(anthropic_variations.len(), 32);
+
+        let mut anthropic_count = 0;
+        for model in &anthropic_models {
+            let (fixture, requests) = serve_zai_fixture(
+                r#"{"id":"1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}"#,
+                "application/json",
+                200,
+            )
+            .await;
+
+            let cfg = v0253_cfg_for(model, &fixture);
+            let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+                .expect("resolve_proxy_config");
+            let sends = install_send_observer(&mut proxy_cfg);
+            let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+            for (desc, messages, extra) in &anthropic_variations {
+                anthropic_count += 1;
+                let mut body = json!({
+                    "model": model,
+                    "max_tokens": 64,
+                    "messages": messages
+                });
+                if let Some(extra_val) = extra {
+                    if extra_val.is_string() {
+                        body["system"] = extra_val.clone();
+                    } else if extra_val.is_array() {
+                        body["tools"] = extra_val.clone();
+                    }
+                }
+
+                assert!(
+                    !client_disables_thinking_27_cases(&body),
+                    "Anthropic model {} with non-control payload {} must not be flagged by client_disables_thinking_27_cases",
+                    model,
+                    desc
+                );
+
+                let resp = post_messages(&base, body.to_string()).await;
+                assert_eq!(
+                    resp.status(),
+                    StatusCode::OK,
+                    "Anthropic model {} with non-control payload {} must succeed with 200 OK",
+                    model,
+                    desc
+                );
+            }
+
+            assert_eq!(send_count(&sends), 32);
+            assert_eq!(requests.lock().expect("requests").len(), 32);
+        }
+        assert_eq!(anthropic_count, 96);
+        assert_eq!(openai_count + anthropic_count, 241);
+    }
+
+    #[tokio::test]
+    async fn v0253_conflicting_fields_priority() {
+        let (fixture, requests) = serve_zai_fixture(
+            r#"{"id":"1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}"#,
+            "application/json",
+            200,
+        )
+        .await;
+
+        let cfg = v0253_cfg_for("glm-5.3", &fixture);
+        let mut proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let sends = install_send_observer(&mut proxy_cfg);
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        // Conflicting request: reasoning_effort = "off" AND output_config = { effort: "high" }
+        // On thinking-only model glm-5.3, the disabling condition must take precedence and reject with 400.
+        let conflict_body = json!({
+            "model": "glm-5.3",
+            "max_tokens": 64,
+            "messages": [{"role": "user", "content": "test"}],
+            "reasoning_effort": "off",
+            "output_config": { "effort": "high" }
+        })
+        .to_string();
+
+        let resp = post_messages(&base, conflict_body).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let resp_body: Value = resp.json().await.expect("json body");
+        assert_eq!(
+            resp_body["error"]["message"].as_str().unwrap(),
+            "Thinking cannot be disabled for thinking-only models"
+        );
+        assert_eq!(send_count(&sends), 0);
+        assert!(requests.lock().expect("requests").is_empty());
+    }
+
+    #[tokio::test]
+    async fn v0253_kimi_code_effort_normalization_path() {
+        let (fixture, requests) = serve_zai_fixture(
+            r#"{"id":"1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}"#,
+            "application/json",
+            200,
+        )
+        .await;
+
+        let cfg = v0253_cfg_for("k3.1-pro", &fixture);
+        let proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        // Case 1: output_config: { effort: "medium" } -> normalized to "high", thinking removed
+        let body1 = json!({
+            "model": "k3.1-pro",
+            "max_tokens": 64,
+            "messages": [{"role": "user", "content": "hi"}],
+            "output_config": { "effort": "medium" },
+            "thinking": { "type": "enabled", "budget_tokens": 1024 }
+        })
+        .to_string();
+
+        let resp1 = post_messages(&base, body1).await;
+        assert_eq!(resp1.status(), StatusCode::OK);
+
+        let sent1: Value = {
+            let reqs = requests.lock().expect("requests");
+            reqs.last().unwrap().2.clone()
+        };
+        assert_eq!(sent1["reasoning_effort"], "high");
+        assert!(sent1.get("thinking").is_none());
+
+        // Case 2: reasoning_effort: "xhigh" -> normalized to "max"
+        let (fixture2, requests2) = serve_zai_fixture(
+            r#"{"id":"1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}"#,
+            "application/json",
+            200,
+        )
+        .await;
+
+        let cfg2 = v0253_cfg_for("k3.1-pro-highspeed", &fixture2);
+        let proxy_cfg2 = resolve_proxy_config(&cfg2, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let base2 = serve_gateway(Arc::new(proxy_cfg2)).await;
+
+        let body2 = json!({
+            "model": "k3.1-pro-highspeed",
+            "max_tokens": 64,
+            "messages": [{"role": "user", "content": "hi"}],
+            "reasoning_effort": "xhigh"
+        })
+        .to_string();
+
+        let resp2 = post_messages(&base2, body2).await;
+        assert_eq!(resp2.status(), StatusCode::OK);
+
+        let sent2: Value = {
+            let reqs = requests2.lock().expect("requests");
+            reqs.last().unwrap().2.clone()
+        };
+        assert_eq!(sent2["reasoning_effort"], "max");
+
+        // Case 3: unprovided -> default "high"
+        let (fixture3, requests3) = serve_zai_fixture(
+            r#"{"id":"1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}"#,
+            "application/json",
+            200,
+        )
+        .await;
+
+        let cfg3 = v0253_cfg_for("k3.1-pro", &fixture3);
+        let proxy_cfg3 = resolve_proxy_config(&cfg3, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let base3 = serve_gateway(Arc::new(proxy_cfg3)).await;
+
+        let body3 = json!({
+            "model": "k3.1-pro",
+            "max_tokens": 64,
+            "messages": [{"role": "user", "content": "hi"}]
+        })
+        .to_string();
+
+        let resp3 = post_messages(&base3, body3).await;
+        assert_eq!(resp3.status(), StatusCode::OK);
+
+        let sent3: Value = {
+            let reqs = requests3.lock().expect("requests");
+            reqs.last().unwrap().2.clone()
+        };
+        assert_eq!(sent3["reasoning_effort"], "high");
+    }
+
+    #[tokio::test]
+    async fn v0253_minimax_m31_flash_transforms_and_streaming() {
+        let (fixture, requests) = serve_zai_fixture(
+            r#"{"id":"1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}"#,
+            "application/json",
+            200,
+        )
+        .await;
+
+        let cfg = v0253_cfg_for("MiniMax-M3.1-Flash", &fixture);
+        let proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true)))
+            .expect("resolve_proxy_config");
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+
+        // Request transform: MiniMax-M3.1-Flash default effort is max
+        let body = json!({
+            "model": "MiniMax-M3.1-Flash",
+            "max_tokens": 64,
+            "messages": [{"role": "user", "content": "hi"}]
+        })
+        .to_string();
+
+        let resp = post_messages(&base, body).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let sent: Value = {
+            let reqs = requests.lock().expect("requests");
+            reqs.last().unwrap().2.clone()
+        };
+        assert_eq!(sent["reasoning_effort"], "max");
+
+        // Streaming frame transform unit test
+        // 1. Anthropic-style delta with reasoning_content
+        let frame1 = b"event: completion\ndata: {\"delta\":{\"reasoning_content\":\"thinking step 1\"}}\n\n";
+        let res1 = transform_minimax_reasoning_frame(frame1).expect("transform frame1");
+        let res1_str = std::str::from_utf8(&res1).unwrap();
+        assert!(res1_str.contains(r#""type":"thinking_delta""#));
+        assert!(res1_str.contains(r#""thinking":"thinking step 1""#));
+        assert!(!res1_str.contains("reasoning_content"));
+
+        // 2. OpenAI-style choices delta with reasoning_content
+        let frame2 = b"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"openai thinking\"}}]}\n\n";
+        let res2 = transform_minimax_reasoning_frame(frame2).expect("transform frame2");
+        let res2_str = std::str::from_utf8(&res2).unwrap();
+        assert!(res2_str.contains(r#""thinking":"openai thinking""#));
+        assert!(!res2_str.contains("reasoning_content"));
+
+        // 3. Content block reasoning -> thinking
+        let frame3 = b"data: {\"content_block\":{\"type\":\"reasoning\"}}\n\n";
+        let res3 = transform_minimax_reasoning_frame(frame3).expect("transform frame3");
+        let res3_str = std::str::from_utf8(&res3).unwrap();
+        assert!(res3_str.contains(r#""type":"thinking""#));
+        assert!(res3_str.contains(r#""thinking":"""#));
+
+        // 4. [DONE] frame passes through None
+        let frame_done = b"data: [DONE]\n\n";
+        assert!(transform_minimax_reasoning_frame(frame_done).is_none());
+
+        // 5. Normal text delta without reasoning_content passes through None
+        let frame_normal = b"data: {\"delta\":{\"text\":\"hello\"}}\n\n";
+        assert!(transform_minimax_reasoning_frame(frame_normal).is_none());
     }
 }

@@ -56,6 +56,7 @@ export interface CatalogModel {
     forcedReasoningEffort?: "max";
     forcedThinkingOptions?: ThinkingOption[];
     reasoningEffortOptions?: ReasoningEffortOption[];
+    defaultReasoningEffort?: string;
     reasoning?: ModelReasoningCapabilities;
   };
 }

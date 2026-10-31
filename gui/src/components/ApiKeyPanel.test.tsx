@@ -610,7 +610,7 @@ describe("Kimi Code ModelSelector", () => {
     render(<ModelSelector {...props} />);
     const modelSelect = screen.getByRole("combobox");
     const options = Array.from(modelSelect.querySelectorAll("option")).map((o) => o.value);
-    expect(options).toEqual(["kimi-for-coding", "kimi-for-coding-highspeed", "__custom__"]);
+    expect(options).toEqual(["k3.1-pro", "k3.1-pro-highspeed", "kimi-for-coding", "kimi-for-coding-highspeed", "__custom__"]);
   });
 
   it("displays subscription and quota note in Kimi Code provider panel when expanded", async () => {

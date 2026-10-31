@@ -59,8 +59,8 @@ describe("shared model catalog", () => {
     expect(MODEL_CATALOG.models["glm-5.3"].providerId).toBe("zai");
     expect(MODEL_CATALOG.models["glm-5.3-flash"].providerId).toBe("zai");
     expect(MODEL_CATALOG.models["glm-5.3-flashx"].providerId).toBe("zai");
-    expect(MODEL_CATALOG.contextWindows["zai:glm-5.3-flash"].context_length).toBe(1_000_000);
-    expect(MODEL_CATALOG.contextWindows["zai:glm-5.3-flashx"].context_length).toBe(1_000_000);
+    expect(MODEL_CATALOG.contextWindows["zai:glm-5.3-flash"].context_length).toBe(1_048_576);
+    expect(MODEL_CATALOG.contextWindows["zai:glm-5.3-flashx"].context_length).toBe(1_048_576);
     // The two Flash codes accept image input on the direct API; video stays
     // disabled until the official block form is confirmed.
     expect(MODEL_CAPABILITIES["glm-5.3-flash"].supports_vision).toBe(true);
@@ -89,7 +89,7 @@ describe("shared model catalog", () => {
 
     // The direct ID and the OpenRouter ID stay distinct entries.
     expect(MODEL_CATALOG.models["z-ai/glm-5.3"].providerId).toBe("openrouter");
-    expect(MODEL_CATALOG.contextWindows["zai:glm-5.3"].context_length).toBe(1_000_000);
+    expect(MODEL_CATALOG.contextWindows["zai:glm-5.3"].context_length).toBe(1_048_576);
     expect(MODEL_CATALOG.contextWindows["openrouter:z-ai/glm-5.3"].context_length).toBe(1_048_576);
 
     // Thinking is mandatory and the documented effort axis is low/high/max.
@@ -98,6 +98,10 @@ describe("shared model catalog", () => {
     expect(caps.force_thinking).toBe(true);
     expect(caps.supportsReasoningEffort).toBe(true);
     expect(caps.reasoningEffortOptions).toEqual(["low", "high", "max"]);
+    expect(MODEL_CATALOG.models["glm-5.3"].capabilities.defaultReasoningEffort).toBe("max");
+    expect(MODEL_CATALOG.models["glm-5.3"].capabilities.forcedReasoningEffort).toBeUndefined();
+    expect(MODEL_CATALOG.models["glm-5.3-flash"].capabilities.defaultReasoningEffort).toBe("max");
+    expect(MODEL_CATALOG.models["glm-5.3-flashx"].capabilities.defaultReasoningEffort).toBe("max");
   });
 
   it("exposes the direct Anthropic models in the catalog providers list", () => {
@@ -126,5 +130,52 @@ describe("shared model catalog", () => {
       "xhigh",
       "max",
     ]);
+  });
+
+  it("defines MiniMax-M3.1-Flash and Kimi models according to v0.25.3 specifications", () => {
+    // MiniMax-M3.1-Flash
+    const m31 = MODEL_CATALOG.models["MiniMax-M3.1-Flash"];
+    expect(m31).toBeDefined();
+    expect(m31.providerId).toBe("minimax");
+    expect(MODEL_CATALOG.contextWindows["minimax:MiniMax-M3.1-Flash"].context_length).toBe(1_048_576);
+    expect(m31.capabilities.thinkingPolicy).toBe("thinking_only");
+    expect(m31.capabilities.forceThinking).toBe(true);
+    expect(m31.capabilities.supportsReasoningEffort).toBe(true);
+    expect(m31.capabilities.reasoningEffortOptions).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(m31.capabilities.defaultReasoningEffort).toBe("max");
+    expect(m31.capabilities.forcedReasoningEffort).toBeUndefined();
+
+    // k3.1-pro (Kimi Code API)
+    const k31Code = MODEL_CATALOG.models["k3.1-pro"];
+    expect(k31Code).toBeDefined();
+    expect(k31Code.providerId).toBe("kimi-code");
+    expect(MODEL_CATALOG.contextWindows["kimi-code:k3.1-pro"].context_length).toBe(262_144);
+    expect(k31Code.capabilities.thinkingPolicy).toBe("thinking_only");
+    expect(k31Code.capabilities.forceThinking).toBe(true);
+    expect(k31Code.capabilities.supportsReasoningEffort).toBe(true);
+    expect(k31Code.capabilities.reasoningEffortOptions).toEqual(["low", "high", "max"]);
+    expect(k31Code.capabilities.defaultReasoningEffort).toBe("high");
+    expect(k31Code.capabilities.forcedReasoningEffort).toBeUndefined();
+
+    // k3.1-pro-highspeed (Kimi Code API)
+    const k31CodeHs = MODEL_CATALOG.models["k3.1-pro-highspeed"];
+    expect(k31CodeHs).toBeDefined();
+    expect(k31CodeHs.providerId).toBe("kimi-code");
+    expect(MODEL_CATALOG.contextWindows["kimi-code:k3.1-pro-highspeed"].context_length).toBe(1_048_576);
+    expect(k31CodeHs.capabilities.thinkingPolicy).toBe("thinking_only");
+    expect(k31CodeHs.capabilities.forceThinking).toBe(true);
+    expect(k31CodeHs.capabilities.supportsReasoningEffort).toBe(true);
+    expect(k31CodeHs.capabilities.reasoningEffortOptions).toEqual(["low", "high", "max"]);
+    expect(k31CodeHs.capabilities.defaultReasoningEffort).toBe("high");
+    expect(k31CodeHs.capabilities.forcedReasoningEffort).toBeUndefined();
+
+    // ID separation between kimi (Moonshot) and kimi-code
+    const k31Moonshot = MODEL_CATALOG.models["kimi-k3.1-pro"];
+    expect(k31Moonshot).toBeDefined();
+    expect(k31Moonshot.providerId).toBe("kimi");
+    expect(k31Moonshot.capabilities.thinkingPolicy).toBe("thinking_only");
+    expect(k31Moonshot.capabilities.forceThinking).toBe(true);
+    expect(k31Code.providerId).toBe("kimi-code");
+    expect(k31Moonshot).not.toBe(k31Code);
   });
 });

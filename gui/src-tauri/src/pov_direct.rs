@@ -466,7 +466,7 @@ pub(crate) fn parse_metadata_v1(json_str: &str) -> Option<EmbeddedSettingsV1> {
 
 pub fn classify_rule_file(
     rule_path: &Path,
-    expected_synced_content: &str,
+    _expected_synced_content: &str,
 ) -> (PovDirectFileState, PovDirectSettingsState, PovDirectSettings, String) {
     if !rule_path.exists() {
         return (
@@ -487,7 +487,6 @@ pub fn classify_rule_file(
     };
 
     let content_hash = hash_content(&content);
-    let expected_hash = hash_content(expected_synced_content);
 
     let fm_parse = parse_strict_frontmatter(&content);
     let managed_parse = parse_managed_block(&content);
@@ -711,7 +710,7 @@ pub fn inspect_pov_direct_status_at(
     // Preliminary classification to get current settings
     let portable_include_str = "~/.gemini/config/skills/pov-direct/SKILL.md";
     let dummy_expected = render_rule_file(&PovDirectSettings::default(), portable_include_str);
-    let (temp_state, temp_meta_state, current_settings, content_hash) =
+    let (_temp_state, _temp_meta_state, current_settings, content_hash) =
         classify_rule_file(&rule_file, &dummy_expected);
 
     // Exact expected content for currently loaded settings

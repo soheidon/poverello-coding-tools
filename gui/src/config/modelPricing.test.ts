@@ -209,7 +209,7 @@ describe("GLM (Z.ai Direct API) pricing data", () => {
     expect(glm53.inputPerMillionUsd).toBe(1.40);
     expect(glm53.outputPerMillionUsd).toBe(4.40);
     expect(glm53.cachedInputPerMillionUsd).toBe(0.26);
-    expect(glm53.verifiedAt).toBe("2026-10-12");
+    expect(glm53.verifiedAt).toBe("2026-10-31");
     expect(glm53.sourceUrl).toBe("https://docs.z.ai/guides/overview/pricing");
     expect(glm53.pricingNoteKey).toBeUndefined();
 
@@ -218,7 +218,7 @@ describe("GLM (Z.ai Direct API) pricing data", () => {
     expect(flash.inputPerMillionUsd).toBe(0.15);
     expect(flash.outputPerMillionUsd).toBe(0.50);
     expect(flash.cachedInputPerMillionUsd).toBe(0.03);
-    expect(flash.verifiedAt).toBe("2026-10-12");
+    expect(flash.verifiedAt).toBe("2026-10-31");
     expect(flash.sourceUrl).toBe("https://docs.z.ai/guides/overview/pricing");
     expect(flash.pricingNoteKey).toBeUndefined();
 
@@ -227,7 +227,7 @@ describe("GLM (Z.ai Direct API) pricing data", () => {
     expect(flashx.inputPerMillionUsd).toBe(0.37);
     expect(flashx.outputPerMillionUsd).toBe(1.25);
     expect(flashx.cachedInputPerMillionUsd).toBe(0.075);
-    expect(flashx.verifiedAt).toBe("2026-10-12");
+    expect(flashx.verifiedAt).toBe("2026-10-31");
     expect(flashx.sourceUrl).toBe("https://docs.z.ai/guides/overview/pricing");
     expect(flashx.pricingNoteKey).toBeUndefined();
   });
@@ -327,3 +327,48 @@ describe("MiniMax M2.7 and Kimi K2.7 Code direct pricing", () => {
 export { GPT56_IDS };
 
 // This file intentionally imports the production modules directly; it must not use the global builtinOpenRouter test mock.
+
+describe("v0.25.3 additions in MODEL_PRICING", () => {
+  it("defines PAYG pricing for MiniMax-M3.1-Flash, kimi-k3.1-pro, and kimi-k3.1-pro-highspeed", () => {
+    const m31 = MODEL_PRICING["MiniMax-M3.1-Flash"];
+    expect(m31).toBeDefined();
+    expect(m31.inputPerMillionUsd).toBe(0.15);
+    expect(m31.outputPerMillionUsd).toBe(0.60);
+    expect(m31.cachedInputPerMillionUsd).toBe(0.015);
+    expect(m31.verifiedAt).toBe("2026-10-31");
+    expect(m31.sourceUrl).toBe("https://www.minimax.io/blog/minimax-m31f");
+
+    const k31 = MODEL_PRICING["kimi-k3.1-pro"];
+    expect(k31).toBeDefined();
+    expect(k31.inputPerMillionUsd).toBe(1.949);
+    expect(k31.outputPerMillionUsd).toBe(10.195);
+    expect(k31.cachedInputPerMillionUsd).toBe(0.195);
+    expect(k31.pricingNoteKey).toBe("modelPricing.notes.cnyReference");
+    expect(k31.verifiedAt).toBe("2026-10-31");
+
+    const k31hs = MODEL_PRICING["kimi-k3.1-pro-highspeed"];
+    expect(k31hs).toBeDefined();
+    expect(k31hs.inputPerMillionUsd).toBe(3.898);
+    expect(k31hs.outputPerMillionUsd).toBe(20.391);
+    expect(k31hs.cachedInputPerMillionUsd).toBe(0.195);
+    expect(k31hs.pricingNoteKey).toBe("modelPricing.notes.cnyReference");
+    expect(k31hs.verifiedAt).toBe("2026-10-31");
+  });
+
+  it("ensures Kimi Code models are excluded from PAYG MODEL_PRICING", () => {
+    expect(MODEL_PRICING["k3.1-pro"]).toBeUndefined();
+    expect(MODEL_PRICING["k3.1-pro-highspeed"]).toBeUndefined();
+    expect(MODEL_PRICING["kimi-code:k3.1-pro"]).toBeUndefined();
+    expect(MODEL_PRICING["kimi-code:k3.1-pro-highspeed"]).toBeUndefined();
+  });
+
+  it("ensures both shared pricing notes exist across all 8 languages", async () => {
+    const locales = ["de", "en", "es", "fr", "ja", "ko", "zh-CN", "zh-TW"];
+    for (const locale of locales) {
+      const langModule = await import(`../i18n/lang/${locale}.ts`);
+      const dict = langModule.translations;
+      expect(dict["modelPricing.notes.cnyReference"]).toBeTruthy();
+      expect(dict["modelPricing.notes.openrouterDynamicPricing"]).toBeTruthy();
+    }
+  });
+});

@@ -12,6 +12,11 @@ import type {
   PovDirectApplyRequest,
 } from "../types";
 
+export function formatDisplayPath(path?: string | null): string {
+  if (!path) return "N/A";
+  return path.replace(/\\/g, "/");
+}
+
 export default function AntigravityRulesPanel() {
   const { t } = useTranslation();
   const [status, setStatus] = useState<PovDirectStatus | null>(null);
@@ -19,6 +24,8 @@ export default function AntigravityRulesPanel() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [customExplicit, setCustomExplicit] = useState(false);
 
   // Form draft settings
   const [draft, setDraft] = useState<PovDirectSettings>({
@@ -41,8 +48,8 @@ export default function AntigravityRulesPanel() {
       const res = await invoke<PovDirectStatus>("get_pov_direct_status");
       setStatus(res);
       setDraft(res.settings);
-    } catch (e: unknown) {
-      setError(String(e));
+    } catch (e) {
+      setError(typeof e === "string" ? e : (e as Error).message || "Failed to load status");
     } finally {
       setLoading(false);
     }
@@ -52,166 +59,136 @@ export default function AntigravityRulesPanel() {
     void fetchStatus();
   }, [fetchStatus]);
 
-  // Compute live preview based on draft
-  const previewLines = useMemo(() => {
-    const lines = [
-      `Automatic activation: ${
-        draft.auto_activation
-          ? "Enabled (model_decision)"
-          : "Disabled (manual only: activated via @pov-direct mention; /pov-direct invokes canonical Skill only)"
-      }`,
-      `Web research: ${
-        draft.web_research === "requested_only"
-          ? "When requested only"
-          : draft.web_research === "requested_or_necessary"
-          ? "When requested or necessary"
-          : "Unrestricted"
-      }`,
-      `Response verbosity: ${draft.response_verbosity}`,
-      `Repository exploration: ${draft.repository_exploration}`,
-      `Verification: ${draft.verification}`,
-    ];
-    return lines.join("\n");
-  }, [draft]);
+  // Determine current operation mode
+  const currentMode = useMemo((): "gemini_38_standard" | "gemini_37_lightweight" | "custom" => {
+    if (customExplicit) {
+      return "custom";
+    }
+    if (
+      !draft.auto_activation &&
+      draft.web_research === "unrestricted" &&
+      draft.response_verbosity === "standard" &&
+      draft.repository_exploration === "standard" &&
+      draft.verification === "standard"
+    ) {
+      return "gemini_38_standard";
+    }
+    if (
+      draft.auto_activation &&
+      draft.web_research === "requested_or_necessary" &&
+      draft.response_verbosity === "concise" &&
+      draft.repository_exploration === "minimal" &&
+      draft.verification === "focused"
+    ) {
+      return "gemini_37_lightweight";
+    }
+    return "custom";
+  }, [draft, customExplicit]);
 
-  const handleOpenFolder = async () => {
-    try {
-      await invoke("open_antigravity_rules_folder");
-    } catch (e: unknown) {
-      setError(String(e));
+  const handleApplyPreset = (mode: "gemini_38_standard" | "gemini_37_lightweight" | "custom") => {
+    if (mode === "gemini_38_standard") {
+      setCustomExplicit(false);
+      updateDraft({
+        auto_activation: false,
+        web_research: "unrestricted",
+        response_verbosity: "standard",
+        repository_exploration: "standard",
+        verification: "standard",
+      });
+    } else if (mode === "gemini_37_lightweight") {
+      setCustomExplicit(false);
+      updateDraft({
+        auto_activation: true,
+        web_research: "requested_or_necessary",
+        response_verbosity: "concise",
+        repository_exploration: "minimal",
+        verification: "focused",
+      });
+    } else {
+      setCustomExplicit(true);
     }
   };
 
-  const handleResetDefaults = () => {
-    setDraft({
-      auto_activation: true,
-      web_research: "requested_or_necessary",
-      response_verbosity: "concise",
-      repository_exploration: "minimal",
-      verification: "focused",
-    });
+  const updateDraft = (newDraft: PovDirectSettings) => {
+    setCustomExplicit(false);
+    setDraft(newDraft);
   };
 
-  const executeSave = async (operation: PovDirectApplyOperation = "apply") => {
+  const executeApply = async (operation: PovDirectApplyOperation, confirmedOverwrite = false) => {
     if (!status) return;
     try {
       setSaving(true);
       setError(null);
       setSuccessMessage(null);
-      const req: PovDirectApplyRequest = {
-        settings: draft,
+
+      const request: PovDirectApplyRequest = {
         operation,
         expected_state: status.state,
         expected_content_hash: status.content_hash,
+        settings: draft,
       };
-      const res = await invoke<PovDirectStatus>("save_pov_direct_settings", {
-        request: req,
-      });
-      setStatus(res);
-      setDraft(res.settings);
-      setShowConfirmModal(false);
-      setShowMigrateModal(false);
-      setSuccessMessage(t("antigravityRules.status.synced"));
-      setTimeout(() => setSuccessMessage(null), 4000);
-    } catch (e: unknown) {
-      setError(String(e));
+
+      const updated = await invoke<PovDirectStatus>("save_pov_direct_settings", { request });
+      setStatus(updated);
+      setDraft(updated.settings);
+      setSuccessMessage("Settings saved and applied successfully.");
+      setTimeout(() => setSuccessMessage(null), 3500);
+    } catch (e) {
+      setError(typeof e === "string" ? e : (e as Error).message || "Failed to save settings");
     } finally {
       setSaving(false);
+      setShowConfirmModal(false);
+      setShowMigrateModal(false);
     }
   };
 
   const handleSaveClick = () => {
-    if (status?.state === "unmanaged_custom") {
+    if (!status) return;
+    if (status.state === "unmanaged_custom") {
       setShowConfirmModal(true);
-    } else if (status?.state === "legacy_poverello") {
+    } else if (status.state === "legacy_poverello") {
       setShowMigrateModal(true);
     } else {
-      void executeSave("apply");
+      void executeApply("apply");
     }
   };
 
-  // State badge styling and label
-  const stateBadge = useMemo(() => {
-    if (!status) return null;
-    let label = "";
-    let bg = "#6b7280";
-    let color = "#ffffff";
+  const handleResetDefaults = () => {
+    setCustomExplicit(false);
+    setDraft({
+      auto_activation: false,
+      web_research: "unrestricted",
+      response_verbosity: "standard",
+      repository_exploration: "standard",
+      verification: "standard",
+    });
+  };
 
+  const handleOpenFolder = async () => {
+    try {
+      await invoke("open_antigravity_rules_folder");
+    } catch (e) {
+      setError(typeof e === "string" ? e : (e as Error).message || "Failed to open rules folder");
+    }
+  };
+
+  const stateBadgeText = useMemo(() => {
+    if (!status) return t("antigravityRules.status.unknown");
     switch (status.state) {
       case "managed_synced":
-        label = t("antigravityRules.status.synced");
-        bg = "#10b981"; // green
-        break;
+        return t("antigravityRules.status.managedSynced");
       case "managed_drifted":
-        label = t("antigravityRules.status.externalDrift");
-        bg = "#f59e0b"; // amber
-        break;
+        return t("antigravityRules.status.managedDrifted");
       case "legacy_poverello":
-        label = t("antigravityRules.status.legacyFile");
-        bg = "#3b82f6"; // blue
-        break;
+        return t("antigravityRules.status.legacyPoverello");
       case "unmanaged_custom":
-        label = t("antigravityRules.status.unmanaged");
-        bg = "#ef4444"; // red
-        break;
+        return t("antigravityRules.status.unmanagedCustom");
       case "absent":
+        return t("antigravityRules.status.absent");
       default:
-        label = t("antigravityRules.status.notApplied");
-        bg = "#6b7280"; // gray
-        break;
+        return t("antigravityRules.status.unknown");
     }
-
-    return (
-      <span
-        style={{
-          display: "inline-block",
-          padding: "2px 8px",
-          borderRadius: "12px",
-          fontSize: "11px",
-          fontWeight: 600,
-          backgroundColor: bg,
-          color,
-          marginLeft: "8px",
-        }}
-      >
-        {label}
-      </span>
-    );
   }, [status, t]);
-
-  const webResearchOptions: { value: WebResearchPolicy; label: string }[] = [
-    {
-      value: "requested_only",
-      label: t("antigravityRules.webResearch.requestedOnly"),
-    },
-    {
-      value: "requested_or_necessary",
-      label: t("antigravityRules.webResearch.requestedOrNecessary"),
-    },
-    {
-      value: "unrestricted",
-      label: t("antigravityRules.webResearch.unrestricted"),
-    },
-  ];
-
-  const verbosityOptions: { value: ResponseVerbosityPolicy; label: string }[] = [
-    { value: "minimal", label: t("antigravityRules.verbosity.minimal") },
-    { value: "concise", label: t("antigravityRules.verbosity.concise") },
-    { value: "standard", label: t("antigravityRules.verbosity.standard") },
-    { value: "detailed", label: t("antigravityRules.verbosity.detailed") },
-  ];
-
-  const explorationOptions: { value: ExplorationPolicy; label: string }[] = [
-    { value: "minimal", label: t("antigravityRules.exploration.minimal") },
-    { value: "standard", label: t("antigravityRules.exploration.standard") },
-    { value: "detailed", label: t("antigravityRules.exploration.detailed") },
-  ];
-
-  const verificationOptions: { value: VerificationPolicy; label: string }[] = [
-    { value: "focused", label: t("antigravityRules.verification.focused") },
-    { value: "standard", label: t("antigravityRules.verification.standard") },
-    { value: "broad", label: t("antigravityRules.verification.broad") },
-  ];
 
   if (loading) {
     return (
@@ -228,9 +205,8 @@ export default function AntigravityRulesPanel() {
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text-primary)", display: "inline-flex", alignItems: "center" }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
             {t("antigravityRules.panelTitle")}
-            {stateBadge}
           </h3>
           {saving && <span style={{ fontSize: 11, color: "#656d76" }}>...</span>}
         </div>
@@ -256,10 +232,19 @@ export default function AntigravityRulesPanel() {
           >
             {t("antigravityRules.actions.resetDefaults")}
           </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ fontSize: 11, padding: "4px 12px", fontWeight: 600 }}
+            disabled={saving || (status ? !status.can_apply : false)}
+            onClick={handleSaveClick}
+          >
+            {t("antigravityRules.actions.apply")}
+          </button>
         </div>
       </div>
 
-      <p style={{ margin: "0 0 12px 0", fontSize: 12, color: "#656d76" }}>
+      <p style={{ margin: "0 0 14px 0", fontSize: 12, color: "#656d76" }}>
         {t("antigravityRules.panelSubtitle")}
       </p>
 
@@ -308,223 +293,286 @@ export default function AntigravityRulesPanel() {
             fontSize: 12,
           }}
         >
-          {t("antigravityRules.alerts.legacySidecar")}
+          {t("antigravityRules.legacySidecarNotice")}
         </div>
       )}
 
-      {/* Setting 1: Auto Activate Toggle */}
-      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f" }}>
-              {t("antigravityRules.autoActivation.title")}
-            </div>
-            <div style={{ fontSize: 12, color: "#57606a", marginTop: 2 }}>
-              {t("antigravityRules.autoActivation.desc")}
-            </div>
-          </div>
-          <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
-            <input
-              type="checkbox"
-              checked={draft.auto_activation}
-              onChange={(e) => setDraft({ ...draft, auto_activation: e.target.checked })}
-              style={{ width: 16, height: 16, cursor: "pointer" }}
-            />
-          </label>
+      {/* Operation Mode Preset Segment */}
+      <div style={{ borderTop: "1px solid var(--border-color, #e1e4e8)", paddingTop: 12, marginBottom: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary, #24292f)", marginBottom: 6 }}>
+          {t("antigravityRules.mode.title")}
+        </div>
+        <div className="pov-segment-group">
+          <button
+            type="button"
+            className={`pov-segment-btn ${currentMode === "gemini_38_standard" ? "active" : ""}`}
+            onClick={() => handleApplyPreset("gemini_38_standard")}
+          >
+            {t("antigravityRules.mode.presetStandard")}
+          </button>
+          <button
+            type="button"
+            className={`pov-segment-btn ${currentMode === "gemini_37_lightweight" ? "active" : ""}`}
+            onClick={() => handleApplyPreset("gemini_37_lightweight")}
+          >
+            {t("antigravityRules.mode.presetLightweight")}
+          </button>
+          <button
+            type="button"
+            className={`pov-segment-btn ${currentMode === "custom" ? "active" : ""}`}
+            onClick={() => handleApplyPreset("custom")}
+          >
+            {t("antigravityRules.mode.presetCustom")}
+          </button>
+        </div>
+        <div className="pov-segment-desc">
+          {currentMode === "gemini_38_standard" && t("antigravityRules.mode.descStandard")}
+          {currentMode === "gemini_37_lightweight" && t("antigravityRules.mode.descLightweight")}
+          {currentMode === "custom" && t("antigravityRules.mode.descCustom")}
         </div>
       </div>
 
-      {/* Setting 2: Web Research Radio Group */}
-      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f", marginBottom: 6 }}>
+      {/* Axis 1: Auto Activation */}
+      <div style={{ borderTop: "1px solid var(--border-color, #e1e4e8)", paddingTop: 12, marginBottom: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary, #24292f)", marginBottom: 6 }}>
+          {t("antigravityRules.autoActivation.title")}
+        </div>
+        <div className="pov-segment-group">
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.auto_activation ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, auto_activation: true })}
+          >
+            {t("antigravityRules.autoActivation.enabled")}
+          </button>
+          <button
+            type="button"
+            className={`pov-segment-btn ${!draft.auto_activation ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, auto_activation: false })}
+          >
+            {t("antigravityRules.autoActivation.disabled")}
+          </button>
+        </div>
+        <div className="pov-segment-desc">
+          {draft.auto_activation
+            ? t("antigravityRules.autoActivation.descEnabled")
+            : t("antigravityRules.autoActivation.descDisabled")}
+        </div>
+      </div>
+
+      {/* Axis 2: Web Research */}
+      <div style={{ borderTop: "1px solid var(--border-color, #e1e4e8)", paddingTop: 12, marginBottom: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary, #24292f)", marginBottom: 6 }}>
           {t("antigravityRules.webResearch.title")}
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {webResearchOptions.map((opt) => (
-            <label
-              key={opt.value}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                fontSize: 13,
-                color: "#24292f",
-                cursor: "pointer",
-              }}
-            >
-              <input
-                type="radio"
-                name="web_research"
-                value={opt.value}
-                checked={draft.web_research === opt.value}
-                onChange={() => setDraft({ ...draft, web_research: opt.value })}
-                style={{ cursor: "pointer" }}
-              />
-              <span style={{ fontWeight: 500 }}>{opt.label}</span>
-            </label>
-          ))}
+        <div className="pov-segment-group">
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.web_research === "unrestricted" ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, web_research: "unrestricted" })}
+          >
+            {t("antigravityRules.webResearch.unrestricted")}
+          </button>
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.web_research === "requested_or_necessary" ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, web_research: "requested_or_necessary" })}
+          >
+            {t("antigravityRules.webResearch.requestedOrNecessary")}
+          </button>
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.web_research === "requested_only" ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, web_research: "requested_only" })}
+          >
+            {t("antigravityRules.webResearch.requestedOnly")}
+          </button>
+        </div>
+        <div className="pov-segment-desc">
+          {draft.web_research === "unrestricted" && t("antigravityRules.webResearch.descUnrestricted")}
+          {draft.web_research === "requested_or_necessary" && t("antigravityRules.webResearch.descRequestedOrNecessary")}
+          {draft.web_research === "requested_only" && t("antigravityRules.webResearch.descRequestedOnly")}
         </div>
       </div>
 
-      {/* Setting 3: Response Verbosity Pill Selector */}
-      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f", marginBottom: 6 }}>
+      {/* Axis 3: Response Verbosity */}
+      <div style={{ borderTop: "1px solid var(--border-color, #e1e4e8)", paddingTop: 12, marginBottom: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary, #24292f)", marginBottom: 6 }}>
           {t("antigravityRules.verbosity.title")}
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {verbosityOptions.map((opt) => {
-            const active = draft.response_verbosity === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                className={active ? "btn btn-primary" : "btn"}
-                style={{ fontSize: 12, padding: "3px 12px", borderRadius: 16 }}
-                onClick={() => setDraft({ ...draft, response_verbosity: opt.value })}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
+        <div className="pov-segment-group">
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.response_verbosity === "standard" ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, response_verbosity: "standard" })}
+          >
+            {t("antigravityRules.verbosity.standard")}
+          </button>
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.response_verbosity === "concise" ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, response_verbosity: "concise" })}
+          >
+            {t("antigravityRules.verbosity.concise")}
+          </button>
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.response_verbosity === "minimal" ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, response_verbosity: "minimal" })}
+          >
+            {t("antigravityRules.verbosity.minimal")}
+          </button>
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.response_verbosity === "detailed" ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, response_verbosity: "detailed" })}
+          >
+            {t("antigravityRules.verbosity.detailed")}
+          </button>
+        </div>
+        <div className="pov-segment-desc">
+          {draft.response_verbosity === "standard" && t("antigravityRules.verbosity.descStandard")}
+          {draft.response_verbosity === "concise" && t("antigravityRules.verbosity.descConcise")}
+          {draft.response_verbosity === "minimal" && t("antigravityRules.verbosity.descMinimal")}
+          {draft.response_verbosity === "detailed" && t("antigravityRules.verbosity.descDetailed")}
         </div>
       </div>
 
-      {/* Setting 4: Repository Exploration Pill Selector */}
-      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f", marginBottom: 6 }}>
+      {/* Axis 4: Repository Exploration */}
+      <div style={{ borderTop: "1px solid var(--border-color, #e1e4e8)", paddingTop: 12, marginBottom: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary, #24292f)", marginBottom: 6 }}>
           {t("antigravityRules.exploration.title")}
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {explorationOptions.map((opt) => {
-            const active = draft.repository_exploration === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                className={active ? "btn btn-primary" : "btn"}
-                style={{ fontSize: 12, padding: "3px 12px", borderRadius: 16 }}
-                onClick={() => setDraft({ ...draft, repository_exploration: opt.value })}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
+        <div className="pov-segment-group">
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.repository_exploration === "standard" ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, repository_exploration: "standard" })}
+          >
+            {t("antigravityRules.exploration.standard")}
+          </button>
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.repository_exploration === "minimal" ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, repository_exploration: "minimal" })}
+          >
+            {t("antigravityRules.exploration.minimal")}
+          </button>
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.repository_exploration === "detailed" ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, repository_exploration: "detailed" })}
+          >
+            {t("antigravityRules.exploration.detailed")}
+          </button>
+        </div>
+        <div className="pov-segment-desc">
+          {draft.repository_exploration === "standard" && t("antigravityRules.exploration.descStandard")}
+          {draft.repository_exploration === "minimal" && t("antigravityRules.exploration.descMinimal")}
+          {draft.repository_exploration === "detailed" && t("antigravityRules.exploration.descDetailed")}
         </div>
       </div>
 
-      {/* Setting 5: Verification Scope Pill Selector */}
-      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f", marginBottom: 6 }}>
+      {/* Axis 5: Verification */}
+      <div style={{ borderTop: "1px solid var(--border-color, #e1e4e8)", paddingTop: 12, marginBottom: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary, #24292f)", marginBottom: 6 }}>
           {t("antigravityRules.verification.title")}
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {verificationOptions.map((opt) => {
-            const active = draft.verification === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                className={active ? "btn btn-primary" : "btn"}
-                style={{ fontSize: 12, padding: "3px 12px", borderRadius: 16 }}
-                onClick={() => setDraft({ ...draft, verification: opt.value })}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Target Rule File Info */}
-      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f", marginBottom: 4 }}>
-          {t("antigravityRules.ruleFile.title")}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <code
-            style={{
-              fontSize: 11,
-              fontFamily: "var(--font-mono)",
-              color: "#57606a",
-              backgroundColor: "#f6f8fa",
-              padding: "4px 8px",
-              borderRadius: 4,
-              border: "1px solid #d0d7de",
-              flex: 1,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
+        <div className="pov-segment-group">
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.verification === "standard" ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, verification: "standard" })}
           >
-            {status?.rule_path}
-          </code>
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#0969da",
-              backgroundColor: "#ddf4ff",
-              border: "1px solid #54aeff66",
-              padding: "2px 6px",
-              borderRadius: 4,
-              whiteSpace: "nowrap",
-            }}
+            {t("antigravityRules.verification.standard")}
+          </button>
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.verification === "focused" ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, verification: "focused" })}
           >
-            {t("antigravityRules.ruleFile.managedBadge")}
-          </span>
+            {t("antigravityRules.verification.focused")}
+          </button>
+          <button
+            type="button"
+            className={`pov-segment-btn ${draft.verification === "broad" ? "active" : ""}`}
+            onClick={() => updateDraft({ ...draft, verification: "broad" })}
+          >
+            {t("antigravityRules.verification.broad")}
+          </button>
+        </div>
+        <div className="pov-segment-desc">
+          {draft.verification === "standard" && t("antigravityRules.verification.descStandard")}
+          {draft.verification === "focused" && t("antigravityRules.verification.descFocused")}
+          {draft.verification === "broad" && t("antigravityRules.verification.descBroad")}
         </div>
       </div>
 
-      {/* Live Settings Preview */}
-      <div style={{ borderTop: "1px solid #e1e4e8", paddingTop: 12, marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <div style={{ fontWeight: 600, fontSize: 13, color: "#24292f" }}>
-            {t("antigravityRules.ruleFile.previewTitle")}
-          </div>
-          {status && (
-            <div
-              style={{
-                fontSize: 11,
-                color: isOverByteLimit ? "#cf222e" : "#57606a",
-                fontWeight: isOverByteLimit ? 600 : 400,
-              }}
-            >
-              {t("antigravityRules.ruleFile.sizeLabel")}: {status.expanded_byte_size.toLocaleString()} /{" "}
-              {status.byte_limit.toLocaleString()} bytes
-            </div>
-          )}
-        </div>
-        <pre
-          style={{
-            backgroundColor: "#f6f8fa",
-            border: "1px solid #d0d7de",
-            borderRadius: 6,
-            padding: "8px 12px",
-            fontSize: 12,
-            color: "#24292f",
-            fontFamily: "var(--font-mono)",
-            margin: 0,
-            whiteSpace: "pre-wrap",
-          }}
-        >
-          {previewLines}
-        </pre>
-      </div>
-
-      {/* Action Buttons */}
-      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", borderTop: "1px solid #e1e4e8", paddingTop: 14 }}>
+      {/* Advanced Details Accordion */}
+      <div style={{ borderTop: "1px solid var(--border-color, #e1e4e8)", paddingTop: 12, marginTop: 14 }}>
         <button
           type="button"
-          className="btn btn-primary"
-          disabled={saving || !status?.can_apply || isOverByteLimit}
-          onClick={handleSaveClick}
-          style={{ fontSize: 12, padding: "5px 16px" }}
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--text-primary, #24292f)",
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: 0,
+            marginBottom: showAdvanced ? 10 : 0,
+          }}
+          onClick={() => setShowAdvanced(!showAdvanced)}
         >
-          {saving ? t("antigravityRules.saving") : t("antigravityRules.actions.apply")}
+          <span>{showAdvanced ? "▼" : "▶"}</span>
+          <span>{t("antigravityRules.advanced.title")}</span>
         </button>
+
+        {showAdvanced && (
+          <div style={{ background: "#f6f8fa", border: "1px solid #d0d7de", borderRadius: 6, padding: "10px 12px", marginTop: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#24292f", marginBottom: 6 }}>
+              {stateBadgeText}
+            </div>
+
+            <div style={{ fontSize: 11, color: "#57606a", marginBottom: 4 }}>
+              <strong>{t("antigravityRules.advanced.rulePath")}</strong> <code>{formatDisplayPath(status?.rule_path)}</code>
+            </div>
+
+            <div style={{ fontSize: 11, color: isOverByteLimit ? "#cf222e" : "#57606a", marginBottom: 8 }}>
+              <strong>{t("antigravityRules.advanced.ruleSize")}</strong> {status ? `${status.expanded_byte_size.toLocaleString()} / ${status.byte_limit.toLocaleString()} bytes` : "N/A"}
+              {isOverByteLimit && ` ${t("antigravityRules.advanced.budgetWarning")}`}
+            </div>
+
+            {status?.preview_text && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#24292f", marginBottom: 4 }}>
+                  {t("antigravityRules.advanced.rulePreview")}
+                </div>
+                <pre
+                  style={{
+                    backgroundColor: "#ffffff",
+                    border: "1px solid #d0d7de",
+                    borderRadius: 4,
+                    padding: 8,
+                    fontSize: 11,
+                    maxHeight: 180,
+                    overflowY: "auto",
+                    whiteSpace: "pre-wrap",
+                    margin: 0,
+                  }}
+                >
+                  {status.preview_text}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* UnmanagedCustom Adopt Confirmation Modal */}
+      {/* Confirmation Modal for Unmanaged Custom */}
       {showConfirmModal && (
         <div
           style={{
@@ -533,7 +581,7 @@ export default function AntigravityRulesPanel() {
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            backgroundColor: "rgba(0,0,0,0.5)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -543,57 +591,33 @@ export default function AntigravityRulesPanel() {
           <div
             style={{
               backgroundColor: "#ffffff",
-              borderRadius: "8px",
-              padding: "24px",
-              maxWidth: "500px",
-              width: "90%",
-              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+              padding: 20,
+              borderRadius: 8,
+              maxWidth: 440,
+              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
             }}
           >
-            <h4 style={{ margin: "0 0 12px 0", fontSize: "16px", fontWeight: 700, color: "#1f2937" }}>
-              {t("antigravityRules.modal.unmanagedWarning")}
-            </h4>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "16px" }}>
-              <button
-                type="button"
-                onClick={() => setShowConfirmModal(false)}
-                disabled={saving}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: "6px",
-                  fontSize: "12px",
-                  fontWeight: 500,
-                  backgroundColor: "#ffffff",
-                  color: "#374151",
-                  border: "1px solid #d1d5db",
-                  cursor: "pointer",
-                }}
-              >
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 14 }}>{t("antigravityRules.modal.overwriteTitle")}</h4>
+            <p style={{ margin: "0 0 16px 0", fontSize: 12, color: "#57606a" }}>
+              {t("antigravityRules.modal.overwriteDesc")}
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" className="btn" onClick={() => setShowConfirmModal(false)}>
                 {t("antigravityRules.modal.cancel")}
               </button>
               <button
                 type="button"
-                onClick={() => executeSave("adopt_with_backup")}
-                disabled={saving}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: "6px",
-                  fontSize: "12px",
-                  fontWeight: 500,
-                  backgroundColor: "#2563eb",
-                  color: "#ffffff",
-                  border: "none",
-                  cursor: "pointer",
-                }}
+                className="btn btn-primary"
+                onClick={() => void executeApply("apply", true)}
               >
-                {t("antigravityRules.modal.adopt")}
+                {t("antigravityRules.modal.btnOverwriteApply")}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* LegacyPoverello Migrate Confirmation Modal */}
+      {/* Migration Modal for Legacy Poverello */}
       {showMigrateModal && (
         <div
           style={{
@@ -602,7 +626,7 @@ export default function AntigravityRulesPanel() {
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            backgroundColor: "rgba(0,0,0,0.5)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -612,53 +636,26 @@ export default function AntigravityRulesPanel() {
           <div
             style={{
               backgroundColor: "#ffffff",
-              borderRadius: "8px",
-              padding: "24px",
-              maxWidth: "500px",
-              width: "90%",
-              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+              padding: 20,
+              borderRadius: 8,
+              maxWidth: 440,
+              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
             }}
           >
-            <h4 style={{ margin: "0 0 12px 0", fontSize: "16px", fontWeight: 700, color: "#1f2937" }}>
-              {t("antigravityRules.modal.migrateTitle")}
-            </h4>
-            <p style={{ fontSize: "13px", color: "#4b5563", margin: "0 0 16px 0", lineHeight: 1.5 }}>
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 14 }}>{t("antigravityRules.modal.migrateTitle")}</h4>
+            <p style={{ margin: "0 0 16px 0", fontSize: 12, color: "#57606a" }}>
               {t("antigravityRules.modal.migrateDesc")}
             </p>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "16px" }}>
-              <button
-                type="button"
-                onClick={() => setShowMigrateModal(false)}
-                disabled={saving}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: "6px",
-                  fontSize: "12px",
-                  fontWeight: 500,
-                  backgroundColor: "#ffffff",
-                  color: "#374151",
-                  border: "1px solid #d1d5db",
-                  cursor: "pointer",
-                }}
-              >
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" className="btn" onClick={() => setShowMigrateModal(false)}>
                 {t("antigravityRules.modal.cancel")}
               </button>
               <button
                 type="button"
-                onClick={() => executeSave("migrate_with_backup")}
-                disabled={saving}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: "6px",
-                  fontSize: "12px",
-                  fontWeight: 500,
-                  backgroundColor: "#2563eb",
-                  color: "#ffffff",
-                  border: "none",
-                  cursor: "pointer",
-                }}
+                className="btn btn-primary"
+                onClick={() => void executeApply("apply", true)}
               >
-                {t("antigravityRules.modal.migrate")}
+                {t("antigravityRules.modal.btnMigrateApply")}
               </button>
             </div>
           </div>

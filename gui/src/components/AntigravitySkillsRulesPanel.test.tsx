@@ -3,7 +3,16 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import AntigravitySkillsRulesPanel from "./AntigravitySkillsRulesPanel";
+import * as i18n from "../i18n";
 import { LanguageContext } from "../i18n";
+import { translations as en } from "../i18n/lang/en";
+import { translations as ja } from "../i18n/lang/ja";
+import { translations as de } from "../i18n/lang/de";
+import { translations as es } from "../i18n/lang/es";
+import { translations as fr } from "../i18n/lang/fr";
+import { translations as ko } from "../i18n/lang/ko";
+import { translations as zhCN } from "../i18n/lang/zh-CN";
+import { translations as zhTW } from "../i18n/lang/zh-TW";
 import type {
   AntigravityCommandsInfo,
   ReviewerPolicyConfig,
@@ -58,8 +67,8 @@ const dummyCommandsInfo: AntigravityCommandsInfo = {
 };
 
 const dummyReviewerPolicy: ReviewerPolicyConfig = {
-  schema_version: 1,
-  policy: "codex_plus_deepseek",
+  schema_version: 2,
+  policy: "none",
 };
 
 const dummyPolicyStatus: WorkflowSkillsPolicyStatus = {
@@ -171,10 +180,12 @@ describe("AntigravitySkillsRulesPanel", () => {
     expect(screen.getByText("/pov-build-review")).toBeInTheDocument();
     expect(screen.getByText("/pov-full-cycle")).toBeInTheDocument();
 
-    // 2. Reviewer Policy Card
-    expect(screen.getByText("antigravity.reviewerPolicyTitle")).toBeInTheDocument();
-    expect(screen.getByText("antigravity.reviewerPolicyCodexPlusDeepseek")).toBeInTheDocument();
-    expect(screen.getByText("antigravity.reviewerPolicyCodexOnly")).toBeInTheDocument();
+    // 2. Reviewer Policy Card (Strictly English UI in all locales)
+    expect(screen.getByText("External Review Configuration")).toBeInTheDocument();
+    expect(screen.getAllByText("Disabled").length).toBeGreaterThan(0);
+    expect(screen.getByText("Do not invoke Codex CLI or DeepSeek Harness.")).toBeInTheDocument();
+    expect(screen.getByText("Codex CLI only")).toBeInTheDocument();
+    expect(screen.getByText("Codex CLI + DeepSeek Harness")).toBeInTheDocument();
 
     // 3. Coding Behavior Card (Direct Coding)
     expect(screen.getAllByRole("heading", { name: /Poverello Direct Coding/i }).length).toBeGreaterThan(0);
@@ -227,14 +238,22 @@ describe("AntigravitySkillsRulesPanel", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("antigravity.reviewerPolicyTitle")).toBeInTheDocument();
+      expect(screen.getByText("External Review Configuration")).toBeInTheDocument();
     });
 
     const codexOnlyRadio = screen.getByDisplayValue("codex_only");
     await user.click(codexOnlyRadio);
 
     expect(invokeMock).toHaveBeenCalledWith("set_reviewer_policy", {
-      config: { schema_version: 1, policy: "codex_only", content_hash: null },
+      config: { schema_version: 2, policy: "codex_only", content_hash: null },
+      expectedHash: null,
+    });
+
+    const noneRadio = screen.getByDisplayValue("none");
+    await user.click(noneRadio);
+
+    expect(invokeMock).toHaveBeenCalledWith("set_reviewer_policy", {
+      config: { schema_version: 2, policy: "none", content_hash: null },
       expectedHash: null,
     });
   });
@@ -259,8 +278,13 @@ describe("AntigravitySkillsRulesPanel", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/antigravity\.reviewerPolicyUpdateRequiredNotice/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Workflow Skills must be installed or updated to support external reviewer policy|Workflow skills update required/i)
+      ).toBeInTheDocument();
     });
+
+    const noneRadio = screen.getByDisplayValue("none");
+    expect(noneRadio).toBeDisabled();
 
     const codexOnlyRadio = screen.getByDisplayValue("codex_only");
     expect(codexOnlyRadio).toBeDisabled();
@@ -326,5 +350,70 @@ describe("AntigravitySkillsRulesPanel", () => {
 
     const removeBtn = screen.getByRole("button", { name: "antigravity.globalRulesBtnRemove" });
     expect(removeBtn).toBeDisabled();
+  });
+
+  it("renders External Review Configuration in Japanese when ja locale is active", async () => {
+    vi.spyOn(i18n, "useTranslation").mockImplementation(() => ({
+      t: (key: string) => (ja as Record<string, string>)[key] ?? key,
+      lang: "ja",
+    }) as ReturnType<typeof i18n.useTranslation>);
+
+    render(<AntigravitySkillsRulesPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText("外部レビュー設定")).toBeInTheDocument();
+    });
+    expect(screen.getAllByText("無効").length).toBeGreaterThan(0);
+    expect(screen.getByText("Codex CLIのみ")).toBeInTheDocument();
+    expect(screen.getByText("Codex CLI + DeepSeek Harness")).toBeInTheDocument();
+  });
+
+  it("renders External Review Configuration in English when en locale is active", async () => {
+    vi.spyOn(i18n, "useTranslation").mockImplementation(() => ({
+      t: (key: string) => (en as Record<string, string>)[key] ?? key,
+      lang: "en",
+    }) as ReturnType<typeof i18n.useTranslation>);
+
+    render(<AntigravitySkillsRulesPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText("External Review Configuration")).toBeInTheDocument();
+    });
+    expect(screen.getAllByText("Disabled").length).toBeGreaterThan(0);
+    expect(screen.getByText("Codex CLI only")).toBeInTheDocument();
+    expect(screen.getByText("Codex CLI + DeepSeek Harness")).toBeInTheDocument();
+  });
+
+  it("ensures all Card 2 translation keys exist across all 8 languages", () => {
+    const card2Keys = [
+      "antigravity.reviewerPolicyTitle",
+      "antigravity.reviewerPolicyDesc",
+      "antigravity.reviewerPolicyDisabled",
+      "antigravity.reviewerPolicyDisabledDesc",
+      "antigravity.reviewerPolicyCodexOnly",
+      "antigravity.reviewerPolicyCodexOnlyDesc",
+      "antigravity.reviewerPolicyCodexPlusDeepseek",
+      "antigravity.reviewerPolicyCodexPlusDeepseekDesc",
+      "antigravity.savedMessage",
+      "antigravity.reviewerPolicyUpdateRequiredNotice",
+    ];
+
+    const allDicts = [
+      { code: "ja", map: ja },
+      { code: "en", map: en },
+      { code: "de", map: de },
+      { code: "es", map: es },
+      { code: "fr", map: fr },
+      { code: "ko", map: ko },
+      { code: "zh-CN", map: zhCN },
+      { code: "zh-TW", map: zhTW },
+    ];
+
+    for (const { code, map } of allDicts) {
+      for (const k of card2Keys) {
+        expect(map, `Missing ${k} in ${code}`).toHaveProperty(k);
+        expect((map as Record<string, string>)[k].length).toBeGreaterThan(0);
+      }
+    }
   });
 });

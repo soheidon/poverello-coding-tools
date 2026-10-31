@@ -194,7 +194,7 @@ export default function AntigravitySkillsRulesPanel() {
       setPolicyError(null);
       const updated = await invoke<ReviewerPolicyConfig>("set_reviewer_policy", {
         config: {
-          schema_version: 1,
+          schema_version: reviewerPolicy?.schema_version ?? 2,
           policy: newPolicy,
           content_hash: reviewerPolicy?.content_hash ?? null,
         },
@@ -453,6 +453,25 @@ export default function AntigravitySkillsRulesPanel() {
             <input
               type="radio"
               name="reviewerPolicy"
+              value="none"
+              checked={reviewerPolicy?.policy === "none"}
+              disabled={!policyStatus?.compliant || policyLoading}
+              onChange={() => void handleSelectPolicy("none")}
+            />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#24292f" }}>
+                {t("antigravity.reviewerPolicyDisabled")}
+              </div>
+              <div style={{ fontSize: 11, color: "#57606a" }}>
+                {t("antigravity.reviewerPolicyDisabledDesc")}
+              </div>
+            </div>
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: policyStatus?.compliant ? "pointer" : "not-allowed" }}>
+            <input
+              type="radio"
+              name="reviewerPolicy"
               value="codex_only"
               checked={reviewerPolicy?.policy === "codex_only"}
               disabled={!policyStatus?.compliant || policyLoading}
@@ -463,7 +482,7 @@ export default function AntigravitySkillsRulesPanel() {
                 {t("antigravity.reviewerPolicyCodexOnly")}
               </div>
               <div style={{ fontSize: 11, color: "#57606a" }}>
-                Codex CLI only; DeepSeek Harness is not invoked.
+                {t("antigravity.reviewerPolicyCodexOnlyDesc")}
               </div>
             </div>
           </label>
@@ -482,7 +501,7 @@ export default function AntigravitySkillsRulesPanel() {
                 {t("antigravity.reviewerPolicyCodexPlusDeepseek")}
               </div>
               <div style={{ fontSize: 11, color: "#57606a" }}>
-                Independent reviews by Codex CLI and DeepSeek Harness with conditional synthesis.
+                {t("antigravity.reviewerPolicyCodexPlusDeepseekDesc")}
               </div>
             </div>
           </label>

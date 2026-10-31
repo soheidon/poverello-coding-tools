@@ -586,7 +586,7 @@ describe("OrchestratorSettingsPanel", () => {
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("update_orchestrator_config", expect.objectContaining({
       config: expect.objectContaining({
         profiles: expect.arrayContaining([
-          expect.objectContaining({ providerId: "zai", model: "glm-5.3", contextWindowTokens: 1_000_000 }),
+          expect.objectContaining({ providerId: "zai", model: "glm-5.3", contextWindowTokens: 1_048_576 }),
         ]),
       }),
     })));

@@ -2189,3 +2189,42 @@ body {
   opacity: 0.4;
 }
 
+
+/* Poverello Segment Control Styles */
+.pov-segment-group {
+  display: inline-flex;
+  background-color: var(--bg-secondary, #f6f8fa);
+  border: 1px solid var(--border-color, #d0d7de);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.pov-segment-btn {
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #57606a);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pov-segment-btn:hover {
+  color: var(--text-primary, #24292f);
+}
+
+.pov-segment-btn.active {
+  background-color: var(--bg-primary, #ffffff);
+  color: var(--text-primary, #24292f);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  font-weight: 600;
+}
+
+.pov-segment-desc {
+  font-size: 11px;
+  color: var(--text-secondary, #656d76);
+  margin-top: 4px;
+}
