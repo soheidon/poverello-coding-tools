@@ -182,6 +182,10 @@ MiniMax-M3 可透過 Anthropic 相容 API 開啟或關閉延伸 Thinking。
 
 Poverello 設定中的 MiniMax-M3 列會顯示 Thinking／一般切換。`MiniMax-M2.7-highspeed` 等 MiniMax-M2.x 模型不支援停用 Thinking，固定為 Thinking 專用模式。
 
+### MiniMax M3.1 Flash
+
+MiniMax-M3.1-Flash 僅支援 Thinking，停用要求會在上游轉送前遭拒。參考費率（2026-10-31）：輸入 $0.15、輸出 $0.60、快取輸入 $0.015 / 百萬 token。
+
 ## Laguna S/XS 2.1（OpenRouter）設定
 
 Poverello 預設將 OpenRouter 的 `claude-opus-5` 與 `claude-sonnet-5` 路由至 `poolside/laguna-s-2.1`，並將 `claude-haiku-4-5` 路由至 `poolside/laguna-xs-2.1`。

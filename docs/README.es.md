@@ -2,7 +2,7 @@
 
 # Poverello Coding Tools
 
-> **Transición a v0.25.2:** Auto-Converge se conserva en el código base, pero se oculta de la navegación normal de la aplicación. El dispatch de producción sigue desactivado y el aislamiento de Stage 2 no está verificado. Esto no significa que esté listo para publicarse.
+> **v0.25.3:** Auto-Converge se conserva en el código, pero está oculto en la navegación normal. El dispatch de producción sigue desactivado y el aislamiento de Stage 2 no está verificado. Las revisiones externas están desactivadas (none) de forma predeterminada. Esto no significa que esté listo para publicarse.
 
 **Usa Claude Code / Claude Desktop como entorno de desarrollo, enruta la inferencia a APIs de LLM de terceros, orquesta flujos multiagente acotados con estimación de costes y gestiona de forma centralizada modelos externos y reglas para Google Antigravity.**
 
@@ -12,7 +12,7 @@ Poverello Coding Tools (que aparece en la aplicación como **Poverello**) es una
 2. **LLM local dedicado para Claude Code (Ollama)** — Ejecuta Claude Code sin conexión mediante modelos locales y sin costes de API.
 3. **Planificador y Revisor MCP para Google Antigravity** — Delega la planificación, revisión de planes y revisión de implementaciones a modelos externos mediante las herramientas MCP `poverello/plan`, `poverello/revise` y `poverello/review`.
 4. **Orquestador de desarrollo multiagente** — Ejecuta los flujos acotados Planner–Reviewer actualmente compatibles y registra el uso normalizado de tokens y las estimaciones de coste verificadas.
-5. **Gestión de Antigravity Skills & Rules** — Configura de forma centralizada la directiva Reviewer Policy para habilidades de flujo de trabajo (Codex CLI en solitario frente a revisión compuesta Codex CLI + DeepSeek Harness), gestiona plantillas estándar protegidas de reglas globales (`codex-cli.md`, `deepseek-harness.md`), ajusta el comportamiento de Direct Coding (`pov-direct.md`) y gestiona las habilidades Nerf.
+5. **Gestión de Antigravity Skills & Rules** — Configura Reviewer Policy (desactivada de forma predeterminada, solo Codex CLI o Codex CLI + DeepSeek Harness) y administra Global Rules, Direct Coding y Nerf Skills.
 
 > [!TIP]
 > **Novedades:** Consulta [NEWS.md (Notas de la versión)](../NEWS.md) para ver las funciones, detalles de implementación y cambios de cada versión.
@@ -127,7 +127,7 @@ Poverello GUI (Configuración > Antigravity Skills & Rules)
   • pov-full-cycle, pov-plan-only, pov-build-review (Habilidades Sincronizadas)
 ```
 
-- **Reviewer Policy centralizada**: Cambia de inmediato las habilidades de flujo de trabajo (`/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`) entre `codex_only` (Codex CLI independiente en solitario) y `codex_plus_deepseek` (revisión compuesta Codex CLI + DeepSeek Harness) con validación automática de SHA-256 y sincronización.
+- **Reviewer Policy centralizada**: Elige none (predeterminado; no se inicia un revisor externo), codex_only o codex_plus_deepseek. Con none, las Workflow Skills se detienen de forma segura.
 - **Plantillas protegidas de reglas globales**: Instalación con un solo clic y eliminación segura de plantillas estándar (`codex-cli.md`, `deepseek-harness.md`) verificadas por SHA-256, con protección de plataforma (`can_remove`) en Windows.
 - **Control de alcance y dirección (Poverello Direct Coding)**: Configura reglas ligeras para evitar ampliación indebida del alcance en tareas acotadas.
 - **Integridad de un solo archivo y aplicación segura**: Protegido por verificación previa de SHA-256, detección de conflictos de eliminación externa y reversión verificada.
@@ -150,6 +150,12 @@ Poverello GUI (Configuración > Antigravity Skills & Rules)
 ### Anthropic (Directo)
 
 Acceso oficial directo mediante `https://api.anthropic.com` con `ANTHROPIC_API_KEY`. Modelos compatibles: `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5`, `claude-3-7-sonnet`, `claude-3-5-sonnet` y `claude-3-5-haiku`. Admite controles nativos de adaptive thinking y esfuerzo de razonamiento.
+
+### Modelos y Thinking en v0.25.3
+
+- Se añadieron MiniMax M3.1 Flash, Kimi K3.1 Pro / Highspeed, modelos directos GLM-5.3 e ID K3.1 distintos para Kimi Code.
+- Ocho ID son exclusivos de Thinking; las solicitudes para desactivarlo se rechazan antes del envío. Kimi Code convierte medium en high y xhigh en max.
+- Fecha de precios: 31-10-2026. Los valores USD de Kimi K3.1 son conversiones de referencia de tarifas oficiales CNY, no precios de lista facturados en USD. El precio de OpenRouter en tiempo de ejecución prevalece sobre la instantánea.
 
 ### GLM / Z.ai (Directo)
 
@@ -271,12 +277,12 @@ El instalador de Windows admite 8 idiomas. Poverello conserva la identidad de ap
 
 ### Flujo de Trabajo 4: Orquestador de desarrollo multiagente
 
-**Nota de acceso:** En v0.25.2, la opción Orchestrator está oculta en la subnavegación de Settings, pero se conservan la implementación y las rutas internas. Inicia flujos autónomos en Antigravity con `/pov-full-cycle`, `/pov-plan-only` o `/pov-build-review`.
+**Nota de acceso:** En v0.25.3, Orchestrator sigue oculto en la subnavegación de Settings, aunque se conservan la implementación y las rutas internas. La política externa predeterminada es none.
 
 ### Flujo de Trabajo 5: Gestión de Antigravity Skills & Rules
 
 1. Abre **Configuración > Antigravity Skills & Rules**.
-2. Selecciona tu Reviewer Policy (`codex_only` o `codex_plus_deepseek`) para sincronizar las habilidades.
+2. Selecciona Reviewer Policy (none [predeterminado], codex_only o codex_plus_deepseek). Con none no se inicia un revisor externo y el flujo se detiene explícitamente.
 3. Instala o gestiona las plantillas estándar protegidas de reglas globales (`codex-cli.md`, `deepseek-harness.md`).
 4. Configura los parámetros de Direct Coding y haz clic en **Aplicar** para sincronizar `pov-direct.md`.
 

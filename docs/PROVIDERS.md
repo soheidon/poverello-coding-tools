@@ -12,7 +12,7 @@ This document details supported model providers, reasoning parameters, capabilit
 |---|---|---|---|
 | **Anthropic** | `https://api.anthropic.com` | Native | Adaptive thinking / Reasoning effort |
 | **DeepSeek** | `https://api.deepseek.com/anthropic` | Native | Low / High / Max |
-| **GLM (Z.ai)** | `https://api.z.ai/api/anthropic/v1/messages` | Native | GLM-5.3: Low / High / Max · GLM-5.2: Normal / Thinking |
+| **GLM (Z.ai)** | `https://api.z.ai/api/anthropic/v1/messages` | Native | GLM-5.3: Thinking-only · GLM-5.2: Normal / Thinking |
 | **MiniMax** | `https://api.minimax.io/anthropic` | Native | Model-specific |
 | **Kimi / Moonshot** | `https://api.moonshot.cn/anthropic` | Native | Thinking / Reasoning effort |
 | **MiMo / Xiaomi** | `https://api.xiaomimimo.com/anthropic` | Native | Thinking mode (`thinking` / `normal`) |
@@ -51,9 +51,9 @@ This document details supported model providers, reasoning parameters, capabilit
 
 - **Endpoint**: `https://api.z.ai/api/anthropic/v1/messages` (official Anthropic Messages-compatible API)
 - **Supported Models**:
-  - `glm-5.3`: Flagship reasoning model with always-on thinking.
-  - `glm-5.3-flash`: High-performance reasoning model with always-on thinking.
-  - `glm-5.3-flashx`: Ultra-fast reasoning variant with always-on thinking.
+  - `glm-5.3`: Flagship reasoning model; Thinking-only.
+  - `glm-5.3-flash`: High-performance reasoning model; Thinking-only.
+  - `glm-5.3-flashx`: Ultra-fast reasoning variant; Thinking-only.
   - `glm-5.2`: General coding model supporting both Normal and Thinking modes.
 - **Reasoning Control**:
   - GLM-5.3 series: Always-on thinking (`thinking: {"type": "enabled"}`) with selectable effort levels (`low`, `high`, `max`).
@@ -63,12 +63,16 @@ This document details supported model providers, reasoning parameters, capabilit
 
 ### MiniMax
 
-- **Supported Models**: `MiniMax-Text-01`, `MiniMax-VL-01`.
+- **Supported Models**: MiniMax-M3.1-Flash, MiniMax-M3, MiniMax-M2.7, and MiniMax-M2.7-highspeed.
+- **Thinking**: M3.1 Flash is Thinking-only; explicit disable requests are rejected before forwarding. MiniMax-M3 retains its Normal/Thinking toggle; M2.x models remain Thinking-only.
+- **M3.1 Flash reference rates (verified 2026-10-31)**: $0.15 / 1M input, $0.60 / 1M output, and $0.015 / 1M cached input.
 - **Reasoning Control**: Uses model-specific parameters.
 
 ### Kimi / Moonshot
 
-- **Supported Models**: `kimi-k1.5`, `kimi-k1.5-preview`.
+- **Supported Models**: kimi-k3.1-pro, kimi-k3.1-pro-highspeed, kimi-k3, and legacy K2.x models.
+- **Thinking**: K3.1 Pro and Highspeed are Thinking-only and distinct from Kimi Code IDs k3.1-pro and k3.1-pro-highspeed.
+- **K3.1 reference USD rates per million input/output/cached-input tokens**: Pro $1.949 / $10.195 / $0.195; Highspeed $3.898 / $20.391 / $0.195. These are reference conversions from official CNY tariffs, not provider-billed USD list prices.
 - **Reasoning Control**: Supports thinking toggle and reasoning effort.
 
 ### MiMo / Xiaomi

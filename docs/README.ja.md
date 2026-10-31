@@ -2,7 +2,7 @@
 
 # Poverello Coding Tools
 
-> **v0.25.2への移行:** Auto-Convergeの実装はコードベースに保持していますが、通常のアプリナビゲーションからは非表示にしています。本番ディスパッチは無効のままで、Stage 2の隔離は未検証です。これはリリース準備完了の主張ではありません。
+> **v0.25.3:** Auto-Convergeはコードベースに保持されていますが通常のアプリナビゲーションからは非表示です。本番ディスパッチは無効、Stage 2隔離は未検証です。外部レビュー設定の既定値は無効（none）です。リリース準備完了の主張ではありません。
 
 **Claude Code / Claude Desktop をコーディングハーネスとして使用し、推論をサードパーティ LLM API にルーティングします。対応済みのマルチエージェント計画・レビューとコスト見積もりを管理し、Google Antigravity の外部モデルやルールを統合管理します。**
 
@@ -12,7 +12,7 @@ Poverello Coding Tools（アプリ内表示名 **Poverello**）は、AI 支援�
 2. **Claude Code 向けローカル LLM（Ollama）** — ローカルモデルを使って、Claude Code をオフラインで実行できます。
 3. **Google Antigravity 向け MCP プランナー & レビュアー** — `poverello/plan`、`poverello/revise`、`poverello/review` MCP ツールを通じて、実装計画と実装後レビューを外部モデルに委任します。
 4. **マルチエージェント開発オーケストレーター** — CLI／APIエージェントを横断して、対応済みの上限付きプラン・レビュー・ワークフローを実行し、正規化トークン使用量とレートスケジュール検証に基づくコスト見積もり（整数ナノドル）を追跡して監査可能なディスパッチジャーナルを維持します。
-5. **Antigravity Skills & ルール管理** — ワークフロースキルの Reviewer Policy（Codex CLI 単独 vs Codex CLI + DeepSeek Harness 複合レビュー）を一括設定し、保護された標準 Global Rules テンプレート（`codex-cli.md`、`deepseek-harness.md`）の管理、Direct Coding 動作（`pov-direct.md`）の調整、および Nerf スキルの管理を行います。
+5. **Antigravity Skills & ルール管理** — Workflow SkillsのReviewer Policy（既定値は無効、Codex CLI単独、またはCodex CLI + DeepSeek Harness）を設定し、標準Global Rules、Direct Coding、Nerf Skillsを管理します。
 
 > [!TIP]
 > **新実装の詳細はこちら**: バージョンごとの新機能や詳細な実装仕様・変更履歴については、[NEWS.md (リリースノート)](../NEWS.md) をご覧ください。
@@ -131,7 +131,7 @@ Poverello GUI（設定 > Antigravity Skills & ルール）
   • pov-full-cycle, pov-plan-only, pov-build-review（ポリシー同期ワークフロースキル）
 ```
 
-- **一元化された Reviewer Policy**: 自律ワークフロースキル（`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`）のレビュー方針を `codex_only`（独立した Codex CLI 単独）と `codex_plus_deepseek`（Codex CLI + DeepSeek Harness 複合レビュー）の間で即座に切り替え、SHA-256 検証とポリシー同期を自動実行します。
+- **Reviewer Policyの一元管理**: none（既定値、外部レビュアーを起動しない）、codex_only、codex_plus_deepseekを選択できます。noneではWorkflow Skillsが安全に停止します。
 - **保護された Global Rules テンプレート**: SHA-256 ダイジェストで検証された標準 Global Rules テンプレート（`codex-cli.md`、`deepseek-harness.md`）をワンクリックでインストールおよび安全に削除（Windows プラットフォーム保護 `can_remove` 対応）できます。
 - **スコープと方針の制御（Poverello Direct Coding）**: Antigravity が局所的な修正タスクに対して自律的に計画立案や不要な大規模リファクタリングを広げないよう、軽量な Direct Coding ルールを構成します。
 - **単一ファイルの整合性保護**: YAML の `trigger` 条件および管理ブロック（`<!-- pov-direct:managed:begin -->` ... `<!-- pov-direct:managed:end -->`）のみを安全に更新し、ユーザー独自の frontmatter、説明文、Skill インクルードを完全に維持します。
@@ -170,6 +170,12 @@ Poverello GUI（設定 > Antigravity Skills & ルール）
 - `deepseek-v4-pro` — API ID。現在の公式料金表では DeepSeek-V4-Pro-0813 として掲載されています。
 - 両モデルはコンテキスト長 1M、最大出力 384K token。Flash は画像入力に対応し、Pro は非対応です。
 - 旧 API ID `deepseek-v4-flash` と `deepseek-v4-flash-vision-exp` は、DeepSeek 側で Flash の別名として受け付けられ、Flash 料金で課金されます。
+
+### v0.25.3のモデルとThinkingの更新
+
+- MiniMax M3.1 Flash、Kimi K3.1 Pro / Highspeed、GLM-5.3 Directモデルを追加し、Kimi Code K3.1 IDを分離しました。
+- 8つのモデルIDはThinking専用で、無効化要求は上流送信前に拒否されます。Kimi Codeのmediumはhigh、xhighはmaxに正規化します。
+- 価格基準日は2026-10-31です。Kimi K3.1のUSD表示は公式CNY料金の参考換算で、請求用USD定価ではありません。OpenRouterは実行時価格を同梱フォールバックより優先します。
 
 ### GLM / Z.ai（ダイレクト）
 
@@ -292,12 +298,12 @@ Windowsインストーラーは8言語に対応しています。Poverelloは既
 
 ### ワークフロー 4: マルチエージェント開発オーケストレーター
 
-**アクセスに関する注意:** v0.25.2 では実装と内部ルートを保持したまま、Settings のサブナビゲーションから Orchestrator 項目を非表示にしています。Antigravity 内で `/pov-full-cycle`、`/pov-plan-only`、または `/pov-build-review` を使用して自律ワークフローを開始してください。
+**アクセスに関する注意:** v0.25.3でもOrchestratorはSettingsナビゲーションから非表示で、実装と内部ルートは保持されます。外部レビュー設定の既定値はnoneです。
 
 ### ワークフロー 5: Antigravity Skills & ルール管理
 
 1. **設定 > Antigravity Skills & ルール** を開きます。
-2. Reviewer Policy（`codex_only` または `codex_plus_deepseek`）を選択してワークフロースキルを同期します。
+2. Reviewer Policy（none［既定値］、codex_only、codex_plus_deepseek）を選び、ワークフロースキルを同期します。noneでは外部レビュアーを起動せず明示して停止します。
 3. 保護された標準 Global Rules テンプレート（`codex-cli.md`、`deepseek-harness.md`）をインストールまたは管理します。
 4. Poverello Direct Coding のパラメータを設定し、**適用** をクリックして `pov-direct.md` を同期します。
 

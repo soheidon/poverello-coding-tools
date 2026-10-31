@@ -117,7 +117,7 @@ Poverello 明确划分了规划器选择与详细参数管理的职责：
    - 管理 MCP 服务器注册状态、目标可执行文件以及 MCP Commands（`/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`）。
    - 点击 **全部安装** (`antigravity.btnInstallAll`)，仅批量安装 3 个 MCP 技能，不干扰上层工作流技能。
 2. **`设置` > `Antigravity Skills & 规则`**：
-   - 集中统一配置与同步上层工作流技能（`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`）的审查策略 Reviewer Policy（`codex_only` 对比 `codex_plus_deepseek`）。
+   - 设置工作流 Skills 的 Reviewer Policy：none（默认，不调用外部审查器）、codex_only 或 codex_plus_deepseek。
    - 管理受保护的全局规则标准模板（`codex-cli.md`、`deepseek-harness.md`），提供 SHA-256 校验和 Windows 移除支持（`can_remove`）。
    - 配置编码行为模式（`pov-direct.md`）与 Poverello Nerf 技能。
 
@@ -159,7 +159,7 @@ Poverello 明确划分了规划器选择与详细参数管理的职责：
 
 ## 7. Antigravity 上层命令（`/pov-full-cycle`、`/pov-plan-only` 与 `/pov-build-review`）
 
-除直接的 MCP 技能外，Poverello 还提供了安装到 `~/.gemini/antigravity/skills/` 并在 **设置 > Antigravity Skills & 规则** 中通过审查策略 Reviewer Policy（`codex_only` 或 `codex_plus_deepseek`）统一管控的 3 个上层自主工作流技能：
+除直接 MCP Skills 外，Poverello 还提供三个在 Settings > Antigravity Skills & 规则中管理的上层工作流 Skill。Reviewer Policy 默认值为 none（不启动外部审查器），也可选择 codex_only 或 codex_plus_deepseek。
 
 ### 全周期自主开发：
 ```text

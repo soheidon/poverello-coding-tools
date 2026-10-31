@@ -2,7 +2,7 @@
 
 # SPEC: Poverello Coding Tools
 
-> **v0.25.2 过渡说明：** Auto-Converge 保留在代码中，但无法通过应用的常规导航打开。生产 dispatch 已禁用，Stage 2 隔离尚未验证。界面可见性不代表获得运行授权或发布批准。
+> **v0.25.3：** Auto-Converge 保留在代码库中，但无法通过应用常规导航访问。生产 dispatch 已禁用，Stage 2 隔离尚未验证。外部审查配置默认值为 none；界面可见性不代表获得授权或发布批准。
 
 ## 概述
 
@@ -88,8 +88,9 @@
 - **上下文容量注册表**: `model_catalog.json` 是已知上下文容量的静态注册表，涵盖内置直连提供商模型（DeepSeek、MiniMax、Kimi、MiMo V2.6 和 V2.5）和内置 OpenRouter 模型（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-6.1、GPT-6、GPT Astra Latest、GPT-5.6 和 Google Gemini）。未知的自定义 OpenRouter 模型仍是有效的路由目标，但会报告上下文管理为 Incomplete，直到添加元数据或配置手动模式。
 - **Google Gemini 模型支持**：OpenRouter 配置支持内置的 Gemini 3.1 Pro Preview 和 Gemini 3.7 Flash，并提供价格与能力数据。Gemini 3.7 Flash 同时显示促销价和带删除线的常规价格。
 - **GLM（Z.ai）直连提供商支持**：使用配置的 `ZAI_API_KEY`（或 Poverello 中保存的密钥）向 Z.ai 的 Anthropic 兼容端点发送请求。Poverello 不判断密钥类型、Coding Plan 购买记录、账户白名单或计费资格；使用前请查看 [Z.ai 当前配置指南](https://zcode.z.ai/en/docs/configuration)。目录包含 `glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx` 和 `glm-5.2`。GLM-5.3 系列始终启用思考并可选推理强度（`low`、`high`、`max`）；GLM-5.2 提供普通/思考切换。空响应或仅含思考内容的响应会在 Orchestrator 与 MCP 中以明确的提供商错误 fail-closed。
+- **v0.25.3 模型与 Thinking 安全控制**：新增 MiniMax M3.1 Flash、Kimi K3.1 Pro / Highspeed、GLM-5.3 直连模型，并区分 Kimi Code K3.1 ID。8 个 ID 仅支持 Thinking；禁用请求在发送上游前拒绝。Kimi Code medium 转为 high、xhigh 转为 max。价格基准日期为 2026-10-31；Kimi K3.1 USD 为 CNY 参考换算，OpenRouter 运行时价格优先。
 - **Antigravity Skills 与规则管理（设置 > Antigravity Skills & Rules）**：集中管理工作流 Skills 的 Reviewer Policy、受保护的标准全局规则模板、编码行为（Poverello Direct Coding）以及 Nerf Skills。
-  - **Reviewer Policy**：集中为 `/pov-full-cycle`、`/pov-plan-only` 和 `/pov-build-review` 配置使用 `codex_only`（基于 `codex exec` 的独立 Codex CLI）或 `codex_plus_deepseek`（Codex CLI 复合审查与 DeepSeek Harness 条件咨询）。安全持久化至 `~/.gemini/antigravity-ide/pov-reviewer-policy.json`。自动检测旧版 v0.25.1 Skills 并带有动态同步标记安全迁移。
+  - **Reviewer Policy**：为工作流 Skills 配置 none（默认，不调用外部审查器）、codex_only 或 codex_plus_deepseek。使用 schema v2 保存；v1、损坏及不支持的设置安全迁移或回退为 none。禁用外部审查时，Skills 会明确停止。
   - **全局规则模板管理**：在 `%USERPROFILE%\.gemini\config\rules\` 中安全安装与移除官方内置的标准模板（`codex-cli.md` 与 `deepseek-harness.md`）。在内置资源基础上有前置 SHA-256 哈希校验与故障闭锁保护；移除操作仅在 Windows 环境受支持（`can_remove`），在其他平台上安全禁用。取代了之前的 GUI 文本域直接编辑。
   - **编码行为（Direct Coding）**：在统一面板内作为 `.settings-tile` 卡片配置轻量级直接编码（`pov-direct.md`）。仅修改 YAML `trigger` 与受管理区块，提供持久备份、SHA-256 检查和回滚保护。
   - **Nerf Skills**：管理轻量级与平衡型 Nerf Skills（`pov-nerf-lightweight`、`pov-nerf-balanced`）的安装与移除。
@@ -174,7 +175,7 @@ Tauri v2 + React 19 + TypeScript。顶部导航包含 Gateway（仪表板）、M
 | 38 | `get_pov_direct_status` | sync | 读取 Antigravity direct coding 规则状态、哈希与元数据 |
 | 39 | `preview_pov_direct_content` | sync | 预览生成的 `pov-direct.md` 内容及受管理区块 |
 | 40 | `apply_pov_direct_settings` | sync | 原子化保存 direct coding 规则，包含备份、冲突检测与已验证回滚 |
-| 41 | `get_reviewer_policy` | sync | 读取当前活动的 Reviewer Policy（`codex_only` 或 `codex_plus_deepseek`） |
+| 41 | `get_reviewer_policy` | sync | 读取当前活动的 Reviewer Policy（`none / codex_only / codex_plus_deepseek`） |
 | 42 | `set_reviewer_policy` | sync | 设置活动的 Reviewer Policy 并持久化至 `~/.gemini/antigravity-ide/pov-reviewer-policy.json` |
 | 43 | `get_workflow_skills_policy_status` | sync | 读取工作流 Skills 的策略合规状态及详情 |
 | 44 | `get_antigravity_global_rules_status` | sync | 检查全局规则安装状态、哈希匹配及平台移除支持（`can_remove`） |

@@ -194,6 +194,10 @@ MiniMax-M2.x 系列模型（`MiniMax-M2.7-highspeed`）不支持关闭思考功�
 
 ---
 
+### MiniMax M3.1 Flash
+
+MiniMax-M3.1-Flash 仅支持 Thinking，禁用请求会在上游转发前被拒绝。参考费率（2026-10-31）：输入 $0.15、输出 $0.60、缓存输入 $0.015 / 百万 token。
+
 ## Laguna S/XS 2.1（OpenRouter）配置
 
 默认情况下，Poverello 将 OpenRouter 的 `claude-opus-5` 和 `claude-sonnet-5` 路由到 `poolside/laguna-s-2.1`，将 `claude-haiku-4-5` 路由到 `poolside/laguna-xs-2.1`。

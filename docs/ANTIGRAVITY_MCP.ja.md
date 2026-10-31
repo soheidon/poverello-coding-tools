@@ -118,7 +118,7 @@ Poverello では、プランナーの選択と詳細設定の役割が明確に�
    - MCP サーバー登録状態、対象実行ファイル、および MCP Commands（`/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`）を管理します。
    - **すべてインストール** (`antigravity.btnInstallAll`) をクリックすると、ワークフロースキルに干渉せず MCP Skill 3 件のみを一括インストールします。
 2. **`設定` > `Antigravity Skills & ルール`**:
-   - 上位ワークフロースキル（`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`）の Reviewer Policy（`codex_only` vs `codex_plus_deepseek`）を一括設定・同期します。
+   - ワークフロースキルのReviewer Policyを設定します：none（既定値、外部レビュアーなし）、codex_only、codex_plus_deepseek。
    - 承認済み標準 Global Rules テンプレート（`codex-cli.md`、`deepseek-harness.md`）を SHA-256 検証および Windows 削除ガード付きで管理します。
    - Coding Behavior（`pov-direct.md`）および Poverello Nerf Skills を設定・管理します。
 
@@ -160,7 +160,7 @@ Poverello では、プランナーの選択と詳細設定の役割が明確に�
 
 ## 7. 上位 Antigravity Commands (`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`)
 
-直接的な MCP スキルに加えて、Poverello は `~/.gemini/antigravity/skills/` にインストールされ、**設定 > Antigravity Skills & ルール** で Reviewer Policy（`codex_only` または `codex_plus_deepseek`）によって一括制御される 3 つの上位自律ワークフロースキルを提供します:
+直接的なMCPスキルに加え、Poverelloは設定 > Antigravity Skills & ルールで管理する3つの上位ワークフロースキルを提供します。Reviewer Policyの既定値はnone（外部レビュアーを起動しない）で、codex_onlyとcodex_plus_deepseekも選択できます。
 
 ### フルサイクル開発ライフサイクル:
 ```text

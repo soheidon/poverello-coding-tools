@@ -186,6 +186,10 @@ Poverelloの設定画面では、MiniMax-M3の行にThinking／通常のトグ�
 
 MiniMax-M2.x系モデル（`MiniMax-M2.7-highspeed`）はThinkingの無効化に対応しておらず、「Thinking専用」モード固定となります。
 
+### MiniMax M3.1 Flash
+
+MiniMax-M3.1-FlashはThinking専用です。無効化要求は上流転送前に拒否されます。参考料金（2026-10-31確認）：入力$0.15、出力$0.60、キャッシュ入力$0.015／各100万token。
+
 ## Laguna S/XS 2.1（OpenRouter）設定
 
 Poverello は OpenRouter の `claude-opus-5` と `claude-sonnet-5` を `poolside/laguna-s-2.1` へ、`claude-haiku-4-5` を `poolside/laguna-xs-2.1` へデフォルトでルーティングします。

@@ -182,6 +182,10 @@ MiniMax-M3는 Anthropic 호환 API를 통해 확장 Thinking을 켜거나 끌 �
 
 Poverello 설정에서 MiniMax-M3 행에 Thinking/일반 전환이 표시됩니다. `MiniMax-M2.7-highspeed`와 같은 MiniMax-M2.x 모델은 Thinking 비활성화를 지원하지 않으며 Thinking 전용으로 고정됩니다.
 
+### MiniMax M3.1 Flash
+
+MiniMax-M3.1-Flash는 Thinking 전용이며 비활성화 요청은 upstream 전달 전에 거부됩니다. 참고 요금(2026-10-31): 입력 $0.15, 출력 $0.60, 캐시 입력 $0.015 / 100만 token.
+
 ## Laguna S/XS 2.1 (OpenRouter) 설정
 
 기본적으로 Poverello는 OpenRouter의 `claude-opus-5`와 `claude-sonnet-5`를 `poolside/laguna-s-2.1`로, `claude-haiku-4-5`를 `poolside/laguna-xs-2.1`로 라우팅합니다.

@@ -2,7 +2,7 @@
 
 # Poverello Coding Tools
 
-> **v0.25.2 过渡说明：** Auto-Converge 实现保留在代码库中，但从应用的常规导航中隐藏。生产 dispatch 仍处于禁用状态，Stage 2 隔离尚未验证。这不代表已具备发布条件。
+> **v0.25.3：** Auto-Converge 实现保留在代码库中，但从应用常规导航中隐藏。生产 dispatch 仍被禁用，Stage 2 隔离尚未验证。外部审查配置默认禁用（none）。这不代表已具备发布条件。
 
 **以 Claude Code / Claude Desktop 作为编程框架，将推理请求路由至第三方 LLM API，编排带有成本估算跟踪的有界多智能体工作流，并统一管理 Google Antigravity 的外部模型与规则。**
 
@@ -12,7 +12,7 @@ Poverello Coding Tools（应用内显示名称为 **Poverello**）是一款面�
 2. **Claude Code 专用本地 LLM（Ollama）** — 使用本地模型离线运行 Claude Code，零 API 成本。
 3. **面向 Google Antigravity 的 MCP 规划器与审查器** — 通过 `poverello/plan`、`poverello/revise` 和 `poverello/review` MCP 工具，将实现规划、计划修订和实现后审查委托给外部模型。
 4. **多智能体开发 Orchestrator** — 执行当前支持的有界 Planner–Reviewer 工作流，并记录标准化 token 用量和基于已核验供应商费率的成本估算。
-5. **Antigravity Skills & 规则管理** — 集中统一配置工作流技能的审查策略 Reviewer Policy（独立 Codex CLI 单独对比 Codex CLI + DeepSeek Harness 复合审查），管理受保护的全局规则标准模板（`codex-cli.md`、`deepseek-harness.md`），调整 Direct Coding 行为模式（`pov-direct.md`）以及管理 Nerf 技能。
+5. **Antigravity Skills 与规则管理** — 集中配置工作流 Skills 的 Reviewer Policy（默认禁用、仅 Codex CLI 或 Codex CLI + DeepSeek Harness），并管理标准 Global Rules、Direct Coding 和 Nerf Skills。
 
 > [!TIP]
 > **最新动态：** 请参阅 [NEWS.md（发行说明）](../NEWS.md)，了解各版本的功能、实现细节和变更记录。
@@ -127,7 +127,7 @@ Poverello GUI（设置 > Antigravity Skills & 规则）
   • pov-full-cycle, pov-plan-only, pov-build-review（策略同步工作流技能）
 ```
 
-- **集中化 Reviewer Policy**：在 `codex_only`（独立 Codex CLI 单独审查）与 `codex_plus_deepseek`（Codex CLI + DeepSeek Harness 复合审查）之间即时切换上层工作流技能（`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`），并自动同步 SHA-256 校验。
+- **集中管理 Reviewer Policy**：可选 none（默认，不启动外部审查器）、codex_only 或 codex_plus_deepseek。策略为 none 时，工作流 Skills 会安全停止。
 - **受保护的全局规则模板**：一键安装并安全移除经 SHA-256 校验的标准全局规则模板（`codex-cli.md`、`deepseek-harness.md`），在 Windows 下受平台防护（`can_remove`）支持。
 - **范围与方向控制（Poverello Direct Coding）**：为 Antigravity 配置轻量级直接编码规则，防止对局部实现任务自主扩大规划范围或重构。
 - **单文件完整性与安全应用**：通过替换前 SHA-256 校验、冲突检查和回滚保护，安全管理 YAML 触发条件与标记块。
@@ -150,6 +150,12 @@ Poverello GUI（设置 > Antigravity Skills & 规则）
 ### Anthropic（直连）
 
 通过 `https://api.anthropic.com` 和 `ANTHROPIC_API_KEY` 直接使用官方 API。支持 `claude-opus-5-5`、`claude-sonnet-5-5`、`claude-haiku-4-5`、`claude-3-7-sonnet`、`claude-3-5-sonnet` 和 `claude-3-5-haiku`，并支持上游模型提供的 adaptive thinking 与推理强度控制。
+
+### v0.25.3 模型与 Thinking 更新
+
+- 新增 MiniMax M3.1 Flash、Kimi K3.1 Pro / Highspeed、GLM-5.3 直连模型，并区分 Kimi Code K3.1 ID。
+- 8 个模型 ID 仅支持 Thinking；禁用请求会在发送上游前被拒绝。Kimi Code 的 medium 映射为 high、xhigh 映射为 max。
+- 价格基准日期为 2026-10-31。Kimi K3.1 USD 数值是官方 CNY 费率的参考换算，并非 USD 计费标价。OpenRouter 运行时价格优先于内置回退快照。
 
 ### GLM / Z.ai（直连）
 
@@ -271,12 +277,12 @@ Windows 安装程序支持 8 种语言。Poverello 保留现有应用标识，�
 
 ### 工作流 4：多智能体开发 Orchestrator
 
-**访问说明：** v0.25.2 已从 Settings 子导航中隐藏 Orchestrator 项，但保留其实现和内部路由。请在 Antigravity 中使用 `/pov-full-cycle`、`/pov-plan-only` 或 `/pov-build-review` 启动自主工作流。
+**访问说明：** v0.25.3 继续在 Settings 导航中隐藏 Orchestrator，同时保留实现和内部路由。外部审查配置默认值为 none。
 
 ### 工作流 5：Antigravity Skills & 规则管理
 
 1. 打开 **设置 > Antigravity Skills & 规则**。
-2. 选择审查策略 Reviewer Policy（`codex_only` 或 `codex_plus_deepseek`）以同步工作流技能。
+2. 选择 Reviewer Policy（none［默认］、codex_only 或 codex_plus_deepseek）以同步工作流 Skills。启用 none 时不启动外部审查器并明确停止。
 3. 安装或管理受保护的标准全局规则模板（`codex-cli.md`、`deepseek-harness.md`）。
 4. 配置 Poverello Direct Coding 参数并点击 **应用** 以同步 `pov-direct.md`。
 

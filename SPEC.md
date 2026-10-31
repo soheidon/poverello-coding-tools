@@ -2,7 +2,7 @@
 
 # SPEC: Poverello Coding Tools
 
-> **v0.25.2 transition:** Auto-Converge remains in the codebase but is not reachable through normal app navigation. Production dispatch is disabled and Stage 2 isolation is unverified; UI visibility does not imply authorization or release readiness.
+> **v0.25.3:** Auto-Converge remains in the codebase but is not reachable through normal app navigation. Production dispatch is disabled and Stage 2 isolation is unverified. External Review Configuration defaults to none; UI visibility does not imply authorization or release readiness.
 
 ## Overview
 
@@ -89,8 +89,9 @@ A thin proxy + GUI management tool that routes Claude Desktop / Claude Code API 
 - **Context capacity registry**: `model_catalog.json` is a static registry of known context capacities covering built-in direct-provider models (DeepSeek, MiniMax, Kimi, MiMo V2.6 and V2.5) and built-in OpenRouter models (Poolside, Tencent, InclusionAI, StepFun, OpenAI GPT-6.1, GPT-6, GPT Astra Latest, GPT-5.6, and Google Gemini). Unknown custom OpenRouter models remain valid route targets but report context management as Incomplete until metadata is added or manual mode is configured.
 - **Google Gemini model support**: OpenRouter profiles can use Gemini 3.1 Pro Preview and Gemini 3.7 Flash as built-in models with pricing and capability data. Gemini 3.7 Flash includes promotional pricing with regular-rate strikethrough display.
 - **GLM (Z.ai) direct provider support**: Sends requests to the configured Z.ai Anthropic-compatible endpoint using the configured `ZAI_API_KEY` (or Poverello key setting). Poverello does not identify key type, Coding Plan purchase history, account allowlisting, or billing eligibility; consult [Z.ai's current setup guidance](https://zcode.z.ai/en/docs/configuration). Four-model catalog (`glm-5.3`, `glm-5.3-flash`, `glm-5.3-flashx`, `glm-5.2`). Always-on thinking for GLM-5.3 series with selectable reasoning effort (`low`, `high`, `max`); Normal/Thinking toggle for GLM-5.2. Strict output validation: empty text / thinking-only responses (e.g. `stop_reason: "max_tokens"` during thinking) fail closed with explicit provider errors across Orchestrator and MCP.
+- **v0.25.3 models and thinking safeguards**: Adds MiniMax M3.1 Flash, Kimi K3.1 Pro / Highspeed, GLM-5.3 direct models, and separate Kimi Code K3.1 IDs. Eight IDs are Thinking-only; explicit disable requests fail before upstream dispatch. Kimi Code effort maps medium to high and xhigh to max. Pricing references are dated 2026-10-31; Kimi K3.1 USD values are reference CNY conversions, and OpenRouter runtime rates take precedence over the bundled snapshot.
 - **Antigravity Skills & Rules Management (Settings > Antigravity Skills & Rules)**: Centralized management of Reviewer Policy for workflow skills, protected standard Global Rules templates, Coding Behavior (Poverello Direct Coding), and Nerf skills.
-  - **Reviewer Policy**: Centrally configures `/pov-full-cycle`, `/pov-plan-only`, and `/pov-build-review` to use either `codex_only` (Codex CLI alone via `codex exec`) or `codex_plus_deepseek` (Codex CLI + DeepSeek Harness composite). Persists to `~/.gemini/antigravity-ide/pov-reviewer-policy.json`. Detects older v0.25.1 skills and updates them with dynamic synchronization markers.
+  - **Reviewer Policy**: Configures workflow Skills for none (default; no external reviewer), codex_only, or codex_plus_deepseek. Schema v2 is persisted in the user Antigravity settings directory; v1, malformed, and unsupported settings fail safe to none. Skills stop explicitly when external review is disabled.
   - **Global Rules Template Management**: Provides safe, guarded installation and removal of official bundled templates (`codex-cli.md` and `deepseek-harness.md`) into `%USERPROFILE%\.gemini\config\rules\`. Enforces pre-install/remove SHA-256 validation against bundled resources and fail-closed checks; removal is supported on Windows (`can_remove`) and disabled on other platforms. Replaces the former GUI markdown textarea editor.
   - **Coding Behavior (Direct Coding)**: Configures lightweight direct-coding behavior (`pov-direct.md`) directly within the unified panel as a `.settings-tile`. State machine manages the YAML `trigger` and bounded marker block, preserving user frontmatter, comments, and skill inclusions with unpruned backups, pre-replacement SHA-256 verification, and rollback.
   - **Nerf Skills**: Manages installation and removal of lightweight and balanced Nerf skills (`pov-nerf-lightweight`, `pov-nerf-balanced`).
@@ -181,7 +182,7 @@ Settings (=):
 | 38 | `get_pov_direct_status` | sync | Read Antigravity direct coding rules status, hash, and metadata |
 | 39 | `preview_pov_direct_content` | sync | Preview generated `pov-direct.md` content and managed block |
 | 40 | `apply_pov_direct_settings` | sync | Atomically save direct coding rules with backup, conflict detection, and verified rollback |
-| 41 | `get_reviewer_policy` | sync | Read active reviewer policy (`codex_only` or `codex_plus_deepseek`) |
+| 41 | `get_reviewer_policy` | sync | Read active reviewer policy (`none / codex_only / codex_plus_deepseek`) |
 | 42 | `set_reviewer_policy` | sync | Set active reviewer policy and persist to `~/.gemini/antigravity-ide/pov-reviewer-policy.json` |
 | 43 | `get_workflow_skills_policy_status` | sync | Read workflow skills policy compliance status and details |
 | 44 | `get_antigravity_global_rules_status` | sync | Check global rules installation status, hash validation, and platform removal support (`can_remove`) |

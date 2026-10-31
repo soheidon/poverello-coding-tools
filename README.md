@@ -2,7 +2,7 @@
 
 # Poverello Coding Tools
 
-> **v0.25.2 transition:** Auto-Converge remains in the codebase but is hidden from normal app navigation. Production dispatch remains disabled, and Stage 2 isolation remains unverified. This is not a release-readiness claim.
+> **v0.25.3:** Auto-Converge remains in the codebase but is hidden from normal app navigation. Production dispatch remains disabled and Stage 2 isolation remains unverified. External Review Configuration defaults to Disabled (none); this is not a release-readiness claim.
 
 **Use Claude Code / Claude Desktop as the coding harness, route inference to third-party LLM APIs, orchestrate bounded multi-agent workflows with cost-estimate tracking, and manage external models and rules for Google Antigravity.**
 
@@ -12,7 +12,7 @@ Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companio
 2. **Dedicated Local LLMs for Claude Code (Ollama)** — Run Claude Code completely offline with zero API costs using local Ollama models.
 3. **MCP Planner & Reviewer for Google Antigravity** — Delegate implementation planning and post-implementation review to external models via the canonical `poverello/plan`, `poverello/revise`, and `poverello/review` MCP tools (with `anthro-bridge/*` maintained for backward compatibility).
 4. **Multi-Agent Development Orchestrator** — Run supported bounded Planner–Reviewer plan/review workflows across CLI and API agents, track normalized token usage and rate-verified cost estimates (in nano-dollars), and maintain auditable dispatch journals.
-5. **Antigravity Skills & Rules Management** — Centrally configure Reviewer Policy for workflow skills (Codex CLI alone vs. Codex CLI + DeepSeek Harness composite), manage protected Global Rules standard templates (`codex-cli.md`, `deepseek-harness.md`), tune Direct Coding behavior (`pov-direct.md`), and manage Nerf skills.
+5. **Antigravity Skills & Rules Management** — Centrally configure Reviewer Policy for workflow skills (Disabled by default, Codex CLI alone, or Codex CLI + DeepSeek Harness), manage protected Global Rules templates, tune Direct Coding, and manage Nerf skills.
 
 > [!TIP]
 > **What's New:** For version-by-version feature updates, implementation details, and changelogs, see [NEWS.md (Release Notes)](NEWS.md).
@@ -133,7 +133,7 @@ Poverello GUI (Settings > Antigravity Skills & Rules)
   • pov-full-cycle, pov-plan-only, pov-build-review (Policy-Synchronized Workflow Skills)
 ```
 
-- **Centralized Reviewer Policy**: Switch autonomous workflow skills (`/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`) between `codex_only` (independent Codex CLI alone) and `codex_plus_deepseek` (Codex CLI + DeepSeek Harness composite review) with automatic SHA-256 validation and policy synchronization.
+- **Centralized Reviewer Policy**: Choose none (default; no external reviewer is launched), codex_only, or codex_plus_deepseek. Workflow Skills stop safely when policy is none.
 - **Protected Global Rules Templates**: One-click install and safe removal of standard Global Rules templates (`codex-cli.md`, `deepseek-harness.md`) verified by SHA-256 digests, with platform-guarded removal (`can_remove`) on Windows.
 - **Scope & Direction Control (Poverello Direct Coding)**: Configure lightweight direct-coding behavior for Antigravity, disabling unsolicited multi-agent planning or expanded refactoring for localized implementation tasks.
 - **Single-File Integrity**: Safely manages the YAML `trigger` condition and bounded managed marker block while strictly preserving user-defined frontmatter, custom descriptions, and skill inclusions.
@@ -172,6 +172,12 @@ Built-in **Direct DeepSeek** preset uses the official stable API ID `deepseek-fl
 DeepSeek's official materials differ on Pro routing: the current pricing page lists V4-Pro-0813 and separate Pro rates and says API service continued after September 14, 2026, while the September 10 announcement described temporary routing to V4.1 Flash at Flash rates until V4.1-Pro launches. Poverello cannot verify routing or billing for an individual request; its displayed Pro prices are the published schedule, not an invoice or guarantee. See the [current pricing page](https://api-docs.deepseek.com/quick_start/pricing/) and [September 10 announcement](https://api-docs.deepseek.com/news/news260910/).
 
 DeepSeek's retired IDs `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` remain accepted upstream and route to the current Flash model at Flash rates. New Poverello configurations should use the canonical IDs above.
+
+### v0.25.3 Model and Thinking Updates
+
+- Added MiniMax M3.1 Flash, Kimi K3.1 Pro / Highspeed, GLM-5.3 direct models, and distinct Kimi Code K3.1 IDs.
+- Eight model IDs are Thinking-only; explicit disable requests are rejected before upstream dispatch. Kimi Code effort maps medium to high and xhigh to max.
+- Pricing reference date: 2026-10-31. Kimi K3.1 USD figures are reference conversions from official CNY tariffs, not billed USD list prices. OpenRouter runtime pricing takes precedence over its bundled fallback.
 
 ### GLM / Z.ai (Direct)
 
@@ -296,12 +302,12 @@ The Windows installer supports 8 languages. Poverello keeps the existing applica
 
 ### Workflow 4: Multi-Agent Development Orchestrator
 
-**Access note:** v0.25.2 hides the Orchestrator entry from the Settings sub-navigation while retaining its implementation and internal routes. Start autonomous workflows in Antigravity with `/pov-full-cycle`, `/pov-plan-only`, or `/pov-build-review`.
+**Access note:** v0.25.3 keeps Orchestrator hidden from Settings navigation while retaining its implementation and internal routes. External Review Configuration defaults to none.
 
 ### Workflow 5: Antigravity Skills & Rules Management
 
 1. Open **Settings > Antigravity Skills & Rules**.
-2. Select your Reviewer Policy (`codex_only` or `codex_plus_deepseek`) to synchronize workflow skills.
+2. Choose Reviewer Policy (none [default], codex_only, or codex_plus_deepseek) to synchronize workflow skills. Under none, no external reviewer launches and the workflow stops explicitly.
 3. Install or manage protected standard Global Rules templates (`codex-cli.md`, `deepseek-harness.md`).
 4. Configure Poverello Direct Coding parameters and click **Apply** to synchronize `pov-direct.md`.
 

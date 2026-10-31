@@ -1,5 +1,17 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.25.3 — 2026-10-31
+
+### Models and thinking safeguards
+- Added MiniMax M3.1 Flash, Kimi K3.1 Pro / Highspeed, GLM-5.3 direct models, and distinct Kimi Code K3.1 IDs.
+- Eight model IDs are Thinking-only; explicit disable requests fail before upstream dispatch. Kimi Code effort maps medium to high and xhigh to max.
+- Pricing references are dated 2026-10-31. Kimi K3.1 USD values are reference conversions from official CNY tariffs, not provider-billed USD list prices. OpenRouter runtime pricing takes precedence over its bundled fallback.
+
+### Antigravity Skills & Rules
+- Added Disabled (none) to External Review Configuration and made it the default. The v1-to-v2 migration resets prior selections to none; malformed or unsupported settings also fail safe to none.
+- Workflow Skills launch no external reviewer, fallback reviewer, or review retry under none; they stop with PLAN COMPLETE — EXTERNAL REVIEW DISABLED.
+- Localized External Review Configuration and the full Direct Coding panel across all eight supported languages.
+
 ## v0.25.2 — 2026-10-29
 
 ### Antigravity Settings & MCP Screen Separation

@@ -2,7 +2,7 @@
 
 # Poverello Coding Tools
 
-> **v0.25.2 전환:** Auto-Converge 구현은 코드베이스에 유지하지만 일반 앱 탐색 메뉴에서는 숨깁니다. 프로덕션 디스패치는 계속 비활성화되며 Stage 2 격리는 검증되지 않았습니다. 출시 준비가 완료되었다는 의미가 아닙니다.
+> **v0.25.3:** Auto-Converge 구현은 코드베이스에 유지되지만 일반 앱 탐색에서 숨겨져 있습니다. 프로덕션 디스패치는 비활성화되어 있고 Stage 2 격리는 검증되지 않았습니다. 외부 리뷰 설정 기본값은 비활성화(none)입니다. 출시 준비 완료를 의미하지 않습니다.
 
 **Claude Code / Claude Desktop을 코딩 하네스로 활용하면서 추론은 서드파티 LLM API로 라우팅하고, 비용 추정을 추적하는 제한된 멀티 에이전트 워크플로를 오케스트레이션하며, Google Antigravity의 외부 모델 및 규칙을 중앙에서 관리하세요.**
 
@@ -12,7 +12,7 @@ Poverello Coding Tools(앱 표시 이름 **Poverello**)는 AI 기반 소프트�
 2. **Claude Code 전용 로컬 LLM (Ollama)** — 로컬 모델을 사용해 API 비용 없이 완전한 오프라인으로 Claude Code를 실행할 수 있습니다.
 3. **Google Antigravity용 MCP 플래너 & 리뷰어** — `poverello/plan`, `poverello/revise`, `poverello/review` MCP 도구를 통해 구현 계획, 계획 수정 및 구현 후 리뷰를 외부 모델에 위임합니다.
 4. **멀티 에이전트 개발 오케스트레이터** — 현재 지원되는 제한된 Planner–Reviewer 계획·검토 워크플로를 실행하고 정규화된 토큰 사용량과 검증된 비용 추정치를 기록합니다.
-5. **Antigravity Skills & Rules 관리** — 워크플로 스킬의 Reviewer Policy(독립 Codex CLI 단독 vs Codex CLI + DeepSeek Harness 복합 리뷰)를 일괄 설정하고, 보호된 표준 Global Rules 템플릿(`codex-cli.md`, `deepseek-harness.md`)을 관리하며, Direct Coding 동작(`pov-direct.md`)을 조정하고 Nerf 스킬을 관리합니다.
+5. **Antigravity Skills & Rules 관리** — Workflow Skill의 Reviewer Policy(기본 비활성화, Codex CLI 단독 또는 Codex CLI + DeepSeek Harness)를 설정하고 표준 Global Rules, Direct Coding, Nerf Skill을 관리합니다.
 
 > [!TIP]
 > **새 소식:** 버전별 기능, 구현 세부 정보 및 변경 내역은 [NEWS.md(릴리스 노트)](../NEWS.md)를 참조하세요.
@@ -127,7 +127,7 @@ Poverello GUI (설정 > Antigravity Skills & Rules)
   • pov-full-cycle, pov-plan-only, pov-build-review (정책 동기화 워크플로 스킬)
 ```
 
-- **중앙 집중식 Reviewer Policy**: 자율 워크플로 스킬(`/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`)의 리뷰 정책을 `codex_only`(독립 Codex CLI 단독)와 `codex_plus_deepseek`(Codex CLI + DeepSeek Harness 복합 리뷰) 간에 즉시 전환하고 SHA-256 검증 및 정책 동기화를 자동으로 수행합니다.
+- **중앙 집중식 Reviewer Policy**: none(기본값, 외부 리뷰어 실행 안 함), codex_only 또는 codex_plus_deepseek를 선택합니다. none이면 Workflow Skill은 안전하게 중지합니다.
 - **보호된 Global Rules 템플릿**: SHA-256 다이제스트로 검증된 표준 Global Rules 템플릿(`codex-cli.md`, `deepseek-harness.md`)을 원클릭으로 설치 및 안전하게 제거(Windows 플랫폼 보호 `can_remove` 지원)합니다.
 - **범위 및 방향 제어 (Poverello Direct Coding)**: 국소적인 구현 작업에 대해 자율적인 계획 확장이나 대규모 리팩터링을 방지하는 경량 직접 코딩 규칙을 구성합니다.
 - **단일 파일 무결성 및 안전한 적용**: 치환 전 SHA-256 검증, 외부 삭제 충돌 검사, 복구 롤백 보호를 통해 YAML 트리거 및 관리 블록을 안전하게 관리합니다.
@@ -150,6 +150,12 @@ Poverello GUI (설정 > Antigravity Skills & Rules)
 ### Anthropic (직접 연결)
 
 `ANTHROPIC_API_KEY`를 사용해 공식 API `https://api.anthropic.com`에 직접 연결합니다. 지원 모델은 `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5`, `claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-3-5-haiku`이며, 업스트림 모델의 adaptive thinking 및 추론 강도 제어를 지원합니다.
+
+### v0.25.3 모델 및 Thinking 업데이트
+
+- MiniMax M3.1 Flash, Kimi K3.1 Pro / Highspeed, GLM-5.3 Direct 모델을 추가하고 Kimi Code K3.1 ID를 분리했습니다.
+- 8개 모델 ID는 Thinking 전용이며 비활성화 요청은 upstream 전송 전에 거부됩니다. Kimi Code medium은 high, xhigh는 max로 정규화됩니다.
+- 가격 기준일은 2026-10-31입니다. Kimi K3.1 USD 값은 공식 CNY 요금의 참고 환산값이며 청구 USD 정가가 아닙니다. OpenRouter 런타임 가격이 번들 스냅샷보다 우선합니다.
 
 ### GLM / Z.ai (직접 연결)
 
@@ -271,12 +277,12 @@ Windows 설치 프로그램은 8개 언어를 지원합니다. Poverello는 기�
 
 ### 워크플로 4: 멀티 에이전트 개발 오케스트레이터
 
-**접근 안내:** v0.25.2에서는 구현과 내부 경로를 유지하면서 Settings 하위 탐색 메뉴에서 Orchestrator 항목을 숨깁니다. Antigravity에서 `/pov-full-cycle`, `/pov-plan-only`, 또는 `/pov-build-review`를 사용하여 자율 워크플로를 시작하세요.
+**접근 안내:** v0.25.3에서도 Orchestrator는 Settings 탐색 메뉴에서 숨겨져 있고 구현과 내부 경로는 유지됩니다. 외부 리뷰 기본값은 none입니다.
 
 ### 워크플로 5: Antigravity Skills & Rules 관리
 
 1. **설정 > Antigravity Skills & Rules**를 엽니다.
-2. Reviewer Policy(`codex_only` 또는 `codex_plus_deepseek`)를 선택하여 워크플로 스킬을 동기화합니다.
+2. Reviewer Policy(none[기본값], codex_only 또는 codex_plus_deepseek)를 선택해 워크플로 Skill을 동기화합니다. none이면 외부 리뷰어 없이 명시적으로 중지합니다.
 3. 보호된 표준 Global Rules 템플릿(`codex-cli.md`, `deepseek-harness.md`)을 설치하거나 관리합니다.
 4. Poverello Direct Coding 파라미터를 설정하고 **적용**을 클릭하여 `pov-direct.md`를 동기화합니다.
 

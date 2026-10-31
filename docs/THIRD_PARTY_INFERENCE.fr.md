@@ -193,6 +193,10 @@ MiniMax-M3 permet d'activer ou de désactiver le thinking étendu via l'API comp
 
 Les paramètres de Poverello affichent un commutateur Thinking/Normal pour MiniMax-M3. Les modèles MiniMax-M2.x (par exemple `MiniMax-M2.7-highspeed`) ne permettent pas de désactiver le thinking et restent en mode Thinking uniquement.
 
+### MiniMax M3.1 Flash
+
+MiniMax-M3.1-Flash est réservé au Thinking ; les demandes de désactivation sont rejetées avant transmission. Tarifs indicatifs (31/10/2026) : 0,15 $ en entrée, 0,60 $ en sortie et 0,015 $ en entrée cache par million de tokens.
+
 ## Configuration de Laguna S/XS 2.1 (OpenRouter)
 
 Par défaut, Poverello route les modèles OpenRouter `claude-opus-5` et `claude-sonnet-5` vers `poolside/laguna-s-2.1`, et `claude-haiku-4-5` vers `poolside/laguna-xs-2.1`.

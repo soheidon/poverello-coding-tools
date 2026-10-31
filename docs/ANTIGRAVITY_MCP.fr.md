@@ -113,7 +113,7 @@ Poverello sépare clairement le choix du planificateur de la gestion détaillée
    - Gérez l'enregistrement du serveur MCP, l'exécutable cible et les commandes MCP (`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`).
    - Cliquez sur **Tout installer** (`antigravity.btnInstallAll`) pour installer exclusivement les 3 compétences MCP.
 2. **`Paramètres` > `Antigravity Skills & Rules`** :
-   - Gérez la politique Reviewer Policy (`codex_only` vs `codex_plus_deepseek`) pour les compétences de flux de travail de niveau supérieur (`/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`).
+   - Configurez la Reviewer Policy des Workflow Skills : none (par défaut, sans réviseur externe), codex_only ou codex_plus_deepseek.
    - Gérez les modèles standard protégés de règles globales (`codex-cli.md`, `deepseek-harness.md`) avec vérification SHA-256 et prise en charge de la suppression sous Windows (`can_remove`).
    - Configurez le comportement de programmation (`pov-direct.md`) et les compétences Poverello Nerf.
 
@@ -155,7 +155,7 @@ Depuis l'onglet **MCP** (ou **Paramètres > Antigravity MCP**), installez les co
 
 ## 7. Commandes Antigravity de niveau supérieur (`/pov-full-cycle`, `/pov-plan-only` & `/pov-build-review`)
 
-En plus des compétences MCP directes, Poverello fournit trois compétences de flux de travail autonomes de niveau supérieur installées dans `~/.gemini/antigravity/skills/` et gérées sous **Paramètres > Antigravity Skills & Rules** avec un contrôle centralisé de Reviewer Policy (`codex_only` ou `codex_plus_deepseek`) :
+En plus des Skills MCP directs, Poverello fournit trois Workflow Skills gérés sous Settings > Antigravity Skills & Rules. La Reviewer Policy vaut none par défaut (aucun réviseur externe lancé) ; codex_only et codex_plus_deepseek sont aussi disponibles.
 
 ### Développement en cycle complet :
 ```text

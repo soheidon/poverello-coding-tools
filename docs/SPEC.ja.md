@@ -2,7 +2,7 @@
 
 # SPEC: Poverello Coding Tools
 
-> **v0.25.2への移行:** Auto-Convergeはコードに保持しますが、通常のアプリナビゲーションから開けません。本番ディスパッチは無効で、Stage 2の隔離は未検証です。画面表示の有無は実行承認やリリース承認を意味しません。
+> **v0.25.3:** Auto-Convergeはコードベースに保持されていますが、通常のアプリナビゲーションからは利用できません。本番ディスパッチは無効、Stage 2隔離は未検証です。外部レビュー設定の既定値はnoneです。UI表示は実行許可やリリース準備完了を意味しません。
 
 ## 概要
 
@@ -88,8 +88,9 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
 - **コンテキスト容量レジストリ**: `model_catalog.json` は、既知のコンテキスト容量の静的レジストリ。組み込みの直接プロバイダーモデル（DeepSeek、MiniMax、Kimi、MiMo V2.6 および V2.5）と組み込みの OpenRouter モデル（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-6.1、GPT-6、GPT Astra Latest、GPT-5.6、Google Gemini）をカバーする。不明なカスタム OpenRouter モデルは有効なルートターゲットのままであるが、メタデータが追加されるか手動モードが設定されるまで、コンテキスト管理は Incomplete として報告される。
 - **Google Gemini モデル対応**: OpenRouter プロファイルで Gemini 3.1 Pro Preview と Gemini 3.7 Flash を組み込みモデルとして利用でき、料金・機能データも収録。Gemini 3.7 Flash はプロモーション価格と、取り消し線付きの通常価格を併記する。
 - **GLM (Z.ai) ダイレクトプロバイダー対応**: 設定された `ZAI_API_KEY`（または Poverello に入力したキー）を使って Z.ai の Anthropic 互換エンドポイントへリクエストを送信。Poverello はキー種別、Coding Plan の購入履歴、アカウントの許可状態、課金資格を判定しないため、利用前に[Z.ai の現行セットアップガイド](https://zcode.z.ai/en/docs/configuration)でアカウントおよびエンドポイント要件を確認してください。4モデル構成（`glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx`、`glm-5.2`）。GLM-5.3 系列は推論強度（`low`, `high`, `max`）を選択可能な常時思考、GLM-5.2 は Normal/Thinking トグル。厳格な出力検証により、思考ブロックのみで最終テキストが空の場合（思考中の `max_tokens` 到達等）は Orchestrator・MCP の双方で明示的なプロバイダーエラーとしてフェイルクローズする。
+- **v0.25.3モデルとThinking安全制御**: MiniMax M3.1 Flash、Kimi K3.1 Pro / Highspeed、GLM-5.3 Directモデルを追加し、Kimi Code K3.1 IDを分離。8つのIDはThinking専用で、無効化要求は上流送信前に拒否します。Kimi Codeのmediumはhigh、xhighはmaxへ正規化。価格基準日は2026-10-31。Kimi K3.1のUSD表示はCNY料金からの参考換算で、OpenRouterは実行時価格を優先します。
 - **Antigravity Skills & ルール管理（設定 > Antigravity Skills & ルール）**: ワークフロースキルのReviewer Policy、保護された標準Global Rulesテンプレート、Coding Behavior（Poverello Direct Coding）、およびNerf Skillsを一括管理。
-  - **Reviewer Policy**: `/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review` が使用する外部Reviewerバックエンドとして `codex_only`（Codex CLI単独）または `codex_plus_deepseek`（Codex CLI ＋ DeepSeek Harness複合）を設定。`~/.gemini/antigravity-ide/pov-reviewer-policy.json` に永続化。v0.25.1旧バージョンSkillを自動検出し、動的同期マーカー付きで安全に移行。
+  - **Reviewer Policy**: Workflow Skillsの外部レビュー方式をnone（既定値。外部レビュアーを呼び出さない）、codex_only、codex_plus_deepseekから設定します。スキーマv2をユーザーのAntigravity設定に保存し、v1・破損・未対応設定はnoneへ安全に移行またはフェイルセーフします。外部レビュー無効時、Skillは明示して停止します。
   - **Global Rulesテンプレート管理**: 製品同梱の承認済み標準テンプレート（`codex-cli.md`、`deepseek-harness.md`）を `%USERPROFILE%\.gemini\config\rules\` へ安全にインストール・削除。SHA-256ハッシュ検証および削除ガードを備え、削除はWindows環境のみサポート（`can_remove`）。旧テキストエリア編集を廃止。
   - **Coding Behavior（Direct Coding）**: 統合パネル内の `.settings-tile` カードとして軽量 Direct Coding（`pov-direct.md`）を設定。YAML `trigger` と管理ブロックのみを操作し、保持バックアップ、SHA-256検証、ロールバックを徹底。
   - **Nerf Skills**: 軽量・バランス型のNerf Skill（`pov-nerf-lightweight`、`pov-nerf-balanced`）のインストール・削除を管理。
@@ -180,7 +181,7 @@ Tauri v2 + React 19 + TypeScript。上部ナビゲーション: Gateway（ダッ
 | 38 | `get_pov_direct_status` | sync | Antigravity direct coding ルールのステータス、ハッシュ、メタデータを取得 |
 | 39 | `preview_pov_direct_content` | sync | 生成される `pov-direct.md` の内容および管理ブロックをプレビュー |
 | 40 | `apply_pov_direct_settings` | sync | バックアップ、競合検出、検証付きロールバックを伴い direct coding ルールをアトミックに保存 |
-| 41 | `get_reviewer_policy` | sync | アクティブReviewerポリシー（`codex_only` または `codex_plus_deepseek`）を取得 |
+| 41 | `get_reviewer_policy` | sync | アクティブReviewerポリシー（`none / codex_only / codex_plus_deepseek`）を取得 |
 | 42 | `set_reviewer_policy` | sync | アクティブReviewerポリシーを設定し `~/.gemini/antigravity-ide/pov-reviewer-policy.json` に永続化 |
 | 43 | `get_workflow_skills_policy_status` | sync | ワークフロースキルのポリシー適合状況・詳細一覧を取得 |
 | 44 | `get_antigravity_global_rules_status` | sync | Global Ruleテンプレートのインストール状況、ハッシュ一致、およびプラットフォーム削除可否（`can_remove`）を取得 |

@@ -119,7 +119,7 @@ Poverello clearly separates model selection from detailed parameter management:
    - Manage MCP server registration, target executable, and MCP Commands (`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`).
    - Click **Install All** (`antigravity.btnInstallAll`) to install exclusively the 3 MCP skills.
 2. **`Settings` > `Antigravity Skills & Rules`**:
-   - Manage Reviewer Policy (`codex_only` vs `codex_plus_deepseek`) for upper-level workflow skills (`/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`).
+   - Manage Reviewer Policy for workflow skills: none (default; no external reviewer), codex_only, or codex_plus_deepseek.
    - Manage protected Global Rules standard templates (`codex-cli.md`, `deepseek-harness.md`) with SHA-256 verification and Windows removal support (`can_remove`).
    - Configure Coding Behavior (`pov-direct.md`) and Poverello Nerf skills.
 
@@ -161,7 +161,7 @@ From the **MCP** tab (or **Settings > Antigravity MCP**), you can install Global
 
 ## 7. Upper-level Antigravity Commands (`/pov-full-cycle`, `/pov-plan-only` & `/pov-build-review`)
 
-In addition to direct MCP skills, Poverello provides three upper-level autonomous workflow skills installed to `~/.gemini/antigravity/skills/` and managed under **Settings > Antigravity Skills & Rules** with centralized Reviewer Policy control (`codex_only` or `codex_plus_deepseek`):
+In addition to direct MCP skills, Poverello provides three upper-level workflow skills managed under Settings > Antigravity Skills & Rules. Reviewer Policy defaults to none, which launches no external reviewer; codex_only and codex_plus_deepseek are optional alternatives.
 
 ### Full-cycle implementation:
 ```text
