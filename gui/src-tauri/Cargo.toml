@@ -1,6 +1,6 @@
 [package]
 name = "anthro-bridge"
-version = "0.25.4"
+version = "0.26.0"
 edition = "2021"
 
 [lib]
@@ -34,6 +34,7 @@ tracing-appender = "0.2"
 uuid = { version = "1.24.0", features = ["v4"] }
 rand = "0.8"
 subtle = "2"
+semver = "1.0"
 anthro-bridge-mcp-server = { path = "../../mcp-server" }
 rmcp = { version = "3", features = ["client", "transport-io"] }
 

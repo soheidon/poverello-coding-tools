@@ -683,7 +683,14 @@ fn spawn_win32_child(
             {
                 return Err("invalid child environment override".to_string());
             }
-            if !names.insert(key_text.to_ascii_lowercase()) {
+            let key_lower = key_text.to_ascii_lowercase();
+            // §12.28.2: Reserved OS keys: SystemRoot/WINDIR are seeded once from the trusted
+            // OS windows_directory(). If caller supplies them (in any case variation), prioritize
+            // the runner OS value and skip caller override to prevent duplicate environment entries.
+            if key_lower == "systemroot" || key_lower == "windir" {
+                continue;
+            }
+            if !names.insert(key_lower) {
                 return Err("duplicate child environment variable name".to_string());
             }
             let mut entry = key.clone();
@@ -1498,5 +1505,64 @@ mod tests {
         }
         assert_eq!(parsed.first().map(String::as_str), Some("runner.exe"));
         assert_eq!(&parsed[1..], args.as_slice());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_windows_environment_block_reserved_keys_and_duplicates() {
+        use std::ffi::OsString;
+
+        // 1. Passing SYSTEMROOT / WINDIR in any casing should not fail with duplicate error
+        let overrides_with_systemroot = vec![
+            (OsString::from("PATH"), std::env::var_os("PATH").unwrap_or_default()),
+            (OsString::from("SYSTEMROOT"), OsString::from("C:\\Windows")),
+            (OsString::from("windir"), OsString::from("C:\\Windows")),
+            (OsString::from("TEST_KEY"), OsString::from("test_val")),
+        ];
+        let runner = ProcessRunner::new();
+        // spawn_win32_child is invoked via run_with_stdin_in_environment with a dummy command
+        // Using cmd.exe /c exit 0
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        rt.block_on(async {
+            let res = runner
+                .run_with_stdin_in_environment(
+                    "powershell",
+                    &["-NoProfile".to_string(), "-Command".to_string(), "exit 0".to_string()],
+                    None,
+                    None,
+                    Duration::from_secs(5),
+                    None,
+                    &overrides_with_systemroot,
+                )
+                .await;
+            assert!(res.is_ok(), "Expected success when SYSTEMROOT/windir provided: {:?}", res.err());
+            assert_eq!(res.unwrap().exit_code, Some(0));
+
+            // 2. Passing duplicate non-reserved keys with case variation must fail with duplicate error
+            let duplicate_keys = vec![
+                (OsString::from("CUSTOM_VAR"), OsString::from("val1")),
+                (OsString::from("custom_var"), OsString::from("val2")),
+            ];
+            let dup_res = runner
+                .run_with_stdin_in_environment(
+                    "powershell",
+                    &["-NoProfile".to_string(), "-Command".to_string(), "exit 0".to_string()],
+                    None,
+                    None,
+                    Duration::from_secs(5),
+                    None,
+                    &duplicate_keys,
+                )
+                .await;
+            assert!(dup_res.is_err());
+            assert!(
+                dup_res.unwrap_err().contains("duplicate child environment variable name"),
+                "Expected duplicate child environment error"
+            );
+        });
     }
 }

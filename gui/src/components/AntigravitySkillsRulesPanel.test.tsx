@@ -123,15 +123,15 @@ describe("AntigravitySkillsRulesPanel Component", () => {
     // 1. Workflow Skills Card
     await waitFor(() => {
       expect(screen.getByText("antigravity.workflowCommandsSectionHeader")).toBeInTheDocument();
+      expect(screen.getByText("/pov-plan-only")).toBeInTheDocument();
     });
-    expect(screen.getByText("/pov-plan-only")).toBeInTheDocument();
     expect(screen.getByText("/pov-build-review")).toBeInTheDocument();
     expect(screen.getByText("/pov-full-cycle")).toBeInTheDocument();
 
-    // 2. CLI Tools Card
-    expect(screen.getByTestId("cli-tools-card")).toBeInTheDocument();
+    // 2. CLI Tools Card must NOT be in Antigravity Skills & Rules panel (relocated to dedicated CLI Tools panel)
+    expect(screen.queryByTestId("cli-tools-card")).not.toBeInTheDocument();
 
-    // 3. Task Presets Card (Nerf)
+    // 2. Task Presets Card (Nerf)
     expect(screen.getByText("antigravity.taskPresetsHeader")).toBeInTheDocument();
     expect(screen.getByText("/pov-nerf-balanced")).toBeInTheDocument();
     expect(screen.getByText("/pov-nerf-lightweight")).toBeInTheDocument();

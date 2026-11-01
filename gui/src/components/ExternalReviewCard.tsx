@@ -321,6 +321,11 @@ export default function ExternalReviewCard() {
                 <strong>{t("antigravity.configProfileLabel")}:</strong>{" "}
                 {codexAccount?.config_profile ?? t("antigravity.configProfileDefault")}
               </span>
+              {codexAccount?.codex_home && (
+                <span>
+                  <strong>Codex Home:</strong> <code>{codexAccount.codex_home}</code>
+                </span>
+              )}
             </div>
 
             {/* DeepSeek Harness summary */}

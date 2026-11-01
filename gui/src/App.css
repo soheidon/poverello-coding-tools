@@ -2234,6 +2234,124 @@ body {
   margin-top: 4px;
 }
 
+/* Codex Autocode Review Settings layout (§12.20, §12.23) */
+.codex-review-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.codex-review-grid.cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.codex-gemini-option-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background-color: var(--bg-secondary, #f6f8fa);
+  border: 1px solid var(--border-color, #e1e4e8);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 640px) {
+  .codex-review-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.codex-review-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background-color: var(--bg-secondary, #f6f8fa);
+  border: 1px solid var(--border-color, #d0d7de);
+  color: var(--text-primary, #1f2937);
+  transition: all 0.15s ease;
+  min-height: 38px;
+}
+
+.codex-review-toggle-btn:hover:not(:disabled) {
+  background-color: #f3f4f6;
+  border-color: #b0b8c1;
+}
+
+.codex-review-toggle-btn.active {
+  background-color: #eaf4ff;
+  border-color: #8dbbff;
+  color: #093c76;
+  box-shadow: 0 1px 2px rgba(9, 60, 118, 0.08);
+}
+
+.codex-review-toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.codex-review-status-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  background-color: var(--bg-secondary, #f6f8fa);
+  border: 1px solid var(--border-color, #e1e4e8);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary, #57606a);
+  margin-bottom: 12px;
+}
+
+.codex-review-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.codex-review-priority-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  background-color: var(--bg-secondary, #f6f8fa);
+  border: 1px solid var(--border-color, #d0d7de);
+  color: var(--text-primary, #1f2937);
+  transition: all 0.15s ease;
+  min-height: 34px;
+}
+
+.codex-review-priority-btn:hover:not(:disabled) {
+  background-color: #f3f4f6;
+  border-color: #b0b8c1;
+}
+
+.codex-review-priority-btn.active {
+  background-color: #eaf4ff;
+  border-color: #8dbbff;
+  color: #093c76;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(9, 60, 118, 0.08);
+}
+
+.codex-review-priority-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* ===== Compact Layout for Poverello / Antigravity Autocode (§10) ===== */
 .pov-settings-grid {
   display: flex;

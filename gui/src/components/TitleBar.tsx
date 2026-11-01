@@ -4,8 +4,8 @@ import { useTranslation } from "../i18n";
 import { version } from "../../package.json";
 
 interface TitleBarProps {
-  activeTab?: "gateway" | "mcp" | "poverello" | "antigravityAutocode" | "orchestrator" | "autoConverge" | "settings";
-  onTabChange?: (tab: "gateway" | "mcp" | "poverello" | "antigravityAutocode" | "orchestrator" | "autoConverge" | "settings") => void;
+  activeTab?: "gateway" | "mcp" | "poverello" | "antigravityAutocode" | "codexAutocode" | "orchestrator" | "autoConverge" | "settings";
+  onTabChange?: (tab: "gateway" | "mcp" | "poverello" | "antigravityAutocode" | "codexAutocode" | "orchestrator" | "autoConverge" | "settings") => void;
 }
 
 export default function TitleBar({
@@ -136,6 +136,14 @@ export default function TitleBar({
               onClick={() => onTabChange("antigravityAutocode")}
             >
               Antigravity Autocode
+            </button>
+
+            <button
+              type="button"
+              className={`titlebar-tab titlebar-tab-codex-autocode ${activeTab === "codexAutocode" ? "titlebar-tab-active" : ""}`}
+              onClick={() => onTabChange("codexAutocode")}
+            >
+              {t("header.codexAutocode") || "Codex Autocode"}
             </button>
 
             <button

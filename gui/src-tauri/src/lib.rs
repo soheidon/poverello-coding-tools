@@ -25,6 +25,9 @@ pub mod reviewer_policy;
 pub mod pov_direct;
 pub mod pov_nerf;
 pub mod cli_tools;
+pub mod codex_skills;
+pub mod codex_global_rules;
+pub mod codex_review_settings;
 mod proxy;
 
 // ---------------------------------------------------------------------------
@@ -7169,6 +7172,123 @@ async fn install_cli_tool(name: String) -> Result<cli_tools::CliToolInfo, String
 }
 
 #[tauri::command]
+async fn update_cli_tool(name: String, check_id: String) -> Result<cli_tools::CliToolInfo, String> {
+    cli_tools::run_cli_update(&name, &check_id).await
+}
+
+#[tauri::command]
+async fn check_cli_tools_latest_version() -> Result<Vec<cli_tools::CliToolInfo>, String> {
+    cli_tools::check_cli_tools_latest_version().await
+}
+
+#[tauri::command]
+fn get_codex_skills_status() -> codex_skills::CodexSkillsStatus {
+    codex_skills::get_codex_skills_status()
+}
+
+#[tauri::command]
+fn get_codex_skill_template(name: String) -> Result<String, String> {
+    codex_skills::get_skill_template_content(&name)
+        .ok_or_else(|| format!("Unknown skill: '{name}'"))
+}
+
+#[tauri::command]
+fn get_codex_global_rules_template() -> Result<String, String> {
+    Ok(codex_global_rules::get_global_rules_template_content())
+}
+
+#[tauri::command]
+fn install_codex_skill(name: String) -> Result<codex_skills::CodexSkillItemInfo, String> {
+    let dir = codex_skills::resolve_codex_user_skills_dir()?;
+    codex_skills::install_codex_skill_at(&dir, &name)
+}
+
+#[tauri::command]
+fn update_codex_skill(name: String) -> Result<codex_skills::CodexSkillItemInfo, String> {
+    let dir = codex_skills::resolve_codex_user_skills_dir()?;
+    codex_skills::update_codex_skill_at(&dir, &name)
+}
+
+#[tauri::command]
+fn remove_codex_skill(name: String) -> Result<codex_skills::CodexSkillItemInfo, String> {
+    let dir = codex_skills::resolve_codex_user_skills_dir()?;
+    codex_skills::remove_codex_skill_at(&dir, &name)
+}
+
+#[tauri::command]
+fn restore_codex_skill_backup(name: String) -> Result<codex_skills::CodexSkillItemInfo, String> {
+    let dir = codex_skills::resolve_codex_user_skills_dir()?;
+    codex_skills::restore_codex_skill_backup_at(&dir, &name)
+}
+
+#[tauri::command]
+fn open_codex_skills_folder() -> Result<(), String> {
+    let dir = codex_skills::resolve_codex_user_skills_dir()?;
+    if !dir.exists() {
+        let _ = std::fs::create_dir_all(&dir);
+    }
+    open_path(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn get_codex_global_rules_status() -> codex_global_rules::CodexGlobalRulesStatus {
+    codex_global_rules::get_codex_global_rules_status()
+}
+
+#[tauri::command]
+fn install_or_update_codex_global_rules() -> Result<codex_global_rules::CodexGlobalRulesStatus, String> {
+    let home = codex_global_rules::resolve_codex_home()?;
+    codex_global_rules::install_or_update_codex_global_rules_at(&home)
+}
+
+#[tauri::command]
+fn remove_codex_global_rules() -> Result<codex_global_rules::CodexGlobalRulesStatus, String> {
+    let home = codex_global_rules::resolve_codex_home()?;
+    codex_global_rules::remove_codex_global_rules_at(&home)
+}
+
+#[tauri::command]
+fn open_codex_home_folder() -> Result<(), String> {
+    let home = codex_global_rules::resolve_codex_home()?;
+    if !home.exists() {
+        let _ = std::fs::create_dir_all(&home);
+    }
+    open_path(home.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn get_codex_review_settings() -> Result<codex_review_settings::CodexReviewSettings, String> {
+    codex_review_settings::get_codex_review_settings()
+}
+
+#[tauri::command]
+fn save_codex_review_settings(
+    settings: codex_review_settings::CodexReviewSettings,
+) -> Result<codex_review_settings::CodexReviewSettings, String> {
+    codex_review_settings::save_codex_review_settings(settings)
+}
+
+#[tauri::command]
+async fn get_node_prerequisites_status() -> Result<cli_tools::NodePrerequisiteStatus, String> {
+    Ok(cli_tools::get_prerequisites_status().await)
+}
+
+#[tauri::command]
+async fn get_cli_auth_status() -> Result<Vec<cli_tools::CliAuthInfo>, String> {
+    cli_tools::get_cli_auth_status().await
+}
+
+#[tauri::command]
+fn launch_cli_auth(tool_name: String) -> Result<(), String> {
+    cli_tools::launch_cli_auth(&tool_name)
+}
+
+#[tauri::command]
+fn open_node_download_page() -> Result<(), String> {
+    cli_tools::open_node_download_page()
+}
+
+#[tauri::command]
 fn get_antigravity_global_rules_status() -> Result<Vec<antigravity_global_rules::GlobalRuleItemInfo>, String> {
     let dir = paths::antigravity_global_rules_dir()?;
     antigravity_global_rules::inspect_global_rules_status_at(&dir)
@@ -10118,6 +10238,26 @@ pub fn run() {
             get_cli_tools_status,
             get_codex_account_info,
             install_cli_tool,
+            update_cli_tool,
+            check_cli_tools_latest_version,
+            get_codex_skills_status,
+            get_codex_skill_template,
+            get_codex_global_rules_template,
+            install_codex_skill,
+            update_codex_skill,
+            remove_codex_skill,
+            restore_codex_skill_backup,
+            open_codex_skills_folder,
+            get_codex_global_rules_status,
+            install_or_update_codex_global_rules,
+            remove_codex_global_rules,
+            open_codex_home_folder,
+            get_codex_review_settings,
+            save_codex_review_settings,
+            get_node_prerequisites_status,
+            get_cli_auth_status,
+            launch_cli_auth,
+            open_node_download_page,
             install_all_antigravity_commands,
             install_all_antigravity_mcp_commands,
             get_pov_direct_status,

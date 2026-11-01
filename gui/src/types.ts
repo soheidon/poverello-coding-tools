@@ -284,9 +284,101 @@ export interface CliToolInfo {
   path: string | null;
   installed_version: string | null;
   latest_version: string | null;
+  latest_checked_at: string | null;
   package_name: string;
   is_preview: boolean;
   update_available: boolean;
+  check_id: string | null;
+  prerequisite_error: string | null;
+}
+
+export interface NodePrerequisiteStatus {
+  node_installed: boolean;
+  node_version: string | null;
+  node_major_version: number | null;
+  node_path: string | null;
+  npm_installed: boolean;
+  npm_version: string | null;
+  npm_path: string | null;
+  node_npm_ready: boolean;
+  gemini_node_ready: boolean;
+  message: string | null;
+}
+
+export type CliAuthStatusType = "authenticated" | "not_authenticated" | "unknown";
+
+export interface CliAuthInfo {
+  name: string;
+  status: CliAuthStatusType;
+  auth_type: string | null;
+  message: string | null;
+  can_launch_login: boolean;
+  account_identity?: string | null;
+  codex_home?: string | null;
+  last_checked_at?: string | null;
+}
+
+export function mapReviewerToCliId(reviewerId: string): string {
+  if (reviewerId === "deepseek") {
+    return "dsh";
+  }
+  return reviewerId;
+}
+
+export type CodexSkillState =
+  | "NotInstalled"
+  | "Installed"
+  | "UpdateAvailable"
+  | "ProtectedConflict"
+  | "RecoveryRequired"
+  | "Blocked";
+
+export interface CodexSkillItemInfo {
+  name: string;
+  display_name: string;
+  description: string;
+  state: CodexSkillState;
+  path: string;
+  discovery_verified: boolean;
+  detail_message: string | null;
+  has_backup: boolean;
+}
+
+export interface CodexSkillsStatus {
+  skills_dir: string;
+  skills: CodexSkillItemInfo[];
+  resolution_error: string | null;
+}
+
+export type CodexGlobalRulesState =
+  | "NotInstalled"
+  | "Installed"
+  | "UpdateAvailable"
+  | "Shadowed"
+  | "Conflict"
+  | "Blocked";
+
+export interface CodexGlobalRulesStatus {
+  codex_home: string;
+  agents_md_path: string;
+  state: CodexGlobalRulesState;
+  is_shadowed: boolean;
+  shadowed_by: string | null;
+  detail_message: string | null;
+  resolution_error: string | null;
+}
+
+export interface ReviewersSelection {
+  codex: boolean;
+  gemini: boolean;
+  deepseek: boolean;
+}
+
+export interface CodexReviewSettings {
+  schema_version: number;
+  reviewers: ReviewersSelection;
+  priority_reviewer: string | null;
+  gemini_cli_enabled: boolean;
 }
 
 export interface CodexAccountInfo {
@@ -297,6 +389,8 @@ export interface CodexAccountInfo {
   account_identity: string | null;
   config_profile: string | null;
   requires_openai_auth: boolean | null;
+  codex_home?: string | null;
+  last_checked_at?: string | null;
 }
 
 export interface AntigravityGlobalRuleStatus {

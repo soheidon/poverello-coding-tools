@@ -16,7 +16,7 @@ interface HeaderProps {
   effectiveAutoCompact?: EffectiveAutoCompact | null;
   onToggleAutoCompact?: (enabled: boolean) => void;
   autoCompactSaving?: boolean;
-  activeTab?: "gateway" | "mcp" | "poverello" | "antigravityAutocode" | "antigravityRules" | "orchestrator" | "settings";
+  activeTab?: "gateway" | "mcp" | "poverello" | "antigravityAutocode" | "codexAutocode" | "antigravityRules" | "orchestrator" | "settings";
 }
 
 export default function Header({

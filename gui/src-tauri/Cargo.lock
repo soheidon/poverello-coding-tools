@@ -49,7 +49,7 @@ dependencies = [
 
 [[package]]
 name = "anthro-bridge"
-version = "0.25.4"
+version = "0.26.0"
 dependencies = [
  "anthro-bridge-mcp-server",
  "axum",
@@ -65,6 +65,7 @@ dependencies = [
  "reqwest 0.12.28",
  "rfd",
  "rmcp",
+ "semver",
  "serde",
  "serde_json",
  "sha2",

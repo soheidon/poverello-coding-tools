@@ -127,6 +127,22 @@ describe("Settings Sub-Navigation Integration", () => {
         };
       }
       if (cmd === "find_claude_configs") return [];
+      if (cmd === "get_node_prerequisites_status") {
+        return {
+          node_installed: true,
+          node_version: "22.2.0",
+          node_major_version: 22,
+          node_path: "C:\\Program Files\\nodejs\\node.exe",
+          npm_installed: true,
+          npm_version: "10.7.0",
+          npm_path: "C:\\Program Files\\nodejs\\npm.cmd",
+          node_npm_ready: true,
+          gemini_node_ready: true,
+          message: null,
+        };
+      }
+      if (cmd === "get_cli_tools_status") return [];
+      if (cmd === "get_cli_auth_status") return [];
       if (cmd === "get_pricing_custom_models") return [];
       if (cmd === "get_timezone_setting") return "local";
       if (cmd === "get_raw_config") return { content: "", encoding_used: "UTF-8" };
@@ -151,14 +167,27 @@ describe("Settings Sub-Navigation Integration", () => {
 
     // Sidebar items should be visible
     const generalNav = await screen.findByRole("button", { name: /settings\.nav\.general/i });
+    const cliToolsNav = screen.getByRole("button", { name: /settings\.nav\.cliTools/i });
     const claudeNav = screen.getByRole("button", { name: /settings\.nav\.claudeDesktop/i });
     const antigravityMcpNav = screen.getByRole("button", { name: /settings\.nav\.antigravityMcp/i });
     const skillsRulesNav = screen.getByRole("button", { name: /settings\.nav\.antigravitySkillsRules/i });
 
     expect(generalNav).toBeInTheDocument();
+    expect(cliToolsNav).toBeInTheDocument();
     expect(claudeNav).toBeInTheDocument();
     expect(antigravityMcpNav).toBeInTheDocument();
     expect(skillsRulesNav).toBeInTheDocument();
+
+    // Verify sub-navigation order: General (1) -> Claude Desktop (2) -> Antigravity MCP (3) -> CLI Tools (4) -> Antigravity Skills & Rules (5)
+    const navButtons = screen.getAllByRole("button", { name: /settings\.nav\./i });
+    expect(navButtons.map((b) => b.textContent)).toEqual([
+      "settings.nav.general",
+      "settings.nav.claudeDesktop",
+      "settings.nav.antigravityMcp",
+      "settings.nav.cliTools",
+      "settings.nav.antigravitySkillsRules",
+      "settings.nav.codexSkillsRules",
+    ]);
 
     // Orchestrator and standalone rules tab must NOT be in the settings navigation
     expect(screen.queryByRole("button", { name: /^Orchestrator$/i })).not.toBeInTheDocument();
@@ -173,10 +202,16 @@ describe("Settings Sub-Navigation Integration", () => {
     expect(screen.queryByText(/antigravity\.header/i)).not.toBeInTheDocument();
     expect(screen.queryAllByRole("heading", { name: /Poverello Direct Coding/i })).toHaveLength(0);
 
-    // 2. Click Claude Desktop
+    // 2. Click CLI Tools (new tab)
+    await user.click(cliToolsNav);
+    expect(cliToolsNav).toHaveClass("active");
+    expect(generalNav).not.toHaveClass("active");
+    expect(screen.getByTestId("cli-tools-settings-panel")).toBeInTheDocument();
+
+    // 3. Click Claude Desktop
     await user.click(claudeNav);
     expect(claudeNav).toHaveClass("active");
-    expect(generalNav).not.toHaveClass("active");
+    expect(cliToolsNav).not.toHaveClass("active");
     expect(screen.getByText(/apiKeyPanel\.header/i)).toBeInTheDocument();
     expect(screen.getByText(/claudeConfig\.header/i)).toBeInTheDocument();
     expect(screen.queryByText(/language\.header/i)).not.toBeInTheDocument();

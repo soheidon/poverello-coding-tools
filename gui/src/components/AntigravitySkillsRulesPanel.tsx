@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n";
-import CliToolsCard from "./CliToolsCard";
 import type {
   AntigravityCommandsInfo,
   AntigravityCommandItemInfo,
@@ -367,10 +366,7 @@ export default function AntigravitySkillsRulesPanel() {
         </div>
       </div>
 
-      {/* ── CARD 2: CLI Tools ── */}
-      <CliToolsCard />
-
-      {/* ── CARD 3: Task Presets (Nerf) ── */}
+      {/* ── CARD 2: Task Presets (Nerf) ── */}
       <div className="settings-tile">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

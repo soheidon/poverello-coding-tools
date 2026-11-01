@@ -36,6 +36,7 @@ describe("TitleBar Component", () => {
     expect(screen.getByRole("button", { name: /Gateway for Claude Desktop/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /MCP for Antigravity/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Antigravity Autocode$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /header\.codexAutocode|Codex Autocode/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Antigravity Rules/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Orchestrator/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /header\.settings/i })).toBeInTheDocument();
@@ -65,6 +66,10 @@ describe("TitleBar Component", () => {
     const autocodeTab = screen.getByRole("button", { name: /^Antigravity Autocode$/i });
     await user.click(autocodeTab);
     expect(onTabChange).toHaveBeenCalledWith("antigravityAutocode");
+
+    const codexAutocodeTab = screen.getByRole("button", { name: /header\.codexAutocode|Codex Autocode/i });
+    await user.click(codexAutocodeTab);
+    expect(onTabChange).toHaveBeenCalledWith("codexAutocode");
 
     const settingsTab = screen.getByRole("button", { name: /header\.settings/i });
     await user.click(settingsTab);
@@ -97,11 +102,13 @@ describe("TitleBar Component", () => {
     const gatewayBtn = screen.getByRole("button", { name: /Gateway for Claude Desktop/i });
     const mcpBtn = screen.getByRole("button", { name: /MCP for Antigravity/i });
     const autocodeBtn = screen.getByRole("button", { name: /^Antigravity Autocode$/i });
+    const codexAutocodeBtn = screen.getByRole("button", { name: /header\.codexAutocode|Codex Autocode/i });
     const settingsBtn = screen.getByRole("button", { name: /header\.settings/i });
 
     expect(gatewayBtn).toHaveClass("titlebar-tab-active");
     expect(mcpBtn).not.toHaveClass("titlebar-tab-active");
     expect(autocodeBtn).not.toHaveClass("titlebar-tab-active");
+    expect(codexAutocodeBtn).not.toHaveClass("titlebar-tab-active");
     expect(settingsBtn).not.toHaveClass("titlebar-tab-active");
 
     // Switch to antigravityAutocode
@@ -115,6 +122,21 @@ describe("TitleBar Component", () => {
     expect(gatewayBtn).not.toHaveClass("titlebar-tab-active");
     expect(mcpBtn).not.toHaveClass("titlebar-tab-active");
     expect(autocodeBtn).toHaveClass("titlebar-tab-active");
+    expect(codexAutocodeBtn).not.toHaveClass("titlebar-tab-active");
+    expect(settingsBtn).not.toHaveClass("titlebar-tab-active");
+
+    // Switch to codexAutocode
+    rerender(
+      <TitleBar
+        activeTab="codexAutocode"
+        onTabChange={vi.fn()}
+      />
+    );
+
+    expect(gatewayBtn).not.toHaveClass("titlebar-tab-active");
+    expect(mcpBtn).not.toHaveClass("titlebar-tab-active");
+    expect(autocodeBtn).not.toHaveClass("titlebar-tab-active");
+    expect(codexAutocodeBtn).toHaveClass("titlebar-tab-active");
     expect(settingsBtn).not.toHaveClass("titlebar-tab-active");
 
     // Switch to settings
@@ -128,12 +150,14 @@ describe("TitleBar Component", () => {
     expect(gatewayBtn).not.toHaveClass("titlebar-tab-active");
     expect(mcpBtn).not.toHaveClass("titlebar-tab-active");
     expect(autocodeBtn).not.toHaveClass("titlebar-tab-active");
+    expect(codexAutocodeBtn).not.toHaveClass("titlebar-tab-active");
     expect(settingsBtn).toHaveClass("titlebar-tab-active");
 
     // All tabs remain in the document
     expect(gatewayBtn).toBeInTheDocument();
     expect(mcpBtn).toBeInTheDocument();
     expect(autocodeBtn).toBeInTheDocument();
+    expect(codexAutocodeBtn).toBeInTheDocument();
     expect(settingsBtn).toBeInTheDocument();
   });
 

@@ -17,6 +17,9 @@ import FirstRunLanguagePicker from "./components/FirstRunLanguagePicker";
 import McpPanel from "./components/McpPanel";
 import McpSettingPanel from "./components/McpSettingPanel";
 import AntigravitySkillsRulesPanel from "./components/AntigravitySkillsRulesPanel";
+import CodexSkillsRulesPanel from "./components/CodexSkillsRulesPanel";
+import CodexAutocodePanel from "./components/CodexAutocodePanel";
+import CliToolsSettingsPanel from "./components/CliToolsSettingsPanel";
 import PoverelloPanel from "./components/PoverelloPanel";
 import OrchestratorPanel from "./components/orchestrator/OrchestratorPanel";
 import OrchestratorSettingsPanel from "./components/orchestrator/OrchestratorSettingsPanel";
@@ -34,12 +37,12 @@ import {
   calculateInitialWindowHeight,
 } from "./windowSizing";
 
-type MainTab = "gateway" | "mcp" | "antigravityAutocode" | "poverello" | "orchestrator" | "settings";
+type MainTab = "gateway" | "mcp" | "antigravityAutocode" | "codexAutocode" | "poverello" | "orchestrator" | "settings";
 
 function AppContent() {
   const { t } = useTranslation();
   const [mainTab, setMainTab] = useState<MainTab>("gateway");
-  const [settingsTab, setSettingsTab] = useState<"general" | "claudeDesktop" | "antigravityMcp" | "antigravitySkillsRules" | "orchestrator">("general");
+  const [settingsTab, setSettingsTab] = useState<"general" | "cliTools" | "claudeDesktop" | "antigravityMcp" | "antigravitySkillsRules" | "codexSkillsRules" | "orchestrator">("general");
   const { managedRunning, loading: proxyLoading, error: proxyError, diag: proxyDiag, successMessage, start, stop, clearDiag } = useProxyToggle();
   const { data: health, error: healthError, loading: healthLoading, refresh: healthRefresh } = useHealthCheck(managedRunning);
 
@@ -303,10 +306,24 @@ function AppContent() {
             </button>
             <button
               type="button"
+              className={`settings-nav-item ${settingsTab === "cliTools" ? "active" : ""}`}
+              onClick={() => setSettingsTab("cliTools")}
+            >
+              {t("settings.nav.cliTools")}
+            </button>
+            <button
+              type="button"
               className={`settings-nav-item ${settingsTab === "antigravitySkillsRules" ? "active" : ""}`}
               onClick={() => setSettingsTab("antigravitySkillsRules")}
             >
               {t("settings.nav.antigravitySkillsRules")}
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item ${settingsTab === "codexSkillsRules" ? "active" : ""}`}
+              onClick={() => setSettingsTab("codexSkillsRules")}
+            >
+              {t("settings.nav.codexSkillsRules")}
             </button>
           </nav>
           <main className="settings-content">
@@ -316,6 +333,9 @@ function AppContent() {
                 <TimezoneSettingPanel />
                 <ModelPricingAccordion />
               </>
+            )}
+            {settingsTab === "cliTools" && (
+              <CliToolsSettingsPanel />
             )}
             {settingsTab === "claudeDesktop" && (
               <>
@@ -347,6 +367,9 @@ function AppContent() {
             {settingsTab === "antigravitySkillsRules" && (
               <AntigravitySkillsRulesPanel />
             )}
+            {settingsTab === "codexSkillsRules" && (
+              <CodexSkillsRulesPanel />
+            )}
             {settingsTab === "orchestrator" && (
               <OrchestratorSettingsPanel t={t} onChanged={refreshConfig} />
             )}
@@ -362,6 +385,13 @@ function AppContent() {
         <McpPanel config={config} refreshConfig={refreshConfig} />
       ) : mainTab === "antigravityAutocode" || mainTab === "poverello" ? (
         <PoverelloPanel />
+      ) : mainTab === "codexAutocode" ? (
+        <CodexAutocodePanel
+          onNavigateToCliTools={() => {
+            setMainTab("settings");
+            setSettingsTab("cliTools");
+          }}
+        />
       ) : (
         <OrchestratorPanel />
       )}

@@ -61,7 +61,7 @@ vi.mock("./windowSizing", () => ({
 
 vi.mock("./components/TitleBar", () => ({
   default: ({ onTabChange }: {
-    onTabChange: (tab: "gateway" | "mcp" | "poverello" | "antigravityAutocode" | "orchestrator" | "autoConverge" | "settings") => void;
+    onTabChange: (tab: "gateway" | "mcp" | "poverello" | "antigravityAutocode" | "codexAutocode" | "orchestrator" | "autoConverge" | "settings") => void;
   }) => (
     <div>
       <button data-testid="title-bar" onClick={() => onTabChange("autoConverge")}>
@@ -69,6 +69,9 @@ vi.mock("./components/TitleBar", () => ({
       </button>
       <button data-testid="titlebar-poverello-btn" onClick={() => onTabChange("antigravityAutocode")}>
         Antigravity Autocode
+      </button>
+      <button data-testid="titlebar-codex-autocode-btn" onClick={() => onTabChange("codexAutocode")}>
+        Codex Autocode
       </button>
     </div>
   ),
@@ -78,6 +81,7 @@ vi.mock("./components/ProviderTiles", () => ({ default: () => <div data-testid="
 vi.mock("./components/StatusPanel", () => ({ default: () => null }));
 vi.mock("./components/LogPanel", () => ({ default: () => null }));
 vi.mock("./components/PoverelloPanel", () => ({ default: () => <div data-testid="poverello-panel" /> }));
+vi.mock("./components/CodexAutocodePanel", () => ({ default: () => <div data-testid="codex-autocode-panel" /> }));
 
 describe("App navigation", () => {
   it("renders the normal app and does not expose the retained Auto-Converge panel", async () => {
@@ -101,6 +105,19 @@ describe("App navigation", () => {
 
     await user.click(screen.getByTestId("titlebar-poverello-btn"));
     expect(screen.getByTestId("poverello-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("gateway-content")).not.toBeInTheDocument();
+  });
+
+  it("navigates to Codex Autocode panel when codexAutocode tab is clicked and does not show Orchestrator", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("gateway-content")).toBeInTheDocument());
+    expect(screen.queryByTestId("codex-autocode-panel")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("titlebar-codex-autocode-btn"));
+    expect(screen.getByTestId("codex-autocode-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("orchestrator-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("gateway-content")).not.toBeInTheDocument();
   });
 });
