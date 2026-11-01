@@ -1,6 +1,6 @@
 # Poverello Coding Tools — Release Notes
 
-## v0.25.4
+## v0.25.4 — 2026-11-01
 
 ### Antigravity Autocode and External Review
 - Added the top-level Antigravity Autocode tab for External Review and Customize Coding Settings. Reviewer presets were replaced with direct Codex CLI and DeepSeek Harness configuration; account identity, authentication method/status, and config profile are reported separately.
