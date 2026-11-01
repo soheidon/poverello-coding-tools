@@ -1,6 +1,6 @@
 # Poverello Coding Tools — Release Notes
 
-## v0.26.0 — Unreleased
+## v0.26.0
 
 ### Codex Autocode and Skills & Rules
 - Added a top-level Codex Autocode workspace for configuring reviewers used by Codex Workflow Skills.
