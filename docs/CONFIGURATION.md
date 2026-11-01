@@ -310,3 +310,19 @@ For dispatch records with available usage and supported pricing provenance, the 
   - `"partial"`: At least one dispatch is priced, with unpriced dispatches counted and numeric subtotal preserved.
   - `"unavailable"`: No dispatches could be verified or priced; `totalCost` is omitted from the serialized summary because the value is unavailable.
 - **Dynamic re-aggregation**: `list_journals()` dynamically re-aggregates summaries on every read, preventing stale on-disk summaries from bypassing verification rules.
+
+---
+
+## 9. Codex Workflow Review Settings
+
+Codex Autocode settings are stored separately from the application `config.json`, under the effective Codex home:
+
+- `CODEX_HOME` when set and non-empty.
+- Otherwise `%USERPROFILE%\.codex` on Windows (or `$HOME/.codex` on other platforms).
+- Review settings file: `pov-review-settings.json`.
+
+The current review-settings schema is version 2. Its default selects Codex CLI, sets it as the priority reviewer, leaves DeepSeek Harness unselected, and keeps the optional Gemini reviewer disabled. The Gemini availability switch and reviewer selection are distinct: enabling Gemini makes it an available candidate but does not select or launch it. A selected reviewer must also have a valid priority when multiple reviewers are selected.
+
+Installation state and CLI authentication state are separate. Review settings do not store CLI credentials. The optional Gemini reviewer remains unavailable on Windows when its read-only sandbox cannot be verified.
+
+Codex Workflow Skills are installed under the Codex Skills directory (`$HOME/.agents/skills`, with platform-specific home resolution). The three managed skills are `pov-plan-only`, `pov-build-review`, and `pov-full-cycle`. Global instructions are managed in `AGENTS.md` under the effective Codex home. Poverello updates only its marked block and preserves unrelated content; a higher-priority `AGENTS.override.md` can shadow that file.

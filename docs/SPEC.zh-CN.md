@@ -2,7 +2,7 @@
 
 # SPEC: Poverello Coding Tools
 
-> **v0.25.4：** 新增用于 Reviewer 和编码设置的 Antigravity Autocode，以及 Settings 中的 CLI Tools 和 Workflow Skill 修复功能。Auto-Converge 仍隐藏；生产 dispatch 被禁用，Stage 2 隔离未验证。界面可见不代表获得 dispatch 授权或已具备发布条件。
+> **v0.26.0：** 新增 Codex Autocode、Codex Skills & Rules 和共享 CLI Tools。Gemini 默认关闭；在 Settings > CLI Tools 启用不会自动选择或启动审查。安装状态与认证状态分开。检测 Node.js/npm，但不会自动安装。Auto-Converge 仍隐藏，生产 dispatch 已禁用，Stage 2 隔离未验证。
 
 ## 概述
 
@@ -90,13 +90,14 @@
 - **GLM（Z.ai）直连提供商支持**：使用配置的 `ZAI_API_KEY`（或 Poverello 中保存的密钥）向 Z.ai 的 Anthropic 兼容端点发送请求。Poverello 不判断密钥类型、Coding Plan 购买记录、账户白名单或计费资格；使用前请查看 [Z.ai 当前配置指南](https://zcode.z.ai/en/docs/configuration)。目录包含 `glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx` 和 `glm-5.2`。GLM-5.3 系列始终启用思考并可选推理强度（`low`、`high`、`max`）；GLM-5.2 提供普通/思考切换。空响应或仅含思考内容的响应会在 Orchestrator 与 MCP 中以明确的提供商错误 fail-closed。
 - **v0.25.3 模型与 Thinking 安全控制**：新增 MiniMax M3.1 Flash、Kimi K3.1 Pro / Highspeed、GLM-5.3 直连模型，并区分 Kimi Code K3.1 ID。8 个 ID 仅支持 Thinking；禁用请求在发送上游前拒绝。Kimi Code medium 转为 high、xhigh 转为 max。价格基准日期为 2026-10-31；Kimi K3.1 USD 为 CNY 参考换算，OpenRouter 运行时价格优先。
 - **Antigravity Autocode 与 Skills & Rules（v0.25.4）**：External Review 和 Customize Coding Settings 位于顶部 Antigravity Autocode 标签页。以直接配置 Codex CLI 和 DeepSeek Harness 取代 Reviewer 预设；Codex 账户身份、认证方式/状态和配置 profile 分别处理，身份未知时不作推断。Settings > Antigravity Skills & Rules 管理 Workflow Commands（含需确认并备份的修复）、CLI Tools、Task Presets、Global Rules 和 Nerf Skills。OpenRouter 新增 GPT-6.1 Terra 和 Terra Pro 的能力、推理及价格元数据。Reviewer Policy 使用 schema v3，默认值为 none（不使用外部审查器），支持 none、codex_only 和 codex_plus_deepseek；旧版 Reviewer 预设会被忽略。
+- **Codex Autocode 与 Skills & Rules（v0.26.0）**：Codex Autocode 标签页用于配置 Codex Workflow Skills 的审查器。Settings > Codex Skills & Rules 管理三个 Codex 原生 Skill 和 CODEX_HOME/AGENTS.md 中由 Poverello 管理的区域。共享 Settings > CLI Tools 管理 Node.js/npm、Codex CLI、Gemini CLI 和 DeepSeek Harness。Gemini 默认关闭；启用不会自动选择或启动。
 - **Anthropic 官方直连提供商**：通过 `ANTHROPIC_API_KEY` 直连 `https://api.anthropic.com`，不经协议转换转发原生 Messages 请求；包括已验证模型目录、流式和非流式 token 上限故障诊断，以及原生采样参数验证。
 - **多提供商网关配置（`gateway_profile`）**：可为三个标准 Claude 路由（`claude-opus-5`、`claude-sonnet-5`、`claude-haiku-4-5`）分别指定提供商和模型。由 `active_provider` 与 `active_gateway_profile_id` 激活，配置存放于 `gateway_profiles`，并集成能力检查及 Claude Code 自动压缩的上下文计算。
 - **Poverello Skills 与 MCP 正式命名空间**：正式工具为 `poverello/plan`、`poverello/revise`、`poverello/review`，斜杠命令为 `/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`。Poverello 会在 Antigravity 中增量注册 `poverello` 服务键，同时保留 `anthro-bridge` 和旧 `/anthro-*` Skills 以保持兼容，并安全管理单文件生命周期。 除三个直接 MCP Skills 外，还提供上层工作流 Skills `/pov-full-cycle`、`/pov-plan-only` 和 `/pov-build-review`。
 - **Orchestrator 规范化用量与成本引擎**：支持时将 `input_tokens`、`output_tokens`、`raw_total_tokens`、`cache_read_tokens`、`cache_write_tokens` 写入 RunJournal 和审计记录；缺失或无效值保持未知，缓存创建量序列化为 `cacheWriteTokens`。目前仅估算符合条件且缓存分桶明确为零的 Anthropic Direct Opus 5.5/Sonnet 5.5 Planner–Reviewer dispatch；其他情况是未定价，不代表零成本。金额以整数纳美元（`amount_nanos: u64`）计算并序列化为十进制字符串，禁止浮点运算。严格核对价格表 ID、提供商、模型和币种；未知或不匹配时 fail-closed 并标记未定价。`RunCostSummary` 状态为 `Complete`、`Partial` 或 `Unavailable`；`list_journals()` 每次读取都会根据不可变 dispatch 记录重新聚合。
 ### GUI 管理工具
 
-Tauri v2 + React 19 + TypeScript。顶层导航包含 Gateway（仪表板）、MCP、Antigravity Autocode 和 Settings。Antigravity Autocode 包含 External Review 和 Customize Coding Settings。Settings 包含 General、Claude Desktop、Antigravity MCP 以及 Antigravity Skills & Rules（Workflow Commands、CLI Tools、Task Presets、Global Rules 和 Nerf Skills）。Orchestrator 和 Auto-Converge 在常规导航中保持隐藏；内部状态和路由予以保留。
+Tauri v2 + React 19 + TypeScript。顶层导航包含 Gateway（仪表板）、MCP、Antigravity Autocode 和 Settings。Antigravity Autocode 包含 External Review 和 Customize Coding Settings。Settings 包含 General、Claude Desktop、Antigravity MCP 以及 Antigravity Skills & Rules（Workflow Commands、Task Presets、Global Rules 和 Nerf Skills）。Orchestrator 和 Auto-Converge 在常规导航中保持隐藏；内部状态和路由予以保留。 Codex Autocode 用于配置 Codex Workflow Skills 的审查器。Settings 还新增 CLI Tools 和 Codex Skills & Rules，用于管理三个 Codex Skill 及 CODEX_HOME/AGENTS.md 中由 Poverello 管理的区域。
 
 ```
 +------------------------------------------+

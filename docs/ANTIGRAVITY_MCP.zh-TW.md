@@ -117,7 +117,7 @@ Poverello 明確劃分了規劃器選擇與詳細參數管理的職責：
    - 管理 MCP 伺服器註冊狀態、目標執行檔以及 MCP Commands（`/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`）。
    - 點擊 **全部安裝** (`antigravity.btnInstallAll`)，僅批次安裝 3 個 MCP 技能，不干擾上層工作流程技能。
 2. **頂部 `Antigravity Autocode` 分頁**：設定 External Review 策略以及 Codex CLI / DeepSeek Harness。Codex 帳戶身分、驗證方式/狀態與設定 profile 分別顯示；無法確認的身分不會推測。
-3. **`Settings` > `Antigravity Skills & Rules`**：安裝或修復三個 Poverello Workflow Skill（修復需確認並保留備份）、管理 CLI Tools 與 Task Presets、安裝/移除標準 Global Rules，以及管理 Nerf Skills。
+3. **Settings > Antigravity Skills & Rules**：安裝或修復三個 Poverello Antigravity Workflow Skill（修復需確認並保留備份），管理 Task Presets、Global Rules 與 Nerf Skills。共用 CLI Tools 位於 **Settings > CLI Tools**。
 > [!NOTE]
 > Poverello MCP 伺服器在每次呼叫 `plan()` 工具時都會動態讀取目前設定。在 GUI 中變更規劃器提供者或模型參數時，**無需**重啟 MCP 伺服器或 Antigravity。
 

@@ -4,19 +4,20 @@
 
 **Claude Code / Claude Desktop을 개발 환경으로 사용하고, 추론을 구성된 클라우드 또는 로컬 모델로 라우팅하며, Google Antigravity의 외부 모델과 규칙을 관리하세요.**
 
-Poverello Coding Tools(앱 표시 이름 **Poverello**)는 AI 기반 소프트웨어 개발을 위한 Windows 전용 컴패니언 애플리케이션입니다. 네 가지 보완적인 워크플로를 지원합니다:
+Poverello Coding Tools(앱 표시 이름 **Poverello**)는 AI 기반 소프트웨어 개발을 위한 Windows 전용 컴패니언 애플리케이션입니다. 다섯 가지 보완적인 워크플로를 지원합니다:
 
 1. **Claude Code / Claude Desktop용 3P 게이트웨이** — Claude의 저장소 탐색, 도구 사용, 파일 편집, 테스트 실행 기능을 유지하면서 추론을 서드파티 프로바이더로 라우팅합니다.
 2. **Claude Code 전용 로컬 LLM (Ollama)** — 로컬 모델을 사용해 API 비용 없이 완전한 오프라인으로 Claude Code를 실행할 수 있습니다.
 3. **Google Antigravity용 MCP 플래너 & 리뷰어** — `poverello/plan`, `poverello/revise`, `poverello/review` MCP 도구를 통해 구현 계획, 계획 수정 및 구현 후 리뷰를 외부 모델에 위임합니다.
-4. **Antigravity Autocode 및 Skills & Rules** — Antigravity Autocode 탭에서 외부 리뷰와 코딩 동작을 설정하고, Settings에서 Workflow Commands, CLI Tools, Task Presets, Global Rules 및 Nerf Skills를 관리합니다.
+4. **Antigravity Autocode 및 Skills & Rules** — Antigravity Autocode 탭에서 외부 리뷰와 코딩 동작을 설정하고 Settings > Antigravity Skills & Rules에서 Antigravity Workflow Skills, Task Presets, Global Rules 및 Nerf Skills를 관리합니다. 공용 CLI Tools는 Settings > CLI Tools에서 별도로 관리합니다.
+5. **Codex Autocode 및 Skills & Rules** — Codex Autocode에서 Codex Workflow Skills의 리뷰어를 설정하고, Settings > Codex Skills & Rules에서 세 가지 Codex Skill과 Poverello가 관리하는 AGENTS.md 영역을 관리합니다. 공용 CLI Tools는 Settings에서 별도로 관리합니다.
 
 > [!TIP]
 > **새 소식:** 버전별 기능, 구현 세부 정보 및 변경 내역은 [NEWS.md(릴리스 노트)](../NEWS.md)를 참조하세요.
 
 ---
 
-## 네 가지 주요 워크플로
+## 다섯 가지 주요 워크플로
 
 ### 1. 3P 게이트웨이를 활용한 Claude Code / Claude Desktop
 
@@ -77,7 +78,7 @@ Antigravity의 정식 명령은 `/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-re
 - **`/pov-mcp-revise`** — 새로운 피드백이나 제약 조건에 따라 기존 계획을 수정합니다.
 - **`/pov-mcp-review`** — 커밋 전에 완료된 구현을 승인된 계획과 대조하여 리뷰하고, 명시적으로 READY / NOT READY 판정을 내립니다.
 
-자율 워크플로: `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review` (**설정 > Antigravity Skills & Rules**에서 설치 및 복구, Reviewer Policy는 **Antigravity Autocode**에서 설정).
+Antigravity Workflow Skills: `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review` (**설정 > Antigravity Skills & Rules**에서 설치 및 복구, Reviewer Policy는 **Antigravity Autocode**에서 설정). 같은 명령 이름을 사용하는 Codex 네이티브 Skill은 Settings > Codex Skills & Rules에서 별도로 관리합니다.
 
 **권장 워크플로:**
 
@@ -93,11 +94,35 @@ Antigravity Autocode tab
 
 Settings > Antigravity Skills & Rules
   • Workflow Commands / repair
-  • CLI Tools / Task Presets
+  • Task Presets
   • Global Rules / Nerf skills
+
+Settings > CLI Tools
+  • Shared Node.js / npm and CLI management
 ```
 
-- External Review와 Customize Coding Settings는 Antigravity Autocode에서 구성합니다. Settings에서 세 가지 Workflow Skill, CLI Tools, Task Presets, Global Rules 및 Nerf Skills를 관리합니다.
+- External Review와 Customize Coding Settings는 Antigravity Autocode에서 구성합니다. Settings > Antigravity Skills & Rules에서 Antigravity Workflow Skills, Task Presets, Global Rules 및 Nerf Skills를 관리하며, 공용 CLI Tools는 별도 Settings 페이지에서 관리합니다.
+### 5. Codex Autocode 및 Skills & Rules
+
+Settings > Codex Skills & Rules에서 Codex Workflow Skills(/pov-plan-only, /pov-build-review, /pov-full-cycle)를 관리하고, Codex Autocode에서 리뷰어와 우선 리뷰어를 선택합니다. Poverello는 CODEX_HOME/AGENTS.md의 표시된 관리 영역만 수정하며 다른 사용자 지침은 보존합니다.
+
+```text
+Codex Workflow Skills
+       ↓ configured reviewers
+Codex CLI / optional DeepSeek Harness or Gemini CLI
+       ↓
+Codex Autocode review settings
+
+Settings > Codex Skills & Rules
+  • /pov-plan-only, /pov-build-review, /pov-full-cycle
+  • Poverello-managed instructions in CODEX_HOME/AGENTS.md
+Settings > CLI Tools
+  • Shared Codex CLI, Gemini CLI, DeepSeek Harness, Node.js / npm status
+```
+
+
+Gemini CLI는 Settings > CLI Tools에서 활성화할 수 있는 선택적 리뷰어입니다. 활성화만으로 리뷰어가 선택되거나 리뷰가 실행되지는 않습니다. Windows에서 읽기 전용 sandbox를 검증할 수 없으면 Gemini 리뷰를 사용할 수 없습니다. 설치 상태와 인증 상태는 별도로 표시됩니다. Node.js/npm은 요구 사항으로 감지되지만 자동 설치되지 않습니다.
+
 ## 설치
 
 [Releases](https://github.com/soheidon/poverello-coding-tools/releases) 페이지에서 최신 공개 Windows 설치 프로그램을 다운로드하여 실행하세요.
@@ -134,8 +159,13 @@ Windows 설치 프로그램은 8개 언어를 지원합니다. Poverello는 기�
 
 ### 워크플로 4: Antigravity Autocode 및 Skills & Rules
 1. **Antigravity Autocode**에서 External Review와 Customize Coding Settings를 구성합니다. 선택한 정책이 Workflow Skill의 리뷰어 호출을 제어합니다.
-2. **Settings > Antigravity Skills & Rules**에서 Workflow Commands, CLI Tools, Task Presets, Global Rules 및 Nerf Skills를 관리합니다. Skill 복구는 확인 후 실행하고 백업을 보존합니다.
+2. **Settings > Antigravity Skills & Rules**에서 Antigravity Workflow Skills, Task Presets, Global Rules 및 Nerf Skills를 관리합니다. Skill 복구에는 확인이 필요하며 백업이 보존됩니다. 공용 CLI Tools는 **Settings > CLI Tools**에서 관리합니다.
 3. Auto-Converge는 숨김, 프로덕션 디스패치는 비활성화, Stage 2 격리는 미검증 상태입니다.
+### 워크플로 5: Codex Autocode 및 Skills & Rules
+1. Settings > CLI Tools에서 Node.js/npm 및 CLI 상태를 확인합니다. Poverello는 Node.js를 자동 설치하지 않습니다.
+2. Settings > Codex Skills & Rules에서 /pov-plan-only, /pov-build-review, /pov-full-cycle과 CODEX_HOME/AGENTS.md의 Poverello 관리 영역을 관리합니다.
+3. Codex Autocode에서 리뷰어와 우선 리뷰어를 선택합니다. Gemini CLI는 Settings > CLI Tools에서 활성화한 경우에만 표시되며, 활성화만으로 선택되지는 않습니다. Windows 읽기 전용 sandbox를 검증하지 못하면 Gemini 리뷰를 사용할 수 없습니다.
+
 ## 문서
 
 - [릴리스 노트 (NEWS.md)](../NEWS.md) — 버전별 기능 및 구현 세부 정보

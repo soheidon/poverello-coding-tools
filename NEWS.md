@@ -1,5 +1,15 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.26.0 — Unreleased
+
+### Codex Autocode and Skills & Rules
+- Added a top-level Codex Autocode workspace for configuring reviewers used by Codex Workflow Skills.
+- Added Settings > Codex Skills & Rules to install, update, remove, preview, and recover backups for the three Codex Workflow Skills: `/pov-plan-only`, `/pov-build-review`, and `/pov-full-cycle`.
+- Added protected management of Poverello's marked instructions in `CODEX_HOME/AGENTS.md`. Unmanaged user content is preserved; a higher-priority `AGENTS.override.md` can shadow the managed file.
+- Added shared Settings > CLI Tools for Node.js/npm prerequisites and the Codex CLI, Gemini CLI, and DeepSeek Harness. Installation state and authentication state are shown separately; Poverello does not automatically install Node.js/npm.
+- Made Gemini CLI an optional Codex reviewer, disabled by default and configured under Settings > CLI Tools. Enabling it does not select it or start a review. Gemini review is unavailable on Windows when a read-only sandbox cannot be verified.
+- Auto-Converge remains hidden from normal navigation. Production dispatch remains disabled; Stage 2 isolation remains incomplete and unverified.
+
 ## v0.25.4 — 2026-11-01
 
 ### Antigravity Autocode and External Review

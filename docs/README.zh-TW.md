@@ -4,19 +4,20 @@
 
 **使用 Claude Code / Claude Desktop 作為開發環境，將推論請求路由至已設定的雲端或本機模型，並管理 Google Antigravity 的外部模型與規則。**
 
-Poverello Coding Tools（應用程式內顯示名稱為 **Poverello**）是一款專為 AI 輔助軟體開發設計的 Windows 配套應用程式，支援四種互補的工作流程：
+Poverello Coding Tools（應用程式內顯示名稱為 **Poverello**）是一款專為 AI 輔助軟體開發設計的 Windows 配套應用程式，支援五種互補的工作流程：
 
 1. **Claude Code / Claude Desktop 的第三方閘道（3P Gateway）** — 保留 Claude 的程式庫探索、工具使用、檔案編輯與測試執行功能，同時將推論請求路由至第三方供應商。
 2. **Claude Code 專用本機 LLM（Ollama）** — 使用本機模型離線執行 Claude Code，零 API 成本。
 3. **Google Antigravity 的 MCP 規劃器與審查器** — 透過 `poverello/plan`、`poverello/revise` 和 `poverello/review` MCP 工具，將實作規劃、計畫修訂與實作後審查委派給外部模型。
-4. **Antigravity Autocode 與 Skills & Rules** — 在 Antigravity Autocode 分頁設定外部審查與編碼行為；在 Settings 中管理工作流程命令、CLI Tools、Task Presets、Global Rules 與 Nerf Skills。
+4. **Antigravity Autocode 與 Skills & Rules** — 在 Antigravity Autocode 分頁設定外部審查與編碼行為；在 Settings > Antigravity Skills & Rules 管理 Antigravity Workflow Skills、Task Presets、Global Rules 與 Nerf Skills。共用 CLI Tools 在 Settings > CLI Tools 中獨立管理。
+5. **Codex Autocode 與 Skills & Rules** — 在 Codex Autocode 設定 Codex Workflow Skills 的審查器；在 Settings > Codex Skills & Rules 管理三個原生 Codex Skill 與 Poverello 管理的 AGENTS.md 區域。共用 CLI Tools 在 Settings 中分開管理。
 
 > [!TIP]
 > **最新消息：** 請參閱 [NEWS.md（版本說明）](../NEWS.md)，了解各版本功能、實作細節與變更記錄。
 
 ---
 
-## 四大主要工作流程
+## 五大主要工作流程
 
 ### 1. Claude Code / Claude Desktop 搭配第三方閘道
 
@@ -93,11 +94,35 @@ Antigravity Autocode tab
 
 Settings > Antigravity Skills & Rules
   • Workflow Commands / repair
-  • CLI Tools / Task Presets
+  • Task Presets
   • Global Rules / Nerf skills
+
+Settings > CLI Tools
+  • Shared Node.js / npm and CLI management
 ```
 
-- External Review 與 Customize Coding Settings 在 Antigravity Autocode 中設定。Settings 管理三個 Workflow Skill、CLI Tools、Task Presets、Global Rules 與 Nerf Skills。
+- External Review 與 Customize Coding Settings 在 Antigravity Autocode 中設定。Settings > Antigravity Skills & Rules 管理 Antigravity Workflow Skills、Task Presets、Global Rules 與 Nerf Skills；共用 CLI Tools 有獨立的 Settings 頁面。
+### 5. Codex Autocode 與 Skills & Rules
+
+在 Settings > Codex Skills & Rules 管理 Codex Workflow Skills（/pov-plan-only、/pov-build-review、/pov-full-cycle），並在 Codex Autocode 選擇審查器與優先審查器。Poverello 只修改 CODEX_HOME/AGENTS.md 中有標記的管理區域，並保留其他使用者指示。
+
+```text
+Codex Workflow Skills
+       ↓ configured reviewers
+Codex CLI / optional DeepSeek Harness or Gemini CLI
+       ↓
+Codex Autocode review settings
+
+Settings > Codex Skills & Rules
+  • /pov-plan-only, /pov-build-review, /pov-full-cycle
+  • Poverello-managed instructions in CODEX_HOME/AGENTS.md
+Settings > CLI Tools
+  • Shared Codex CLI, Gemini CLI, DeepSeek Harness, Node.js / npm status
+```
+
+
+Gemini CLI 是可在 Settings > CLI Tools 啟用的選用審查器。啟用本身不會選取該審查器，也不會啟動審查。若 Windows 上無法驗證唯讀 sandbox，Gemini 審查即無法使用。安裝狀態與驗證狀態分開顯示。Node.js/npm 會作為前置條件偵測，但 Poverello 不會自動安裝。
+
 ## 安裝
 
 從 [Releases](https://github.com/soheidon/poverello-coding-tools/releases) 頁面下載目前最新已發布的 Windows 安裝程式並執行。
@@ -134,8 +159,13 @@ Windows 安裝程式支援 8 種語言。Poverello 保留既有應用程式識�
 
 ### 工作流程 4：Antigravity Autocode 與 Skills & Rules
 1. 在 **Antigravity Autocode** 中設定 External Review 與 Customize Coding Settings。所選策略控制工作流程 Skill 是否呼叫審查器。
-2. 在 **Settings > Antigravity Skills & Rules** 中管理 Workflow Commands、CLI Tools、Task Presets、Global Rules 與 Nerf Skills。修復 Skill 需確認並保留備份。
+2. 在 **Settings > Antigravity Skills & Rules** 管理 Antigravity Workflow Skills、Task Presets、Global Rules 與 Nerf Skills。修復 Skill 需要確認並保留備份。共用 CLI Tools 在 **Settings > CLI Tools** 管理。
 3. Auto-Converge 仍隱藏，Production dispatch 停用，Stage 2 隔離未驗證。
+### 工作流程 5：Codex Autocode 與 Skills & Rules
+1. 在 Settings > CLI Tools 檢查 Node.js/npm 與 CLI 狀態。Poverello 不會自動安裝 Node.js。
+2. 在 Settings > Codex Skills & Rules 管理 /pov-plan-only、/pov-build-review、/pov-full-cycle，以及 CODEX_HOME/AGENTS.md 中由 Poverello 管理的區域。
+3. 在 Codex Autocode 選擇審查器與優先審查器。只有在 Settings > CLI Tools 啟用 Gemini CLI 後才會顯示；啟用不會自動選取。Windows 唯讀 sandbox 未驗證時，Gemini 審查無法使用。
+
 ## 文件
 
 - [版本說明 (NEWS.md)](../NEWS.md) — 各版本功能與實作細節

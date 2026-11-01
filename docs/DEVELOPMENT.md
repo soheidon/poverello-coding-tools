@@ -21,6 +21,9 @@ poverello-coding-tools/
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── AntigravitySkillsRulesPanel.tsx
+│   │   │   ├── CodexAutocodePanel.tsx
+│   │   │   ├── CodexSkillsRulesPanel.tsx
+│   │   │   ├── CliToolsSettingsPanel.tsx
 │   │   │   ├── ExternalReviewCard.tsx
 │   │   │   ├── CliToolsCard.tsx
 │   │   │   ├── AntigravityRulesPanel.tsx
@@ -36,9 +39,18 @@ poverello-coding-tools/
 │   │   │   ├── openrouter.rs
 │   │   │   ├── reviewer_policy.rs
 │   │   │   ├── cli_tools.rs
+│   │   │   ├── codex_skills.rs
+│   │   │   ├── codex_global_rules.rs
+│   │   │   ├── codex_review_settings.rs
 │   │   │   ├── antigravity_global_rules.rs
 │   │   │   └── model_capabilities.rs
 │   │   └── resources/
+│   │       ├── codex-skills/
+│   │       │   ├── pov-plan-only/
+│   │       │   ├── pov-build-review/
+│   │       │   └── pov-full-cycle/
+│   │       ├── codex-global-rules/
+│   │       │   └── managed-block.md
 │   │       ├── antigravity-global-rules/
 │   │       │   ├── codex-cli.md
 │   │       │   └── deepseek-harness.md
@@ -147,3 +159,6 @@ Before creating a release, verify the following:
 - [ ] Gateway start/stop functions reliably and reports health on `http://127.0.0.1:4000/health`.
 - [ ] Copied Claude Code launch commands contain correct base URL and context window parameters.
 - [ ] Poverello MCP server connects cleanly to Google Antigravity and executes `poverello/plan`.
+- [ ] Codex Autocode reviewer selection and priority persist across navigation; enabling Gemini does not select or launch it.
+- [ ] Settings > Codex Skills & Rules preserves content outside Poverello's marked `AGENTS.md` block and reports when `AGENTS.override.md` shadows the managed rules.
+- [ ] Settings > CLI Tools shows Node.js/npm prerequisites separately from CLI installation and authentication status; verify that Node.js is not installed automatically.
