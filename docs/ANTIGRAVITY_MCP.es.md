@@ -112,11 +112,8 @@ Poverello separa claramente la selección del planificador de la gestión detall
 1. **Pestaña superior `MCP` (`MCP for Antigravity`) / `Configuración > Antigravity MCP`**:
    - Gestione el registro del servidor MCP, el ejecutable de destino y los comandos MCP (`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`).
    - Haga clic en **Instalar todos** (`antigravity.btnInstallAll`) para instalar exclusivamente las 3 habilidades MCP.
-2. **`Configuración` > `Antigravity Skills & Rules`**:
-   - Configura Reviewer Policy para las Workflow Skills: none (predeterminado, sin revisor externo), codex_only o codex_plus_deepseek.
-   - Gestione las plantillas estándar protegidas de reglas globales (`codex-cli.md`, `deepseek-harness.md`) con verificación SHA-256 y compatibilidad con eliminación en Windows (`can_remove`).
-   - Configure el comportamiento de programación (`pov-direct.md`) y las habilidades Poverello Nerf.
-
+2. **Pestaña superior `Antigravity Autocode`**: Configure la política External Review y los ajustes directos de Codex CLI / DeepSeek Harness. La identidad de la cuenta Codex, el método/estado de autenticación y el perfil se muestran por separado; no se infiere una identidad no disponible.
+3. **`Settings` > `Antigravity Skills & Rules`**: Instale o repare los tres Workflow Skills de Poverello (la reparación requiere confirmación y conserva una copia de seguridad), administre CLI Tools y Task Presets, instale/elimine Global Rules estándar y administre Nerf Skills.
 > [!NOTE]
 > El servidor MCP de Poverello lee dinámicamente la configuración actual en cada invocación de la herramienta `plan()`. **No** necesita reiniciar el servidor MCP ni Antigravity al cambiar de proveedor o parámetros en la GUI.
 
@@ -155,7 +152,7 @@ Desde la pestaña **MCP** (o **Configuración > Antigravity MCP**), instale habi
 
 ## 7. Comandos de Antigravity de nivel superior (`/pov-full-cycle`, `/pov-plan-only` y `/pov-build-review`)
 
-Además de las Skills MCP directas, Poverello ofrece tres Workflow Skills gestionadas en Settings > Antigravity Skills & Rules. Reviewer Policy usa none de forma predeterminada (sin revisor externo); también están disponibles codex_only y codex_plus_deepseek.
+Además de los Skills MCP directos, Poverello ofrece tres Workflow Skills de nivel superior. Instálelos y repárelos en Settings > Antigravity Skills & Rules. Configure su Reviewer Policy en la pestaña superior Antigravity Autocode; el valor predeterminado es none (sin revisor externo).
 
 ### Ciclo completo de desarrollo:
 ```text

@@ -2,7 +2,7 @@
 
 # Poverello Coding Tools
 
-> **v0.25.3：** Auto-Converge 实现保留在代码库中，但从应用常规导航中隐藏。生产 dispatch 仍被禁用，Stage 2 隔离尚未验证。外部审查配置默认禁用（none）。这不代表已具备发布条件。
+> **v0.25.4：** 新增用于外部审查和编码设置的 Antigravity Autocode 标签页、Settings 中的 CLI Tools 和 Workflow Skill 修复功能，以及 OpenRouter GPT-6.1 Terra / Terra Pro。Auto-Converge 仍处于隐藏状态；生产 dispatch 仍被禁用，Stage 2 隔离仍未验证。这不代表已具备发布条件。
 
 **以 Claude Code / Claude Desktop 作为编程框架，将推理请求路由至第三方 LLM API，编排带有成本估算跟踪的有界多智能体工作流，并统一管理 Google Antigravity 的外部模型与规则。**
 
@@ -12,7 +12,7 @@ Poverello Coding Tools（应用内显示名称为 **Poverello**）是一款面�
 2. **Claude Code 专用本地 LLM（Ollama）** — 使用本地模型离线运行 Claude Code，零 API 成本。
 3. **面向 Google Antigravity 的 MCP 规划器与审查器** — 通过 `poverello/plan`、`poverello/revise` 和 `poverello/review` MCP 工具，将实现规划、计划修订和实现后审查委托给外部模型。
 4. **多智能体开发 Orchestrator** — 执行当前支持的有界 Planner–Reviewer 工作流，并记录标准化 token 用量和基于已核验供应商费率的成本估算。
-5. **Antigravity Skills 与规则管理** — 集中配置工作流 Skills 的 Reviewer Policy（默认禁用、仅 Codex CLI 或 Codex CLI + DeepSeek Harness），并管理标准 Global Rules、Direct Coding 和 Nerf Skills。
+5. **Antigravity Autocode 与 Skills & Rules** — 在 Antigravity Autocode 标签页配置外部审查和编码行为；在 Settings 中管理工作流命令、CLI Tools、Task Presets、Global Rules 和 Nerf Skills。
 
 > [!TIP]
 > **最新动态：** 请参阅 [NEWS.md（发行说明）](../NEWS.md)，了解各版本的功能、实现细节和变更记录。
@@ -80,7 +80,7 @@ Antigravity 的规范命令为 `/pov-mcp-plan`、`/pov-mcp-revise` 和 `/pov-mcp
 - **`/pov-mcp-revise`** — 根据新的反馈或约束条件修订现有计划。
 - **`/pov-mcp-review`** — 在提交前，针对已批准的计划审查已完成的实现，并给出明确的 READY / NOT READY 结论。
 
-自主工作流：`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`（在 **设置 > Antigravity Skills & 规则** 中与 Reviewer Policy 集中同步管理）。
+自主工作流：`/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`（在 **设置 > Antigravity Skills & Rules** 中安装和修复；在 **Antigravity Autocode** 中设置 Reviewer Policy）。
 
 **推荐工作流：**
 
@@ -115,23 +115,19 @@ Antigravity 的规范命令为 `/pov-mcp-plan`、`/pov-mcp-revise` 和 `/pov-mcp
 - **可审计运行日志**：`%APPDATA%\Poverello\runs\<run_id>.json` 记录运行配置、可选的任务提示词、调度元数据、负载摘要、标准化用量与成本估算。
 - **标准化用量与费率验证成本估算**：采用整数纳诺美元（`u64 amount_nanos`）计算，严格禁止浮动点舍入偏差，不匹配费率故障关闭。
 
-### 5. Antigravity Skills & 规则管理
-
+### 5. Antigravity Autocode 与 Skills & Rules 管理
 ```text
-Poverello GUI（设置 > Antigravity Skills & 规则）
-          ↓（审查策略 / 模板保护 / 校验回滚）
-%USERPROFILE%\.gemini\config\rules\
-  • codex-cli.md / deepseek-harness.md（标准全局规则模板）
-  • pov-direct.md（Direct Coding 行为规则）
-~/.gemini/antigravity/skills/
-  • pov-full-cycle, pov-plan-only, pov-build-review（策略同步工作流技能）
+Antigravity Autocode tab
+  • External Review policy / reviewer configuration
+  • Customize Coding Settings / Direct Coding
+
+Settings > Antigravity Skills & Rules
+  • Workflow Commands / repair
+  • CLI Tools / Task Presets
+  • Global Rules / Nerf skills
 ```
 
-- **集中管理 Reviewer Policy**：可选 none（默认，不启动外部审查器）、codex_only 或 codex_plus_deepseek。策略为 none 时，工作流 Skills 会安全停止。
-- **受保护的全局规则模板**：一键安装并安全移除经 SHA-256 校验的标准全局规则模板（`codex-cli.md`、`deepseek-harness.md`），在 Windows 下受平台防护（`can_remove`）支持。
-- **范围与方向控制（Poverello Direct Coding）**：为 Antigravity 配置轻量级直接编码规则，防止对局部实现任务自主扩大规划范围或重构。
-- **单文件完整性与安全应用**：通过替换前 SHA-256 校验、冲突检查和回滚保护，安全管理 YAML 触发条件与标记块。
-
+- External Review 和 Customize Coding Settings 在 Antigravity Autocode 中配置。Settings 管理三个 Workflow Skill、CLI Tools、Task Presets、Global Rules 和 Nerf Skills。
 ## 支持的提供商
 
 | 提供商 | 连接方式 | 支持的系列 | 推理强度控制 |
@@ -156,6 +152,11 @@ Poverello GUI（设置 > Antigravity Skills & 规则）
 - 新增 MiniMax M3.1 Flash、Kimi K3.1 Pro / Highspeed、GLM-5.3 直连模型，并区分 Kimi Code K3.1 ID。
 - 8 个模型 ID 仅支持 Thinking；禁用请求会在发送上游前被拒绝。Kimi Code 的 medium 映射为 high、xhigh 映射为 max。
 - 价格基准日期为 2026-10-31。Kimi K3.1 USD 数值是官方 CNY 费率的参考换算，并非 USD 计费标价。OpenRouter 运行时价格优先于内置回退快照。
+
+### v0.25.4 Antigravity Autocode 与 OpenRouter 更新
+- 新增顶部 Antigravity Autocode 标签页、审查器直接配置和紧凑编码设置。
+- 新增 CLI Tools 管理以及需确认的 Poverello Workflow Skill 修复。
+- OpenRouter 新增 GPT-6.1 Terra 和 Terra Pro。
 
 ### GLM / Z.ai（直连）
 
@@ -206,6 +207,8 @@ Poverello GUI（设置 > Antigravity Skills & 规则）
 |---|---|
 | `openai/gpt-6.1-sol` | GPT-6.1 Sol |
 | `openai/gpt-6.1-sol-pro` | GPT-6.1 Sol Pro |
+| `openai/gpt-6.1-terra` | GPT-6.1 Terra |
+| `openai/gpt-6.1-terra-pro` | GPT-6.1 Terra Pro |
 | `openai/gpt-6-sol` | GPT-6 Sol |
 | `openai/gpt-6-sol-pro` | GPT-6 Sol Pro |
 | `openai/gpt-6-luna` | GPT-6 Luna |
@@ -277,15 +280,12 @@ Windows 安装程序支持 8 种语言。Poverello 保留现有应用标识，�
 
 ### 工作流 4：多智能体开发 Orchestrator
 
-**访问说明：** v0.25.3 继续在 Settings 导航中隐藏 Orchestrator，同时保留实现和内部路由。外部审查配置默认值为 none。
+**访问说明：** v0.25.4 将 Antigravity Autocode 添加为顶部标签页。Orchestrator 和 Auto-Converge 仍不在常规导航中显示；生产 dispatch 禁用，Stage 2 隔离未验证。
 
-### 工作流 5：Antigravity Skills & 规则管理
-
-1. 打开 **设置 > Antigravity Skills & 规则**。
-2. 选择 Reviewer Policy（none［默认］、codex_only 或 codex_plus_deepseek）以同步工作流 Skills。启用 none 时不启动外部审查器并明确停止。
-3. 安装或管理受保护的标准全局规则模板（`codex-cli.md`、`deepseek-harness.md`）。
-4. 配置 Poverello Direct Coding 参数并点击 **应用** 以同步 `pov-direct.md`。
-
+### 工作流 5：Antigravity Autocode 与 Skills & Rules
+1. 在 **Antigravity Autocode** 中配置 External Review 和 Customize Coding Settings。所选策略控制工作流 Skill 是否调用审查器。
+2. 在 **Settings > Antigravity Skills & Rules** 中管理 Workflow Commands、CLI Tools、Task Presets、Global Rules 和 Nerf Skills。修复 Skill 需确认并保留备份。
+3. Auto-Converge 仍隐藏，生产 dispatch 禁用，Stage 2 隔离未验证。
 ## API 密钥
 
 | 提供商 | 环境变量 |

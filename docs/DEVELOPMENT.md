@@ -21,6 +21,8 @@ poverello-coding-tools/
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── AntigravitySkillsRulesPanel.tsx
+│   │   │   ├── ExternalReviewCard.tsx
+│   │   │   ├── CliToolsCard.tsx
 │   │   │   ├── AntigravityRulesPanel.tsx
 │   │   │   └── McpSettingPanel.tsx
 │   │   ├── config/
@@ -33,6 +35,7 @@ poverello-coding-tools/
 │   │   │   ├── proxy.rs
 │   │   │   ├── openrouter.rs
 │   │   │   ├── reviewer_policy.rs
+│   │   │   ├── cli_tools.rs
 │   │   │   ├── antigravity_global_rules.rs
 │   │   │   └── model_capabilities.rs
 │   │   └── resources/

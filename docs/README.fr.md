@@ -2,7 +2,7 @@
 
 # Poverello Coding Tools
 
-> **v0.25.3 :** Auto-Converge reste dans le code, mais est masqué de la navigation normale. Le dispatch de production reste désactivé et l’isolation Stage 2 n’est pas vérifiée. Les revues externes sont désactivées (none) par défaut. Cela ne signifie pas que la version est prête à être publiée.
+> **v0.25.4 :** Ajout de l’onglet Antigravity Autocode pour les réglages de revue externe et de codage, de CLI Tools et de la réparation des Workflow Skills dans Settings, ainsi que d’OpenRouter GPT-6.1 Terra / Terra Pro. Auto-Converge reste masqué ; le dispatch de production reste désactivé et l’isolation Stage 2 n’est pas vérifiée. Cela ne signifie pas que la version est prête à être publiée.
 
 **Utilisez Claude Code / Claude Desktop comme environnement de développement, routez les inférences vers des API LLM tierces, orchestrez des flux multi-agents bornés avec suivi des estimations de coût et gérez de façon centralisée les modèles externes et règles pour Google Antigravity.**
 
@@ -12,7 +12,7 @@ Poverello Coding Tools (affiché dans l’application sous le nom **Poverello**)
 2. **LLM local dédié à Claude Code (Ollama)** — Exécutez Claude Code hors ligne avec des modèles locaux sans aucun coût d'API.
 3. **Planificateur & Réviseur MCP pour Google Antigravity** — Déléguez la planification, la révision des plans et la revue post-implémentation à des modèles externes via les outils MCP `poverello/plan`, `poverello/revise` et `poverello/review`.
 4. **Orchestrateur de développement multi-agents** — Exécutez les workflows Planner–Reviewer limités actuellement pris en charge et suivez l'utilisation normalisée des jetons ainsi que les estimations de coût vérifiées.
-5. **Gestion des Antigravity Skills & règles** — Configurez Reviewer Policy (désactivée par défaut, Codex CLI seul ou Codex CLI + DeepSeek Harness), les modèles Global Rules, Direct Coding et les Nerf Skills.
+5. **Antigravity Autocode et Skills & Rules** — Configurez la revue externe et le comportement de codage dans l’onglet Antigravity Autocode ; gérez les commandes de workflow, CLI Tools, Task Presets, Global Rules et Nerf Skills dans Settings.
 
 > [!TIP]
 > **Nouveautés :** Consultez [NEWS.md (notes de version)](../NEWS.md) pour les fonctionnalités, détails d'implémentation et changements de chaque version.
@@ -80,7 +80,7 @@ Les commandes Antigravity canoniques sont `/pov-mcp-plan`, `/pov-mcp-revise` et 
 - **`/pov-mcp-revise`** — Révise un plan existant en fonction de nouveaux retours ou contraintes.
 - **`/pov-mcp-review`** — Révise une implémentation terminée par rapport au plan approuvé avant le commit, avec des verdicts explicites READY / NOT READY.
 
-Workflows autonomes : `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review` (gérés sous **Paramètres > Antigravity Skills & Rules** avec synchronisation de la Reviewer Policy).
+Workflows autonomes : `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review` (installation et réparation dans **Paramètres > Antigravity Skills & Rules** ; Reviewer Policy dans **Antigravity Autocode**).
 
 **Flux de travail recommandé :**
 
@@ -115,23 +115,19 @@ Implémentation séparée et contrôlée par l'utilisateur
 - **Journaux d'exécution vérifiables** : `%APPDATA%\Poverello\runs\<run_id>.json` consigne la configuration, le prompt, les métadonnées, l'utilisation normalisée et les estimations de coût.
 - **Utilisation normalisée et estimations vérifiées** : Calculs en nano-dollars entiers (`u64 amount_nanos`) sans approximations flottantes, avec rejet sécurisé en cas de tarification inconnue.
 
-### 5. Gestion des Antigravity Skills & Règles
-
+### 5. Antigravity Autocode et gestion des Skills & Rules
 ```text
-Poverello GUI (Paramètres > Antigravity Skills & Rules)
-          ↓ (Reviewer Policy / Protection de Modèles / Rollback)
-%USERPROFILE%\.gemini\config\rules\
-  • codex-cli.md / deepseek-harness.md (Modèles Standard de Règles Globales)
-  • pov-direct.md (Comportement Direct Coding)
-~/.gemini/antigravity/skills/
-  • pov-full-cycle, pov-plan-only, pov-build-review (Compétences Synchronisées)
+Antigravity Autocode tab
+  • External Review policy / reviewer configuration
+  • Customize Coding Settings / Direct Coding
+
+Settings > Antigravity Skills & Rules
+  • Workflow Commands / repair
+  • CLI Tools / Task Presets
+  • Global Rules / Nerf skills
 ```
 
-- **Reviewer Policy centralisée** : Choisissez none (par défaut, aucun réviseur externe n’est lancé), codex_only ou codex_plus_deepseek. Les Workflow Skills s’arrêtent en sécurité avec none.
-- **Modèles protégés de règles globales** : Installation en un clic et suppression sécurisée des modèles standard (`codex-cli.md`, `deepseek-harness.md`) vérifiés par SHA-256, avec protection de plateforme (`can_remove`) sous Windows.
-- **Contrôle de portée et de direction (Poverello Direct Coding)** : Configurez des règles légères pour éviter toute expansion non sollicitée du périmètre ou refactorisation excessive.
-- **Intégrité de fichier unique et application sécurisée** : Protégé par vérification préalable SHA-256, détection des conflits de suppression et restauration vérifiée.
-
+- External Review et Customize Coding Settings se configurent dans Antigravity Autocode. Settings gère les trois Workflow Skills, CLI Tools, Task Presets, Global Rules et Nerf Skills.
 ## Fournisseurs pris en charge
 
 | Fournisseur | Connexion | Familles prises en charge | Contrôles de raisonnement |
@@ -156,6 +152,11 @@ Accès direct officiel via `https://api.anthropic.com` avec `ANTHROPIC_API_KEY`.
 - Ajout de MiniMax M3.1 Flash, Kimi K3.1 Pro / Highspeed, des modèles directs GLM-5.3 et d’ID K3.1 distincts pour Kimi Code.
 - Huit ID sont réservés au Thinking ; les demandes de désactivation sont rejetées avant transmission. L’effort Kimi Code convertit medium en high et xhigh en max.
 - Date tarifaire : 31/10/2026. Les valeurs USD Kimi K3.1 sont des conversions indicatives des tarifs CNY, pas des prix catalogue facturés en USD. Le tarif OpenRouter à l’exécution prime sur l’instantané intégré.
+
+### Mises à jour Antigravity Autocode et OpenRouter de v0.25.4
+- Ajout de l’onglet Antigravity Autocode, des réglages directs des réviseurs et de contrôles de codage compacts.
+- Ajout de la gestion CLI Tools et de la réparation confirmée des Workflow Skills Poverello.
+- Ajout de GPT-6.1 Terra et Terra Pro à OpenRouter.
 
 ### GLM / Z.ai (Direct)
 
@@ -200,12 +201,14 @@ Backend d’inférence locale **dédié à Claude Code CLI** :
 
 ### OpenRouter
 
-Prend en charge plusieurs profils nommés. Catalogue actuel de modèles OpenAI dans la liste déroulante unique (15 modèles) :
+Prend en charge plusieurs profils nommés. Catalogue actuel de modèles OpenAI dans la liste déroulante unique (17 modèles) :
 
 | ID du modèle | Nom d'affichage |
 |---|---|
 | `openai/gpt-6.1-sol` | GPT-6.1 Sol |
 | `openai/gpt-6.1-sol-pro` | GPT-6.1 Sol Pro |
+| `openai/gpt-6.1-terra` | GPT-6.1 Terra |
+| `openai/gpt-6.1-terra-pro` | GPT-6.1 Terra Pro |
 | `openai/gpt-6-sol` | GPT-6 Sol |
 | `openai/gpt-6-sol-pro` | GPT-6 Sol Pro |
 | `openai/gpt-6-luna` | GPT-6 Luna |
@@ -279,13 +282,10 @@ L’installateur Windows prend en charge 8 langues. Poverello conserve l’ident
 
 **Note d'accès :** Dans la version 0.25.2, l’entrée Orchestrator est masquée dans la sous-navigation Settings, tandis que l’implémentation et les routes internes sont conservées. Lancez les workflows autonomes dans Antigravity avec `/pov-full-cycle`, `/pov-plan-only` ou `/pov-build-review`.
 
-### Flux de travail 5 : Gestion des Antigravity Skills & Règles
-
-1. Ouvrez **Paramètres > Antigravity Skills & Rules**.
-2. Choisissez la Reviewer Policy (none [par défaut], codex_only ou codex_plus_deepseek). Avec none, aucun réviseur externe n’est lancé et le workflow s’arrête explicitement.
-3. Installez ou gérez les modèles standard protégés de règles globales (`codex-cli.md`, `deepseek-harness.md`).
-4. Configurez les paramètres Direct Coding et cliquez sur **Appliquer** pour synchroniser `pov-direct.md`.
-
+### Workflow 5 : Antigravity Autocode et Skills & Rules
+1. Configurez External Review et Customize Coding Settings dans **Antigravity Autocode**. La politique choisie détermine les réviseurs appelés par les Workflow Skills.
+2. Dans **Settings > Antigravity Skills & Rules**, gérez Workflow Commands, CLI Tools, Task Presets, Global Rules et Nerf Skills. La réparation d’un Skill nécessite une confirmation et conserve une sauvegarde.
+3. Auto-Converge reste masqué ; le dispatch de production est désactivé et l’isolation Stage 2 n’est pas vérifiée.
 ## Clés API
 
 | Fournisseur | Variable d'environnement |

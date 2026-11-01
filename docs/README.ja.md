@@ -2,7 +2,7 @@
 
 # Poverello Coding Tools
 
-> **v0.25.3:** Auto-Convergeはコードベースに保持されていますが通常のアプリナビゲーションからは非表示です。本番ディスパッチは無効、Stage 2隔離は未検証です。外部レビュー設定の既定値は無効（none）です。リリース準備完了の主張ではありません。
+> **v0.25.4:** 外部レビューとコーディング設定を行うAntigravity Autocodeタブ、設定内のCLI ToolsとWorkflow Skill修復機能、OpenRouter GPT-6.1 Terra / Terra Proに対応しました。Auto-Convergeは引き続き非表示で、本番ディスパッチは無効、Stage 2隔離は未検証です。リリース準備完了を示すものではありません。
 
 **Claude Code / Claude Desktop をコーディングハーネスとして使用し、推論をサードパーティ LLM API にルーティングします。対応済みのマルチエージェント計画・レビューとコスト見積もりを管理し、Google Antigravity の外部モデルやルールを統合管理します。**
 
@@ -12,7 +12,7 @@ Poverello Coding Tools（アプリ内表示名 **Poverello**）は、AI 支援�
 2. **Claude Code 向けローカル LLM（Ollama）** — ローカルモデルを使って、Claude Code をオフラインで実行できます。
 3. **Google Antigravity 向け MCP プランナー & レビュアー** — `poverello/plan`、`poverello/revise`、`poverello/review` MCP ツールを通じて、実装計画と実装後レビューを外部モデルに委任します。
 4. **マルチエージェント開発オーケストレーター** — CLI／APIエージェントを横断して、対応済みの上限付きプラン・レビュー・ワークフローを実行し、正規化トークン使用量とレートスケジュール検証に基づくコスト見積もり（整数ナノドル）を追跡して監査可能なディスパッチジャーナルを維持します。
-5. **Antigravity Skills & ルール管理** — Workflow SkillsのReviewer Policy（既定値は無効、Codex CLI単独、またはCodex CLI + DeepSeek Harness）を設定し、標準Global Rules、Direct Coding、Nerf Skillsを管理します。
+5. **Antigravity Autocode と Skills & ルール** — Antigravity Autocodeタブで外部レビューとコーディング動作を設定し、設定画面でWorkflow Commands、CLI Tools、Task Presets、Global Rules、Nerf Skillsを管理します。
 
 > [!TIP]
 > **新実装の詳細はこちら**: バージョンごとの新機能や詳細な実装仕様・変更履歴については、[NEWS.md (リリースノート)](../NEWS.md) をご覧ください。
@@ -78,7 +78,7 @@ Antigravity がサブスクリプションの処理能力を使って
 - **`/pov-mcp-revise`** (旧 `/anthro-revise`) — 新しいフィードバックや制約に基づいて既存の計画を修正します。
 - **`/pov-mcp-review`** (旧 `/anthro-review`) — コミット前に承認済み計画に対して完成した実装をレビューし、明示的に READY / NOT READY の判定を行います。
 
-自律ワークフロー: `/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`（**設定 > Antigravity Skills & ルール** で Reviewer Policy と同期管理）。
+自律ワークフロー: `/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`（**設定 > Antigravity Skills & Rules** でインストール・修復し、Reviewer Policyは **Antigravity Autocode** で設定）。
 
 **推奨ワークフロー:**
 
@@ -119,26 +119,19 @@ Antigravity がサブスクリプションの処理能力を使って
   - UI 上のステータスバッジにより、見積もりの対象範囲が `Complete`、妥当な部分計が `Partial`、または見積もり不可が `Unavailable` であることを識別できます。
   - `list_journals()` 呼び出し時に不変ディスパッチ記録から動的に再集計するため、古い保存データによる検証迂回を防止します。
 
-### 5. Antigravity Skills & ルール管理
-
+### 5. Antigravity Autocode と Skills & ルール管理
 ```text
-Poverello GUI（設定 > Antigravity Skills & ルール）
-          ↓（Reviewer Policy / テンプレート保護 / 検証付きロールバック）
-%USERPROFILE%\.gemini\config\rules\
-  • codex-cli.md / deepseek-harness.md（標準 Global Rule テンプレート）
-  • pov-direct.md（Direct Coding 動作ルール）
-~/.gemini/antigravity/skills/
-  • pov-full-cycle, pov-plan-only, pov-build-review（ポリシー同期ワークフロースキル）
+Antigravity Autocode tab
+  • External Review policy / reviewer configuration
+  • Customize Coding Settings / Direct Coding
+
+Settings > Antigravity Skills & Rules
+  • Workflow Commands / repair
+  • CLI Tools / Task Presets
+  • Global Rules / Nerf skills
 ```
 
-- **Reviewer Policyの一元管理**: none（既定値、外部レビュアーを起動しない）、codex_only、codex_plus_deepseekを選択できます。noneではWorkflow Skillsが安全に停止します。
-- **保護された Global Rules テンプレート**: SHA-256 ダイジェストで検証された標準 Global Rules テンプレート（`codex-cli.md`、`deepseek-harness.md`）をワンクリックでインストールおよび安全に削除（Windows プラットフォーム保護 `can_remove` 対応）できます。
-- **スコープと方針の制御（Poverello Direct Coding）**: Antigravity が局所的な修正タスクに対して自律的に計画立案や不要な大規模リファクタリングを広げないよう、軽量な Direct Coding ルールを構成します。
-- **単一ファイルの整合性保護**: YAML の `trigger` 条件および管理ブロック（`<!-- pov-direct:managed:begin -->` ... `<!-- pov-direct:managed:end -->`）のみを安全に更新し、ユーザー独自の frontmatter、説明文、Skill インクルードを完全に維持します。
-- **安全な適用保証**: 置換直前の SHA-256 検証、外部削除競合の検出、重複しない保持バックアップ、読み戻し検証失敗時のロールバック、旧 sidecar フォルダの存在チェックにより、安全に書き込みます。
-
----
-
+- External ReviewとCustomize Coding SettingsはAntigravity Autocodeで設定します。SettingsではWorkflow Skill 3件、CLI Tools、Task Presets、Global Rules、Nerf Skillsを管理します。
 ## 対応プロバイダー
 
 | プロバイダー | 接続方式 | 対応ファミリー | 推論コントロール |
@@ -176,6 +169,11 @@ Poverello GUI（設定 > Antigravity Skills & ルール）
 - MiniMax M3.1 Flash、Kimi K3.1 Pro / Highspeed、GLM-5.3 Directモデルを追加し、Kimi Code K3.1 IDを分離しました。
 - 8つのモデルIDはThinking専用で、無効化要求は上流送信前に拒否されます。Kimi Codeのmediumはhigh、xhighはmaxに正規化します。
 - 価格基準日は2026-10-31です。Kimi K3.1のUSD表示は公式CNY料金の参考換算で、請求用USD定価ではありません。OpenRouterは実行時価格を同梱フォールバックより優先します。
+
+### v0.25.4 Antigravity Autocode と OpenRouter の更新
+- 上部に **Antigravity Autocode** タブを追加し、External ReviewとコンパクトなCustomize Coding Settingsを配置しました。Reviewer presetを廃止し、Codex CLIとDeepSeek Harnessを個別に設定します。
+- 設定 > Antigravity Skills & RulesにCLI Tools管理と、Poverello Workflow Skill 3件の確認付き修復機能を追加しました。
+- OpenRouterに `openai/gpt-6.1-terra` と `openai/gpt-6.1-terra-pro` を追加し、モデル別の機能・推論・料金メタデータに対応しました。
 
 ### GLM / Z.ai（ダイレクト）
 
@@ -227,6 +225,8 @@ Moonshot Kimi とは別の、コーディング専用 API（`KIMI_CODE_API_KEY`�
 |---|---|
 | `openai/gpt-6.1-sol` | GPT-6.1 Sol |
 | `openai/gpt-6.1-sol-pro` | GPT-6.1 Sol Pro |
+| `openai/gpt-6.1-terra` | GPT-6.1 Terra |
+| `openai/gpt-6.1-terra-pro` | GPT-6.1 Terra Pro |
 | `openai/gpt-6-sol` | GPT-6 Sol |
 | `openai/gpt-6-sol-pro` | GPT-6 Sol Pro |
 | `openai/gpt-6-luna` | GPT-6 Luna |
@@ -298,15 +298,12 @@ Windowsインストーラーは8言語に対応しています。Poverelloは既
 
 ### ワークフロー 4: マルチエージェント開発オーケストレーター
 
-**アクセスに関する注意:** v0.25.3でもOrchestratorはSettingsナビゲーションから非表示で、実装と内部ルートは保持されます。外部レビュー設定の既定値はnoneです。
+**アクセスに関する注意:** v0.25.4ではAntigravity Autocodeを上部タブに追加しました。OrchestratorとAuto-Convergeは通常ナビゲーションから非表示で、本番ディスパッチは無効、Stage 2隔離は未検証です。
 
-### ワークフロー 5: Antigravity Skills & ルール管理
-
-1. **設定 > Antigravity Skills & ルール** を開きます。
-2. Reviewer Policy（none［既定値］、codex_only、codex_plus_deepseek）を選び、ワークフロースキルを同期します。noneでは外部レビュアーを起動せず明示して停止します。
-3. 保護された標準 Global Rules テンプレート（`codex-cli.md`、`deepseek-harness.md`）をインストールまたは管理します。
-4. Poverello Direct Coding のパラメータを設定し、**適用** をクリックして `pov-direct.md` を同期します。
-
+### ワークフロー 5: Antigravity Autocode と Skills & ルール管理
+1. **Antigravity Autocode**タブでExternal ReviewとCustomize Coding Settingsを設定します。選択ポリシーがWorkflow Skillのレビュアー利用を制御します。
+2. **設定 > Antigravity Skills & Rules**でWorkflow Commands、CLI Tools、Task Presets、Global Rules、Nerf Skillsを管理します。Skill修復は確認後に実行し、バックアップを保存します。
+3. Auto-Convergeは非表示、本番ディスパッチは無効、Stage 2隔離は未検証です。
 ## API キー
 
 | プロバイダー | 環境変数 |

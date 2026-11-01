@@ -2,7 +2,7 @@
 
 # SPEC: Poverello Coding Tools
 
-> **v0.25.3:** Auto-Convergeはコードベースに保持されていますが、通常のアプリナビゲーションからは利用できません。本番ディスパッチは無効、Stage 2隔離は未検証です。外部レビュー設定の既定値はnoneです。UI表示は実行許可やリリース準備完了を意味しません。
+> **v0.25.4:** Reviewerとコーディング設定を行うAntigravity Autocode、および設定内のCLI ToolsとWorkflow Skill修復機能を追加しました。Auto-Convergeは非表示のまま、本番ディスパッチは無効、Stage 2隔離は未検証です。UIから利用できることはdispatch許可やリリース準備完了を意味しません。
 
 ## 概要
 
@@ -89,11 +89,7 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
 - **Google Gemini モデル対応**: OpenRouter プロファイルで Gemini 3.1 Pro Preview と Gemini 3.7 Flash を組み込みモデルとして利用でき、料金・機能データも収録。Gemini 3.7 Flash はプロモーション価格と、取り消し線付きの通常価格を併記する。
 - **GLM (Z.ai) ダイレクトプロバイダー対応**: 設定された `ZAI_API_KEY`（または Poverello に入力したキー）を使って Z.ai の Anthropic 互換エンドポイントへリクエストを送信。Poverello はキー種別、Coding Plan の購入履歴、アカウントの許可状態、課金資格を判定しないため、利用前に[Z.ai の現行セットアップガイド](https://zcode.z.ai/en/docs/configuration)でアカウントおよびエンドポイント要件を確認してください。4モデル構成（`glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx`、`glm-5.2`）。GLM-5.3 系列は推論強度（`low`, `high`, `max`）を選択可能な常時思考、GLM-5.2 は Normal/Thinking トグル。厳格な出力検証により、思考ブロックのみで最終テキストが空の場合（思考中の `max_tokens` 到達等）は Orchestrator・MCP の双方で明示的なプロバイダーエラーとしてフェイルクローズする。
 - **v0.25.3モデルとThinking安全制御**: MiniMax M3.1 Flash、Kimi K3.1 Pro / Highspeed、GLM-5.3 Directモデルを追加し、Kimi Code K3.1 IDを分離。8つのIDはThinking専用で、無効化要求は上流送信前に拒否します。Kimi Codeのmediumはhigh、xhighはmaxへ正規化。価格基準日は2026-10-31。Kimi K3.1のUSD表示はCNY料金からの参考換算で、OpenRouterは実行時価格を優先します。
-- **Antigravity Skills & ルール管理（設定 > Antigravity Skills & ルール）**: ワークフロースキルのReviewer Policy、保護された標準Global Rulesテンプレート、Coding Behavior（Poverello Direct Coding）、およびNerf Skillsを一括管理。
-  - **Reviewer Policy**: Workflow Skillsの外部レビュー方式をnone（既定値。外部レビュアーを呼び出さない）、codex_only、codex_plus_deepseekから設定します。スキーマv2をユーザーのAntigravity設定に保存し、v1・破損・未対応設定はnoneへ安全に移行またはフェイルセーフします。外部レビュー無効時、Skillは明示して停止します。
-  - **Global Rulesテンプレート管理**: 製品同梱の承認済み標準テンプレート（`codex-cli.md`、`deepseek-harness.md`）を `%USERPROFILE%\.gemini\config\rules\` へ安全にインストール・削除。SHA-256ハッシュ検証および削除ガードを備え、削除はWindows環境のみサポート（`can_remove`）。旧テキストエリア編集を廃止。
-  - **Coding Behavior（Direct Coding）**: 統合パネル内の `.settings-tile` カードとして軽量 Direct Coding（`pov-direct.md`）を設定。YAML `trigger` と管理ブロックのみを操作し、保持バックアップ、SHA-256検証、ロールバックを徹底。
-  - **Nerf Skills**: 軽量・バランス型のNerf Skill（`pov-nerf-lightweight`、`pov-nerf-balanced`）のインストール・削除を管理。
+- **Antigravity Autocode と Skills & Rules（v0.25.4）**: 上部のAntigravity AutocodeタブにExternal ReviewとCustomize Coding Settingsを配置。Reviewer presetを廃止し、Codex CLIとDeepSeek Harnessを直接設定します。Codexのアカウント識別、認証方式・状態、設定profileは区別し、本人を特定できない場合は推測しません。設定 > Antigravity Skills & RulesではWorkflow Commands（バックアップ付きの確認制修復を含む）、CLI Tools、Task Presets、Global Rules、Nerf Skillsを管理します。OpenRouterにGPT-6.1 TerraとTerra Proの機能・推論・料金メタデータを追加。Reviewer Policyはschema v3を使用し、既定値はnone（外部レビュアーなし）です。none、codex_only、codex_plus_deepseekをサポートし、旧Reviewer presetは無視します。
 - **Anthropic 公式 Direct プロバイダー対応**: `https://api.anthropic.com` を `ANTHROPIC_API_KEY` 経由で直接利用。ネイティブの Messages プロトコルをプロトコル変換なしで透過転送。検証済みモデルカタログ（`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5` 等）、ストリーミングおよび非ストリーミングのトークン上限障害診断（思考ブロックのみで最終テキストが生成されないまま `stop_reason: "max_tokens"` となった場合に明示的エラーでフェイルクローズ）、およびサンプリングパラメータ検証。
 - **マルチプロバイダーゲートウェイプロファイル（`gateway_profile`）**: 3つの標準 Claude ルート（`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`）それぞれに独立して異なるプロバイダーとモデルを割り当て可能。`active_provider: "gateway_profile"` および `active_gateway_profile_id` で制御され、`gateway_profiles` 配下の指定プロファイルを参照する。ルートごとの機能チェックおよび Claude Code 自動圧縮のためのコンテキスト容量計算に統合される。
 - **正本 Poverello スキル & MCP 名前空間の移行**: 正本 MCP ツール（`poverello/plan`, `poverello/revise`, `poverello/review`）およびスラッシュコマンド（`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`）。Poverello は Antigravity の `mcp_config.json` に `poverello` サーバーキーを加法的に登録し、既存の `anthro-bridge` キーや旧 `/anthro-*` スキルを完全な後方互換性のために保持する。親ディレクトリを削除しない堅牢な単一ファイルライフサイクル管理。 直接MCPスキルに加え、上位ワークフローSkill `/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`も提供します。
@@ -106,7 +102,7 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
   - `list_journals()` による動的再集計: ジャーナル一覧取得時にディスク上の不変ディスパッチ記録から動的に再集計を実行し、ディスク上の古い集計値が厳格な検証を迂回して表示されるのを完全に防止。
 ### GUI 管理ツール
 
-Tauri v2 + React 19 + TypeScript。上部ナビゲーション: Gateway（ダッシュボード）、MCP、Settings。設定サブナビゲーション: General、Claude Desktop、Antigravity MCP、Antigravity Skills & ルール。Orchestrator設定はサブナビから非表示化（内部状態・ルートは保持）；自律AntigravityワークフローはスラッシュコマンドSkillから開始します。
+Tauri v2 + React 19 + TypeScript。トップレベルナビゲーション: Gateway（ダッシュボード）、MCP、Antigravity Autocode、Settings。Antigravity AutocodeにはExternal ReviewとCustomize Coding Settingsを配置します。SettingsにはGeneral、Claude Desktop、Antigravity MCP、Antigravity Skills & Rules（Workflow Commands、CLI Tools、Task Presets、Global Rules、Nerf Skills）を配置します。OrchestratorとAuto-Convergeは通常ナビゲーションから非表示にし、内部状態とルートは保持します。
 
 ```
 +------------------------------------------+

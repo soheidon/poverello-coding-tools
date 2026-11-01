@@ -1,5 +1,19 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.25.4
+
+### Antigravity Autocode and External Review
+- Added the top-level Antigravity Autocode tab for External Review and Customize Coding Settings. Reviewer presets were replaced with direct Codex CLI and DeepSeek Harness configuration; account identity, authentication method/status, and config profile are reported separately.
+- Kept the Orchestrator and Auto-Converge out of normal navigation. Production dispatch remains disabled and Stage 2 isolation remains unverified.
+
+### Workflow Skills and CLI Tools
+- Added CLI Tools management and confirmation-based repair for the three Poverello Workflow Skills under Settings > Antigravity Skills & Rules. Repairs preserve a verified backup before replacing the managed `SKILL.md`.
+- CLI installation/update requires an explicit user action and confirmation; timeout cleanup and unknown outcomes prevent unsafe automatic retries.
+
+### OpenRouter Models and Layout
+- Added OpenAI GPT-6.1 Terra and GPT-6.1 Terra Pro to the OpenRouter model catalog with model-specific capability, reasoning, and pricing metadata.
+- Compacted External Review and Customize Coding Settings into aligned rows while preserving setting values and behavior.
+
 ## v0.25.3 — 2026-10-31
 
 ### Models and thinking safeguards

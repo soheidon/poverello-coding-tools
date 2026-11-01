@@ -118,11 +118,8 @@ Poverello clearly separates model selection from detailed parameter management:
 1. **Top-Level `MCP` Tab (`MCP for Antigravity`) / `Settings > Antigravity MCP`**:
    - Manage MCP server registration, target executable, and MCP Commands (`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`).
    - Click **Install All** (`antigravity.btnInstallAll`) to install exclusively the 3 MCP skills.
-2. **`Settings` > `Antigravity Skills & Rules`**:
-   - Manage Reviewer Policy for workflow skills: none (default; no external reviewer), codex_only, or codex_plus_deepseek.
-   - Manage protected Global Rules standard templates (`codex-cli.md`, `deepseek-harness.md`) with SHA-256 verification and Windows removal support (`can_remove`).
-   - Configure Coding Behavior (`pov-direct.md`) and Poverello Nerf skills.
-
+2. **Top-level `Antigravity Autocode` tab**: Configure External Review policy and direct Codex CLI / DeepSeek Harness settings. Codex account identity, authentication method/status, and config profile are distinct; an unknown identity is not inferred.
+3. **`Settings` > `Antigravity Skills & Rules`**: Install or repair the three Poverello Workflow Skills (repair requires confirmation and preserves a backup), manage CLI Tools and Task Presets, install/remove Global Rules, and manage Nerf skills.
 > [!NOTE]
 > The Poverello MCP server reads current configuration dynamically on every `plan()` and `review()` tool invocation. You do **not** need to restart the MCP server or Antigravity when changing providers or model settings in the GUI.
 
@@ -161,7 +158,7 @@ From the **MCP** tab (or **Settings > Antigravity MCP**), you can install Global
 
 ## 7. Upper-level Antigravity Commands (`/pov-full-cycle`, `/pov-plan-only` & `/pov-build-review`)
 
-In addition to direct MCP skills, Poverello provides three upper-level workflow skills managed under Settings > Antigravity Skills & Rules. Reviewer Policy defaults to none, which launches no external reviewer; codex_only and codex_plus_deepseek are optional alternatives.
+In addition to direct MCP Skills, Poverello provides three upper-level workflow Skills. Install and repair them under Settings > Antigravity Skills & Rules. Configure their Reviewer Policy in the top-level Antigravity Autocode tab; the default is none (no external reviewer).
 
 ### Full-cycle implementation:
 ```text
