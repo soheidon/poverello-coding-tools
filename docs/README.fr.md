@@ -2,24 +2,21 @@
 
 # Poverello Coding Tools
 
-> **v0.25.4 :** Ajout de l’onglet Antigravity Autocode pour les réglages de revue externe et de codage, de CLI Tools et de la réparation des Workflow Skills dans Settings, ainsi que d’OpenRouter GPT-6.1 Terra / Terra Pro. Auto-Converge reste masqué ; le dispatch de production reste désactivé et l’isolation Stage 2 n’est pas vérifiée. Cela ne signifie pas que la version est prête à être publiée.
+**Utilisez Claude Code / Claude Desktop comme environnement de développement, routez les inférences vers des modèles cloud ou locaux et gérez les modèles externes et les règles pour Google Antigravity.**
 
-**Utilisez Claude Code / Claude Desktop comme environnement de développement, routez les inférences vers des API LLM tierces, orchestrez des flux multi-agents bornés avec suivi des estimations de coût et gérez de façon centralisée les modèles externes et règles pour Google Antigravity.**
-
-Poverello Coding Tools (affiché dans l’application sous le nom **Poverello**) est une application Windows complémentaire pour le développement logiciel assisté par IA. Elle prend en charge cinq flux de travail complémentaires :
+Poverello Coding Tools (affiché dans l’application sous le nom **Poverello**) est une application Windows complémentaire pour le développement logiciel assisté par IA. Elle prend en charge quatre flux de travail complémentaires :
 
 1. **Passerelle 3P pour Claude Code / Claude Desktop** — Conservez l'exploration de dépôts, l'utilisation d'outils, l'édition de fichiers et l'exécution de tests de Claude tout en routant les inférences vers des fournisseurs tiers.
 2. **LLM local dédié à Claude Code (Ollama)** — Exécutez Claude Code hors ligne avec des modèles locaux sans aucun coût d'API.
 3. **Planificateur & Réviseur MCP pour Google Antigravity** — Déléguez la planification, la révision des plans et la revue post-implémentation à des modèles externes via les outils MCP `poverello/plan`, `poverello/revise` et `poverello/review`.
-4. **Orchestrateur de développement multi-agents** — Exécutez les workflows Planner–Reviewer limités actuellement pris en charge et suivez l'utilisation normalisée des jetons ainsi que les estimations de coût vérifiées.
-5. **Antigravity Autocode et Skills & Rules** — Configurez la revue externe et le comportement de codage dans l’onglet Antigravity Autocode ; gérez les commandes de workflow, CLI Tools, Task Presets, Global Rules et Nerf Skills dans Settings.
+4. **Antigravity Autocode et Skills & Rules** — Configurez la revue externe et le comportement de codage dans l’onglet Antigravity Autocode ; gérez les commandes de workflow, CLI Tools, Task Presets, Global Rules et Nerf Skills dans Settings.
 
 > [!TIP]
 > **Nouveautés :** Consultez [NEWS.md (notes de version)](../NEWS.md) pour les fonctionnalités, détails d'implémentation et changements de chaque version.
 
 ---
 
-## Cinq flux de travail principaux
+## Quatre flux de travail principaux
 
 ### 1. Claude Code / Claude Desktop avec la passerelle 3P
 
@@ -28,7 +25,7 @@ Claude Code / Claude Desktop
              ↓
   Poverello 3P Gateway
              ↓
-Anthropic Direct / DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo / GLM
+Modèle cloud ou local configuré
 ```
 
 - **Séparation environnement & modèle** : Conservez les outils agentiques de Claude tout en routant les inférences vers des fournisseurs tiers.
@@ -88,34 +85,7 @@ Workflows autonomes : `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review` (
 /pov-mcp-plan → Implémentation & Tests → /pov-mcp-review → Commit
 ```
 
-### 4. Orchestrateur de développement multi-agents (workflows limités et coûts)
-
-```text
-Tâche / Spécification
-        ↓
-+-------------------------------------------------------------+
-| Poverello Orchestrator                                      |
-|                                                             |
-|  [Profil Planner]  ⇄  [Profil Reviewer]                     |
-|  (Générer / Réviser)    (Vérifier / Verdicts)               |
-|                                                             |
-|  • Boucle plan/revue bornée (limite de tours)               |
-|  • Journaux complets (%APPDATA%\Poverello\runs\*.json)      |
-|  • Estimations en nano-dollars entiers & vérification       |
-|  • Badges à sûreté intégrée (Complete / Partial / N/A)      |
-+-------------------------------------------------------------+
-        ↓
-Plan Approuvé / Journal d'Audit
-        ↓
-Implémentation séparée et contrôlée par l'utilisateur
-```
-
-- **Workflows d'orchestration bornés** : Configurez les profils d'agents et les plafonds d'itération pour les flux pris en charge.
-- **Invariants de sécurité et validation humaine** : Les actions nécessitant une approbation respectent des points de contrôle stricts ; tout nouveau plan principal requiert une confirmation humaine explicite.
-- **Journaux d'exécution vérifiables** : `%APPDATA%\Poverello\runs\<run_id>.json` consigne la configuration, le prompt, les métadonnées, l'utilisation normalisée et les estimations de coût.
-- **Utilisation normalisée et estimations vérifiées** : Calculs en nano-dollars entiers (`u64 amount_nanos`) sans approximations flottantes, avec rejet sécurisé en cas de tarification inconnue.
-
-### 5. Antigravity Autocode et gestion des Skills & Rules
+### 4. Antigravity Autocode et gestion des Skills & Rules
 ```text
 Antigravity Autocode tab
   • External Review policy / reviewer configuration
@@ -128,122 +98,6 @@ Settings > Antigravity Skills & Rules
 ```
 
 - External Review et Customize Coding Settings se configurent dans Antigravity Autocode. Settings gère les trois Workflow Skills, CLI Tools, Task Presets, Global Rules et Nerf Skills.
-## Fournisseurs pris en charge
-
-| Fournisseur | Connexion | Familles prises en charge | Contrôles de raisonnement |
-|---|---|---|---|
-| **Anthropic** | API directe | Claude Opus 5.5, Sonnet 5.5, Haiku 4.5, Sonnet 3.7 | Thinking adaptatif / effort |
-| **DeepSeek** | API directe | `deepseek-flash` (V4.1 Flash 1017), `deepseek-v4-pro` (V4 Pro 0813) | Normal / Thinking · Low / High / Max |
-| **GLM (Z.ai)** | API directe | GLM-5.3, GLM-5.3-Flash, GLM-5.3-FlashX, GLM-5.2 | GLM-5.3 : Low / High / Max · GLM-5.2 : Normal / Thinking |
-| **Kimi Code** | API directe | kimi-for-coding, kimi-for-coding-highspeed | Mode thinking |
-| **MiniMax** | API directe | MiniMax M3, M2.7 | Spécifique au modèle |
-| **Kimi / Moonshot** | API directe | Kimi K2.x, Kimi K3 | Thinking / Effort de raisonnement |
-| **MiMo / Xiaomi** | API directe | MiMo V2.6 Flash, Pro, Pro-UltraSpeed (rétrocompatible V2.5) | Normal / Thinking |
-| **Ollama Local** | Boucle locale | Gemma 4, Qwen 2.5, Llama 3.3, DeepSeek-R1 | Thinking (budget 1024) / Disabled |
-| **OpenRouter** | Passerelle multi-profils | Voir la section OpenRouter ci-dessous | Spécifique au modèle / au profil |
-| **Passerelle multi-fournisseurs** | Routes personnalisées | Toute combinaison de fournisseurs admissibles | Contrôle par route |
-
-### Anthropic (Direct)
-
-Accès direct officiel via `https://api.anthropic.com` avec `ANTHROPIC_API_KEY`. Modèles pris en charge : `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5`, `claude-3-7-sonnet`, `claude-3-5-sonnet` et `claude-3-5-haiku`. Les contrôles natifs d'adaptive thinking et d'effort de raisonnement sont pris en charge.
-
-### Modèles et Thinking dans v0.25.3
-
-- Ajout de MiniMax M3.1 Flash, Kimi K3.1 Pro / Highspeed, des modèles directs GLM-5.3 et d’ID K3.1 distincts pour Kimi Code.
-- Huit ID sont réservés au Thinking ; les demandes de désactivation sont rejetées avant transmission. L’effort Kimi Code convertit medium en high et xhigh en max.
-- Date tarifaire : 31/10/2026. Les valeurs USD Kimi K3.1 sont des conversions indicatives des tarifs CNY, pas des prix catalogue facturés en USD. Le tarif OpenRouter à l’exécution prime sur l’instantané intégré.
-
-### Mises à jour Antigravity Autocode et OpenRouter de v0.25.4
-- Ajout de l’onglet Antigravity Autocode, des réglages directs des réviseurs et de contrôles de codage compacts.
-- Ajout de la gestion CLI Tools et de la réparation confirmée des Workflow Skills Poverello.
-- Ajout de GPT-6.1 Terra et Terra Pro à OpenRouter.
-
-### GLM / Z.ai (Direct)
-
-Accès direct à l'API officielle Z.ai compatible avec Anthropic Messages (`https://api.z.ai/api/anthropic/v1/messages`) avec `ZAI_API_KEY`. La famille GLM-5.3 permet de choisir l'effort (`low`, `high`, `max`) ; GLM-5.2 propose un sélecteur Normal / Thinking.
-
-### DeepSeek (Direct)
-
-Le préréglage intégré **Direct DeepSeek** route : Opus 5 → V4.1 Flash / Max · Sonnet 5 → V4.1 Flash / High · Haiku 4.5 → V4.1 Flash / Low.
-
-- `deepseek-flash` — Identifiant API canonique et stable de DeepSeek-V4.1-Flash-1017 ; contexte de 1M et jusqu’à 384K tokens en sortie.
-- `deepseek-v4-pro` — Identifiant API ; la page officielle des tarifs actuelle le répertorie comme DeepSeek-V4-Pro-0813. Contexte de 1M et jusqu’à 384K tokens en sortie.
-- Flash prend en charge la vision, contrairement à Pro. DeepSeek accepte encore les anciens identifiants `deepseek-v4-flash` et `deepseek-v4-flash-vision-exp` comme alias Flash et les facture au tarif Flash.
-
-### Kimi Code (Direct)
-
-API spécialisée dans le code (`KIMI_CODE_API_KEY`), distincte de Moonshot Kimi :
-
-- `kimi-for-coding` — Modèle de codage pleine qualité.
-- `kimi-for-coding-highspeed` — Variante à faible latence.
-
-### MiMo / Xiaomi (Direct)
-
-Préréglages intégrés **Direct MiMo** :
-- Opus 5 → `mimo-v2.6-pro` / Thinking
-- Sonnet 5 → `mimo-v2.6-pro` / Normal
-- Haiku 4.5 → `mimo-v2.6-flash` / Thinking
-- Modèle par défaut : `mimo-v2.6-flash`
-
-Modèles : `mimo-v2.6-flash`, `mimo-v2.6-pro`, `mimo-v2.6-pro-ultraspeed` (sélectionnables). Les trois prennent en charge une fenêtre de contexte de 1 million de tokens et des capacités multimodales natives (texte, image, vidéo).
-
-**Normal / Thinking** : MiMo utilise un simple commutateur Normal/Thinking — sans niveaux d'effort de raisonnement.
-
-**Rétrocompatibilité V2.5** : Les routes `mimo-v2.5`, `mimo-v2.5-pro` et `mimo-v2.5-pro-ultraspeed` enregistrées sont préservées et continuent de fonctionner. Les anciens paramètres par défaut non modifiés migrent automatiquement vers V2.6 au démarrage.
-
-### LLM local dédié (Ollama Local)
-
-Backend d’inférence locale **dédié à Claude Code CLI** :
-- Point de terminaison : `http://127.0.0.1:11434/v1` (boucle locale du protocole Anthropic Messages natif)
-- Découverte dynamique des modèles locaux installés via `/api/tags`
-- Budgets de réflexion (1024 tokens) et fenêtres de contexte (`r`num_ctx`) configurables par alias
-- Voir le [Guide Ollama Local](OLLAMA_LOCAL.fr.md) pour la configuration détaillée
-
-### OpenRouter
-
-Prend en charge plusieurs profils nommés. Catalogue actuel de modèles OpenAI dans la liste déroulante unique (17 modèles) :
-
-| ID du modèle | Nom d'affichage |
-|---|---|
-| `openai/gpt-6.1-sol` | GPT-6.1 Sol |
-| `openai/gpt-6.1-sol-pro` | GPT-6.1 Sol Pro |
-| `openai/gpt-6.1-terra` | GPT-6.1 Terra |
-| `openai/gpt-6.1-terra-pro` | GPT-6.1 Terra Pro |
-| `openai/gpt-6-sol` | GPT-6 Sol |
-| `openai/gpt-6-sol-pro` | GPT-6 Sol Pro |
-| `openai/gpt-6-luna` | GPT-6 Luna |
-| `openai/gpt-6-luna-pro` | GPT-6 Luna Pro |
-| `openai/gpt-6-astra` | GPT-6 Astra |
-| `openai/gpt-6-astra-pro` | GPT-6 Astra Pro |
-| `openai/gpt-astra-latest` | GPT Astra Latest |
-| `openai/gpt-5.6-sol` | GPT-5.6 Sol |
-| `openai/gpt-5.6-sol-pro` | GPT-5.6 Sol Pro |
-| `openai/gpt-5.6-terra` | GPT-5.6 Terra |
-| `openai/gpt-5.6-terra-pro` | GPT-5.6 Terra Pro |
-| `openai/gpt-5.6-luna` | GPT-5.6 Luna |
-| `openai/gpt-5.6-luna-pro` | GPT-5.6 Luna Pro |
-
-**GPT-6 Astra** : contexte de 1,05M · effort de raisonnement : `low / medium / high / xhigh / max`.
-**GPT-6 Astra Pro** : contexte de 1,05M · raisonnement Pro toujours activé (`reasoning.mode = pro`), effort non sélectionnable par l'utilisateur.
-**GPT Astra Latest** : alias suivant le dernier modèle de la famille Astra.
-
-Préréglage intégré **OpenRouter: chatGPT** : Opus 5 → GPT-6 Astra / max · Sonnet 5 → GPT-6 Astra / high · Haiku 4.5 → GPT-6 Astra / medium.
-
-Également disponibles : **OpenRouter: Gemini** (Gemini 3.8 Flash · effort de raisonnement `low / medium / high`), **OpenRouter: Poolside**, **OpenRouter: Tencent**, **OpenRouter: InclusionAI**, **OpenRouter: StepFun**.
-
----
-
-## Tarifs de l’API DeepSeek (vérifiés le 19-10-2026)
-
-| ID du modèle | Entrée pointe (cache miss / hit) | Entrée heures creuses (cache miss / hit) | Sortie pointe | Sortie heures creuses |
-|---|---:|---:|---:|---:|
-| `deepseek-flash` | \$0.30 (\$0.006) | \$0.15 (\$0.003) | \$1.20 | \$0.60 |
-| `deepseek-v4-pro` | \$1.32 (\$0.044) | \$0.66 (\$0.022) | \$3.96 | \$1.98 |
-
-Tous les tarifs DeepSeek sont par million de tokens. Les heures de pointe sont de 01:00 à 04:00 et de 06:00 à 10:00 UTC en semaine, hors jours fériés chinois ; les week-ends et jours fériés sont entièrement en heures creuses. Poverello inclut les jours fériés chinois et jours travaillés compensatoires vérifiés pour 2026 et signale l’absence du calendrier de l’année suivante. Les tarifs des autres fournisseurs sont des références affichées dans l’application et peuvent changer. L’estimateur de coûts Orchestrator ne chiffre actuellement que les appels Anthropic Direct admissibles avec une utilisation du cache explicitement nulle ; il n’estime pas les coûts DeepSeek. Pour Pro, la page tarifaire actuelle publie des tarifs distincts et confirme la poursuite du service API après le 14 septembre 2026 ; toutefois, une annonce du 10 septembre décrivait un routage temporaire vers V4.1 Flash au tarif Flash jusqu’au lancement de V4.1-Pro. Poverello ne peut pas vérifier le routage ni la facturation de chaque requête ; les tarifs affichés sont ceux publiés, pas une facture ni une garantie. Voir les [tarifs actuels](https://api-docs.deepseek.com/quick_start/pricing/) et l’[annonce du 10 septembre](https://api-docs.deepseek.com/news/news260910/).
-
----
-
 ## Installation
 
 Téléchargez le dernier installateur Windows actuellement publié depuis la page [Releases](https://github.com/soheidon/poverello-coding-tools/releases) et exécutez-le.
@@ -276,31 +130,12 @@ L’installateur Windows prend en charge 8 langues. Poverello conserve l’ident
 2. Sélectionnez l'onglet **MCP** (ou **Paramètres > Antigravity MCP**) et configurez votre modèle dans **Paramètres > Antigravity MCP > Paramètres détaillés du plan MCP**.
 3. Enregistrez `anthro-bridge.exe` avec `["--mcp-server"]` sous la clé de serveur `poverello` dans la configuration MCP d'Antigravity (ou cliquez sur **Configurer automatiquement** dans Poverello).
 4. Utilisez `/pov-mcp-plan` pour concevoir des plans, `/pov-mcp-revise` pour mettre à jour des plans, et `/pov-mcp-review` pour réviser les implémentations avant le commit.
-5. Suivez le [Guide complet de configuration du MCP Antigravity](ANTIGRAVITY_MCP.fr.md).
+4. Suivez le [Guide complet de configuration du MCP Antigravity](ANTIGRAVITY_MCP.fr.md).
 
-### Flux de travail 4 : Orchestrateur de développement multi-agents
-
-**Note d'accès :** Dans la version 0.25.2, l’entrée Orchestrator est masquée dans la sous-navigation Settings, tandis que l’implémentation et les routes internes sont conservées. Lancez les workflows autonomes dans Antigravity avec `/pov-full-cycle`, `/pov-plan-only` ou `/pov-build-review`.
-
-### Workflow 5 : Antigravity Autocode et Skills & Rules
+### Workflow 4 : Antigravity Autocode et Skills & Rules
 1. Configurez External Review et Customize Coding Settings dans **Antigravity Autocode**. La politique choisie détermine les réviseurs appelés par les Workflow Skills.
 2. Dans **Settings > Antigravity Skills & Rules**, gérez Workflow Commands, CLI Tools, Task Presets, Global Rules et Nerf Skills. La réparation d’un Skill nécessite une confirmation et conserve une sauvegarde.
 3. Auto-Converge reste masqué ; le dispatch de production est désactivé et l’isolation Stage 2 n’est pas vérifiée.
-## Clés API
-
-| Fournisseur | Variable d'environnement |
-|---|---|
-| Anthropic | `ANTHROPIC_API_KEY` |
-| DeepSeek | `DEEPSEEK_API_KEY` |
-| GLM / Z.ai | `ZAI_API_KEY` |
-| Kimi Code | `KIMI_CODE_API_KEY` |
-| Kimi / Moonshot | `MOONSHOT_API_KEY` |
-| MiniMax | `MINIMAX_API_KEY` |
-| MiMo / Xiaomi | `XIAOMI_API_KEY` |
-| OpenRouter | `OPENROUTER_API_KEY` |
-
----
-
 ## Documentation
 
 - [Notes de version (NEWS.md)](../NEWS.md) — Fonctionnalités et détails d'implémentation par version
@@ -308,7 +143,6 @@ L’installateur Windows prend en charge 8 langues. Poverello conserve l’ident
 - [Ollama Local](OLLAMA_LOCAL.fr.md)
 - [Configuration de Google Antigravity + Poverello MCP](ANTIGRAVITY_MCP.fr.md)
 - [Référence de configuration (`config.json`)](CONFIGURATION.md)
-- [Détails des fournisseurs & contrôles de raisonnement](PROVIDERS.md)
 - [Guide de développement & de vérification](DEVELOPMENT.md)
 
 ---

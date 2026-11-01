@@ -2,24 +2,21 @@
 
 # Poverello Coding Tools
 
-> **v0.25.4:** 外部レビューとコーディング設定を行うAntigravity Autocodeタブ、設定内のCLI ToolsとWorkflow Skill修復機能、OpenRouter GPT-6.1 Terra / Terra Proに対応しました。Auto-Convergeは引き続き非表示で、本番ディスパッチは無効、Stage 2隔離は未検証です。リリース準備完了を示すものではありません。
-
-**Claude Code / Claude Desktop をコーディングハーネスとして使用し、推論をサードパーティ LLM API にルーティングします。対応済みのマルチエージェント計画・レビューとコスト見積もりを管理し、Google Antigravity の外部モデルやルールを統合管理します。**
+**Claude Code / Claude Desktop を開発環境として使い、推論を設定済みのクラウドまたはローカルモデルへルーティングし、Google Antigravity の外部モデルとルールを管理します。**
 
 Poverello Coding Tools（アプリ内表示名 **Poverello**）は、AI 支援ソフトウェア開発のための Windows コンパニオンアプリケーションです。5 つの主要ワークフローをサポートしています。
 
 1. **Claude Code / Claude Desktop 向け 3P ゲートウェイ** — Claude のリポジトリ探索、ツール使用、ファイル編集、テスト実行はそのままに、推論をサードパーティプロバイダーにルーティングします。
 2. **Claude Code 向けローカル LLM（Ollama）** — ローカルモデルを使って、Claude Code をオフラインで実行できます。
 3. **Google Antigravity 向け MCP プランナー & レビュアー** — `poverello/plan`、`poverello/revise`、`poverello/review` MCP ツールを通じて、実装計画と実装後レビューを外部モデルに委任します。
-4. **マルチエージェント開発オーケストレーター** — CLI／APIエージェントを横断して、対応済みの上限付きプラン・レビュー・ワークフローを実行し、正規化トークン使用量とレートスケジュール検証に基づくコスト見積もり（整数ナノドル）を追跡して監査可能なディスパッチジャーナルを維持します。
-5. **Antigravity Autocode と Skills & ルール** — Antigravity Autocodeタブで外部レビューとコーディング動作を設定し、設定画面でWorkflow Commands、CLI Tools、Task Presets、Global Rules、Nerf Skillsを管理します。
+4. **Antigravity Autocode と Skills & ルール** — Antigravity Autocodeタブで外部レビューとコーディング動作を設定し、設定画面でWorkflow Commands、CLI Tools、Task Presets、Global Rules、Nerf Skillsを管理します。
 
 > [!TIP]
 > **新実装の詳細はこちら**: バージョンごとの新機能や詳細な実装仕様・変更履歴については、[NEWS.md (リリースノート)](../NEWS.md) をご覧ください。
 
 ---
 
-## 5 つのメインワークフロー
+## 4 つのメインワークフロー
 
 ### 1. Claude Code / Claude Desktop と 3P ゲートウェイ
 
@@ -28,7 +25,7 @@ Claude Code / Claude Desktop
              ↓
   Poverello 3P Gateway
              ↓
-Anthropic Direct / DeepSeek / Kimi Code / OpenRouter / MiniMax / MiMo / GLM
+設定済みのクラウドまたはローカルモデル
 ```
 
 - **ハーネスとモデルの分離**: Claude のエージェント型ツールを活かしながら、推論をサードパーティプロバイダーや Anthropic 公式エンドポイントにルーティングします。
@@ -86,40 +83,7 @@ Antigravity がサブスクリプションの処理能力を使って
 /pov-mcp-plan → 実装 & テスト → /pov-mcp-review → コミット
 ```
 
-### 4. マルチエージェント開発オーケストレーター（対応ワークフロー & コスト見積もり）
-
-```text
-開発タスク / 要件
-        ↓
-+-------------------------------------------------------------+
-| Poverello Orchestrator                                      |
-|                                                             |
-|  [Planner プロファイル]  ⇄  [Reviewer プロファイル]         |
-|  （計画立案・修正）          （検証・監査・判定）            |
-|                                                             |
-|  • 上限付きプラン・レビュー（ターン上限）                  |
-|  • 完全なディスパッチ履歴（%APPDATA%\Poverello\runs\*.json）|
-|  • ナノドル精度コスト算出 & レートスケジュール検証          |
-|  • フェイルクローズ表示バッジ（Complete / Partial / N/A）   |
-+-------------------------------------------------------------+
-        ↓
-承認済み計画 / 監査ログ
-        ↓
-コーディングハーネスによる別途・ユーザー管理の実装
-```
-
-- **上限付き Planner–Reviewer プラン・レビュー**: プランナーとレビュアーに独立した LLM プロファイルを割り当て、対応済みの計画・レビュー作業を設定された上限内で実行します。
-- **安全不変条件 & 人間による確認**: 新しいプライマリ計画の策定には必ず人間の明示的な確認が必要です。実装と検証は別途、ユーザーが選んだコーディングハーネスで行います。
-- **監査可能なディスパッチジャーナル**: `%APPDATA%\Poverello\runs\<run_id>.json` には実行設定、任意のタスクプロンプト、ディスパッチのメタデータとペイロードダイジェスト、取得できた正規化使用量・コスト見積もり、Planner–Reviewer収束監査メタデータが記録されます。アダプターへ送る完全なプロンプトエンベロープやモデル応答本文はjournalには保存されません。
-- **正規化使用量 & レート検証済みコスト見積もり**:
-  - アダプターが対応形式の使用量を返した場合、`input_tokens`、`output_tokens`、`raw_total_tokens`、`cache_read_tokens`、`cache_write_tokens`（シリアライズ名 `cacheWriteTokens`）を正規化して記録します。未取得・未対応の使用量はゼロではなく不明として扱います。プロバイダー固有のキャッシュ作成使用量は `cache_write_tokens` に対応付けられます。
-  - 見積額はすべて整数ナノドル（`u64 amount_nanos`、1 USD = $10^9$ nanos、JSON シリアライズ時は 10 進数文字列）として扱います。これは対応するレートスケジュールに基づく見積もりであり、プロバイダーの請求書や実際の請求額ではありません。浮動小数点演算は使用しません。
-  - レートスケジュールの出所検証: スケジュール ID、プロバイダー、モデル名、通貨が検証済みスケジュール（同梱の Anthropic Opus 5.5 および Sonnet 5.5 レート等）と完全一致することを要求し、不一致や未登録は未算定（unpriced）としてフェイルクローズします。
-  - 現在の同梱コスト見積もりの対象は、Anthropic Direct Opus 5.5 / Sonnet 5.5 でキャッシュ各項目が明示的にゼロの、条件を満たす Planner–Reviewer収束ディスパッチに限定されます。他のプロバイダー、ルート、実行経路は未算定／利用不可であり、コストゼロを意味しません。
-  - UI 上のステータスバッジにより、見積もりの対象範囲が `Complete`、妥当な部分計が `Partial`、または見積もり不可が `Unavailable` であることを識別できます。
-  - `list_journals()` 呼び出し時に不変ディスパッチ記録から動的に再集計するため、古い保存データによる検証迂回を防止します。
-
-### 5. Antigravity Autocode と Skills & ルール管理
+### 4. Antigravity Autocode と Skills & ルール管理
 ```text
 Antigravity Autocode tab
   • External Review policy / reviewer configuration
@@ -132,136 +96,6 @@ Settings > Antigravity Skills & Rules
 ```
 
 - External ReviewとCustomize Coding SettingsはAntigravity Autocodeで設定します。SettingsではWorkflow Skill 3件、CLI Tools、Task Presets、Global Rules、Nerf Skillsを管理します。
-## 対応プロバイダー
-
-| プロバイダー | 接続方式 | 対応ファミリー | 推論コントロール |
-|---|---|---|---|
-| **Anthropic** | Direct API | Claude Opus 5.5, Sonnet 5.5, Haiku 4.5, 3.7 Sonnet | Adaptive thinking / 推論努力度 |
-| **DeepSeek** | Direct API | `deepseek-flash`（V4.1 Flash 1017）、`deepseek-v4-pro`（V4 Pro 0813） | Normal / Thinking · Low / High / Max |
-| **GLM (Z.ai)** | Direct API | GLM-5.3, GLM-5.3-Flash, GLM-5.3-FlashX, GLM-5.2 | GLM-5.3: Low / High / Max · GLM-5.2: Normal / Thinking |
-| **Kimi Code** | Direct API | kimi-for-coding, kimi-for-coding-highspeed | Thinking モード |
-| **MiniMax** | Direct API | MiniMax M3, M2.7 | モデル固有 |
-| **Kimi / Moonshot** | Direct API | Kimi K2.x, Kimi K3 | Thinking / 推論努力度 |
-| **MiMo / Xiaomi** | Direct API | MiMo V2.6 Flash, Pro, Pro-UltraSpeed（V2.5 後方互換あり） | Normal / Thinking |
-| **Ollama Local** | ローカルループバック | Gemma 4, Qwen 2.5, Llama 3.3, DeepSeek-R1 | Thinking (1024予算) / Disabled |
-| **OpenRouter** | マルチプロファイルゲートウェイ | 下記 OpenRouter セクション参照 | モデル固有 / プロファイル固有 |
-| **マルチプロバイダーゲートウェイ** | カスタムルート設定 | 上記の適格プロバイダーの任意の組み合わせ | プロバイダーごとの個別設定 |
-
-### Anthropic（ダイレクト）
-
-`https://api.anthropic.com` を利用する公式 Anthropic Direct API 接続（`ANTHROPIC_API_KEY`）:
-
-- **専用 API キー**: アプリケーション設定またはユーザー環境変数に安全に保存される公式 Anthropic キーを使用。
-- **対応モデル**: `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5`, `claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-3-5-haiku`。
-- **推論コントロール**: アップストリームが対応するネイティブのアダプティブ思考および推論努力度をサポート。
-- **トークン上限診断**: 思考のみで最終テキストが生成されないまま `stop_reason: "max_tokens"` に達したストリーミング・非ストリーミング応答を検知し、明確な診断エラーとしてフェイルクローズ。
-
-### DeepSeek（ダイレクト）
-
-組み込みの **Direct DeepSeek** プリセットは、公式の安定 API ID `deepseek-flash`（現在のモデルは DeepSeek-V4.1-Flash-1017）を使用します: Opus 5 → Max · Sonnet 5 → High · Haiku 4.5 → Low。
-
-- `deepseek-v4-pro` — API ID。現在の公式料金表では DeepSeek-V4-Pro-0813 として掲載されています。
-- 両モデルはコンテキスト長 1M、最大出力 384K token。Flash は画像入力に対応し、Pro は非対応です。
-- 旧 API ID `deepseek-v4-flash` と `deepseek-v4-flash-vision-exp` は、DeepSeek 側で Flash の別名として受け付けられ、Flash 料金で課金されます。
-
-### v0.25.3のモデルとThinkingの更新
-
-- MiniMax M3.1 Flash、Kimi K3.1 Pro / Highspeed、GLM-5.3 Directモデルを追加し、Kimi Code K3.1 IDを分離しました。
-- 8つのモデルIDはThinking専用で、無効化要求は上流送信前に拒否されます。Kimi Codeのmediumはhigh、xhighはmaxに正規化します。
-- 価格基準日は2026-10-31です。Kimi K3.1のUSD表示は公式CNY料金の参考換算で、請求用USD定価ではありません。OpenRouterは実行時価格を同梱フォールバックより優先します。
-
-### v0.25.4 Antigravity Autocode と OpenRouter の更新
-- 上部に **Antigravity Autocode** タブを追加し、External ReviewとコンパクトなCustomize Coding Settingsを配置しました。Reviewer presetを廃止し、Codex CLIとDeepSeek Harnessを個別に設定します。
-- 設定 > Antigravity Skills & RulesにCLI Tools管理と、Poverello Workflow Skill 3件の確認付き修復機能を追加しました。
-- OpenRouterに `openai/gpt-6.1-terra` と `openai/gpt-6.1-terra-pro` を追加し、モデル別の機能・推論・料金メタデータに対応しました。
-
-### GLM / Z.ai（ダイレクト）
-
-Z.ai 公式の Anthropic Messages 互換 API（`https://api.z.ai/api/anthropic/v1/messages`）を直接利用します。
-
-- **API キーと利用条件**: このエンドポイントには設定済みの `ZAI_API_KEY`（または Poverello に入力したキー）を使用します。Poverello はキー種別、Coding Plan の購入履歴、アカウントの許可状態、課金資格を判定しません。Z.ai のアカウントおよびエンドポイント要件は変わる場合があるため、利用前に[公式セットアップガイド](https://zcode.z.ai/en/docs/configuration)を確認してください。
-- **モデル**:
-  - `glm-5.3` — 常時思考のフラッグシップ推論モデル。
-  - `glm-5.3-flash` — 常時思考の高速推論モデル。
-  - `glm-5.3-flashx` — 常時思考の極低遅延推論モデル。
-  - `glm-5.2` — Normal / Thinking を切り替え可能な汎用コーディングモデル。
-- **推論コントロール**: GLM-5.3 ファミリーは推論努力度（`low`, `high`, `max`）を選択可能。GLM-5.2 は Normal / Thinking のトグル切り替えに対応。
-- **厳格な出力検証**: 思考ブロックのみで最終テキストが空の場合（思考中に `max_tokens` に達した場合など）、Orchestrator・MCP ともに成功扱いせず明示的なプロバイダーエラーとしてフェイルクローズし、空計画の実行や出力漏洩を防ぎます。
-
-### Kimi Code（ダイレクト）
-
-Moonshot Kimi とは別の、コーディング専用 API（`KIMI_CODE_API_KEY`）:
-
-- `kimi-for-coding` — フルクオリティのコーディングモデル。
-- `kimi-for-coding-highspeed` — 低レイテンシ版。
-
-### MiMo / Xiaomi（ダイレクト）
-
-組み込みの **Direct MiMo** プリセットルート:
-- Opus 5 → `mimo-v2.6-pro` / Thinking
-- Sonnet 5 → `mimo-v2.6-pro` / Normal
-- Haiku 4.5 → `mimo-v2.6-flash` / Thinking
-- デフォルトモデル: `mimo-v2.6-flash`
-
-モデル: `mimo-v2.6-flash`、`mimo-v2.6-pro`、`mimo-v2.6-pro-ultraspeed`（選択可能）。3 つすべてが 100 万トークンのコンテキストウィンドウとネイティブマルチモーダル機能（テキスト、画像、動画）に対応。
-
-**Normal / Thinking**: MiMo はシンプルな Normal/Thinking の切り替えのみ — 推論努力度レベルはありません。
-
-**V2.5 後方互換性**: 保存済みの `mimo-v2.5`、`mimo-v2.5-pro`、`mimo-v2.5-pro-ultraspeed` ルートはそのまま機能し続けます。変更されていないレガシーデフォルトは起動時に自動的に V2.6 へ移行します。
-
-### 専用ローカル LLM（Ollama Local）
-
-**Claude Code CLI 専用** のローカル推論バックエンド：
-- エンドポイント: `http://127.0.0.1:11434/v1`（ネイティブ Anthropic messages ループバック）
-- ループバック `/api/tags` からインストール済みモデルを自動検出
-- エイリアスごとの思考予算（1024トークン）およびコンテキスト長（`num_ctx`）設定
-- 詳細は [Ollama Local ガイド](OLLAMA_LOCAL.ja.md) をご覧ください
-
-### OpenRouter
-
-複数の名前付きプロファイルをサポート。単一ドロップダウンで選択できる現在のOpenAIモデルカタログ（15モデル）:
-
-| モデル ID | 表示名 |
-|---|---|
-| `openai/gpt-6.1-sol` | GPT-6.1 Sol |
-| `openai/gpt-6.1-sol-pro` | GPT-6.1 Sol Pro |
-| `openai/gpt-6.1-terra` | GPT-6.1 Terra |
-| `openai/gpt-6.1-terra-pro` | GPT-6.1 Terra Pro |
-| `openai/gpt-6-sol` | GPT-6 Sol |
-| `openai/gpt-6-sol-pro` | GPT-6 Sol Pro |
-| `openai/gpt-6-luna` | GPT-6 Luna |
-| `openai/gpt-6-luna-pro` | GPT-6 Luna Pro |
-| `openai/gpt-6-astra` | GPT-6 Astra |
-| `openai/gpt-6-astra-pro` | GPT-6 Astra Pro |
-| `openai/gpt-astra-latest` | GPT Astra Latest |
-| `openai/gpt-5.6-sol` | GPT-5.6 Sol |
-| `openai/gpt-5.6-sol-pro` | GPT-5.6 Sol Pro |
-| `openai/gpt-5.6-terra` | GPT-5.6 Terra |
-| `openai/gpt-5.6-terra-pro` | GPT-5.6 Terra Pro |
-| `openai/gpt-5.6-luna` | GPT-5.6 Luna |
-| `openai/gpt-5.6-luna-pro` | GPT-5.6 Luna Pro |
-
-**GPT-6 Astra**: コンテキスト 1.05M · 推論努力度: `low / medium / high / xhigh / max`。
-**GPT-6 Astra Pro**: コンテキスト 1.05M · 常時 Pro 推論（`reasoning.mode = pro`）、ユーザーによる努力度選択不可。
-**GPT Astra Latest**: 最新の Astra ファミリーモデルを追跡するエイリアス。
-
-組み込みの **OpenRouter: chatGPT** プリセット: Opus 5 → GPT-6 Astra / max · Sonnet 5 → GPT-6 Astra / high · Haiku 4.5 → GPT-6 Astra / medium。
-
-その他利用可能: **OpenRouter: Gemini**（Gemini 3.8 Flash · 推論努力度 `low / medium / high`）、**OpenRouter: Poolside**、**OpenRouter: Tencent**、**OpenRouter: InclusionAI**、**OpenRouter: StepFun**。
-
----
-
-## DeepSeek API 料金（2026-10-19 確認）
-
-| モデル ID | Peak 入力（キャッシュミス / ヒット） | Off-peak 入力（キャッシュミス / ヒット） | Peak 出力 | Off-peak 出力 |
-|---|---:|---:|---:|---:|
-| `deepseek-flash` | \$0.30（\$0.006） | \$0.15（\$0.003） | \$1.20 | \$0.60 |
-| `deepseek-v4-pro` | \$1.32（\$0.044） | \$0.66（\$0.022） | \$3.96 | \$1.98 |
-
-DeepSeek の料金は 100 万 token あたりです。平日の UTC 01:00–04:00 と 06:00–10:00（中国の法定休日を除く）が Peak、週末と休日は終日 Off-peak です。Poverello は確認済みの 2026 年中国休日・振替出勤日を同梱し、翌年のカレンダーが未収録の場合は画面に表示します。他プロバイダーの料金はアプリ内の参考値で、変更される場合があります。Orchestrator のコスト見積もりは現在、cache 使用量が明示的にゼロの対象 Anthropic Direct 実行のみを計算し、DeepSeek は対象外です。Proについては、現在の公式料金表に個別料金が掲載され、2026年9月14日以降もAPI提供を継続したと記載されています。一方、9月10日の告知ではV4.1-Pro公開までV4.1 Flashへ一時転送しFlash料金を適用するとされていました。Poverelloはリクエストごとの転送先・請求額を確認できません。表示額は公開料金表の値であり、請求額や保証ではありません。[現在の公式料金表](https://api-docs.deepseek.com/quick_start/pricing/)と[9月10日の告知](https://api-docs.deepseek.com/news/news260910/)をご確認ください。
-
----
-
 ## インストール
 
 [Releases](https://github.com/soheidon/poverello-coding-tools/releases) ページから最新の公開済み Windows インストーラーをダウンロードして実行してください。
@@ -294,38 +128,18 @@ Windowsインストーラーは8言語に対応しています。Poverelloは既
 2. **MCP** タブ（または **設定 > Antigravity MCP**）を選択し、**設定 > Antigravity MCP > MCP Plan 詳細設定** でモデルを設定します。
 3. Antigravity の MCP 設定で `anthro-bridge.exe` を `["--mcp-server"]` 付きで登録します（または Poverello の **Configure Automatically** をクリックします）。
 4. `/pov-mcp-plan` で計画を作成し、`/pov-mcp-revise` で計画を更新し、`/pov-mcp-review` でコミット前に実装をレビューします。
-5. 完全な [Antigravity MCP セットアップガイド](ANTIGRAVITY_MCP.ja.md) に従ってください。
+4. 完全な [Antigravity MCP セットアップガイド](ANTIGRAVITY_MCP.ja.md) に従ってください。
 
-### ワークフロー 4: マルチエージェント開発オーケストレーター
-
-**アクセスに関する注意:** v0.25.4ではAntigravity Autocodeを上部タブに追加しました。OrchestratorとAuto-Convergeは通常ナビゲーションから非表示で、本番ディスパッチは無効、Stage 2隔離は未検証です。
-
-### ワークフロー 5: Antigravity Autocode と Skills & ルール管理
+### ワークフロー 4: Antigravity Autocode と Skills & ルール管理
 1. **Antigravity Autocode**タブでExternal ReviewとCustomize Coding Settingsを設定します。選択ポリシーがWorkflow Skillのレビュアー利用を制御します。
 2. **設定 > Antigravity Skills & Rules**でWorkflow Commands、CLI Tools、Task Presets、Global Rules、Nerf Skillsを管理します。Skill修復は確認後に実行し、バックアップを保存します。
 3. Auto-Convergeは非表示、本番ディスパッチは無効、Stage 2隔離は未検証です。
-## API キー
-
-| プロバイダー | 環境変数 |
-|---|---|
-| Anthropic | `ANTHROPIC_API_KEY` |
-| DeepSeek | `DEEPSEEK_API_KEY` |
-| GLM / Z.ai | `ZAI_API_KEY` |
-| Kimi Code | `KIMI_CODE_API_KEY` |
-| Kimi / Moonshot | `MOONSHOT_API_KEY` |
-| MiniMax | `MINIMAX_API_KEY` |
-| MiMo / Xiaomi | `XIAOMI_API_KEY` |
-| OpenRouter | `OPENROUTER_API_KEY` |
-
----
-
 ## ドキュメント
 
 - [リリースノート (NEWS.md)](../NEWS.md) — 新実装の詳細およびバージョン変更履歴
 - [Claude Desktop / Cowork 3P ゲートウェイ セットアップ](THIRD_PARTY_INFERENCE.ja.md)
 - [Google Antigravity + Poverello MCP セットアップ](ANTIGRAVITY_MCP.ja.md)
 - [設定リファレンス（`config.json`）](CONFIGURATION.md)
-- [プロバイダー詳細 & 推論コントロール](PROVIDERS.md)
 - [開発 & 検証ガイド](DEVELOPMENT.md)
 
 ---
