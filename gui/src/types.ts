@@ -251,16 +251,52 @@ export interface GlobalRuleItemInfo {
 }
 
 export type ReviewerPolicy = "none" | "codex_only" | "codex_plus_deepseek";
+export type ReviewerPreset = "fast" | "standard" | "strict" | "custom";
+
+export interface CodexReviewerConfig {
+  model: string;
+  reasoning_effort: string;
+}
+
+export interface DeepSeekReviewerConfig {
+  model: string;
+  reasoning_effort: string;
+}
 
 export interface ReviewerPolicyConfig {
   schema_version: number;
   policy: ReviewerPolicy;
+  preset?: ReviewerPreset | null;
+  codex?: CodexReviewerConfig | null;
+  deepseek?: DeepSeekReviewerConfig | null;
   content_hash?: string | null;
 }
 
 export interface WorkflowSkillsPolicyStatus {
   compliant: boolean;
   details: AntigravityCommandItemInfo[];
+}
+
+export interface CliToolInfo {
+  name: string;
+  display_name: string;
+  installed: boolean;
+  path: string | null;
+  installed_version: string | null;
+  latest_version: string | null;
+  package_name: string;
+  is_preview: boolean;
+  update_available: boolean;
+}
+
+export interface CodexAccountInfo {
+  installed: boolean;
+  executable_path: string | null;
+  version: string | null;
+  auth_method: string | null;
+  account_identity: string | null;
+  config_profile: string | null;
+  requires_openai_auth: boolean | null;
 }
 
 export interface AntigravityGlobalRuleStatus {

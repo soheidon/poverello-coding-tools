@@ -8,8 +8,8 @@ description: 承認済み計画に基づく実装・テスト、外部Codex/Deep
 ## 役割
 
 - Antigravity：進行管理、実装、テスト実行、自己レビュー、是正実装、証拠整理を行う。
-- Codex：外部`codex exec`（`gpt-6-luna`、`medium`）で独立実装レビューを行う。
-- DeepSeek：外部`dsh headless`で独立実装レビューを行う。
+- Codex：外部`codex exec`（`pov-reviewer-policy.json` に指定されたモデルおよび推論強度。デフォルト: `gpt-6-luna`、`medium`）で独立実装レビューを行う。
+- DeepSeek：外部`dsh headless`（`pov-reviewer-policy.json` に指定されたモデルおよび推論強度。デフォルト: `deepseek-flash`、`high`）で独立実装レビューを行う。
 - 外部Reviewer構成は、共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json`（他OSでは対応するホームディレクトリ配下）の設定に従う。
 - 実装コード、テスト、設定を変更できるのはAntigravityだけである。外部Reviewerはread-onlyとする。
 - `pov-mcp-plan`、`pov-mcp-review`、`pov-mcp-revise`はPoverello MCP用の別Skillであり、このSkillから呼ばない。
@@ -21,7 +21,7 @@ description: 承認済み計画に基づく実装・テスト、外部Codex/Deep
 - 実装報告、レビュー結果、是正計画、テスト結果、最終判定を正本計画書へ簡潔に記録する。
 - レビュー実行前に実効ポリシー（評価優先順位: Evaluation Precedence）を決定する:
   1. **実行時明示指定:** コマンドライン引数（`--review none` 等）またはユーザープロンプト内の明示指示（「Codex CLI や DeepSeek Harness によるレビューは不要」「外部レビュー不要」等）が存在する場合は、最優先でその値を実効ポリシーとする。
-  2. **GUI設定ファイル:** 実行時指定がない場合、共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` を読み取る。`policy` が `"none"`、`"codex_only"`、`"codex_plus_deepseek"` のいずれかであればその値を採用する（`schema_version: 1` の場合はマイグレーション規約により `none`）。
+  2. **GUI設定ファイル:** 実行時指定がない場合、共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` を読み取る。`policy` が `"none"`、`"codex_only"`、`"codex_plus_deepseek"` のいずれかであればその値を採用する（`schema_version: 1` の場合はマイグレーション規約により `none`）。Reviewer実行時のモデルおよび推論強度は同設定内の `codex`（`model`, `reasoning_effort`）および `deepseek`（`model`, `reasoning_effort`）に従う。
   3. **安全側既定値 (Fail-Safe):** ファイル不在、構文エラー、未知の policy 値、未対応 schema_version、書込障害等の例外時は、安全側既定値 `none` (`Disabled`) を適用する。
 - `codex_only` では Codex CLI のみを使用し、DeepSeek Harness は起動・待機・比較・Synthesis のいずれにも使用しない。DeepSeek Rule の有無も要求しない。Codex CLI 失敗時に他Reviewerへ暗黙フォールバックしない。
 - `codex_plus_deepseek` では Codex と DeepSeek に同一ハッシュの実装、差分、承認済み計画、実装者テスト証拠を渡し、互いの回答を見せない。

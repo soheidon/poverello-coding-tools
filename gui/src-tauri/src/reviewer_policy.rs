@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-pub const CURRENT_REVIEWER_POLICY_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_REVIEWER_POLICY_SCHEMA_VERSION: u32 = 3;
+
+static MODEL_CATALOG_JSON: &str = include_str!("../../src/shared/model_catalog.json");
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -12,10 +14,37 @@ pub enum ReviewerPolicy {
     CodexPlusDeepseek,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewerPreset {
+    Fast,
+    Standard,
+    Strict,
+    Custom,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CodexReviewerConfig {
+    pub model: String,
+    pub reasoning_effort: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeepSeekReviewerConfig {
+    pub model: String,
+    pub reasoning_effort: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReviewerPolicyConfig {
     pub schema_version: u32,
     pub policy: ReviewerPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<ReviewerPreset>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex: Option<CodexReviewerConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepseek: Option<DeepSeekReviewerConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_hash: Option<String>,
 }
@@ -25,6 +54,9 @@ impl Default for ReviewerPolicyConfig {
         Self {
             schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
             policy: ReviewerPolicy::None,
+            preset: None,
+            codex: None,
+            deepseek: None,
             content_hash: None,
         }
     }
@@ -34,6 +66,160 @@ impl Default for ReviewerPolicyConfig {
 pub struct WorkflowSkillsPolicyStatus {
     pub compliant: bool,
     pub details: Vec<crate::AntigravityCommandItemInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CatalogReviewerModel {
+    pub cli_model_id: String,
+    pub reviewer_reasoning_efforts: Vec<String>,
+    pub reviewer_default_effort: String,
+}
+
+pub struct ReviewerCatalog {
+    pub codex_models: Vec<CatalogReviewerModel>,
+    pub deepseek_models: Vec<CatalogReviewerModel>,
+}
+
+pub fn load_reviewer_catalog() -> Result<ReviewerCatalog, String> {
+    let parsed: serde_json::Value = serde_json::from_str(MODEL_CATALOG_JSON)
+        .map_err(|e| format!("Failed to parse embedded model_catalog.json: {e}"))?;
+
+    let models = parsed
+        .get("models")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| "model_catalog.json missing 'models' object".to_string())?;
+
+    let mut codex_models = Vec::new();
+    let mut deepseek_models = Vec::new();
+
+    for (_key, model_val) in models {
+        let caps = match model_val.get("capabilities").and_then(|c| c.as_object()) {
+            Some(c) => c,
+            None => continue,
+        };
+
+        let cli_id = caps
+            .get("cliModelId")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+
+        let efforts: Vec<String> = caps
+            .get("reviewerReasoningEfforts")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|e| e.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let default_effort = caps
+            .get("reviewerDefaultEffort")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+
+        if caps.get("codexReviewerEligible").and_then(|v| v.as_bool()).unwrap_or(false) {
+            codex_models.push(CatalogReviewerModel {
+                cli_model_id: cli_id.clone(),
+                reviewer_reasoning_efforts: efforts.clone(),
+                reviewer_default_effort: default_effort.clone(),
+            });
+        }
+
+        if caps.get("deepseekReviewerEligible").and_then(|v| v.as_bool()).unwrap_or(false) {
+            deepseek_models.push(CatalogReviewerModel {
+                cli_model_id: cli_id,
+                reviewer_reasoning_efforts: efforts,
+                reviewer_default_effort: default_effort,
+            });
+        }
+    }
+
+    Ok(ReviewerCatalog {
+        codex_models,
+        deepseek_models,
+    })
+}
+
+pub fn validate_reviewer_policy_config(config: &ReviewerPolicyConfig) -> Result<(), String> {
+    if config.schema_version != CURRENT_REVIEWER_POLICY_SCHEMA_VERSION {
+        return Err(format!(
+            "Invalid schema_version: expected {}, got {}",
+            CURRENT_REVIEWER_POLICY_SCHEMA_VERSION, config.schema_version
+        ));
+    }
+
+    let catalog = load_reviewer_catalog()?;
+
+    match config.policy {
+        ReviewerPolicy::None => {
+            if let Some(codex) = &config.codex {
+                validate_codex_config(codex, &catalog)?;
+            }
+            if let Some(deepseek) = &config.deepseek {
+                validate_deepseek_config(deepseek, &catalog)?;
+            }
+        }
+        ReviewerPolicy::CodexOnly => {
+            let codex = config
+                .codex
+                .as_ref()
+                .ok_or_else(|| "codex configuration is required when policy is codex_only".to_string())?;
+            validate_codex_config(codex, &catalog)?;
+            if let Some(deepseek) = &config.deepseek {
+                validate_deepseek_config(deepseek, &catalog)?;
+            }
+        }
+        ReviewerPolicy::CodexPlusDeepseek => {
+            let codex = config
+                .codex
+                .as_ref()
+                .ok_or_else(|| "codex configuration is required when policy is codex_plus_deepseek".to_string())?;
+            validate_codex_config(codex, &catalog)?;
+
+            let deepseek = config
+                .deepseek
+                .as_ref()
+                .ok_or_else(|| "deepseek configuration is required when policy is codex_plus_deepseek".to_string())?;
+            validate_deepseek_config(deepseek, &catalog)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_codex_config(codex: &CodexReviewerConfig, catalog: &ReviewerCatalog) -> Result<(), String> {
+    let model_entry = catalog
+        .codex_models
+        .iter()
+        .find(|m| m.cli_model_id == codex.model)
+        .ok_or_else(|| format!("Model '{}' is not eligible for Codex reviewer", codex.model))?;
+
+    if !model_entry.reviewer_reasoning_efforts.contains(&codex.reasoning_effort) {
+        return Err(format!(
+            "Reasoning effort '{}' is not supported for Codex reviewer model '{}' (supported: {:?})",
+            codex.reasoning_effort, codex.model, model_entry.reviewer_reasoning_efforts
+        ));
+    }
+    Ok(())
+}
+
+fn validate_deepseek_config(deepseek: &DeepSeekReviewerConfig, catalog: &ReviewerCatalog) -> Result<(), String> {
+    let model_entry = catalog
+        .deepseek_models
+        .iter()
+        .find(|m| m.cli_model_id == deepseek.model)
+        .ok_or_else(|| format!("Model '{}' is not eligible for DeepSeek reviewer", deepseek.model))?;
+
+    if !model_entry.reviewer_reasoning_efforts.contains(&deepseek.reasoning_effort) {
+        return Err(format!(
+            "Reasoning effort '{}' is not supported for DeepSeek reviewer model '{}' (supported: {:?})",
+            deepseek.reasoning_effort, deepseek.model, model_entry.reviewer_reasoning_efforts
+        ));
+    }
+    Ok(())
 }
 
 fn ensure_no_reparse(path: &Path) -> Result<(), String> {
@@ -89,7 +275,45 @@ pub fn inspect_workflow_skills_policy_compliance(
     })
 }
 
-fn try_migrate_v1_to_v2_at(policy_path: &Path) -> Result<String, String> {
+fn build_v2_migrated_config(old_policy: ReviewerPolicy) -> ReviewerPolicyConfig {
+    match old_policy {
+        ReviewerPolicy::None => ReviewerPolicyConfig {
+            schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
+            policy: ReviewerPolicy::None,
+            preset: None,
+            codex: None,
+            deepseek: None,
+            content_hash: None,
+        },
+        ReviewerPolicy::CodexOnly => ReviewerPolicyConfig {
+            schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
+            policy: ReviewerPolicy::CodexOnly,
+            preset: None,
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6-luna".to_string(),
+                reasoning_effort: "medium".to_string(),
+            }),
+            deepseek: None,
+            content_hash: None,
+        },
+        ReviewerPolicy::CodexPlusDeepseek => ReviewerPolicyConfig {
+            schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
+            policy: ReviewerPolicy::CodexPlusDeepseek,
+            preset: None,
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6-luna".to_string(),
+                reasoning_effort: "medium".to_string(),
+            }),
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "low".to_string(),
+            }),
+            content_hash: None,
+        },
+    }
+}
+
+fn write_atomic_policy_file(policy_path: &Path, config: &ReviewerPolicyConfig) -> Result<String, String> {
     let parent = policy_path
         .parent()
         .ok_or_else(|| "Policy path has no parent directory".to_string())?;
@@ -97,14 +321,8 @@ fn try_migrate_v1_to_v2_at(policy_path: &Path) -> Result<String, String> {
     ensure_no_reparse(parent)?;
     ensure_no_reparse(policy_path)?;
 
-    let config_to_write = ReviewerPolicyConfig {
-        schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
-        policy: ReviewerPolicy::None,
-        content_hash: None,
-    };
-
-    let serialized = serde_json::to_vec_pretty(&config_to_write)
-        .map_err(|e| format!("Failed to serialize migrated reviewer policy: {e}"))?;
+    let serialized = serde_json::to_vec_pretty(config)
+        .map_err(|e| format!("Failed to serialize reviewer policy: {e}"))?;
 
     let temp_name = format!(
         ".pov-reviewer-policy.json.tmp-mig-{}",
@@ -135,6 +353,21 @@ fn try_migrate_v1_to_v2_at(policy_path: &Path) -> Result<String, String> {
     let hash = format!("{:x}", Sha256::digest(&serialized));
     Ok(hash)
 }
+
+fn try_migrate_v1_to_v3_at(policy_path: &Path) -> Result<String, String> {
+    let config = build_v2_migrated_config(ReviewerPolicy::None);
+    write_atomic_policy_file(policy_path, &config)
+}
+
+fn try_migrate_v2_to_v3_at(
+    policy_path: &Path,
+    old_policy: ReviewerPolicy,
+) -> Result<(ReviewerPolicyConfig, String), String> {
+    let config = build_v2_migrated_config(old_policy);
+    let hash = write_atomic_policy_file(policy_path, &config)?;
+    Ok((config, hash))
+}
+
 pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyConfig, String> {
     if let Some(parent) = policy_path.parent() {
         if parent.exists() {
@@ -145,7 +378,6 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
     let meta = match std::fs::symlink_metadata(policy_path) {
         Ok(m) => m,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            // Missing file returns safe default (none)
             return Ok(ReviewerPolicyConfig::default());
         }
         Err(e) => return Err(format!("Cannot inspect policy file metadata: {e}")),
@@ -184,22 +416,43 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
     };
 
     if version == 1 {
-        // Safe v1 -> v2 migration: Reset to None and persist to disk (best-effort)
-        match try_migrate_v1_to_v2_at(policy_path) {
+        match try_migrate_v1_to_v3_at(policy_path) {
             Ok(new_hash) => {
                 return Ok(ReviewerPolicyConfig {
                     schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
                     policy: ReviewerPolicy::None,
+                    preset: None,
+                    codex: None,
+                    deepseek: None,
                     content_hash: Some(new_hash),
                 });
             }
             Err(e) => {
-                eprintln!("Warning: Failed to persist migrated v2 policy to {}: {e}", policy_path.display());
-                return Ok(ReviewerPolicyConfig {
-                    schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
-                    policy: ReviewerPolicy::None,
-                    content_hash: None,
-                });
+                eprintln!("Warning: Failed to persist migrated v3 policy from v1 to {}: {e}", policy_path.display());
+                return Ok(ReviewerPolicyConfig::default());
+            }
+        }
+    }
+
+    if version == 2 {
+        let old_policy_str = parsed.get("policy").and_then(|v| v.as_str()).unwrap_or("none");
+        let old_policy = match old_policy_str {
+            "codex_only" => ReviewerPolicy::CodexOnly,
+            "codex_plus_deepseek" => ReviewerPolicy::CodexPlusDeepseek,
+            _ => ReviewerPolicy::None,
+        };
+
+        match try_migrate_v2_to_v3_at(policy_path, old_policy) {
+            Ok((migrated_config, new_hash)) => {
+                let mut c = migrated_config;
+                c.content_hash = Some(new_hash);
+                return Ok(c);
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to persist migrated v3 policy from v2 to {}: {e}", policy_path.display());
+                let mut c = build_v2_migrated_config(old_policy);
+                c.content_hash = None;
+                return Ok(c);
             }
         }
     }
@@ -212,43 +465,36 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
         return Ok(ReviewerPolicyConfig::default());
     }
 
-    let policy_str = match parsed.get("policy").and_then(|v| v.as_str()) {
-        Some(s) => s,
-        None => {
-            eprintln!("Warning: Missing policy field at {}. Falling back to default none.", policy_path.display());
+    let mut config: ReviewerPolicyConfig = match serde_json::from_value(parsed) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Warning: Failed to deserialize schema v3 reviewer policy at {}: {e}. Falling back to default none.", policy_path.display());
             return Ok(ReviewerPolicyConfig::default());
         }
     };
 
-    let policy = match policy_str {
-        "none" => ReviewerPolicy::None,
-        "codex_only" => ReviewerPolicy::CodexOnly,
-        "codex_plus_deepseek" => ReviewerPolicy::CodexPlusDeepseek,
-        other => {
-            eprintln!("Warning: Unknown reviewer policy value '{other}' at {}. Falling back to default none.", policy_path.display());
-            ReviewerPolicy::None
-        }
-    };
+    if let Err(e) = validate_reviewer_policy_config(&config) {
+        eprintln!("Warning: Invalid reviewer policy configuration at {}: {e}. Falling back to default none.", policy_path.display());
+        return Ok(ReviewerPolicyConfig::default());
+    }
 
-    Ok(ReviewerPolicyConfig {
-        schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
-        policy,
-        content_hash: Some(hash),
-    })
+    config.preset = None; // per R2-C01: ignore legacy preset on load
+    config.content_hash = Some(hash);
+    Ok(config)
 }
 
 pub fn save_reviewer_policy_at(
     policy_path: &Path,
-    policy: ReviewerPolicy,
+    config: &ReviewerPolicyConfig,
     skills_root: &Path,
     expected_hash: Option<&str>,
 ) -> Result<ReviewerPolicyConfig, String> {
-    save_reviewer_policy_internal(policy_path, policy, skills_root, expected_hash, || Ok(()))
+    save_reviewer_policy_internal(policy_path, config, skills_root, expected_hash, || Ok(()))
 }
 
 pub(crate) fn save_reviewer_policy_internal<F>(
     policy_path: &Path,
-    policy: ReviewerPolicy,
+    config: &ReviewerPolicyConfig,
     skills_root: &Path,
     expected_hash: Option<&str>,
     pre_replace_hook: F,
@@ -256,6 +502,8 @@ pub(crate) fn save_reviewer_policy_internal<F>(
 where
     F: FnOnce() -> Result<(), String>,
 {
+    validate_reviewer_policy_config(config)?;
+
     let compliance = inspect_workflow_skills_policy_compliance(skills_root)?;
     if !compliance.compliant {
         return Err(
@@ -300,11 +548,10 @@ where
 
     ensure_no_reparse(policy_path)?;
 
-    let config_to_write = ReviewerPolicyConfig {
-        schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
-        policy,
-        content_hash: None,
-    };
+    let mut config_to_write = config.clone();
+    config_to_write.schema_version = CURRENT_REVIEWER_POLICY_SCHEMA_VERSION;
+    config_to_write.content_hash = None;
+    config_to_write.preset = None; // per R2-C01: do not write preset on save
 
     let serialized = serde_json::to_vec_pretty(&config_to_write)
         .map_err(|e| format!("Failed to serialize reviewer policy: {e}"))?;
@@ -355,11 +602,8 @@ where
         #[cfg(windows)]
         {
             if expected_hash.is_none() {
-                // Target must not exist. Move without MOVEFILE_REPLACE_EXISTING ensures
-                // it fails if target was created concurrently.
                 move_file_new_only_win(&temp_path, policy_path)?;
             } else {
-                // Target exists. ReplaceFileW with backup so we can verify the replaced bytes.
                 let backup_name = format!(".pov-reviewer-policy.json.bak-{}", uuid::Uuid::new_v4());
                 let backup_path = parent.join(&backup_name);
                 replace_file_with_backup_win(&temp_path, policy_path, &backup_path)?;
@@ -368,10 +612,8 @@ where
                 let replaced_hash = format!("{:x}", Sha256::digest(&replaced_bytes));
                 let expected = expected_hash.unwrap();
                 if !replaced_hash.eq_ignore_ascii_case(expected) {
-                    // Intervening change occurred at replacement: attempt rollback!
                     let restore_res = replace_file_win(&backup_path, policy_path);
                     if let Err(restore_err) = restore_res {
-                        // DO NOT remove backup! Retain it so user's content is preserved!
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::AlreadyExists,
                             format!(
@@ -394,7 +636,6 @@ where
         #[cfg(not(windows))]
         {
             if expected_hash.is_none() {
-                // Atomic no-replace on Unix: hard_link fails with EEXIST if destination exists
                 let link_res = std::fs::hard_link(&temp_path, policy_path);
                 let _ = std::fs::remove_file(&temp_path);
                 link_res.map_err(|e| {
@@ -420,7 +661,12 @@ where
     }
 
     let read_back = inspect_reviewer_policy_at(policy_path)?;
-    if read_back.schema_version != CURRENT_REVIEWER_POLICY_SCHEMA_VERSION || read_back.policy != policy {
+    if read_back.schema_version != CURRENT_REVIEWER_POLICY_SCHEMA_VERSION
+        || read_back.policy != config.policy
+        || read_back.preset != config_to_write.preset
+        || read_back.codex != config.codex
+        || read_back.deepseek != config.deepseek
+    {
         return Err("Policy written but read-back verification failed".to_string());
     }
 
@@ -443,7 +689,6 @@ fn move_file_new_only_win(temp: &Path, target: &Path) -> std::io::Result<()> {
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
-    // flags = 0 ensures it fails if target exists (rejects concurrent creation)
     let ok = unsafe { MoveFileExW(existing_w.as_ptr(), new_file_w.as_ptr(), 0) };
     if ok == 0 {
         Err(std::io::Error::last_os_error())
@@ -543,7 +788,6 @@ fn replace_file_conditional_unix(
     target: &Path,
     expected_hash: &str,
 ) -> Result<(), std::io::Error> {
-    // 1. Initial verification before swap/replace
     let initial_bytes = std::fs::read(target)?;
     let initial_hash = format!("{:x}", Sha256::digest(&initial_bytes));
     if !initial_hash.eq_ignore_ascii_case(expected_hash) {
@@ -555,18 +799,14 @@ fn replace_file_conditional_unix(
         ));
     }
 
-    // 2. Attempt atomic exchange (Linux renameat2 RENAME_EXCHANGE / macOS renamex_np RENAME_SWAP)
     let swapped = try_atomic_exchange_unix(temp, target);
     match swapped {
         Ok(()) => {
-            // temp now contains the replaced file bytes!
             let replaced_bytes = std::fs::read(temp)?;
             let replaced_hash = format!("{:x}", Sha256::digest(&replaced_bytes));
             if !replaced_hash.eq_ignore_ascii_case(expected_hash) {
-                // Intervening change occurred! Rollback by swapping back.
                 let swap_back = try_atomic_exchange_unix(temp, target);
                 if let Err(e) = swap_back {
-                    // Retain temp file so user data is never destroyed
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::AlreadyExists,
                         format!(
@@ -587,7 +827,6 @@ fn replace_file_conditional_unix(
             Ok(())
         }
         Err(_) => {
-            // Systems without atomic exchange: disable policy update to prevent race conditions per §6.2
             Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
                 "Atomic compare-and-replace exchange is not supported on this platform; policy update is disabled to prevent concurrent modification races per §6.2.",
@@ -680,22 +919,32 @@ mod tests {
         ];
 
         for skill_content in skills {
-            // 1. Must NOT contain legacy schema_version 1 default
             assert!(!skill_content.contains(r#"{"schema_version":1,"policy":"codex_plus_deepseek"}"#));
-
-            // 2. Must contain Evaluation Precedence logic
             assert!(skill_content.contains("Evaluation Precedence"));
             assert!(skill_content.contains("実行時明示指定"));
             assert!(skill_content.contains("pov-reviewer-policy.json"));
-
-            // 3. Must contain none policy contract with zero external calls and safe halt
             assert!(skill_content.contains("`none` の場合（外部レビュー無効）"));
             assert!(skill_content.contains("呼出数厳密に 0"));
             assert!(skill_content.contains("EXTERNAL REVIEW DISABLED"));
-
-            // 4. Must specify No-Fallback principle
             assert!(skill_content.contains("No-Fallback"));
         }
+    }
+
+    #[test]
+    fn catalog_eligible_models_loaded_correctly() {
+        let catalog = load_reviewer_catalog().expect("catalog must parse");
+        let codex_ids: Vec<_> = catalog.codex_models.iter().map(|m| m.cli_model_id.as_str()).collect();
+        assert!(codex_ids.contains(&"gpt-6-luna"));
+        assert!(codex_ids.contains(&"gpt-6.1-sol"));
+        assert!(codex_ids.contains(&"gpt-6.1-terra"));
+
+        let deepseek_ids: Vec<_> = catalog.deepseek_models.iter().map(|m| m.cli_model_id.as_str()).collect();
+        assert!(deepseek_ids.contains(&"deepseek-flash"));
+        assert!(deepseek_ids.contains(&"deepseek-v4-pro"));
+
+        let terra = catalog.codex_models.iter().find(|m| m.cli_model_id == "gpt-6.1-terra").unwrap();
+        assert!(terra.reviewer_reasoning_efforts.contains(&"none".to_string()));
+        assert!(terra.reviewer_reasoning_efforts.contains(&"high".to_string()));
     }
 
     #[test]
@@ -704,8 +953,11 @@ mod tests {
         let path = temp.path().join("pov-reviewer-policy.json");
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
         assert_eq!(loaded, ReviewerPolicyConfig::default());
-        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.schema_version, 3);
         assert_eq!(loaded.policy, ReviewerPolicy::None);
+        assert_eq!(loaded.preset, None);
+        assert_eq!(loaded.codex, None);
+        assert_eq!(loaded.deepseek, None);
         assert_eq!(loaded.content_hash, None);
     }
 
@@ -713,41 +965,60 @@ mod tests {
     fn valid_policy_round_trips() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pov-reviewer-policy.json");
-        let content = r#"{"schema_version":2,"policy":"codex_only"}"#;
+        let content = r#"{
+            "schema_version": 3,
+            "policy": "codex_plus_deepseek",
+            "preset": "standard",
+            "codex": {
+                "model": "gpt-6.1-terra",
+                "reasoning_effort": "high"
+            },
+            "deepseek": {
+                "model": "deepseek-flash",
+                "reasoning_effort": "high"
+            }
+        }"#;
         std::fs::write(&path, content).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 2);
-        assert_eq!(loaded.policy, ReviewerPolicy::CodexOnly);
+        assert_eq!(loaded.schema_version, 3);
+        assert_eq!(loaded.policy, ReviewerPolicy::CodexPlusDeepseek);
+        assert_eq!(loaded.preset, None);
+        assert_eq!(
+            loaded.codex,
+            Some(CodexReviewerConfig {
+                model: "gpt-6.1-terra".to_string(),
+                reasoning_effort: "high".to_string(),
+            })
+        );
+        assert_eq!(
+            loaded.deepseek,
+            Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "high".to_string(),
+            })
+        );
         assert!(loaded.content_hash.is_some());
-
-        let content_none = r#"{"schema_version":2,"policy":"none"}"#;
-        std::fs::write(&path, content_none).unwrap();
-        let loaded_none = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded_none.schema_version, 2);
-        assert_eq!(loaded_none.policy, ReviewerPolicy::None);
     }
 
     #[test]
-    fn v1_policy_migrates_to_v2_none_and_persists() {
+    fn v1_policy_migrates_to_v3_none_and_persists() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pov-reviewer-policy.json");
         std::fs::write(&path, r#"{"schema_version":1,"policy":"codex_only"}"#).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.schema_version, 3);
         assert_eq!(loaded.policy, ReviewerPolicy::None);
         assert!(loaded.content_hash.is_some());
 
-        // Verify on-disk file was atomically updated to v2 and none
         let on_disk_str = std::fs::read_to_string(&path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&on_disk_str).unwrap();
-        assert_eq!(parsed["schema_version"], 2);
+        assert_eq!(parsed["schema_version"], 3);
         assert_eq!(parsed["policy"], "none");
 
-        // Subsequent read reloads v2 none directly
         let reloaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(reloaded.schema_version, 2);
+        assert_eq!(reloaded.schema_version, 3);
         assert_eq!(reloaded.policy, ReviewerPolicy::None);
     }
 
@@ -757,24 +1028,57 @@ mod tests {
         let path = temp.path().join("pov-reviewer-policy.json");
         std::fs::write(&path, r#"{"schema_version":1,"policy":"codex_only"}"#).unwrap();
 
-        // Make file read-only on Windows so atomic rename replacement fails
         let mut perms = std::fs::metadata(&path).unwrap().permissions();
         perms.set_readonly(true);
         std::fs::set_permissions(&path, perms).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.schema_version, 3);
         assert_eq!(loaded.policy, ReviewerPolicy::None);
         assert_eq!(loaded.content_hash, None);
 
-        // Verify original file on disk remains v1 and untampered
         let disk_content = std::fs::read_to_string(&path).unwrap();
         assert!(disk_content.contains(r#""schema_version":1"#));
 
-        // Restore write permissions for cleanup
         let mut perms = std::fs::metadata(&path).unwrap().permissions();
         perms.set_readonly(false);
         std::fs::set_permissions(&path, perms).unwrap();
+    }
+
+    #[test]
+    fn v2_policy_migrates_to_v3_and_persists() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("pov-reviewer-policy.json");
+        std::fs::write(&path, r#"{"schema_version":2,"policy":"codex_plus_deepseek"}"#).unwrap();
+
+        let loaded = inspect_reviewer_policy_at(&path).unwrap();
+        assert_eq!(loaded.schema_version, 3);
+        assert_eq!(loaded.policy, ReviewerPolicy::CodexPlusDeepseek);
+        assert_eq!(loaded.preset, None);
+        assert_eq!(
+            loaded.codex,
+            Some(CodexReviewerConfig {
+                model: "gpt-6-luna".to_string(),
+                reasoning_effort: "medium".to_string(),
+            })
+        );
+        assert_eq!(
+            loaded.deepseek,
+            Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "low".to_string(),
+            })
+        );
+        assert!(loaded.content_hash.is_some());
+
+        let on_disk_str = std::fs::read_to_string(&path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&on_disk_str).unwrap();
+        assert_eq!(parsed["schema_version"], 3);
+        assert_eq!(parsed["policy"], "codex_plus_deepseek");
+        assert!(parsed.get("preset").is_none() || parsed["preset"].is_null());
+
+        let reloaded = inspect_reviewer_policy_at(&path).unwrap();
+        assert_eq!(reloaded, loaded);
     }
 
     #[test]
@@ -784,7 +1088,7 @@ mod tests {
         std::fs::write(&path, "{not-json}").unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.schema_version, 3);
         assert_eq!(loaded.policy, ReviewerPolicy::None);
         assert_eq!(loaded.content_hash, None);
     }
@@ -796,7 +1100,7 @@ mod tests {
         std::fs::write(&path, r#"{"schema_version":99,"policy":"codex_only"}"#).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.schema_version, 3);
         assert_eq!(loaded.policy, ReviewerPolicy::None);
     }
 
@@ -804,10 +1108,10 @@ mod tests {
     fn missing_policy_field_fails_safe_to_none() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pov-reviewer-policy.json");
-        std::fs::write(&path, r#"{"schema_version":2}"#).unwrap();
+        std::fs::write(&path, r#"{"schema_version":3}"#).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.schema_version, 3);
         assert_eq!(loaded.policy, ReviewerPolicy::None);
     }
 
@@ -815,11 +1119,139 @@ mod tests {
     fn unknown_policy_value_fails_safe_to_none() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pov-reviewer-policy.json");
-        std::fs::write(&path, r#"{"schema_version":2,"policy":"claude_super"}"#).unwrap();
+        std::fs::write(&path, r#"{"schema_version":3,"policy":"claude_super"}"#).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.schema_version, 3);
         assert_eq!(loaded.policy, ReviewerPolicy::None);
+    }
+
+    #[test]
+    fn validation_rejects_ineligible_codex_model() {
+        let config = ReviewerPolicyConfig {
+            schema_version: 3,
+            policy: ReviewerPolicy::CodexOnly,
+            preset: None,
+            codex: Some(CodexReviewerConfig {
+                model: "unknown-codex-model".to_string(),
+                reasoning_effort: "medium".to_string(),
+            }),
+            deepseek: None,
+            content_hash: None,
+        };
+        let err = validate_reviewer_policy_config(&config).unwrap_err();
+        assert!(err.contains("not eligible for Codex reviewer"));
+    }
+
+    #[test]
+    fn validation_rejects_unsupported_codex_effort() {
+        let config = ReviewerPolicyConfig {
+            schema_version: 3,
+            policy: ReviewerPolicy::CodexOnly,
+            preset: None,
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6.1-sol".to_string(),
+                reasoning_effort: "ultra".to_string(),
+            }),
+            deepseek: None,
+            content_hash: None,
+        };
+        let err = validate_reviewer_policy_config(&config).unwrap_err();
+        assert!(err.contains("Reasoning effort 'ultra' is not supported"));
+    }
+
+    #[test]
+    fn validation_rejects_ineligible_deepseek_model() {
+        let config = ReviewerPolicyConfig {
+            schema_version: 3,
+            policy: ReviewerPolicy::CodexPlusDeepseek,
+            preset: None,
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6-luna".to_string(),
+                reasoning_effort: "medium".to_string(),
+            }),
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-chat-unknown".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            content_hash: None,
+        };
+        let err = validate_reviewer_policy_config(&config).unwrap_err();
+        assert!(err.contains("not eligible for DeepSeek reviewer"));
+    }
+
+    #[test]
+    fn validation_rejects_unsupported_deepseek_effort() {
+        let config = ReviewerPolicyConfig {
+            schema_version: 3,
+            policy: ReviewerPolicy::CodexPlusDeepseek,
+            preset: None,
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6-luna".to_string(),
+                reasoning_effort: "medium".to_string(),
+            }),
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "medium".to_string(),
+            }),
+            content_hash: None,
+        };
+        let err = validate_reviewer_policy_config(&config).unwrap_err();
+        assert!(err.contains("Reasoning effort 'medium' is not supported"));
+    }
+
+    #[test]
+    fn validation_accepts_valid_presets() {
+        // Fast
+        let fast = ReviewerPolicyConfig {
+            schema_version: 3,
+            policy: ReviewerPolicy::CodexPlusDeepseek,
+            preset: Some(ReviewerPreset::Fast),
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6-luna".to_string(),
+                reasoning_effort: "medium".to_string(),
+            }),
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "low".to_string(),
+            }),
+            content_hash: None,
+        };
+        assert!(validate_reviewer_policy_config(&fast).is_ok());
+
+        // Standard
+        let standard = ReviewerPolicyConfig {
+            schema_version: 3,
+            policy: ReviewerPolicy::CodexPlusDeepseek,
+            preset: Some(ReviewerPreset::Standard),
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6.1-terra".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            content_hash: None,
+        };
+        assert!(validate_reviewer_policy_config(&standard).is_ok());
+
+        // Strict
+        let strict = ReviewerPolicyConfig {
+            schema_version: 3,
+            policy: ReviewerPolicy::CodexPlusDeepseek,
+            preset: Some(ReviewerPreset::Strict),
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6.1-sol".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-v4-pro".to_string(),
+                reasoning_effort: "max".to_string(),
+            }),
+            content_hash: None,
+        };
+        assert!(validate_reviewer_policy_config(&strict).is_ok());
     }
 
     #[test]
@@ -828,8 +1260,19 @@ mod tests {
         let temp_skills = tempfile::tempdir().unwrap();
         let policy_path = temp_ide.path().join("pov-reviewer-policy.json");
 
-        // With no skills installed, save must fail
-        let err = save_reviewer_policy_at(&policy_path, ReviewerPolicy::CodexOnly, temp_skills.path(), None)
+        let config = ReviewerPolicyConfig {
+            schema_version: 3,
+            policy: ReviewerPolicy::CodexOnly,
+            preset: None,
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6-luna".to_string(),
+                reasoning_effort: "medium".to_string(),
+            }),
+            deepseek: None,
+            content_hash: None,
+        };
+
+        let err = save_reviewer_policy_at(&policy_path, &config, temp_skills.path(), None)
             .unwrap_err();
         assert!(err.contains("must be installed and up-to-date"));
         assert!(!policy_path.exists());
@@ -841,24 +1284,42 @@ mod tests {
         let temp_skills = tempfile::tempdir().unwrap();
         let policy_path = temp_ide.path().join("pov-reviewer-policy.json");
 
-        // Install all 3 workflow skills into temp_skills
         for name in ["pov-plan-only", "pov-build-review", "pov-full-cycle"] {
             crate::install_antigravity_command_at(temp_skills.path(), name).unwrap();
         }
 
-        let saved = save_reviewer_policy_at(&policy_path, ReviewerPolicy::None, temp_skills.path(), None)
+        let none_config = ReviewerPolicyConfig::default();
+        let saved = save_reviewer_policy_at(&policy_path, &none_config, temp_skills.path(), None)
             .unwrap();
         assert_eq!(saved.policy, ReviewerPolicy::None);
-        assert_eq!(saved.schema_version, 2);
+        assert_eq!(saved.schema_version, 3);
         assert!(saved.content_hash.is_some());
 
         let reloaded = inspect_reviewer_policy_at(&policy_path).unwrap();
         assert_eq!(reloaded, saved);
 
-        let saved_codex = save_reviewer_policy_at(&policy_path, ReviewerPolicy::CodexOnly, temp_skills.path(), saved.content_hash.as_deref())
-            .unwrap();
+        let codex_config = ReviewerPolicyConfig {
+            schema_version: 3,
+            policy: ReviewerPolicy::CodexOnly,
+            preset: Some(ReviewerPreset::Fast),
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6-luna".to_string(),
+                reasoning_effort: "medium".to_string(),
+            }),
+            deepseek: None,
+            content_hash: None,
+        };
+
+        let saved_codex = save_reviewer_policy_at(
+            &policy_path,
+            &codex_config,
+            temp_skills.path(),
+            saved.content_hash.as_deref(),
+        )
+        .unwrap();
         assert_eq!(saved_codex.policy, ReviewerPolicy::CodexOnly);
-        assert_eq!(saved_codex.schema_version, 2);
+        assert_eq!(saved_codex.schema_version, 3);
+        assert_eq!(saved_codex.codex, codex_config.codex);
     }
 
     #[test]
@@ -871,15 +1332,29 @@ mod tests {
             crate::install_antigravity_command_at(temp_skills.path(), name).unwrap();
         }
 
-        // 1. Initial save without expected_hash when file is absent succeeds
-        let initial = save_reviewer_policy_at(&policy_path, ReviewerPolicy::None, temp_skills.path(), None)
+        let initial_config = ReviewerPolicyConfig::default();
+        let initial = save_reviewer_policy_at(&policy_path, &initial_config, temp_skills.path(), None)
             .unwrap();
         let hash1 = initial.content_hash.expect("must have content hash");
 
-        // 2. Saving with correct expected_hash succeeds
+        let codex_plus = ReviewerPolicyConfig {
+            schema_version: 3,
+            policy: ReviewerPolicy::CodexPlusDeepseek,
+            preset: Some(ReviewerPreset::Fast),
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6-luna".to_string(),
+                reasoning_effort: "medium".to_string(),
+            }),
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "low".to_string(),
+            }),
+            content_hash: None,
+        };
+
         let updated = save_reviewer_policy_at(
             &policy_path,
-            ReviewerPolicy::CodexPlusDeepseek,
+            &codex_plus,
             temp_skills.path(),
             Some(&hash1),
         )
@@ -887,31 +1362,40 @@ mod tests {
         let hash2 = updated.content_hash.expect("must have updated content hash");
         assert_ne!(hash1, hash2);
 
-        // 3. Saving with stale hash1 fails with conflict
+        let codex_only = ReviewerPolicyConfig {
+            schema_version: 3,
+            policy: ReviewerPolicy::CodexOnly,
+            preset: Some(ReviewerPreset::Fast),
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6-luna".to_string(),
+                reasoning_effort: "medium".to_string(),
+            }),
+            deepseek: None,
+            content_hash: None,
+        };
+
         let conflict_err = save_reviewer_policy_at(
             &policy_path,
-            ReviewerPolicy::CodexOnly,
+            &codex_only,
             temp_skills.path(),
             Some(&hash1),
         )
         .unwrap_err();
         assert!(conflict_err.contains("Concurrent modification conflict"));
 
-        // 4. Saving with None when file exists fails with conflict
         let none_err = save_reviewer_policy_at(
             &policy_path,
-            ReviewerPolicy::CodexOnly,
+            &codex_only,
             temp_skills.path(),
             None,
         )
         .unwrap_err();
         assert!(none_err.contains("Concurrent modification conflict"));
 
-        // 5. If file is deleted externally, saving with expected_hash fails with conflict
         std::fs::remove_file(&policy_path).unwrap();
         let deleted_err = save_reviewer_policy_at(
             &policy_path,
-            ReviewerPolicy::CodexOnly,
+            &codex_only,
             temp_skills.path(),
             Some(&hash2),
         )
@@ -929,21 +1413,34 @@ mod tests {
             crate::install_antigravity_command_at(temp_skills.path(), name).unwrap();
         }
 
-        // Save initial policy
-        let initial = save_reviewer_policy_at(&policy_path, ReviewerPolicy::None, temp_skills.path(), None)
+        let initial_config = ReviewerPolicyConfig::default();
+        let initial = save_reviewer_policy_at(&policy_path, &initial_config, temp_skills.path(), None)
             .unwrap();
         let initial_hash = initial.content_hash.unwrap();
 
-        let intervening_content = r#"{"schema_version":2,"policy":"codex_only","tampered":true}"#;
+        let intervening_content = r#"{"schema_version":3,"policy":"none","tampered":true}"#;
 
-        // Try saving with expected_hash, but an intervening modification happens between initial check and replace
+        let codex_plus = ReviewerPolicyConfig {
+            schema_version: 3,
+            policy: ReviewerPolicy::CodexPlusDeepseek,
+            preset: Some(ReviewerPreset::Fast),
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6-luna".to_string(),
+                reasoning_effort: "medium".to_string(),
+            }),
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "low".to_string(),
+            }),
+            content_hash: None,
+        };
+
         let err = save_reviewer_policy_internal(
             &policy_path,
-            ReviewerPolicy::CodexPlusDeepseek,
+            &codex_plus,
             temp_skills.path(),
             Some(&initial_hash),
             || {
-                // Intervening write to policy_path
                 std::fs::write(&policy_path, intervening_content).unwrap();
                 Ok(())
             },
@@ -951,7 +1448,6 @@ mod tests {
         .unwrap_err();
 
         assert!(err.contains("Concurrent modification conflict"));
-        // The intervening content must remain intact and preserved!
         assert_eq!(std::fs::read_to_string(&policy_path).unwrap(), intervening_content);
     }
 
@@ -965,12 +1461,12 @@ mod tests {
             crate::install_antigravity_command_at(temp_skills.path(), name).unwrap();
         }
 
-        let created_concurrently = r#"{"schema_version":2,"policy":"codex_plus_deepseek","created":true}"#;
+        let created_concurrently = r#"{"schema_version":3,"policy":"none","created":true}"#;
 
-        // Target does not exist initially (expected_hash = None), but is created concurrently before replace
+        let none_config = ReviewerPolicyConfig::default();
         let err = save_reviewer_policy_internal(
             &policy_path,
-            ReviewerPolicy::None,
+            &none_config,
             temp_skills.path(),
             None,
             || {
@@ -981,7 +1477,51 @@ mod tests {
         .unwrap_err();
 
         assert!(err.contains("Concurrent modification conflict"));
-        // The created content must remain intact and preserved!
         assert_eq!(std::fs::read_to_string(&policy_path).unwrap(), created_concurrently);
+    }
+
+    #[test]
+    fn schema_v3_ignores_legacy_preset_on_read_and_omits_on_save() {
+        let temp_ide = tempfile::tempdir().unwrap();
+        let temp_skills = tempfile::tempdir().unwrap();
+        let policy_path = temp_ide.path().join("pov-reviewer-policy.json");
+
+        for name in ["pov-plan-only", "pov-build-review", "pov-full-cycle"] {
+            crate::install_antigravity_command_at(temp_skills.path(), name).unwrap();
+        }
+
+        // 1. Write a legacy JSON that contains preset
+        let legacy_json = r#"{
+  "schema_version": 3,
+  "policy": "codex_only",
+  "preset": "standard",
+  "codex": {
+    "model": "gpt-6.1-terra",
+    "reasoning_effort": "high"
+  }
+}"#;
+        std::fs::write(&policy_path, legacy_json).unwrap();
+
+        // 2. Read it back via inspect_reviewer_policy_at
+        let loaded = inspect_reviewer_policy_at(&policy_path).unwrap();
+        assert_eq!(loaded.policy, ReviewerPolicy::CodexOnly);
+        assert_eq!(loaded.preset, None); // Preset must be ignored on load per R2-C01
+
+        // 3. Save it back
+        let saved = save_reviewer_policy_at(
+            &policy_path,
+            &loaded,
+            temp_skills.path(),
+            loaded.content_hash.as_deref(),
+        )
+        .unwrap();
+
+        assert_eq!(saved.preset, None);
+
+        // 4. Inspect raw file content on disk: "preset" key must NOT be present
+        let saved_disk_content = std::fs::read_to_string(&policy_path).unwrap();
+        assert!(!saved_disk_content.contains(r#""preset""#));
+        assert!(saved_disk_content.contains(r#""policy": "codex_only""#));
+        assert!(saved_disk_content.contains(r#""model": "gpt-6.1-terra""#));
     }
 }

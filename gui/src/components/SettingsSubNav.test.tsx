@@ -197,30 +197,15 @@ describe("Settings Sub-Navigation Integration", () => {
     await user.click(skillsRulesNav);
     expect(skillsRulesNav).toHaveClass("active");
     expect(antigravityMcpNav).not.toHaveClass("active");
-    expect((await screen.findAllByRole("heading", { name: /Poverello Direct Coding/i })).length).toBeGreaterThan(0);
+    expect(await screen.findByText("antigravity.workflowCommandsSectionHeader")).toBeInTheDocument();
+    expect(screen.getByText("antigravity.taskPresetsHeader")).toBeInTheDocument();
+    expect(screen.getByText("antigravity.globalRulesFixedHeader")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Customize Coding Settings|Poverello Direct Coding/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/External Review Configuration|外部レビュー設定/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/claudeConfig\.header/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/apiKeyPanel\.header/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/language\.header/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/antigravity\.header/i)).not.toBeInTheDocument();
-
-    // Verify Direct Coding persisted values from backend are loaded rather than component defaults (§47)
-    expect(screen.getByRole("button", { name: "Disabled" })).toHaveClass("active");
-    expect(screen.getByRole("button", { name: "Requested Only" })).toHaveClass("active");
-
-    // Open Advanced Details accordion to view preview
-    await user.click(screen.getByRole("button", { name: /Advanced Details/i }));
-
-    expect(screen.getByText(/Automatic activation: Disabled/i)).toBeInTheDocument();
-    expect(screen.getByText(/Web research: When requested only/i)).toBeInTheDocument();
-    expect(screen.getByText(/Response verbosity: detailed/i)).toBeInTheDocument();
-    expect(screen.getByText(/Repository exploration: detailed/i)).toBeInTheDocument();
-    expect(screen.getByText(/Verification: broad/i)).toBeInTheDocument();
-
-    expect(screen.queryByText(/Automatic activation: Enabled/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Web research: When requested or necessary/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Response verbosity: concise/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Repository exploration: minimal/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Verification: focused/i)).not.toBeInTheDocument();
 
     // 5. Return to General
     await user.click(generalNav);

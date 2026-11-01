@@ -6188,7 +6188,7 @@ pub struct Stage1BFixture {
 
 impl Stage1BFixture {
     pub fn create(nonce: String) -> Result<Self, String> {
-        let root = ambient_temp_dir().join(format!("poverello-stage1b-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("poverello-stage1b-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).map_err(|e| format!("cannot create fixture root: {e}"))?;
         let canonical_root = root
             .canonicalize()

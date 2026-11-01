@@ -1367,6 +1367,8 @@ describe("OpenRouterModelSelector — regression tests", () => {
       expect(optionTexts).toEqual([
         "GPT-6.1 Sol",
         "GPT-6.1 Sol Pro",
+        "GPT-6.1 Terra",
+        "GPT-6.1 Terra Pro",
         "GPT-6 Sol",
         "GPT-6 Sol Pro",
         "GPT-6 Luna",
@@ -1619,6 +1621,69 @@ describe("OpenRouterModelSelector — regression tests", () => {
         thinkingMode: "thinking",
         reasoningEffort: "medium",
       });
+
+      unmount();
+    });
+
+    it("renders reasoning effort selector for GPT-6.1 Terra with 6 options including none, defaulting to medium", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return stableModelsResult();
+        return null;
+      });
+
+      const { unmount } = render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="openai/gpt-6.1-terra"
+          currentThinkingMode="thinking"
+          currentReasoningEffort="medium"
+        />,
+      );
+      await waitForReady();
+
+      const effortSelect = screen.getByRole("combobox", { name: "Reasoning effort" }) as HTMLSelectElement;
+      expect(effortSelect).toBeInTheDocument();
+      const options = Array.from(effortSelect.options).map((opt) => opt.value);
+      expect(options).toEqual(["off", "low", "medium", "high", "xhigh", "max"]);
+      expect(effortSelect.value).toBe("medium");
+
+      unmount();
+    });
+
+    it("does not render reasoning effort selector for GPT-6.1 Terra Pro and uses pro mode directly", async () => {
+      const saves: Array<{ upstreamModel?: string; reasoningEffort?: string | null; thinkingMode?: string | null }> = [];
+      invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+        if (cmd === "openrouter_get_models") return stableModelsResult();
+        if (cmd === "set_model_upstream") {
+          const payload = (args ?? {}) as {
+            upstream_model?: string;
+            upstreamModel?: string;
+            thinking_mode?: string | null;
+            thinkingMode?: string | null;
+            reasoning_effort?: string | null;
+            reasoningEffort?: string | null;
+          };
+          saves.push({
+            upstreamModel: payload.upstream_model ?? payload.upstreamModel,
+            thinkingMode: payload.thinking_mode ?? payload.thinkingMode,
+            reasoningEffort: payload.reasoning_effort ?? payload.reasoningEffort,
+          });
+          return saveOkResponse(false);
+        }
+        return null;
+      });
+
+      const { unmount } = render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="openai/gpt-6.1-terra-pro"
+          currentThinkingMode="thinking"
+          currentReasoningEffort={undefined}
+        />,
+      );
+      await waitForReady();
+
+      expect(screen.queryByRole("combobox", { name: "Reasoning effort" })).not.toBeInTheDocument();
 
       unmount();
     });

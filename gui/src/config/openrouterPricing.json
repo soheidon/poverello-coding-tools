@@ -240,6 +240,31 @@
       "cacheReadPerMillionUsd": 0.1
     }
   },
+  "openai/gpt-6.1-terra": {
+    "pricingNoteKeys": [
+      "modelPricing.notes.openrouterPricing",
+      "modelPricing.notes.gpt61TerraLongContext"
+    ],
+    "pricingUpdatedAt": "2026-11-01",
+    "pricing": {
+      "inputPerMillionUsd": 1,
+      "outputPerMillionUsd": 5,
+      "cacheReadPerMillionUsd": 0.05
+    }
+  },
+  "openai/gpt-6.1-terra-pro": {
+    "pricingNoteKeys": [
+      "modelPricing.notes.openrouterPricing",
+      "modelPricing.notes.gpt61TerraLongContext",
+      "modelPricing.notes.gpt61TerraProReasoning"
+    ],
+    "pricingUpdatedAt": "2026-11-01",
+    "pricing": {
+      "inputPerMillionUsd": 1,
+      "outputPerMillionUsd": 5,
+      "cacheReadPerMillionUsd": 0.05
+    }
+  },
   "openai/gpt-6-sol": {
     "pricingNoteKey": "modelPricing.notes.openrouterPricing",
     "pricingUpdatedAt": "2026-10-13",

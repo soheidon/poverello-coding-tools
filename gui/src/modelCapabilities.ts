@@ -106,6 +106,7 @@ export const PROVIDER_MODELS: Record<string, string[]> = Object.fromEntries(
 export const OPENAI_REASONING_MODEL_IDS = new Set([
   "openai/gpt-6.1-sol",
   "openai/gpt-6.1-sol-pro",
+  "openai/gpt-6.1-terra",
   "openai/gpt-6-sol",
   "openai/gpt-6-sol-pro",
   "openai/gpt-6-luna",
@@ -154,4 +155,49 @@ const DIRECT_PROVIDER_MODELS: Record<string, string[]> = {
 // For the ApiKeyPanel and other panels: get the selectable models for a provider
 export function getProviderModels(providerId: string): string[] {
   return PROVIDER_MODELS[providerId] ?? DIRECT_PROVIDER_MODELS[providerId] ?? [];
+}
+
+export interface ReviewerModelOption {
+  id: string; // CLI model id (e.g. "gpt-6-luna", "deepseek-flash")
+  catalogKey: string; // Key in catalog (e.g. "openai/gpt-6-luna", "deepseek-flash")
+  displayName: string;
+  vendor?: string;
+  supportedEfforts: string[];
+  defaultEffort: string;
+}
+
+export function getCodexReviewerModels(): ReviewerModelOption[] {
+  const result: ReviewerModelOption[] = [];
+  for (const [key, model] of Object.entries(MODEL_CATALOG.models)) {
+    const caps = model.capabilities as any;
+    if (caps.codexReviewerEligible) {
+      result.push({
+        id: caps.cliModelId || key,
+        catalogKey: key,
+        displayName: model.displayName,
+        vendor: model.vendor,
+        supportedEfforts: caps.reviewerReasoningEfforts || [],
+        defaultEffort: caps.reviewerDefaultEffort || "medium",
+      });
+    }
+  }
+  return result;
+}
+
+export function getDeepSeekReviewerModels(): ReviewerModelOption[] {
+  const result: ReviewerModelOption[] = [];
+  for (const [key, model] of Object.entries(MODEL_CATALOG.models)) {
+    const caps = model.capabilities as any;
+    if (caps.deepseekReviewerEligible) {
+      result.push({
+        id: caps.cliModelId || key,
+        catalogKey: key,
+        displayName: model.displayName,
+        vendor: model.vendor,
+        supportedEfforts: caps.reviewerReasoningEfforts || [],
+        defaultEffort: caps.reviewerDefaultEffort || "high",
+      });
+    }
+  }
+  return result;
 }

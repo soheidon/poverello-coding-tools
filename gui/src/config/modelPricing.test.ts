@@ -372,3 +372,34 @@ describe("v0.25.3 additions in MODEL_PRICING", () => {
     }
   });
 });
+
+describe("v0.25.4 GPT-6.1 Terra and Terra Pro additions", () => {
+  it("defines standard OpenRouter pricing for openai/gpt-6.1-terra and openai/gpt-6.1-terra-pro", () => {
+    const terra = MODEL_PRICING["openai/gpt-6.1-terra"];
+    expect(terra).toBeDefined();
+    expect(terra.inputPerMillionUsd).toBe(1.0);
+    expect(terra.outputPerMillionUsd).toBe(5.0);
+    expect(terra.cachedInputPerMillionUsd).toBe(0.05);
+    expect(terra.pricingNoteKeys).toContain("modelPricing.notes.gpt61TerraLongContext");
+    expect(terra.verifiedAt).toBe("2026-11-01");
+
+    const terraPro = MODEL_PRICING["openai/gpt-6.1-terra-pro"];
+    expect(terraPro).toBeDefined();
+    expect(terraPro.inputPerMillionUsd).toBe(1.0);
+    expect(terraPro.outputPerMillionUsd).toBe(5.0);
+    expect(terraPro.cachedInputPerMillionUsd).toBe(0.05);
+    expect(terraPro.pricingNoteKeys).toContain("modelPricing.notes.gpt61TerraLongContext");
+    expect(terraPro.pricingNoteKeys).toContain("modelPricing.notes.gpt61TerraProReasoning");
+    expect(terraPro.verifiedAt).toBe("2026-11-01");
+  });
+
+  it("ensures Terra pricing notes exist across all 8 languages", async () => {
+    const locales = ["de", "en", "es", "fr", "ja", "ko", "zh-CN", "zh-TW"];
+    for (const locale of locales) {
+      const langModule = await import(`../i18n/lang/${locale}.ts`);
+      const dict = langModule.translations;
+      expect(dict["modelPricing.notes.gpt61TerraLongContext"]).toBeTruthy();
+      expect(dict["modelPricing.notes.gpt61TerraProReasoning"]).toBeTruthy();
+    }
+  });
+});

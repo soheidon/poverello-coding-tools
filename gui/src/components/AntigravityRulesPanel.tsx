@@ -47,7 +47,9 @@ export default function AntigravityRulesPanel() {
       setError(null);
       const res = await invoke<PovDirectStatus>("get_pov_direct_status");
       setStatus(res);
-      setDraft(res.settings);
+      if (res.settings) {
+        setDraft(res.settings);
+      }
     } catch (e) {
       setError(typeof e === "string" ? e : (e as Error).message || "Failed to load status");
     } finally {
@@ -61,7 +63,7 @@ export default function AntigravityRulesPanel() {
 
   // Determine current operation mode
   const currentMode = useMemo((): "gemini_38_standard" | "gemini_37_lightweight" | "custom" => {
-    if (customExplicit) {
+    if (!draft || customExplicit) {
       return "custom";
     }
     if (
@@ -201,7 +203,7 @@ export default function AntigravityRulesPanel() {
   const isOverByteLimit = status ? status.expanded_byte_size > status.byte_limit : false;
 
   return (
-    <div className="settings-tile">
+    <div className="settings-tile" data-testid="antigravity-rules-panel">
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -297,214 +299,218 @@ export default function AntigravityRulesPanel() {
         </div>
       )}
 
-      {/* Operation Mode Preset Segment */}
-      <div style={{ borderTop: "1px solid var(--border-color, #e1e4e8)", paddingTop: 12, marginBottom: 14 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary, #24292f)", marginBottom: 6 }}>
-          {t("antigravityRules.mode.title")}
+      {/* 6 Settings Rows (§10.3) */}
+      <div className="pov-settings-grid">
+        {/* Row 0: Mode Preset */}
+        <div id="axis-0" className="pov-setting-row">
+          <div className="pov-setting-label">
+            {t("antigravityRules.mode.title")}
+          </div>
+          <div className="pov-setting-control">
+            <div className="pov-segment-group">
+              <button
+                type="button"
+                className={`pov-segment-btn ${currentMode === "gemini_38_standard" ? "active" : ""}`}
+                onClick={() => handleApplyPreset("gemini_38_standard")}
+              >
+                {t("antigravityRules.mode.presetStandard")}
+              </button>
+              <button
+                type="button"
+                className={`pov-segment-btn ${currentMode === "gemini_37_lightweight" ? "active" : ""}`}
+                onClick={() => handleApplyPreset("gemini_37_lightweight")}
+              >
+                {t("antigravityRules.mode.presetLightweight")}
+              </button>
+              <button
+                type="button"
+                className={`pov-segment-btn ${currentMode === "custom" ? "active" : ""}`}
+                onClick={() => handleApplyPreset("custom")}
+              >
+                {t("antigravityRules.mode.presetCustom")}
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="pov-segment-group">
-          <button
-            type="button"
-            className={`pov-segment-btn ${currentMode === "gemini_38_standard" ? "active" : ""}`}
-            onClick={() => handleApplyPreset("gemini_38_standard")}
-          >
-            {t("antigravityRules.mode.presetStandard")}
-          </button>
-          <button
-            type="button"
-            className={`pov-segment-btn ${currentMode === "gemini_37_lightweight" ? "active" : ""}`}
-            onClick={() => handleApplyPreset("gemini_37_lightweight")}
-          >
-            {t("antigravityRules.mode.presetLightweight")}
-          </button>
-          <button
-            type="button"
-            className={`pov-segment-btn ${currentMode === "custom" ? "active" : ""}`}
-            onClick={() => handleApplyPreset("custom")}
-          >
-            {t("antigravityRules.mode.presetCustom")}
-          </button>
-        </div>
-        <div className="pov-segment-desc">
+        <div className="pov-segment-desc" style={{ marginTop: -2, marginBottom: 4 }}>
           {currentMode === "gemini_38_standard" && t("antigravityRules.mode.descStandard")}
           {currentMode === "gemini_37_lightweight" && t("antigravityRules.mode.descLightweight")}
           {currentMode === "custom" && t("antigravityRules.mode.descCustom")}
         </div>
-      </div>
 
-      {/* Axis 1: Auto Activation */}
-      <div style={{ borderTop: "1px solid var(--border-color, #e1e4e8)", paddingTop: 12, marginBottom: 14 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary, #24292f)", marginBottom: 6 }}>
-          {t("antigravityRules.autoActivation.title")}
+        {/* Row 1: Auto Activation */}
+        <div id="axis-1" className="pov-setting-row">
+          <div className="pov-setting-label">
+            {t("antigravityRules.autoActivation.title")}
+          </div>
+          <div className="pov-setting-control">
+            <div className="pov-segment-group">
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.auto_activation ? "active" : ""}`}
+                title={t("antigravityRules.autoActivation.descEnabled")}
+                onClick={() => updateDraft({ ...draft, auto_activation: true })}
+              >
+                {t("antigravityRules.autoActivation.enabled")}
+              </button>
+              <button
+                type="button"
+                className={`pov-segment-btn ${!draft.auto_activation ? "active" : ""}`}
+                title={t("antigravityRules.autoActivation.descDisabled")}
+                onClick={() => updateDraft({ ...draft, auto_activation: false })}
+              >
+                {t("antigravityRules.autoActivation.disabled")}
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="pov-segment-group">
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.auto_activation ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, auto_activation: true })}
-          >
-            {t("antigravityRules.autoActivation.enabled")}
-          </button>
-          <button
-            type="button"
-            className={`pov-segment-btn ${!draft.auto_activation ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, auto_activation: false })}
-          >
-            {t("antigravityRules.autoActivation.disabled")}
-          </button>
-        </div>
-        <div className="pov-segment-desc">
-          {draft.auto_activation
-            ? t("antigravityRules.autoActivation.descEnabled")
-            : t("antigravityRules.autoActivation.descDisabled")}
-        </div>
-      </div>
 
-      {/* Axis 2: Web Research */}
-      <div style={{ borderTop: "1px solid var(--border-color, #e1e4e8)", paddingTop: 12, marginBottom: 14 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary, #24292f)", marginBottom: 6 }}>
-          {t("antigravityRules.webResearch.title")}
+        {/* Row 2: Web Research */}
+        <div id="axis-2" className="pov-setting-row">
+          <div className="pov-setting-label">
+            {t("antigravityRules.webResearch.title")}
+          </div>
+          <div className="pov-setting-control">
+            <div className="pov-segment-group">
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.web_research === "unrestricted" ? "active" : ""}`}
+                title={t("antigravityRules.webResearch.descUnrestricted")}
+                onClick={() => updateDraft({ ...draft, web_research: "unrestricted" })}
+              >
+                {t("antigravityRules.webResearch.unrestricted")}
+              </button>
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.web_research === "requested_or_necessary" ? "active" : ""}`}
+                title={t("antigravityRules.webResearch.descRequestedOrNecessary")}
+                onClick={() => updateDraft({ ...draft, web_research: "requested_or_necessary" })}
+              >
+                {t("antigravityRules.webResearch.requestedOrNecessary")}
+              </button>
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.web_research === "requested_only" ? "active" : ""}`}
+                title={t("antigravityRules.webResearch.descRequestedOnly")}
+                onClick={() => updateDraft({ ...draft, web_research: "requested_only" })}
+              >
+                {t("antigravityRules.webResearch.requestedOnly")}
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="pov-segment-group">
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.web_research === "unrestricted" ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, web_research: "unrestricted" })}
-          >
-            {t("antigravityRules.webResearch.unrestricted")}
-          </button>
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.web_research === "requested_or_necessary" ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, web_research: "requested_or_necessary" })}
-          >
-            {t("antigravityRules.webResearch.requestedOrNecessary")}
-          </button>
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.web_research === "requested_only" ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, web_research: "requested_only" })}
-          >
-            {t("antigravityRules.webResearch.requestedOnly")}
-          </button>
-        </div>
-        <div className="pov-segment-desc">
-          {draft.web_research === "unrestricted" && t("antigravityRules.webResearch.descUnrestricted")}
-          {draft.web_research === "requested_or_necessary" && t("antigravityRules.webResearch.descRequestedOrNecessary")}
-          {draft.web_research === "requested_only" && t("antigravityRules.webResearch.descRequestedOnly")}
-        </div>
-      </div>
 
-      {/* Axis 3: Response Verbosity */}
-      <div style={{ borderTop: "1px solid var(--border-color, #e1e4e8)", paddingTop: 12, marginBottom: 14 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary, #24292f)", marginBottom: 6 }}>
-          {t("antigravityRules.verbosity.title")}
+        {/* Row 3: Response Verbosity */}
+        <div id="axis-3" className="pov-setting-row">
+          <div className="pov-setting-label">
+            {t("antigravityRules.verbosity.title")}
+          </div>
+          <div className="pov-setting-control">
+            <div className="pov-segment-group">
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.response_verbosity === "standard" ? "active" : ""}`}
+                title={t("antigravityRules.verbosity.descStandard")}
+                onClick={() => updateDraft({ ...draft, response_verbosity: "standard" })}
+              >
+                {t("antigravityRules.verbosity.standard")}
+              </button>
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.response_verbosity === "concise" ? "active" : ""}`}
+                title={t("antigravityRules.verbosity.descConcise")}
+                onClick={() => updateDraft({ ...draft, response_verbosity: "concise" })}
+              >
+                {t("antigravityRules.verbosity.concise")}
+              </button>
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.response_verbosity === "minimal" ? "active" : ""}`}
+                title={t("antigravityRules.verbosity.descMinimal")}
+                onClick={() => updateDraft({ ...draft, response_verbosity: "minimal" })}
+              >
+                {t("antigravityRules.verbosity.minimal")}
+              </button>
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.response_verbosity === "detailed" ? "active" : ""}`}
+                title={t("antigravityRules.verbosity.descDetailed")}
+                onClick={() => updateDraft({ ...draft, response_verbosity: "detailed" })}
+              >
+                {t("antigravityRules.verbosity.detailed")}
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="pov-segment-group">
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.response_verbosity === "standard" ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, response_verbosity: "standard" })}
-          >
-            {t("antigravityRules.verbosity.standard")}
-          </button>
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.response_verbosity === "concise" ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, response_verbosity: "concise" })}
-          >
-            {t("antigravityRules.verbosity.concise")}
-          </button>
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.response_verbosity === "minimal" ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, response_verbosity: "minimal" })}
-          >
-            {t("antigravityRules.verbosity.minimal")}
-          </button>
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.response_verbosity === "detailed" ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, response_verbosity: "detailed" })}
-          >
-            {t("antigravityRules.verbosity.detailed")}
-          </button>
-        </div>
-        <div className="pov-segment-desc">
-          {draft.response_verbosity === "standard" && t("antigravityRules.verbosity.descStandard")}
-          {draft.response_verbosity === "concise" && t("antigravityRules.verbosity.descConcise")}
-          {draft.response_verbosity === "minimal" && t("antigravityRules.verbosity.descMinimal")}
-          {draft.response_verbosity === "detailed" && t("antigravityRules.verbosity.descDetailed")}
-        </div>
-      </div>
 
-      {/* Axis 4: Repository Exploration */}
-      <div style={{ borderTop: "1px solid var(--border-color, #e1e4e8)", paddingTop: 12, marginBottom: 14 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary, #24292f)", marginBottom: 6 }}>
-          {t("antigravityRules.exploration.title")}
+        {/* Row 4: Repository Exploration */}
+        <div id="axis-4" className="pov-setting-row">
+          <div className="pov-setting-label">
+            {t("antigravityRules.exploration.title")}
+          </div>
+          <div className="pov-setting-control">
+            <div className="pov-segment-group">
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.repository_exploration === "standard" ? "active" : ""}`}
+                title={t("antigravityRules.exploration.descStandard")}
+                onClick={() => updateDraft({ ...draft, repository_exploration: "standard" })}
+              >
+                {t("antigravityRules.exploration.standard")}
+              </button>
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.repository_exploration === "minimal" ? "active" : ""}`}
+                title={t("antigravityRules.exploration.descMinimal")}
+                onClick={() => updateDraft({ ...draft, repository_exploration: "minimal" })}
+              >
+                {t("antigravityRules.exploration.minimal")}
+              </button>
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.repository_exploration === "detailed" ? "active" : ""}`}
+                title={t("antigravityRules.exploration.descDetailed")}
+                onClick={() => updateDraft({ ...draft, repository_exploration: "detailed" })}
+              >
+                {t("antigravityRules.exploration.detailed")}
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="pov-segment-group">
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.repository_exploration === "standard" ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, repository_exploration: "standard" })}
-          >
-            {t("antigravityRules.exploration.standard")}
-          </button>
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.repository_exploration === "minimal" ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, repository_exploration: "minimal" })}
-          >
-            {t("antigravityRules.exploration.minimal")}
-          </button>
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.repository_exploration === "detailed" ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, repository_exploration: "detailed" })}
-          >
-            {t("antigravityRules.exploration.detailed")}
-          </button>
-        </div>
-        <div className="pov-segment-desc">
-          {draft.repository_exploration === "standard" && t("antigravityRules.exploration.descStandard")}
-          {draft.repository_exploration === "minimal" && t("antigravityRules.exploration.descMinimal")}
-          {draft.repository_exploration === "detailed" && t("antigravityRules.exploration.descDetailed")}
-        </div>
-      </div>
 
-      {/* Axis 5: Verification */}
-      <div style={{ borderTop: "1px solid var(--border-color, #e1e4e8)", paddingTop: 12, marginBottom: 14 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary, #24292f)", marginBottom: 6 }}>
-          {t("antigravityRules.verification.title")}
-        </div>
-        <div className="pov-segment-group">
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.verification === "standard" ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, verification: "standard" })}
-          >
-            {t("antigravityRules.verification.standard")}
-          </button>
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.verification === "focused" ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, verification: "focused" })}
-          >
-            {t("antigravityRules.verification.focused")}
-          </button>
-          <button
-            type="button"
-            className={`pov-segment-btn ${draft.verification === "broad" ? "active" : ""}`}
-            onClick={() => updateDraft({ ...draft, verification: "broad" })}
-          >
-            {t("antigravityRules.verification.broad")}
-          </button>
-        </div>
-        <div className="pov-segment-desc">
-          {draft.verification === "standard" && t("antigravityRules.verification.descStandard")}
-          {draft.verification === "focused" && t("antigravityRules.verification.descFocused")}
-          {draft.verification === "broad" && t("antigravityRules.verification.descBroad")}
+        {/* Row 5: Verification */}
+        <div id="axis-5" className="pov-setting-row">
+          <div className="pov-setting-label">
+            {t("antigravityRules.verification.title")}
+          </div>
+          <div className="pov-setting-control">
+            <div className="pov-segment-group">
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.verification === "standard" ? "active" : ""}`}
+                title={t("antigravityRules.verification.descStandard")}
+                onClick={() => updateDraft({ ...draft, verification: "standard" })}
+              >
+                {t("antigravityRules.verification.standard")}
+              </button>
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.verification === "focused" ? "active" : ""}`}
+                title={t("antigravityRules.verification.descFocused")}
+                onClick={() => updateDraft({ ...draft, verification: "focused" })}
+              >
+                {t("antigravityRules.verification.focused")}
+              </button>
+              <button
+                type="button"
+                className={`pov-segment-btn ${draft.verification === "broad" ? "active" : ""}`}
+                title={t("antigravityRules.verification.descBroad")}
+                onClick={() => updateDraft({ ...draft, verification: "broad" })}
+              >
+                {t("antigravityRules.verification.broad")}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

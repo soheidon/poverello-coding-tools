@@ -150,6 +150,10 @@ body {
   padding: 0 16px;
 }
 
+.titlebar-tab-poverello {
+  padding: 0 16px;
+}
+
 .titlebar-tab-settings {
   padding: 0 16px;
 }
@@ -2202,7 +2206,7 @@ body {
 
 .pov-segment-btn {
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   border-radius: 4px;
   padding: 4px 10px;
   font-size: 12px;
@@ -2217,9 +2221,10 @@ body {
 }
 
 .pov-segment-btn.active {
-  background-color: var(--bg-primary, #ffffff);
-  color: var(--text-primary, #24292f);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  background-color: #eaf4ff;
+  border: 1px solid #8dbbff;
+  color: #093c76;
+  box-shadow: 0 1px 2px rgba(9, 60, 118, 0.08);
   font-weight: 600;
 }
 
@@ -2227,4 +2232,51 @@ body {
   font-size: 11px;
   color: var(--text-secondary, #656d76);
   margin-top: 4px;
+}
+
+/* ===== Compact Layout for Poverello / Antigravity Autocode (§10) ===== */
+.pov-settings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.pov-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-color, #e1e4e8);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pov-setting-row:last-child {
+  border-bottom: none;
+}
+
+.pov-setting-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary, #24292f);
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.pov-setting-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.poverello-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 20px;
+  overflow-y: auto;
+  height: 100%;
+  box-sizing: border-box;
 }

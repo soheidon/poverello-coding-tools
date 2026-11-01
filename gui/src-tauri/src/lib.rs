@@ -24,6 +24,7 @@ mod antigravity_global_rules;
 pub mod reviewer_policy;
 pub mod pov_direct;
 pub mod pov_nerf;
+pub mod cli_tools;
 mod proxy;
 
 // ---------------------------------------------------------------------------
@@ -6809,6 +6810,85 @@ where
     inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file)
 }
 
+pub fn repair_or_update_antigravity_command_at(
+    skills_root: &Path,
+    name: &str,
+) -> Result<AntigravityCommandItemInfo, String> {
+    repair_or_update_antigravity_command_with_reader(skills_root, name, &|path| std::fs::read(path))
+}
+
+fn repair_or_update_antigravity_command_with_reader<F>(
+    skills_root: &Path,
+    name: &str,
+    read_file: &F,
+) -> Result<AntigravityCommandItemInfo, String>
+where
+    F: Fn(&Path) -> std::io::Result<Vec<u8>>,
+{
+    let (clean_name, slash_cmd, canonical) = resolve_allowed_antigravity_command(name)?;
+    if clean_name.starts_with("anthro-") {
+        return Err("Legacy Anthro Skills are status-only and cannot be updated".to_string());
+    }
+    let current = inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file)?;
+    match current.status {
+        AntigravitySkillStatus::Installed => Ok(current),
+        AntigravitySkillStatus::NotInstalled => {
+            install_antigravity_command_with_reader(skills_root, clean_name, read_file)
+        }
+        AntigravitySkillStatus::Outdated | AntigravitySkillStatus::Invalid => {
+            let skill_folder = skills_root.join(clean_name);
+            let skill_file = skill_folder.join("SKILL.md");
+            ensure_no_link_or_reparse_components(&skill_file)?;
+
+            let meta = std::fs::symlink_metadata(&skill_file)
+                .map_err(|e| format!("Cannot inspect SKILL.md metadata: {e}"))?;
+            if !meta.is_file() {
+                return Err("SKILL.md exists but is not a regular file; refusing to repair".to_string());
+            }
+
+            let current_bytes = read_file(&skill_file)
+                .map_err(|e| format!("Failed to read SKILL.md before update/repair: {e}"))?;
+
+            // Mandatory backup
+            let backup_filename = format!("SKILL.md.backup-{}", uuid::Uuid::new_v4());
+            let backup_file = skill_folder.join(&backup_filename);
+            ensure_no_link_or_reparse_components(&backup_file)?;
+            std::fs::write(&backup_file, &current_bytes)
+                .map_err(|e| format!("Failed to create backup before updating/repairing Skill: {e}"))?;
+
+            // Verify backup content and hash
+            let backup_readback = std::fs::read(&backup_file)
+                .map_err(|e| format!("Failed to read back backup file: {e}"))?;
+            let current_hash = format!("{:x}", sha2::Sha256::digest(&current_bytes));
+            let backup_hash = format!("{:x}", sha2::Sha256::digest(&backup_readback));
+            if current_hash != backup_hash {
+                return Err("Backup hash verification failed; aborting without modifying original".to_string());
+            }
+
+            // Atomic replace
+            let temp_filename = format!("SKILL.md.tmp-{}", uuid::Uuid::new_v4());
+            let temp_file = skill_folder.join(temp_filename);
+            if let Err(e) = std::fs::write(&temp_file, canonical.as_bytes()) {
+                let _ = std::fs::remove_file(&backup_file);
+                return Err(format!("Failed to write temporary replacement Skill file: {e}"));
+            }
+            if let Err(e) = std::fs::rename(&temp_file, &skill_file) {
+                let _ = std::fs::remove_file(&temp_file);
+                return Err(format!("Failed to replace Skill file atomically: {e}"));
+            }
+
+            // Read-back verification
+            let readback = read_file(&skill_file)
+                .map_err(|e| format!("Failed to read back updated Skill: {e}"))?;
+            if readback != canonical.as_bytes() {
+                return Err("Read-back verification failed after update/repair".to_string());
+            }
+
+            inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file)
+        }
+    }
+}
+
 pub fn remove_antigravity_command_at(
     skills_root: &Path,
     name: &str,
@@ -7069,8 +7149,23 @@ fn open_antigravity_rules_folder() -> Result<(), String> {
 #[tauri::command]
 fn update_antigravity_command(name: String) -> Result<AntigravityCommandsInfo, String> {
     let root = antigravity_global_skills_dir()?;
-    install_antigravity_command_at(&root, &name)?;
+    repair_or_update_antigravity_command_at(&root, &name)?;
     get_antigravity_commands_info_at(&root)
+}
+
+#[tauri::command]
+async fn get_cli_tools_status() -> Result<Vec<cli_tools::CliToolInfo>, String> {
+    cli_tools::get_cli_tools_status().await
+}
+
+#[tauri::command]
+async fn get_codex_account_info() -> Result<cli_tools::CodexAccountInfo, String> {
+    cli_tools::get_codex_account_info().await
+}
+
+#[tauri::command]
+async fn install_cli_tool(name: String) -> Result<cli_tools::CliToolInfo, String> {
+    cli_tools::run_cli_install(&name).await
 }
 
 #[tauri::command]
@@ -7109,7 +7204,7 @@ fn set_reviewer_policy(
     }
     let policy_path = paths::antigravity_reviewer_policy_path()?;
     let expected = expected_hash.as_deref().or(config.content_hash.as_deref());
-    reviewer_policy::save_reviewer_policy_at(&policy_path, config.policy, &skills_dir, expected)
+    reviewer_policy::save_reviewer_policy_at(&policy_path, &config, &skills_dir, expected)
 }
 
 #[tauri::command]
@@ -10020,6 +10115,9 @@ pub fn run() {
             install_antigravity_command,
             update_antigravity_command,
             remove_antigravity_command,
+            get_cli_tools_status,
+            get_codex_account_info,
+            install_cli_tool,
             install_all_antigravity_commands,
             install_all_antigravity_mcp_commands,
             get_pov_direct_status,
@@ -17344,6 +17442,30 @@ mod tests {
         assert_eq!(installed_all.commands.len(), 6);
         let compliance_after = reviewer_policy::inspect_workflow_skills_policy_compliance(skills_root).unwrap();
         assert_eq!(compliance_after.compliant, true);
+
+        // Test repair_or_update_antigravity_command_at on a modified skill
+        let modified_bytes = b"user customized edits in workflow skill";
+        std::fs::write(&plan_only_file, modified_bytes).unwrap();
+        let status_mod = inspect_antigravity_command_status_at(skills_root, "pov-plan-only").unwrap();
+        assert_eq!(status_mod.status, AntigravitySkillStatus::Invalid);
+
+        // Explicit repair replaces with backup
+        let repaired = repair_or_update_antigravity_command_at(skills_root, "pov-plan-only").unwrap();
+        assert_eq!(repaired.status, AntigravitySkillStatus::Installed);
+        assert_eq!(std::fs::read(&plan_only_file).unwrap(), canonical_plan_only.as_bytes());
+
+        // Verify backup was created containing modified_bytes
+        let mut found_backup = false;
+        for entry in std::fs::read_dir(&plan_only_dir).unwrap() {
+            let entry = entry.unwrap();
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name.starts_with("SKILL.md.backup-") {
+                let backup_bytes = std::fs::read(entry.path()).unwrap();
+                assert_eq!(backup_bytes, modified_bytes);
+                found_backup = true;
+            }
+        }
+        assert!(found_backup, "Backup file must be created before repairing modified skill");
     }
 
     #[cfg(windows)]

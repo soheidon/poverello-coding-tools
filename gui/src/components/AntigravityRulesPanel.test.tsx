@@ -62,7 +62,10 @@ describe("AntigravityRulesPanel Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Poverello Direct Coding")).toBeInTheDocument();
+      expect(screen.getByText("Customize Coding Settings")).toBeInTheDocument();
+      expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
+      expect(screen.getByText("Preset")).toBeInTheDocument();
+      expect(screen.queryByText("Operation Mode")).not.toBeInTheDocument();
     });
 
     // Initial status matches Gemini 3.8 Standard preset
@@ -102,7 +105,10 @@ describe("AntigravityRulesPanel Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Poverello Direct Coding")).toBeInTheDocument();
+      expect(screen.getByText("Customize Coding Settings")).toBeInTheDocument();
+      expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
+      expect(screen.getByText("Preset")).toBeInTheDocument();
+      expect(screen.queryByText("Operation Mode")).not.toBeInTheDocument();
     });
 
     // Accordion is closed by default
@@ -129,7 +135,10 @@ describe("AntigravityRulesPanel Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Poverello Direct Coding")).toBeInTheDocument();
+      expect(screen.getByText("Customize Coding Settings")).toBeInTheDocument();
+      expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
+      expect(screen.getByText("Preset")).toBeInTheDocument();
+      expect(screen.queryByText("Operation Mode")).not.toBeInTheDocument();
     });
 
     const saveButton = screen.getByRole("button", { name: "Save & Apply" });
@@ -162,7 +171,10 @@ describe("AntigravityRulesPanel Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Poverello Direct Coding")).toBeInTheDocument();
+      expect(screen.getByText("Customize Coding Settings")).toBeInTheDocument();
+      expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
+      expect(screen.getByText("Preset")).toBeInTheDocument();
+      expect(screen.queryByText("Operation Mode")).not.toBeInTheDocument();
     });
 
     const openFolderButton = screen.getByRole("button", { name: "Open Rules Folder" });
@@ -192,7 +204,10 @@ describe("AntigravityRulesPanel Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Poverello Direct Coding")).toBeInTheDocument();
+      expect(screen.getByText("Customize Coding Settings")).toBeInTheDocument();
+      expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
+      expect(screen.getByText("Preset")).toBeInTheDocument();
+      expect(screen.queryByText("Operation Mode")).not.toBeInTheDocument();
     });
 
     // Open Advanced Details
@@ -223,14 +238,17 @@ describe("AntigravityRulesPanel Component", () => {
     render(<AntigravityRulesPanel />);
 
     await waitFor(() => {
-      expect(screen.getByText("Poverello Direct Coding")).toBeInTheDocument();
+      expect(screen.getByText("コーディング設定のカスタマイズ")).toBeInTheDocument();
+      expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
+      expect(screen.getByText("プリセット")).toBeInTheDocument();
+      expect(screen.queryByText("動作モード")).not.toBeInTheDocument();
     });
 
     expect(screen.getByText("Antigravityの実装作業を軽量化する条件付きルール")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "適用 / 同期" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ルールフォルダを開く" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "デフォルトに戻す" })).toBeInTheDocument();
-    expect(screen.getByText("動作モード")).toBeInTheDocument();
+    expect(screen.getByText("プリセット")).toBeInTheDocument();
     expect(screen.getByText("自動適用")).toBeInTheDocument();
     expect(screen.getByText("Web検索")).toBeInTheDocument();
     expect(screen.getByText("応答の冗長性")).toBeInTheDocument();
@@ -256,14 +274,17 @@ describe("AntigravityRulesPanel Component", () => {
     render(<AntigravityRulesPanel />);
 
     await waitFor(() => {
-      expect(screen.getByText("Poverello Direct Coding")).toBeInTheDocument();
+      expect(screen.getByText("Customize Coding Settings")).toBeInTheDocument();
+      expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
+      expect(screen.getByText("Preset")).toBeInTheDocument();
+      expect(screen.queryByText("Operation Mode")).not.toBeInTheDocument();
     });
 
     expect(screen.getByText("Conditional rules for lightweight Antigravity software implementation")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save & Apply" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open Rules Folder" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reset to Defaults" })).toBeInTheDocument();
-    expect(screen.getByText("Operation Mode")).toBeInTheDocument();
+    expect(screen.getByText("Preset")).toBeInTheDocument();
     expect(screen.getByText("Auto Activation")).toBeInTheDocument();
     expect(screen.getByText("Web Research")).toBeInTheDocument();
     expect(screen.getByText("Response Verbosity")).toBeInTheDocument();

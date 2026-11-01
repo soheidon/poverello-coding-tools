@@ -17,6 +17,7 @@ import FirstRunLanguagePicker from "./components/FirstRunLanguagePicker";
 import McpPanel from "./components/McpPanel";
 import McpSettingPanel from "./components/McpSettingPanel";
 import AntigravitySkillsRulesPanel from "./components/AntigravitySkillsRulesPanel";
+import PoverelloPanel from "./components/PoverelloPanel";
 import OrchestratorPanel from "./components/orchestrator/OrchestratorPanel";
 import OrchestratorSettingsPanel from "./components/orchestrator/OrchestratorSettingsPanel";
 import { useHealthCheck } from "./hooks/useHealthCheck";
@@ -33,7 +34,7 @@ import {
   calculateInitialWindowHeight,
 } from "./windowSizing";
 
-type MainTab = "gateway" | "mcp" | "orchestrator" | "settings";
+type MainTab = "gateway" | "mcp" | "antigravityAutocode" | "poverello" | "orchestrator" | "settings";
 
 function AppContent() {
   const { t } = useTranslation();
@@ -359,6 +360,8 @@ function AppContent() {
         </div>
       ) : mainTab === "mcp" ? (
         <McpPanel config={config} refreshConfig={refreshConfig} />
+      ) : mainTab === "antigravityAutocode" || mainTab === "poverello" ? (
+        <PoverelloPanel />
       ) : (
         <OrchestratorPanel />
       )}

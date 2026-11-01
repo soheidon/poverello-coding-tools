@@ -61,17 +61,23 @@ vi.mock("./windowSizing", () => ({
 
 vi.mock("./components/TitleBar", () => ({
   default: ({ onTabChange }: {
-    onTabChange: (tab: "gateway" | "mcp" | "orchestrator" | "autoConverge" | "settings") => void;
+    onTabChange: (tab: "gateway" | "mcp" | "poverello" | "antigravityAutocode" | "orchestrator" | "autoConverge" | "settings") => void;
   }) => (
-    <button data-testid="title-bar" onClick={() => onTabChange("autoConverge")}>
-      legacy auto route
-    </button>
+    <div>
+      <button data-testid="title-bar" onClick={() => onTabChange("autoConverge")}>
+        legacy auto route
+      </button>
+      <button data-testid="titlebar-poverello-btn" onClick={() => onTabChange("antigravityAutocode")}>
+        Antigravity Autocode
+      </button>
+    </div>
   ),
 }));
 vi.mock("./components/Header", () => ({ default: () => <div data-testid="header" /> }));
 vi.mock("./components/ProviderTiles", () => ({ default: () => <div data-testid="gateway-content" /> }));
 vi.mock("./components/StatusPanel", () => ({ default: () => null }));
 vi.mock("./components/LogPanel", () => ({ default: () => null }));
+vi.mock("./components/PoverelloPanel", () => ({ default: () => <div data-testid="poverello-panel" /> }));
 
 describe("App navigation", () => {
   it("renders the normal app and does not expose the retained Auto-Converge panel", async () => {
@@ -84,5 +90,17 @@ describe("App navigation", () => {
     await user.click(screen.getByTestId("title-bar"));
     expect(screen.getByTestId("gateway-content")).toBeInTheDocument();
     expect(screen.queryByTestId("auto-converge-panel")).not.toBeInTheDocument();
+  });
+
+  it("navigates to Poverello panel when Poverello tab is clicked", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("gateway-content")).toBeInTheDocument());
+    expect(screen.queryByTestId("poverello-panel")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("titlebar-poverello-btn"));
+    expect(screen.getByTestId("poverello-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("gateway-content")).not.toBeInTheDocument();
   });
 });

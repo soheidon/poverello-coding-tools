@@ -1147,6 +1147,12 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
     },
     // Group 2: 6 choices, includes "none"
     {
+      id: "openai/gpt-6.1-terra",
+      expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      supportsNone: true,
+    },
+    {
       id: "openai/gpt-6-sol",
       expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
       defaultEffort: "medium",
@@ -1250,7 +1256,7 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
       },
     };
 
-    it("lists all 15 OpenAI models with display names and no batch variants in OpenRouter chatGPT profile", async () => {
+    it("lists all 17 OpenAI models with display names and no batch variants in OpenRouter chatGPT profile", async () => {
       invokeMock.mockImplementation(async (cmd: string) => {
         if (cmd === "get_mcp_config") {
           return {
@@ -1297,6 +1303,8 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
       expect(options).toEqual([
         { value: "openai/gpt-6.1-sol", label: "GPT-6.1 Sol" },
         { value: "openai/gpt-6.1-sol-pro", label: "GPT-6.1 Sol Pro" },
+        { value: "openai/gpt-6.1-terra", label: "GPT-6.1 Terra" },
+        { value: "openai/gpt-6.1-terra-pro", label: "GPT-6.1 Terra Pro" },
         { value: "openai/gpt-6-sol", label: "GPT-6 Sol" },
         { value: "openai/gpt-6-sol-pro", label: "GPT-6 Sol Pro" },
         { value: "openai/gpt-6-luna", label: "GPT-6 Luna" },
@@ -1480,10 +1488,11 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
       expect(astraProEffortOptions).toEqual(["low", "medium", "high", "xhigh", "max"]);
     });
 
-    it("verifies all 15 OpenAI models have identical options and defaults matching catalog in MCP settings (§13)", () => {
-      const all15Ids = [
+    it("verifies all 16 OpenAI reasoning models have identical options and defaults matching catalog in MCP settings (§13)", () => {
+      const all16Ids = [
         "openai/gpt-6.1-sol",
         "openai/gpt-6.1-sol-pro",
+        "openai/gpt-6.1-terra",
         "openai/gpt-6-sol",
         "openai/gpt-6-sol-pro",
         "openai/gpt-6-luna",
@@ -1498,9 +1507,9 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
         "openai/gpt-5.6-luna",
         "openai/gpt-5.6-luna-pro",
       ];
-      expect(all15Ids).toHaveLength(15);
+      expect(all16Ids).toHaveLength(16);
 
-      for (const id of all15Ids) {
+      for (const id of all16Ids) {
         expect(isGpt61SolModel(id)).toBe(true);
         const caps = MODEL_CAPABILITIES[id];
         expect(caps).toBeDefined();
@@ -1510,7 +1519,7 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
 
         // Group 1: 5 choices, no none
         if (
-          id.includes("gpt-6.1") ||
+          id.includes("gpt-6.1-sol") ||
           id.includes("astra")
         ) {
           expect(caps?.reasoningEffortOptions).toEqual(["low", "medium", "high", "xhigh", "max"]);
@@ -1660,7 +1669,7 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
       });
     });
 
-    describe("Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 15 models (§26)", () => {
+    describe("Table-driven actual UI rendering, options, defaults, persistence, and legacy boundary across all 16 reasoning models (§26)", () => {
       it.each(INDEPENDENT_OPENAI_REASONING_FIXTURE)(
         "renders actual effort selector with independent options, medium default, and persists valid effort for $id in MCP settings (§26)",
         async (fixture) => {

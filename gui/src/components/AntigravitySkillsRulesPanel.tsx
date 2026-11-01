@@ -1,18 +1,15 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n";
+import CliToolsCard from "./CliToolsCard";
 import type {
   AntigravityCommandsInfo,
   AntigravityCommandItemInfo,
-  ReviewerPolicyConfig,
-  ReviewerPolicy,
-  WorkflowSkillsPolicyStatus,
   GlobalRuleItemInfo,
   PovNerfCommandsInfo,
   PovNerfSkillId,
   PovNerfOperationResult,
 } from "../types";
-import AntigravityRulesPanel from "./AntigravityRulesPanel";
 
 const WORKFLOW_COMMAND_NAMES = ["pov-plan-only", "pov-build-review", "pov-full-cycle"];
 
@@ -24,15 +21,9 @@ export default function AntigravitySkillsRulesPanel() {
   const [commandsLoading, setCommandsLoading] = useState(false);
   const [commandsError, setCommandsError] = useState<string | null>(null);
   const [commandsSavedMessage, setCommandsSavedMessage] = useState(false);
+  const [confirmRepairSkill, setConfirmRepairSkill] = useState<string | null>(null);
 
-  // ── 2. Reviewer Policy State ──
-  const [reviewerPolicy, setReviewerPolicy] = useState<ReviewerPolicyConfig | null>(null);
-  const [policyStatus, setPolicyStatus] = useState<WorkflowSkillsPolicyStatus | null>(null);
-  const [policyLoading, setPolicyLoading] = useState(false);
-  const [policyError, setPolicyError] = useState<string | null>(null);
-  const [policySavedMessage, setPolicySavedMessage] = useState(false);
-
-  // ── 3. Task Presets (Nerf) State ──
+  // ── 2. Task Presets (Nerf) State ──
   const [nerfInfo, setNerfInfo] = useState<PovNerfCommandsInfo | null>(null);
   const [nerfStatusLoading, setNerfStatusLoading] = useState(false);
   const [nerfLoadingSkill, setNerfLoadingSkill] = useState<PovNerfSkillId | null>(null);
@@ -56,23 +47,6 @@ export default function AntigravitySkillsRulesPanel() {
       setCommandsError(String(e));
     } finally {
       setCommandsLoading(false);
-    }
-  }, []);
-
-  const fetchPolicy = useCallback(async () => {
-    try {
-      setPolicyLoading(true);
-      setPolicyError(null);
-      const [pol, compliance] = await Promise.all([
-        invoke<ReviewerPolicyConfig>("get_reviewer_policy"),
-        invoke<WorkflowSkillsPolicyStatus>("get_workflow_skills_policy_status"),
-      ]);
-      setReviewerPolicy(pol);
-      setPolicyStatus(compliance);
-    } catch (e: unknown) {
-      setPolicyError(String(e));
-    } finally {
-      setPolicyLoading(false);
     }
   }, []);
 
@@ -104,10 +78,9 @@ export default function AntigravitySkillsRulesPanel() {
 
   useEffect(() => {
     void fetchCommands();
-    void fetchPolicy();
     void fetchNerfStatus();
     void fetchGlobalRules();
-  }, [fetchCommands, fetchPolicy, fetchNerfStatus, fetchGlobalRules]);
+  }, [fetchCommands, fetchNerfStatus, fetchGlobalRules]);
 
   // ── Workflow Commands Handlers ──
   const handleOpenSkillsFolder = async () => {
@@ -126,7 +99,6 @@ export default function AntigravitySkillsRulesPanel() {
       setCommandsInfo(res);
       setCommandsSavedMessage(true);
       setTimeout(() => setCommandsSavedMessage(false), 3000);
-      void fetchPolicy();
     } catch (e: unknown) {
       setCommandsError(String(e));
     } finally {
@@ -134,7 +106,14 @@ export default function AntigravitySkillsRulesPanel() {
     }
   };
 
-  const handleUpdateCommand = async (name: string) => {
+  const handleUpdateCommand = (name: string) => {
+    setConfirmRepairSkill(name);
+  };
+
+  const handleProceedRepair = async () => {
+    if (!confirmRepairSkill) return;
+    const name = confirmRepairSkill;
+    setConfirmRepairSkill(null);
     try {
       setCommandsLoading(true);
       setCommandsError(null);
@@ -142,7 +121,6 @@ export default function AntigravitySkillsRulesPanel() {
       setCommandsInfo(res);
       setCommandsSavedMessage(true);
       setTimeout(() => setCommandsSavedMessage(false), 3000);
-      void fetchPolicy();
     } catch (e: unknown) {
       setCommandsError(String(e));
     } finally {
@@ -158,7 +136,6 @@ export default function AntigravitySkillsRulesPanel() {
       setCommandsInfo(res);
       setCommandsSavedMessage(true);
       setTimeout(() => setCommandsSavedMessage(false), 3000);
-      void fetchPolicy();
     } catch (e: unknown) {
       setCommandsError(String(e));
     } finally {
@@ -178,36 +155,10 @@ export default function AntigravitySkillsRulesPanel() {
       setCommandsInfo(res);
       setCommandsSavedMessage(true);
       setTimeout(() => setCommandsSavedMessage(false), 3000);
-      void fetchPolicy();
     } catch (e: unknown) {
       setCommandsError(String(e));
     } finally {
       setCommandsLoading(false);
-    }
-  };
-
-  // ── Reviewer Policy Handlers ──
-  const handleSelectPolicy = async (newPolicy: ReviewerPolicy) => {
-    if (!policyStatus?.compliant) return;
-    try {
-      setPolicyLoading(true);
-      setPolicyError(null);
-      const updated = await invoke<ReviewerPolicyConfig>("set_reviewer_policy", {
-        config: {
-          schema_version: reviewerPolicy?.schema_version ?? 2,
-          policy: newPolicy,
-          content_hash: reviewerPolicy?.content_hash ?? null,
-        },
-        expectedHash: reviewerPolicy?.content_hash ?? null,
-      });
-      setReviewerPolicy(updated);
-      setPolicySavedMessage(true);
-      setTimeout(() => setPolicySavedMessage(false), 3000);
-    } catch (e: unknown) {
-      setPolicyError(String(e));
-      void fetchPolicy();
-    } finally {
-      setPolicyLoading(false);
     }
   };
 
@@ -388,12 +339,13 @@ export default function AntigravitySkillsRulesPanel() {
                       {t("antigravity.commandBtnInstall")}
                     </button>
                   )}
-                  {status === "outdated" && (
+                  {(status === "outdated" || status === "invalid") && (
                     <button
                       className="btn btn-primary"
                       style={{ fontSize: 11, padding: "4px 10px" }}
-                      onClick={() => void handleUpdateCommand(cmdName)}
+                      onClick={() => handleUpdateCommand(cmdName)}
                       disabled={commandsLoading}
+                      data-testid={`btn-update-${cmdName}`}
                     >
                       {t("antigravity.commandBtnUpdate")}
                     </button>
@@ -415,103 +367,10 @@ export default function AntigravitySkillsRulesPanel() {
         </div>
       </div>
 
-      {/* ── CARD 2: External Review Configuration (Reviewer Policy) ── */}
-      <div className="settings-tile">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
-              {t("antigravity.reviewerPolicyTitle")}
-            </h3>
-            {policyLoading && <span style={{ fontSize: 11, color: "#656d76" }}>...</span>}
-          </div>
-          {policySavedMessage && (
-            <span style={{ fontSize: 12, color: "#1a7f37", fontWeight: 500 }}>
-              ✓ {t("antigravity.savedMessage")}
-            </span>
-          )}
-        </div>
+      {/* ── CARD 2: CLI Tools ── */}
+      <CliToolsCard />
 
-        <p style={{ margin: "0 0 12px 0", fontSize: 12, color: "#656d76" }}>
-          {t("antigravity.reviewerPolicyDesc")}
-        </p>
-
-        {policyError && (
-          <div style={{ margin: "0 0 12px 0", padding: "8px 12px", background: "#ffebe9", border: "1px solid #ff8182", borderRadius: 6, fontSize: 12, color: "#cf222e" }}>
-            {policyError}
-          </div>
-        )}
-
-        {/* Warning if workflow skills are not compliant */}
-        {policyStatus && !policyStatus.compliant && (
-          <div style={{ margin: "0 0 12px 0", padding: "8px 12px", background: "#fff8c5", border: "1px solid #d4a72c", borderRadius: 6, fontSize: 12, color: "#6e4a00" }}>
-            ⚠ {t("antigravity.reviewerPolicyUpdateRequiredNotice")}
-          </div>
-        )}
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, background: "#f6f8fa", padding: "12px 14px", borderRadius: 6, border: "1px solid #d0d7de" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: policyStatus?.compliant ? "pointer" : "not-allowed" }}>
-            <input
-              type="radio"
-              name="reviewerPolicy"
-              value="none"
-              checked={reviewerPolicy?.policy === "none"}
-              disabled={!policyStatus?.compliant || policyLoading}
-              onChange={() => void handleSelectPolicy("none")}
-            />
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#24292f" }}>
-                {t("antigravity.reviewerPolicyDisabled")}
-              </div>
-              <div style={{ fontSize: 11, color: "#57606a" }}>
-                {t("antigravity.reviewerPolicyDisabledDesc")}
-              </div>
-            </div>
-          </label>
-
-          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: policyStatus?.compliant ? "pointer" : "not-allowed" }}>
-            <input
-              type="radio"
-              name="reviewerPolicy"
-              value="codex_only"
-              checked={reviewerPolicy?.policy === "codex_only"}
-              disabled={!policyStatus?.compliant || policyLoading}
-              onChange={() => void handleSelectPolicy("codex_only")}
-            />
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#24292f" }}>
-                {t("antigravity.reviewerPolicyCodexOnly")}
-              </div>
-              <div style={{ fontSize: 11, color: "#57606a" }}>
-                {t("antigravity.reviewerPolicyCodexOnlyDesc")}
-              </div>
-            </div>
-          </label>
-
-          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: policyStatus?.compliant ? "pointer" : "not-allowed" }}>
-            <input
-              type="radio"
-              name="reviewerPolicy"
-              value="codex_plus_deepseek"
-              checked={reviewerPolicy?.policy === "codex_plus_deepseek"}
-              disabled={!policyStatus?.compliant || policyLoading}
-              onChange={() => void handleSelectPolicy("codex_plus_deepseek")}
-            />
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#24292f" }}>
-                {t("antigravity.reviewerPolicyCodexPlusDeepseek")}
-              </div>
-              <div style={{ fontSize: 11, color: "#57606a" }}>
-                {t("antigravity.reviewerPolicyCodexPlusDeepseekDesc")}
-              </div>
-            </div>
-          </label>
-        </div>
-      </div>
-
-      {/* ── CARD 3: Coding Behavior (Direct Coding) ── */}
-      <AntigravityRulesPanel />
-
-      {/* ── CARD 4: Task Presets (Nerf) ── */}
+      {/* ── CARD 3: Task Presets (Nerf) ── */}
       <div className="settings-tile">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -600,7 +459,7 @@ export default function AntigravitySkillsRulesPanel() {
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  {skill.permitted_actions.includes("install") && (
+                  {skill.permitted_actions?.includes("install") && (
                     <button
                       className="btn btn-primary"
                       style={{ fontSize: 11, padding: "4px 10px" }}
@@ -610,7 +469,7 @@ export default function AntigravitySkillsRulesPanel() {
                       {t("antigravity.commandBtnInstall")}
                     </button>
                   )}
-                  {skill.permitted_actions.includes("update") && (
+                  {skill.permitted_actions?.includes("update") && (
                     <button
                       className="btn btn-primary"
                       style={{ fontSize: 11, padding: "4px 10px" }}
@@ -620,7 +479,7 @@ export default function AntigravitySkillsRulesPanel() {
                       {t("antigravity.commandBtnUpdate")}
                     </button>
                   )}
-                  {skill.permitted_actions.includes("remove") && (
+                  {skill.permitted_actions?.includes("remove") && (
                     <button
                       className="btn btn-danger"
                       style={{ fontSize: 11, padding: "4px 10px" }}
@@ -751,6 +610,63 @@ export default function AntigravitySkillsRulesPanel() {
           })}
         </div>
       </div>
+
+      {/* Skill Repair Confirmation Modal */}
+      {confirmRepairSkill && (
+        <div
+          data-testid="skill-repair-modal"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: 8,
+              padding: "20px 24px",
+              maxWidth: 440,
+              width: "90%",
+              boxShadow: "0 8px 24px rgba(0, 0, 0, 0.2)",
+            }}
+          >
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: "#24292f" }}>
+              {t("antigravity.skillRepairTitle") || `Update ${confirmRepairSkill}`}
+            </h4>
+            <p style={{ margin: "0 0 14px 0", fontSize: 13, color: "#57606a", lineHeight: 1.5 }}>
+              {t("antigravity.skillRepairConfirm")}
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                className="btn"
+                style={{ fontSize: 12, padding: "6px 12px" }}
+                data-testid="skill-repair-cancel"
+                onClick={() => setConfirmRepairSkill(null)}
+              >
+                {t("antigravity.btnCancel") || "Cancel"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ fontSize: 12, padding: "6px 14px" }}
+                data-testid="skill-repair-proceed"
+                onClick={handleProceedRepair}
+              >
+                {t("antigravity.btnConfirm") || "Proceed"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

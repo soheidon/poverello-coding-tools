@@ -1252,6 +1252,12 @@ const INDEPENDENT_OPENAI_REASONING_FIXTURE: readonly ExpectedReasoningModelFixtu
   },
   // Group 2: 6 choices, includes "none"
   {
+    id: "openai/gpt-6.1-terra",
+    expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    supportsNone: true,
+  },
+  {
     id: "openai/gpt-6-sol",
     expectedOptions: ["none", "low", "medium", "high", "xhigh", "max"],
     defaultEffort: "medium",
@@ -1314,10 +1320,11 @@ const INDEPENDENT_OPENAI_REASONING_FIXTURE: readonly ExpectedReasoningModelFixtu
 ] as const;
 
 describe("OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13)", () => {
-  it("shared catalog declares reasoning metadata for all 15 OpenAI models (§13)", () => {
-    const all15Ids = [
+  it("shared catalog declares reasoning metadata for all 16 OpenAI reasoning models (§13)", () => {
+    const all16Ids = [
       "openai/gpt-6.1-sol",
       "openai/gpt-6.1-sol-pro",
+      "openai/gpt-6.1-terra",
       "openai/gpt-6-sol",
       "openai/gpt-6-sol-pro",
       "openai/gpt-6-luna",
@@ -1332,9 +1339,9 @@ describe("OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13)", () =
       "openai/gpt-5.6-luna",
       "openai/gpt-5.6-luna-pro",
     ];
-    expect(all15Ids).toHaveLength(15);
+    expect(all16Ids).toHaveLength(16);
 
-    for (const id of all15Ids) {
+    for (const id of all16Ids) {
       const caps = MODEL_CAPABILITIES[id];
       expect(caps).toBeDefined();
       expect(caps.supportsReasoningEffort).toBe(true);
@@ -1342,7 +1349,7 @@ describe("OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13)", () =
       expect(caps.reasoning?.defaultEffort).toBe("medium");
       expect(caps.reasoningEffortOptions).toEqual(caps.reasoning?.supportedEfforts);
 
-      if (id.includes("gpt-6.1") || id.includes("astra")) {
+      if (id.includes("gpt-6.1-sol") || id.includes("astra")) {
         expect(caps.reasoningEffortOptions).toEqual(["low", "medium", "high", "xhigh", "max"]);
         expect(caps.reasoningEffortOptions).not.toContain("none");
       } else {
@@ -1464,7 +1471,7 @@ describe("OpenAI GPT-6.1 Sol and Sol Pro reasoning controls (§11 & §13)", () =
     });
   });
 
-  describe("Table-driven actual UI rendering and persistence across all 15 models (§26)", () => {
+  describe("Table-driven actual UI rendering and persistence across all 16 reasoning models (§26)", () => {
     it.each(INDEPENDENT_OPENAI_REASONING_FIXTURE)(
       "renders actual effort selector with independent options, medium default, and persists valid effort for $id (§26)",
       async (fixture) => {

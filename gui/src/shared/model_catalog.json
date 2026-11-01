@@ -97,6 +97,8 @@
         "stepfun/step-3.5-flash",
         "openai/gpt-6.1-sol",
         "openai/gpt-6.1-sol-pro",
+        "openai/gpt-6.1-terra",
+        "openai/gpt-6.1-terra-pro",
         "openai/gpt-6-sol",
         "openai/gpt-6-sol-pro",
         "openai/gpt-6-luna",
@@ -204,7 +206,15 @@
           "low",
           "high",
           "max"
-        ]
+        ],
+        "deepseekReviewerEligible": true,
+        "cliModelId": "deepseek-flash",
+        "reviewerReasoningEfforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "reviewerDefaultEffort": "high"
       }
     },
     "deepseek-v4-pro": {
@@ -225,7 +235,15 @@
           "low",
           "high",
           "max"
-        ]
+        ],
+        "deepseekReviewerEligible": true,
+        "cliModelId": "deepseek-v4-pro",
+        "reviewerReasoningEfforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "reviewerDefaultEffort": "high"
       }
     },
     "deepseek-v4-flash": {
@@ -1130,7 +1148,17 @@
           "high",
           "xhigh",
           "max"
-        ]
+        ],
+        "codexReviewerEligible": true,
+        "cliModelId": "gpt-6.1-sol",
+        "reviewerReasoningEfforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "reviewerDefaultEffort": "medium"
       }
     },
     "openai/gpt-6.1-sol-pro": {
@@ -1165,6 +1193,76 @@
           "xhigh",
           "max"
         ]
+      }
+    },
+    "openai/gpt-6.1-terra": {
+      "providerId": "openrouter",
+      "displayName": "GPT-6.1 Terra",
+      "vendor": "OpenAI",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "reasoning_effort",
+        "thinkingPolicy": "forced",
+        "supportsReasoningEffort": true,
+        "reasoning": {
+          "supportedEfforts": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "codexReviewerEligible": true,
+        "cliModelId": "gpt-6.1-terra",
+        "reviewerReasoningEfforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "reviewerDefaultEffort": "medium"
+      }
+    },
+    "openai/gpt-6.1-terra-pro": {
+      "providerId": "openrouter",
+      "displayName": "GPT-6.1 Terra Pro",
+      "vendor": "OpenAI",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": true,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": false,
+        "forcedReasoningMode": "pro",
+        "reasoning": {
+          "supportedEfforts": [],
+          "defaultEffort": "pro"
+        },
+        "reasoningEffortOptions": []
       }
     },
     "openai/gpt-6-sol": {
@@ -1272,7 +1370,18 @@
           "high",
           "xhigh",
           "max"
-        ]
+        ],
+        "codexReviewerEligible": true,
+        "cliModelId": "gpt-6-luna",
+        "reviewerReasoningEfforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "reviewerDefaultEffort": "medium"
       }
     },
     "openai/gpt-6-luna-pro": {
@@ -2104,6 +2213,14 @@
       "source": "builtin"
     },
     "openrouter:openai/gpt-6.1-sol-pro": {
+      "context_length": 1050000,
+      "source": "builtin"
+    },
+    "openrouter:openai/gpt-6.1-terra": {
+      "context_length": 1050000,
+      "source": "builtin"
+    },
+    "openrouter:openai/gpt-6.1-terra-pro": {
       "context_length": 1050000,
       "source": "builtin"
     },
