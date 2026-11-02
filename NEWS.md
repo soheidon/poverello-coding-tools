@@ -1,5 +1,14 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.26.2 — 2026-11-02
+
+### External Reviewers and Workflow Skills
+- Enabled practical review dispatch with isolated snapshot directories and a patch overlay enforcing read-only sandbox mode and disabling non-review tools (file editing, shell execution, browsers).
+- Added Windows batch compatibility to launch npm-installed tools under Windows Job Objects with timeout enforcement, child-process reaping, and stdout capping.
+- Added structured JSONL reviewer diagnostic logs with automatic credential masking, 5MB rotation, and an in-app viewer modal with export support.
+- Updated Priority Reviewer semantics across skills and GUI to act as arbitrator when reviewers disagree, preserving all blocking findings from all reviewers.
+- Improved workflow skill template recognition to identify official historical releases as update-available rather than conflicting.
+
 ## v0.26.1 — 2026-11-02
 
 ### Windows CLI process handling

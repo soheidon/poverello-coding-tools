@@ -13,8 +13,9 @@ import type {
 const invokeMock = invoke as unknown as ReturnType<typeof vi.fn>;
 
 const dummyReviewerPolicy: ReviewerPolicyConfig = {
-  schema_version: 3,
+  schema_version: 4,
   policy: "codex_plus_deepseek",
+  priority_reviewer: "codex_cli",
   codex: {
     model: "gpt-6.1-terra",
     reasoning_effort: "high",
@@ -182,5 +183,58 @@ describe("ExternalReviewCard Component", () => {
     expect(screen.getByTestId("reviewer-policy-none")).toBeDisabled();
     expect(screen.getByTestId("reviewer-policy-codex-only")).toBeDisabled();
     expect(screen.getByTestId("reviewer-policy-codex-plus-deepseek")).toBeDisabled();
+  });
+
+  it("handles priority reviewer selection and displays it in summary", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+        <ExternalReviewCard />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("priority-reviewer-codex-cli")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("priority-reviewer-codex-cli")).toBeChecked();
+    expect(screen.getByTestId("priority-reviewer-deepseek")).not.toBeChecked();
+
+    const summary = screen.getByTestId("priority-reviewer-summary");
+    expect(summary.textContent).toContain("Codex CLI");
+
+    // Click DeepSeek as priority reviewer
+    await user.click(screen.getByTestId("priority-reviewer-deepseek"));
+    expect(invokeMock).toHaveBeenCalledWith("set_reviewer_policy", expect.objectContaining({
+      config: expect.objectContaining({
+        schema_version: 4,
+        policy: "codex_plus_deepseek",
+        priority_reviewer: "deepseek",
+      }),
+    }));
+  });
+
+  it("displays migration banner when unconfirmed_migration is true", async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "get_reviewer_policy") {
+        return {
+          ...dummyReviewerPolicy,
+          unconfirmed_migration: true,
+        };
+      }
+      if (command === "get_workflow_skills_policy_status") return dummyPolicyStatusCompliant;
+      if (command === "get_codex_account_info") return dummyCodexAccount;
+      return undefined;
+    });
+
+    render(
+      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+        <ExternalReviewCard />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("reviewer-migration-banner")).toBeInTheDocument();
+    });
   });
 });

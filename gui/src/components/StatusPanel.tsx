@@ -156,25 +156,25 @@ export default function StatusPanel({ health, healthError, healthLoading, refres
         {/* ---- Status cards ---- */}
         <div className="status-grid">
           {/* Port 4000 card */}
-          <div className="status-card">
-            <div className="status-card-label">{t("statusPanel.port4000")}</div>
+          <div className="status-card status-card-compact">
+            <div className="status-card-label" style={{ whiteSpace: "nowrap" }}>{t("statusPanel.port4000")}</div>
             {healthLoading ? (
               <div className="loading" />
             ) : healthError ? (
               <div className="error-text">{healthError}</div>
             ) : health?.port_listening ? (
-              <div className="status-card-value green">
+              <div className="status-card-value green" style={{ whiteSpace: "nowrap" }}>
                 {t("statusPanel.listening")}
               </div>
             ) : (
-              <div className="status-card-value muted">{t("statusPanel.notListening")}</div>
+              <div className="status-card-value muted" style={{ whiteSpace: "nowrap" }}>{t("statusPanel.notListening")}</div>
             )}
           </div>
 
           {/* Gateway URL card */}
-          <div className="status-card">
-            <div className="status-card-label">{t("statusPanel.gatewayUrl")}</div>
-            <div className="status-card-value" style={{ fontSize: 12 }}>
+          <div className="status-card status-card-compact">
+            <div className="status-card-label" style={{ whiteSpace: "nowrap" }}>{t("statusPanel.gatewayUrl")}</div>
+            <div className="status-card-value" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
               {t("statusPanel.gatewayUrlValue")}
             </div>
           </div>

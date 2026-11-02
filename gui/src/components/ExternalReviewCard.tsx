@@ -4,6 +4,7 @@ import { useTranslation } from "../i18n";
 import type {
   ReviewerPolicyConfig,
   ReviewerPolicy,
+  AntigravityPriorityReviewer,
   WorkflowSkillsPolicyStatus,
   CodexAccountInfo,
 } from "../types";
@@ -72,13 +73,18 @@ export default function ExternalReviewCard() {
 
   const savePolicy = async (configToSave: ReviewerPolicyConfig) => {
     if (!policyStatus?.compliant) return;
+    if (configToSave.policy === "codex_plus_deepseek" && !configToSave.priority_reviewer) {
+      setError(t("antigravity.priorityReviewerRequired"));
+      return;
+    }
     try {
       setSaving(true);
       setError(null);
       const updated = await invoke<ReviewerPolicyConfig>("set_reviewer_policy", {
         config: {
-          schema_version: 3,
+          schema_version: 4,
           policy: configToSave.policy,
+          priority_reviewer: configToSave.priority_reviewer ?? null,
           codex: configToSave.codex ?? null,
           deepseek: configToSave.deepseek ?? null,
           content_hash: reviewerPolicy?.content_hash ?? null,
@@ -100,6 +106,7 @@ export default function ExternalReviewCard() {
     if (!reviewerPolicy) return;
     let newCodex = reviewerPolicy.codex;
     let newDeepseek = reviewerPolicy.deepseek;
+    let newPriority = reviewerPolicy.priority_reviewer;
 
     if (newPolicy !== "none") {
       if (!newCodex) {
@@ -110,11 +117,29 @@ export default function ExternalReviewCard() {
       }
     }
 
+    if (newPolicy !== "codex_plus_deepseek") {
+      newPriority = null;
+    }
+
     const updatedConfig: ReviewerPolicyConfig = {
       ...reviewerPolicy,
       policy: newPolicy,
+      priority_reviewer: newPriority,
       codex: newPolicy === "none" ? null : newCodex,
       deepseek: newPolicy === "codex_plus_deepseek" ? newDeepseek : null,
+    };
+    setReviewerPolicy(updatedConfig);
+    if (newPolicy === "codex_plus_deepseek" && !newPriority) {
+      return;
+    }
+    void savePolicy(updatedConfig);
+  };
+
+  const handleSelectPriority = (priority: AntigravityPriorityReviewer) => {
+    if (!reviewerPolicy) return;
+    const updatedConfig: ReviewerPolicyConfig = {
+      ...reviewerPolicy,
+      priority_reviewer: priority,
     };
     setReviewerPolicy(updatedConfig);
     void savePolicy(updatedConfig);
@@ -219,6 +244,23 @@ export default function ExternalReviewCard() {
         </div>
       )}
 
+      {reviewerPolicy?.unconfirmed_migration && (
+        <div
+          data-testid="reviewer-migration-banner"
+          style={{
+            margin: "0 0 12px 0",
+            padding: "8px 12px",
+            background: "#fff8c5",
+            border: "1px solid #d4a72c",
+            borderRadius: 6,
+            fontSize: 12,
+            color: "#6e4a00",
+          }}
+        >
+          ⚠ {t("antigravity.priorityReviewerMigrationNotice")}
+        </div>
+      )}
+
       {/* Review Mode Single-Row Selector (§10.3) */}
       <div id="reviewer-options-box" className="pov-setting-row" style={{ marginTop: 4, marginBottom: 2 }}>
         <div className="pov-setting-label">
@@ -283,6 +325,56 @@ export default function ExternalReviewCard() {
         {selectedPolicy === "codex_plus_deepseek" && t("antigravity.reviewerPolicyCodexPlusDeepseekDesc")}
       </div>
 
+      {/* Priority Reviewer Single-Row Selector (§20.4) */}
+      {selectedPolicy === "codex_plus_deepseek" && (
+        <>
+          <div id="priority-reviewer-box" className="pov-setting-row" style={{ marginTop: 8, marginBottom: 2 }}>
+            <div className="pov-setting-label">
+              {t("antigravity.priorityReviewerTitle")}
+            </div>
+            <div className="pov-setting-control">
+              <div className="pov-segment-group" role="radiogroup" aria-label={t("antigravity.priorityReviewerTitle")}>
+                <label
+                  className={`pov-segment-btn ${reviewerPolicy?.priority_reviewer === "codex_cli" ? "active" : ""}`}
+                  style={{ cursor: policyStatus?.compliant ? "pointer" : "not-allowed", display: "inline-flex", alignItems: "center" }}
+                >
+                  <input
+                    type="radio"
+                    name="priorityReviewer"
+                    value="codex_cli"
+                    data-testid="priority-reviewer-codex-cli"
+                    className="sr-only"
+                    checked={reviewerPolicy?.priority_reviewer === "codex_cli"}
+                    disabled={!policyStatus?.compliant || loading || saving}
+                    onChange={() => handleSelectPriority("codex_cli")}
+                  />
+                  <span>{t("antigravity.priorityCodexCli")}</span>
+                </label>
+                <label
+                  className={`pov-segment-btn ${reviewerPolicy?.priority_reviewer === "deepseek" ? "active" : ""}`}
+                  style={{ cursor: policyStatus?.compliant ? "pointer" : "not-allowed", display: "inline-flex", alignItems: "center" }}
+                >
+                  <input
+                    type="radio"
+                    name="priorityReviewer"
+                    value="deepseek"
+                    data-testid="priority-reviewer-deepseek"
+                    className="sr-only"
+                    checked={reviewerPolicy?.priority_reviewer === "deepseek"}
+                    disabled={!policyStatus?.compliant || loading || saving}
+                    onChange={() => handleSelectPriority("deepseek")}
+                  />
+                  <span>{t("antigravity.priorityDeepSeek")}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-secondary, #656d76)", marginBottom: 10 }}>
+            {t("antigravity.priorityReviewerDesc")}
+          </div>
+        </>
+      )}
+
       {/* Effective Configuration Summary */}
       <div
         data-testid="reviewer-config-summary"
@@ -330,14 +422,26 @@ export default function ExternalReviewCard() {
 
             {/* DeepSeek Harness summary */}
             {selectedPolicy === "codex_plus_deepseek" && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 12, color: "#24292f", borderTop: "1px dashed #d0d7de", paddingTop: 4 }}>
-                <span>
-                  <strong>DeepSeek Harness:</strong> {currentDeepSeekEntry?.displayName ?? selectedDeepSeekModel} ({selectedDeepSeekEffort})
-                </span>
-                <span style={{ color: "#57606a", fontSize: 11 }}>
-                  {selectedDeepSeekModel === "deepseek-flash" ? "($0.15 / $0.60 / 1M)" : "($0.55 / $2.19 / 1M)"}
-                </span>
-              </div>
+              <>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, color: "#24292f", borderTop: "1px dashed #d0d7de", paddingTop: 4 }}>
+                  <span>
+                    <strong>DeepSeek Harness:</strong> {currentDeepSeekEntry?.displayName ?? selectedDeepSeekModel} ({selectedDeepSeekEffort})
+                  </span>
+                  <span style={{ color: "#57606a", fontSize: 11 }}>
+                    {selectedDeepSeekModel === "deepseek-flash" ? "($0.15 / $0.60 / 1M)" : "($0.55 / $2.19 / 1M)"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, color: "#24292f", borderTop: "1px dashed #d0d7de", paddingTop: 4 }}>
+                  <span data-testid="priority-reviewer-summary">
+                    <strong>{t("antigravity.priorityReviewerTitle")}:</strong>{" "}
+                    {reviewerPolicy?.priority_reviewer === "codex_cli"
+                      ? t("antigravity.priorityCodexCli")
+                      : reviewerPolicy?.priority_reviewer === "deepseek"
+                      ? t("antigravity.priorityDeepSeek")
+                      : <span style={{ color: "var(--error, #cf222e)", fontWeight: 600 }}>{t("antigravity.priorityReviewerNotSelected")}</span>}
+                  </span>
+                </div>
+              </>
             )}
           </div>
         )}

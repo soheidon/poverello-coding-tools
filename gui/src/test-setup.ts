@@ -165,6 +165,13 @@ vi.mock("./i18n", () => {
       reviewerEffortNone: "Off",
       reviewerSaveSuccess: "Reviewer settings saved",
       reviewerSaveButton: "Save Review Settings",
+      priorityReviewerTitle: "Priority Reviewer",
+      priorityReviewerDesc: "Arbitrator if both reviewers reach conflicting verdicts. Does not alter execution order or terminate early.",
+      priorityCodexCli: "Codex CLI",
+      priorityDeepSeek: "DeepSeek Harness",
+      priorityReviewerRequired: "Please select a Priority Reviewer to complete configuration.",
+      priorityReviewerMigrationNotice: "Policy update required (schema v4). Please select a Priority Reviewer and save.",
+      priorityReviewerNotSelected: "Not selected (required)",
     },
     antigravityRules: {
       tabTitle: "Antigravity Rules",
@@ -269,6 +276,15 @@ vi.mock("./i18n", () => {
         migrateDesc: "A legacy Poverello rule file was found. Applying will upgrade it to the new managed format.",
         btnMigrateApply: "Migrate & Apply",
       },
+    },
+    codexSkillsRules: {
+      priorityArbitrationDescription: "After all selected reviewers have returned verdicts, the priority reviewer determines the final outcome if verdicts disagree. Review failure, incomplete reviews, or unresolved blocking findings cannot be overridden by priority.",
+      priorityOrderCodexFirst: "After all selected reviewers have returned verdicts, the priority reviewer determines the final outcome if verdicts disagree. Review failure, incomplete reviews, or unresolved blocking findings cannot be overridden by priority.",
+      priorityOrderExternalFirst: "After all selected reviewers have returned verdicts, the priority reviewer determines the final outcome if verdicts disagree. Review failure, incomplete reviews, or unresolved blocking findings cannot be overridden by priority.",
+      modeCodexSelfOnly: "Codex Self-Review",
+      reviewerDeepseek: "DeepSeek Harness",
+      reviewerGemini: "Gemini CLI",
+      priorityLabel: "Priority Reviewer",
     },
   };
 

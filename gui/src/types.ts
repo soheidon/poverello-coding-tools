@@ -252,6 +252,7 @@ export interface GlobalRuleItemInfo {
 
 export type ReviewerPolicy = "none" | "codex_only" | "codex_plus_deepseek";
 export type ReviewerPreset = "fast" | "standard" | "strict" | "custom";
+export type AntigravityPriorityReviewer = "codex_cli" | "deepseek";
 
 export interface CodexReviewerConfig {
   model: string;
@@ -269,6 +270,8 @@ export interface ReviewerPolicyConfig {
   preset?: ReviewerPreset | null;
   codex?: CodexReviewerConfig | null;
   deepseek?: DeepSeekReviewerConfig | null;
+  priority_reviewer?: AntigravityPriorityReviewer | null;
+  unconfirmed_migration?: boolean;
   content_hash?: string | null;
 }
 
@@ -368,17 +371,32 @@ export interface CodexGlobalRulesStatus {
   resolution_error: string | null;
 }
 
+export type ReviewMode =
+  | "codex_self_only"
+  | "external_only"
+  | "codex_plus_external"
+  | "none";
+
 export interface ReviewersSelection {
   codex: boolean;
   gemini: boolean;
   deepseek: boolean;
 }
 
+export interface ExternalReviewerConfig {
+  model?: string;
+  reasoning_effort?: string;
+}
+
 export interface CodexReviewSettings {
   schema_version: number;
+  review_mode: ReviewMode;
   reviewers: ReviewersSelection;
   priority_reviewer: string | null;
   gemini_cli_enabled: boolean;
+  unconfirmed_migration?: boolean;
+  deepseek?: ExternalReviewerConfig;
+  gemini?: ExternalReviewerConfig;
 }
 
 export interface CodexAccountInfo {
@@ -577,4 +595,28 @@ export interface AsyncState<T> {
   error: string | null;
   loading: boolean;
   refresh: () => void;
+}
+
+// ---- Reviewer Diagnostics (§18) ----
+export interface ReviewerDiagnosticEvent {
+  run_id: string;
+  timestamp: string;
+  reviewer: string;
+  model: string | null;
+  reasoning_effort: string | null;
+  snapshot_files_count: number;
+  snapshot_total_bytes: number;
+  snapshot_sha256: string | null;
+  sandbox_mechanism: string;
+  sandbox_verified: boolean;
+  execution_phase: string;
+  process_spawned: boolean;
+  exit_code: number | null;
+  timed_out: boolean;
+  cancelled: boolean;
+  children_reaped: boolean;
+  verdict: string | null;
+  error_category: string | null;
+  external_dispatch_occurred: boolean;
+  duration_ms: number;
 }

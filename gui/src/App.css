@@ -779,7 +779,8 @@ body {
 }
 
 .status-grid {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
   gap: 8px;
 }
 
@@ -789,6 +790,10 @@ body {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+.status-card.status-card-compact {
+  flex: 0 0 auto;
 }
 
 .status-card-label {
@@ -1932,10 +1937,10 @@ body {
   color: var(--text-muted);
 }
 
-/* ---- Status grid in status panel: 1/4 : 1/4 : 2/4 ---- */
+/* ---- Status grid in status panel: auto auto 1fr ---- */
 .status-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 2fr;
+  grid-template-columns: auto auto 1fr;
   gap: 8px;
 }
 

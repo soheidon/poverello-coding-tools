@@ -181,7 +181,8 @@ describe("CliToolsSettingsPanel Component", () => {
     it("renders Gemini Reviewer Option card and toggles ON without selecting gemini reviewer", async () => {
       const user = userEvent.setup();
       const currentSettings: CodexReviewSettings = {
-        schema_version: 2,
+        schema_version: 4,
+        review_mode: "external_only",
         reviewers: { codex: true, gemini: false, deepseek: false },
         priority_reviewer: "codex",
         gemini_cli_enabled: false,
@@ -220,7 +221,8 @@ describe("CliToolsSettingsPanel Component", () => {
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
           settings: {
-            schema_version: 2,
+            schema_version: 4,
+        review_mode: "external_only",
             reviewers: { codex: true, gemini: false, deepseek: false },
             priority_reviewer: "codex",
             gemini_cli_enabled: true,
@@ -234,7 +236,8 @@ describe("CliToolsSettingsPanel Component", () => {
     it("directly disables Gemini option without confirmation modal when Gemini is unselected and not priority", async () => {
       const user = userEvent.setup();
       const currentSettings: CodexReviewSettings = {
-        schema_version: 2,
+        schema_version: 4,
+        review_mode: "external_only",
         reviewers: { codex: true, gemini: false, deepseek: false },
         priority_reviewer: "codex",
         gemini_cli_enabled: true,
@@ -271,7 +274,8 @@ describe("CliToolsSettingsPanel Component", () => {
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
           settings: {
-            schema_version: 2,
+            schema_version: 4,
+        review_mode: "external_only",
             reviewers: { codex: true, gemini: false, deepseek: false },
             priority_reviewer: "codex",
             gemini_cli_enabled: false,
@@ -283,7 +287,8 @@ describe("CliToolsSettingsPanel Component", () => {
     it("shows confirmation modal when disabling Gemini while selected, handles cancel, and handles confirm when Gemini is not priority", async () => {
       const user = userEvent.setup();
       const currentSettings: CodexReviewSettings = {
-        schema_version: 2,
+        schema_version: 4,
+        review_mode: "external_only",
         reviewers: { codex: true, gemini: true, deepseek: false },
         priority_reviewer: "codex",
         gemini_cli_enabled: true,
@@ -331,7 +336,8 @@ describe("CliToolsSettingsPanel Component", () => {
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
           settings: {
-            schema_version: 2,
+            schema_version: 4,
+        review_mode: "external_only",
             reviewers: { codex: true, gemini: false, deepseek: false },
             priority_reviewer: "codex",
             gemini_cli_enabled: false,
@@ -343,7 +349,8 @@ describe("CliToolsSettingsPanel Component", () => {
     it("handles priority resolution in confirmation modal when Gemini is priority: auto-assigns sole remaining reviewer", async () => {
       const user = userEvent.setup();
       const currentSettings: CodexReviewSettings = {
-        schema_version: 2,
+        schema_version: 4,
+        review_mode: "external_only",
         reviewers: { codex: true, gemini: true, deepseek: false },
         priority_reviewer: "gemini",
         gemini_cli_enabled: true,
@@ -383,7 +390,8 @@ describe("CliToolsSettingsPanel Component", () => {
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
           settings: {
-            schema_version: 2,
+            schema_version: 4,
+        review_mode: "external_only",
             reviewers: { codex: true, gemini: false, deepseek: false },
             priority_reviewer: "codex", // auto-reassigned to the sole remaining reviewer
             gemini_cli_enabled: false,
@@ -395,7 +403,8 @@ describe("CliToolsSettingsPanel Component", () => {
     it("handles priority resolution in confirmation modal when Gemini is priority: requires radio choice among multiple remaining reviewers before enabling confirm", async () => {
       const user = userEvent.setup();
       const currentSettings: CodexReviewSettings = {
-        schema_version: 2,
+        schema_version: 4,
+        review_mode: "external_only",
         reviewers: { codex: true, gemini: true, deepseek: true },
         priority_reviewer: "gemini",
         gemini_cli_enabled: true,
@@ -440,7 +449,8 @@ describe("CliToolsSettingsPanel Component", () => {
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
           settings: {
-            schema_version: 2,
+            schema_version: 4,
+        review_mode: "external_only",
             reviewers: { codex: true, gemini: false, deepseek: true },
             priority_reviewer: "deepseek", // chosen priority
             gemini_cli_enabled: false,
@@ -452,7 +462,8 @@ describe("CliToolsSettingsPanel Component", () => {
     it("handles priority resolution in confirmation modal when Gemini is priority: shows zero-reviewer warning when 0 remaining reviewers", async () => {
       const user = userEvent.setup();
       const currentSettings: CodexReviewSettings = {
-        schema_version: 2,
+        schema_version: 4,
+        review_mode: "external_only",
         reviewers: { codex: false, gemini: true, deepseek: false },
         priority_reviewer: "gemini",
         gemini_cli_enabled: true,
@@ -491,7 +502,8 @@ describe("CliToolsSettingsPanel Component", () => {
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
           settings: {
-            schema_version: 2,
+            schema_version: 4,
+        review_mode: "external_only",
             reviewers: { codex: false, gemini: false, deepseek: false },
             priority_reviewer: null,
             gemini_cli_enabled: false,
@@ -503,7 +515,8 @@ describe("CliToolsSettingsPanel Component", () => {
     it("handles save failure gracefully by rolling back state and displaying error", async () => {
       const user = userEvent.setup();
       const currentSettings: CodexReviewSettings = {
-        schema_version: 2,
+        schema_version: 4,
+        review_mode: "external_only",
         reviewers: { codex: true, gemini: false, deepseek: false },
         priority_reviewer: "codex",
         gemini_cli_enabled: false,

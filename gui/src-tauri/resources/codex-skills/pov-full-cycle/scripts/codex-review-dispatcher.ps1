@@ -25,7 +25,19 @@ param(
     [int]$TimeoutSeconds = 300,
 
     [Parameter(Mandatory = $false)]
-    [string]$ReviewPrompt = "Review the plan and implementation in this workspace against approved specifications. Do not modify files or execute stateful commands."
+    [string]$ReviewPrompt = "Review the plan and implementation in this workspace against approved specifications. Do not modify files or execute stateful commands.",
+
+    [Parameter(Mandatory = $false)]
+    [string]$SettingsFile = "",
+
+    [Parameter(Mandatory = $false)]
+    [string]$DeepSeekModel = "deepseek-flash",
+
+    [Parameter(Mandatory = $false)]
+    [string]$DeepSeekEffort = "high",
+
+    [Parameter(Mandatory = $false)]
+    [string]$GeminiModel = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -64,13 +76,23 @@ if ($reparseChildren -and $reparseChildren.Count -gt 0) {
     exit 1
 }
 
-$validReviewerIds = @("codex", "gemini", "deepseek")
+# In v0.26.2, Codex is the working agent and cannot be dispatched as an external reviewer.
+# Only Gemini and DeepSeek are valid external reviewers.
+$validReviewerIds = @("gemini", "deepseek")
 $targetReviewers = @()
 foreach ($r in $Reviewers) {
     if ([string]::IsNullOrWhiteSpace($r) -or $r.Trim() -eq "@()") {
         continue
     }
     $rClean = $r.Trim().ToLowerInvariant()
+    if ($rClean -eq "codex") {
+        $errObj = @{
+            error = "Invalid reviewer ID: 'codex'. Codex is the working agent and cannot be dispatched as an external reviewer."
+            results = @()
+        }
+        $errObj | ConvertTo-Json -Compress
+        exit 1
+    }
     if ($validReviewerIds -notcontains $rClean) {
         $errObj = @{
             error = "Invalid reviewer ID: '$r'. Allowed: $($validReviewerIds -join ', ')"
@@ -81,6 +103,127 @@ foreach ($r in $Reviewers) {
     }
     if ($targetReviewers -notcontains $rClean) {
         $targetReviewers += $rClean
+    }
+}
+
+# Check settings file for review_mode, unconfirmed migration, schema version, and configuration
+$resolvedSettingsPath = $SettingsFile
+if ([string]::IsNullOrWhiteSpace($resolvedSettingsPath)) {
+    $codexHome = $env:CODEX_HOME
+    if ([string]::IsNullOrWhiteSpace($codexHome) -and -not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        $codexHome = Join-Path $env:USERPROFILE ".codex"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($codexHome)) {
+        $candidate = Join-Path $codexHome "pov-review-settings.json"
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            $resolvedSettingsPath = $candidate
+        }
+    }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($resolvedSettingsPath)) {
+    if (-not (Test-Path -LiteralPath $resolvedSettingsPath -PathType Leaf)) {
+        $errObj = @{
+            error = "Settings file does not exist: $resolvedSettingsPath"
+            results = @()
+        }
+        $errObj | ConvertTo-Json -Compress
+        exit 1
+    }
+
+    $settingsRaw = $null
+    try {
+        $settingsRaw = Get-Content -LiteralPath $resolvedSettingsPath -Raw -ErrorAction Stop
+    } catch {
+        $errObj = @{
+            error = "Failed to read settings file: $_"
+            results = @()
+        }
+        $errObj | ConvertTo-Json -Compress
+        exit 1
+    }
+
+    if ([string]::IsNullOrWhiteSpace($settingsRaw)) {
+        $errObj = @{
+            error = "Settings file is empty: $resolvedSettingsPath"
+            results = @()
+        }
+        $errObj | ConvertTo-Json -Compress
+        exit 1
+    }
+
+    $settingsJson = $null
+    try {
+        $settingsJson = $settingsRaw | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        $errObj = @{
+            error = "Failed to parse settings file as JSON: $_"
+            results = @()
+        }
+        $errObj | ConvertTo-Json -Compress
+        exit 1
+    }
+
+    if (-not $settingsJson.schema_version -or $settingsJson.schema_version -ne 4) {
+        $errObj = @{
+            error = "Unsupported review settings schema version $($settingsJson.schema_version) (expected 4). Please update settings in GUI before dispatching."
+            results = @()
+        }
+        $errObj | ConvertTo-Json -Compress
+        exit 1
+    }
+
+    if ($settingsJson.unconfirmed_migration -eq $true) {
+        $errObj = @{
+            error = "External review cannot be launched: review settings were migrated from an older version and have unconfirmed changes. Please review and save settings in GUI before dispatching."
+            results = @()
+        }
+        $errObj | ConvertTo-Json -Compress
+        exit 1
+    }
+
+    # If review_mode is codex_self_only or none, external review is not to be executed by dispatcher
+    if ($settingsJson.review_mode -in @("codex_self_only", "none")) {
+        $outObj = @{
+            status = "REVIEW_SKIPPED"
+            mode = $settingsJson.review_mode
+            results = @()
+        }
+        $outObj | ConvertTo-Json -Compress
+        exit 0
+    }
+
+    if ($settingsJson.gemini -and -not [string]::IsNullOrWhiteSpace($settingsJson.gemini.model)) {
+        $GeminiModel = $settingsJson.gemini.model
+    }
+    if ($settingsJson.deepseek) {
+        if (-not [string]::IsNullOrWhiteSpace($settingsJson.deepseek.model)) {
+            $DeepSeekModel = $settingsJson.deepseek.model
+        }
+        if (-not [string]::IsNullOrWhiteSpace($settingsJson.deepseek.reasoning_effort)) {
+            $DeepSeekEffort = $settingsJson.deepseek.reasoning_effort
+        }
+    }
+}
+
+$allowedDshModels = @("deepseek-flash", "deepseek-v4-pro")
+$allowedDshEfforts = @("low", "high", "max")
+if ($targetReviewers -contains "deepseek") {
+    if (-not [string]::IsNullOrWhiteSpace($DeepSeekModel) -and ($allowedDshModels -notcontains $DeepSeekModel)) {
+        $errObj = @{
+            error = "Unsupported DeepSeek model: '$DeepSeekModel'. Allowed: $($allowedDshModels -join ', ')"
+            results = @()
+        }
+        $errObj | ConvertTo-Json -Compress
+        exit 1
+    }
+    if (-not [string]::IsNullOrWhiteSpace($DeepSeekEffort) -and ($allowedDshEfforts -notcontains $DeepSeekEffort)) {
+        $errObj = @{
+            error = "Unsupported DeepSeek reasoning effort: '$DeepSeekEffort'. Allowed: $($allowedDshEfforts -join ', ')"
+            results = @()
+        }
+        $errObj | ConvertTo-Json -Compress
+        exit 1
     }
 }
 
@@ -442,13 +585,6 @@ if (-not ([System.Management.Automation.PSTypeName]'PoverelloProcessJobRunner').
 function Get-ReviewerCommand {
     param([string]$ReviewerId, [string]$Prompt, [string]$WorkDir)
     switch ($ReviewerId) {
-        "codex" {
-            return @{
-                Command = "codex"
-                Args = @("exec", "--ephemeral", "--sandbox", "read-only", $Prompt)
-                UnavailableReason = $null
-            }
-        }
         "gemini" {
             # Gemini CLI must be strictly isolated.
             # In the absence of an officially verified and enforced read-only sandbox on Windows,
@@ -466,22 +602,100 @@ function Get-ReviewerCommand {
                 }
             }
 
+            $geminiArgs = @("-p", $Prompt, "--approval-mode=plan", "--sandbox")
+            if (-not [string]::IsNullOrWhiteSpace($GeminiModel) -and ($GeminiModel -in @("gemini-2.5-pro", "gemini-2.5-flash"))) {
+                $geminiArgs += @("-m", $GeminiModel)
+            }
             return @{
                 Command = "gemini"
-                Args = @("-p", $Prompt, "--approval-mode=plan", "--sandbox")
+                Args = $geminiArgs
                 UnavailableReason = $null
             }
         }
         "deepseek" {
-            # Official headless dsh syntax takes positional task argument without -p
-            return @{
-                Command = "dsh"
-                Args = @("--profile", "headless", "--permission-mode", "read-only", "--approval-policy", "never", $Prompt)
-                UnavailableReason = $null
+            # DeepSeek Harness Practical Review Dispatcher (§18 / §23 Pragmatic Specification)
+            # Restricts review target to isolated SnapshotDir without credentials or sensitive files.
+            # Enforces official headless profile with patch overlay to disable write/exec tools.
+            # Note: This enforces application-level tool restrictions; it does NOT claim OS-level AppContainer isolation.
+
+            # 1. Preflight CLI availability verification
+            $dshCmd = Get-Command "dsh" -ErrorAction SilentlyContinue
+            if (-not $dshCmd) {
+                return @{
+                    Command = $null
+                    Args = @()
+                    UnavailableReason = "DeepSeek Harness CLI (dsh) is not found in PATH; reviewer is UNAVAILABLE"
+                }
+            }
+
+            # 2. Model & Reasoning Effort Allowlist Verification
+            $modelToUse = if (-not [string]::IsNullOrWhiteSpace($DeepSeekModel)) { $DeepSeekModel } else { "deepseek-flash" }
+            if ($modelToUse -notin @("deepseek-flash", "deepseek-v4-pro")) {
+                throw "Unsupported DeepSeek model: '$modelToUse'. Allowed models: deepseek-flash, deepseek-v4-pro"
+            }
+
+            $effortToUse = if (-not [string]::IsNullOrWhiteSpace($DeepSeekEffort)) { $DeepSeekEffort } else { "high" }
+            if ($effortToUse -notin @("low", "high", "max")) {
+                throw "Unsupported DeepSeek reasoning effort: '$effortToUse'. Allowed efforts: low, high, max"
+            }
+
+            # 3. Create isolated patch overlay disabling non-review tools
+            $patchDir = Join-Path ([System.IO.Path]::GetTempPath()) ("dsh-patch-" + [System.Guid]::NewGuid().ToString())
+            New-Item -ItemType Directory -Path $patchDir -Force | Out-Null
+            $patchFile = Join-Path $patchDir "cordis.patch.yml"
+
+            $patchContent = @"
+- id: agent-default-model
+  config:
+    model: $modelToUse
+- id: llm-deepseek
+  config:
+    reasoningEffort: $effortToUse
+- id: sandbox-policy
+  config:
+    mode: read-only
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tools-policy
+  config:
+    # Application-level policy disabling stateful write and arbitrary shell execution
+    disableStatefulTools: true
+    disableShellExecution: true
+"@
+            [System.IO.File]::WriteAllText($patchFile, $patchContent, [System.Text.Encoding]::UTF8)
+
+            # 4. Verified dispatch configuration for official headless dsh
+            # Official headless dsh syntax: dsh --profile headless --patch <path> <prompt>
+            $dshArgs = @("--profile", "headless", "--patch", $patchFile, $Prompt)
+            $isWindows = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
+            $isBatch = ($dshCmd.Extension -in @(".cmd", ".bat", ".ps1")) -or ($isWindows -and -not $dshCmd.Source.EndsWith(".exe", [System.StringComparison]::OrdinalIgnoreCase))
+
+            if ($isBatch) {
+                return @{
+                    Command = "cmd.exe"
+                    Args = @("/d", "/c", "dsh") + $dshArgs
+                    UnavailableReason = $null
+                    CleanupDir = $patchDir
+                }
+            } else {
+                return @{
+                    Command = $dshCmd.Source
+                    Args = $dshArgs
+                    UnavailableReason = $null
+                    CleanupDir = $patchDir
+                }
             }
         }
         default {
-            throw "Unknown reviewer ID $ReviewerId"
+            throw "Unknown or disallowed reviewer ID $ReviewerId. Codex is the working agent and cannot be dispatched as an external reviewer."
         }
     }
 }
@@ -489,10 +703,16 @@ function Get-ReviewerCommand {
 # 4. Launch Reviewers in Parallel via PowerShell Background Jobs
 $jobs = @()
 $immediateResults = @()
+$cleanups = @()
 $maxStdoutBytes = 1048576 # 1 MiB cap
 
+try {
 foreach ($revId in $targetReviewers) {
     $cmdInfo = Get-ReviewerCommand -ReviewerId $revId -Prompt $ReviewPrompt -WorkDir $SnapshotDir
+
+    if ($cmdInfo.CleanupDir) {
+        $cleanups += $cmdInfo.CleanupDir
+    }
 
     if ($cmdInfo.Command -eq $null) {
         # Reviewer cannot be safely dispatched (e.g. Gemini without verified sandbox) -> fail-closed UNAVAILABLE
@@ -577,4 +797,11 @@ $output = @{
     results = $results
 }
 
-$output | ConvertTo-Json -Depth 5 -Compress
+    $output | ConvertTo-Json -Depth 5 -Compress
+} finally {
+    foreach ($cleanDir in $cleanups) {
+        if (-not [string]::IsNullOrWhiteSpace($cleanDir) -and (Test-Path -LiteralPath $cleanDir)) {
+            Remove-Item -LiteralPath $cleanDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}

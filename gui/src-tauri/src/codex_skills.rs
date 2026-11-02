@@ -81,59 +81,224 @@ pub fn get_known_historical_manifests(skill_name: &str) -> Vec<Vec<SkillFileMani
             return list.clone();
         }
     }
-    // Fixed known official historical release manifests (v1 schema release)
+    // Fixed known official historical release manifests (v1 & v2 schema releases)
     match skill_name {
-        "pov-plan-only" => vec![vec![
-            SkillFileManifest {
-                relative_path: "SKILL.md".to_string(),
-                content: String::new(),
-                sha256: "78b41864b5c3af244ac9605ae48151704764c325499ee7a325df5656f1da36da".to_string(),
-            },
-            SkillFileManifest {
-                relative_path: "agents/openai.yaml".to_string(),
-                content: String::new(),
-                sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
-            },
-            SkillFileManifest {
-                relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
-                content: String::new(),
-                sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
-            },
-        ]],
-        "pov-build-review" => vec![vec![
-            SkillFileManifest {
-                relative_path: "SKILL.md".to_string(),
-                content: String::new(),
-                sha256: "0ef4c0e94b7d0f0ac33e26e22b31eeea7416d5ab7ab0b2150c97dc73de3268de".to_string(),
-            },
-            SkillFileManifest {
-                relative_path: "agents/openai.yaml".to_string(),
-                content: String::new(),
-                sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
-            },
-            SkillFileManifest {
-                relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
-                content: String::new(),
-                sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
-            },
-        ]],
-        "pov-full-cycle" => vec![vec![
-            SkillFileManifest {
-                relative_path: "SKILL.md".to_string(),
-                content: String::new(),
-                sha256: "18aed681e4f9276594b35565d2fc8171bdc54ee3ca4006d40b3d3afae30ec050".to_string(),
-            },
-            SkillFileManifest {
-                relative_path: "agents/openai.yaml".to_string(),
-                content: String::new(),
-                sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
-            },
-            SkillFileManifest {
-                relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
-                content: String::new(),
-                sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
-            },
-        ]],
+        "pov-plan-only" => vec![
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "78b41864b5c3af244ac9605ae48151704764c325499ee7a325df5656f1da36da".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
+                },
+            ],
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "649d2e96decf69ba8f41a6eabc0a5c3fc318462e0f60fb8e5f8106640887299b".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
+                },
+            ],
+            // v0.26.2 §13 official historical release manifest
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "96fb144e5af78dcbb9ab43a88444c522c062b3579d3a2705e45caccaacda36c1".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "f087c8937b24daf2bac3c2ba1287b67565405eff3d73a491fbde3b596293dbef".to_string(),
+                },
+            ],
+            // v0.26.2 §21 intermediate development manifest
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "50b59d98c43ddc50b54401b3b30d1d0496c2d7ce78934436f904183bf99cde8e".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "07bac054e5488d8e7ea06c6475f8412b5d2f221b75e966af30061aaf1bc41af9".to_string(),
+                },
+            ],
+        ],
+        "pov-build-review" => vec![
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "0ef4c0e94b7d0f0ac33e26e22b31eeea7416d5ab7ab0b2150c97dc73de3268de".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
+                },
+            ],
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "7a463717394c39cd8c549f738e0345d07598c0d00946e03d6d36984c497bda59".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
+                },
+            ],
+            // v0.26.2 §13 official historical release manifest
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "1b8b62a5bd652edb60609578dcdb035fa287991e993d631321b8099cfc3f60e7".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "f087c8937b24daf2bac3c2ba1287b67565405eff3d73a491fbde3b596293dbef".to_string(),
+                },
+            ],
+            // v0.26.2 §21 intermediate development manifest
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "0d8fdc2e99d746df20d1921389b078d514ad356ffa1705194a99dd2d1a706571".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "07bac054e5488d8e7ea06c6475f8412b5d2f221b75e966af30061aaf1bc41af9".to_string(),
+                },
+            ],
+        ],
+        "pov-full-cycle" => vec![
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "18aed681e4f9276594b35565d2fc8171bdc54ee3ca4006d40b3d3afae30ec050".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
+                },
+            ],
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "08fedeb4cae2234df9c20304dc735d0f8232debd25fa3a6149f87acfbdf323b1".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
+                },
+            ],
+            // v0.26.2 §13 official historical release manifest
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "227c50344394dcaf61e56c09881e71c5400778962296acbaf168fe32ebdcaa44".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "f087c8937b24daf2bac3c2ba1287b67565405eff3d73a491fbde3b596293dbef".to_string(),
+                },
+            ],
+            // v0.26.2 §21 intermediate development manifest
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "6f1ee941f3a2cc71a798df6114d6c08c29a94335ad41ee5ae946383e85b9afee".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "07bac054e5488d8e7ea06c6475f8412b5d2f221b75e966af30061aaf1bc41af9".to_string(),
+                },
+            ],
+        ],
         _ => vec![],
     }
 }
@@ -705,6 +870,8 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    static TEST_SERIAL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_template_manifests_validity() {
         for name in SKILL_NAMES {
@@ -726,6 +893,49 @@ mod tests {
         let skill_md = m.iter().find(|f| f.relative_path == "SKILL.md").unwrap();
         assert!(skill_md.content.contains("最大3"));
         assert!(skill_md.content.contains("上限到達時"));
+    }
+
+    #[test]
+    fn test_skills_priority_reviewer_arbitration_contract() {
+        for skill_name in SKILL_NAMES {
+            let m = get_template_manifest(skill_name).unwrap();
+            let skill_md = m.iter().find(|f| f.relative_path == "SKILL.md").unwrap();
+            let content = &skill_md.content;
+
+            // 1. In-session self-review without separate codex exec
+            assert!(
+                content.contains("codex exec"),
+                "Skill {skill_name} must mention restriction against codex exec"
+            );
+            assert!(
+                content.contains("追加の `codex exec` は起動しない") || content.contains("別プロセスの `codex exec` は起動しない"),
+                "Skill {skill_name} must prohibit launching extra codex exec"
+            );
+
+            // 2. Priority-based arbitration in codex_plus_external (arbitrator on conflict, no sequence/skipping)
+            assert!(
+                content.contains("全Reviewer完了後に判定を統合・裁定する"),
+                "Skill {skill_name} must specify all reviewers completion before arbitration"
+            );
+            assert!(
+                content.contains("一方がREQUEST_CHANGESであっても他方を省略しない"),
+                "Skill {skill_name} must prohibit skipping other reviewer on REQUEST_CHANGES"
+            );
+            assert!(
+                content.contains("判定不一致の裁定"),
+                "Skill {skill_name} must specify conflict arbitration rule"
+            );
+            assert!(
+                content.contains("Blocking 指摘等のオーバーライド禁止"),
+                "Skill {skill_name} must prohibit overriding blocking findings via priority"
+            );
+
+            // 3. Mode boundaries
+            assert!(content.contains("codex_self_only"));
+            assert!(content.contains("external_only"));
+            assert!(content.contains("codex_plus_external"));
+            assert!(content.contains("SKIPPED_BY_USER"));
+        }
     }
 
     #[test]
@@ -796,6 +1006,7 @@ mod tests {
 
     #[test]
     fn test_update_with_backup_and_recovery() {
+        let _lock = TEST_SERIAL_LOCK.lock().unwrap();
         let dir = tempdir().unwrap();
         let skills_dir = dir.path();
 
@@ -858,6 +1069,124 @@ mod tests {
     }
 
     #[test]
+    fn test_section_22_historical_manifests_recognition_and_safe_update() {
+        let _lock = TEST_SERIAL_LOCK.lock().unwrap();
+        // §22 R03 acceptance criteria:
+        // 1. Installed files matching v0.26.2 §13 official historical release manifest
+        //    must be accurately classified as UpdateAvailable (not ProtectedConflict).
+        // 2. Modified files must remain ProtectedConflict with overwrite protection.
+        // 3. Unknown extra files must remain ProtectedConflict.
+        // 4. Update operation must successfully backup historical files and upgrade to Installed.
+        for skill_name in SKILL_NAMES {
+            let dir = tempdir().unwrap();
+            let skills_dir = dir.path();
+            let skill_dir = skills_dir.join(skill_name);
+            std::fs::create_dir_all(skill_dir.join("agents")).unwrap();
+            std::fs::create_dir_all(skill_dir.join("scripts")).unwrap();
+
+            // Find the §13 historical manifest (the 3rd manifest in get_known_historical_manifests)
+            let hist_manifests = get_known_historical_manifests(skill_name);
+            let s13_manifest = hist_manifests
+                .iter()
+                .find(|m| m.iter().any(|f| f.sha256 == "f087c8937b24daf2bac3c2ba1287b67565405eff3d73a491fbde3b596293dbef"))
+                .expect("§13 historical manifest must be registered");
+
+            // Write files with exact matching content (using synthetic strings having identical SHA-256 is not trivial,
+            // so we write mock content and test through inspect with the registered hashes)
+            // To test the exact hash comparison in inspect_codex_skill_status:
+            // Write arbitrary content, compute hash, and verify matching logic
+            // First verify that get_known_historical_manifests contains the expected hashes:
+            assert_eq!(s13_manifest.len(), 3);
+            let skill_md_hist = s13_manifest.iter().find(|f| f.relative_path == "SKILL.md").unwrap();
+            let yaml_hist = s13_manifest.iter().find(|f| f.relative_path == "agents/openai.yaml").unwrap();
+            let disp_hist = s13_manifest.iter().find(|f| f.relative_path == "scripts/codex-review-dispatcher.ps1").unwrap();
+
+            assert_eq!(yaml_hist.sha256, "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed");
+            assert_eq!(disp_hist.sha256, "f087c8937b24daf2bac3c2ba1287b67565405eff3d73a491fbde3b596293dbef");
+
+            if skill_name == "pov-plan-only" {
+                assert_eq!(skill_md_hist.sha256, "96fb144e5af78dcbb9ab43a88444c522c062b3579d3a2705e45caccaacda36c1");
+            } else if skill_name == "pov-build-review" {
+                assert_eq!(skill_md_hist.sha256, "1b8b62a5bd652edb60609578dcdb035fa287991e993d631321b8099cfc3f60e7");
+            } else if skill_name == "pov-full-cycle" {
+                assert_eq!(skill_md_hist.sha256, "227c50344394dcaf61e56c09881e71c5400778962296acbaf168fe32ebdcaa44");
+            } else {
+                panic!("Unexpected skill name: {}", skill_name);
+            }
+
+            // Now test with mock historical manifests using test helper
+            let fake_historical_content = format!("historical-content-for-{}", skill_name);
+            let fake_hash = compute_sha256(fake_historical_content.as_bytes());
+            let template_m = get_template_manifest(skill_name).unwrap();
+            let cur_yaml = template_m.iter().find(|f| f.relative_path == "agents/openai.yaml").unwrap();
+            let cur_disp = template_m.iter().find(|f| f.relative_path == "scripts/codex-review-dispatcher.ps1").unwrap();
+
+            let mut test_mocks = HashMap::new();
+            test_mocks.insert(
+                skill_name.to_string(),
+                vec![vec![
+                    SkillFileManifest {
+                        relative_path: "SKILL.md".to_string(),
+                        content: fake_historical_content.clone(),
+                        sha256: fake_hash.clone(),
+                    },
+                    cur_yaml.clone(),
+                    cur_disp.clone(),
+                ]],
+            );
+            set_test_historical_manifests(Some(test_mocks));
+
+            // Populate directory with fake historical version
+            std::fs::write(skill_dir.join("SKILL.md"), &fake_historical_content).unwrap();
+            std::fs::write(skill_dir.join("agents").join("openai.yaml"), &cur_yaml.content).unwrap();
+            std::fs::write(skill_dir.join("scripts").join("codex-review-dispatcher.ps1"), &cur_disp.content).unwrap();
+
+            // Status MUST be UpdateAvailable (acceptance criteria #2)
+            let status = inspect_codex_skill_status(skills_dir, skill_name);
+            assert_eq!(
+                status.state,
+                CodexSkillState::UpdateAvailable,
+                "Historical version must be recognized as UpdateAvailable"
+            );
+
+            // Adding unknown file causes ProtectedConflict (acceptance criteria #3)
+            let unknown_file = skill_dir.join("custom.txt");
+            std::fs::write(&unknown_file, "custom user file").unwrap();
+            let conflict_status = inspect_codex_skill_status(skills_dir, skill_name);
+            assert_eq!(
+                conflict_status.state,
+                CodexSkillState::ProtectedConflict,
+                "Unknown file must protect from overwrite"
+            );
+            std::fs::remove_file(&unknown_file).unwrap();
+
+            // Modifying a file to non-historical hash causes ProtectedConflict
+            std::fs::write(skill_dir.join("SKILL.md"), "tampered content").unwrap();
+            let tampered_status = inspect_codex_skill_status(skills_dir, skill_name);
+            assert_eq!(
+                tampered_status.state,
+                CodexSkillState::ProtectedConflict,
+                "Tampered content must protect from overwrite"
+            );
+
+            // Restore historical content and execute update (acceptance criteria #4)
+            std::fs::write(skill_dir.join("SKILL.md"), &fake_historical_content).unwrap();
+            let update_res = update_codex_skill_at(skills_dir, skill_name).expect("Update should succeed");
+            assert_eq!(update_res.state, CodexSkillState::Installed);
+
+            // Verify backup was created
+            let backups_dir = get_backups_dir(skills_dir);
+            let backup_entries: Vec<_> = std::fs::read_dir(&backups_dir).unwrap().flatten().collect();
+            assert!(
+                backup_entries.iter().any(|e| e.file_name().to_string_lossy().contains(skill_name)),
+                "Backup must exist for updated skill"
+            );
+
+            set_test_historical_manifests(None);
+        }
+    }
+
+    #[test]
     fn test_dispatcher_script_contract_and_job_object_mechanisms() {
         for name in SKILL_NAMES {
             let manifest = get_template_manifest(name).expect("manifest should load");
@@ -882,12 +1211,13 @@ mod tests {
             // Verify snapshot reparse point / symlink recursive escape protection
             assert!(disp.content.contains("reparseChildren"));
 
-            // Verify DeepSeek headless positional task argument (no -p)
-            assert!(disp.content.contains("--permission-mode"));
-            assert!(disp.content.contains("read-only"));
-            assert!(disp.content.contains("--approval-policy"));
-            assert!(disp.content.contains("never"));
-            assert!(disp.content.contains("Official headless dsh syntax takes positional task argument without -p"));
+            // Verify DeepSeek headless positional task argument and practical patch policy
+            assert!(disp.content.contains("--profile"));
+            assert!(disp.content.contains("headless"));
+            assert!(disp.content.contains("Official headless dsh syntax: dsh --profile headless --patch <path> <prompt>"));
+            assert!(disp.content.contains("disableStatefulTools: true"));
+            assert!(disp.content.contains("disableShellExecution: true"));
+            assert!(disp.content.contains("DeepSeek Harness CLI (dsh) is not found in PATH; reviewer is UNAVAILABLE"));
 
             // Verify SKILL.md parallel review contract updates
             let skill_md = manifest
@@ -919,6 +1249,13 @@ mod tests {
 
         assert!(script_path.is_file(), "dispatcher script must exist");
 
+        let valid_settings_file = dir.path().join("valid-v4-settings.json");
+        std::fs::write(
+            &valid_settings_file,
+            r#"{"schema_version": 4, "unconfirmed_migration": false, "review_mode": "external_only", "reviewers": {"gemini": true, "deepseek": true}, "priority_reviewer": "gemini"}"#,
+        )
+        .unwrap();
+
         // 1. Synthetic test: Gemini without verified sandbox must return UNAVAILABLE
         let output = std::process::Command::new("pwsh")
             .arg("-File")
@@ -927,6 +1264,8 @@ mod tests {
             .arg(&snapshot_dir)
             .arg("-Reviewers")
             .arg("gemini")
+            .arg("-SettingsFile")
+            .arg(&valid_settings_file)
             .arg("-TimeoutSeconds")
             .arg("5")
             .output();
@@ -943,9 +1282,10 @@ mod tests {
         let output_skip = std::process::Command::new("pwsh")
             .arg("-Command")
             .arg(format!(
-                "& '{}' -SnapshotDir '{}' -Reviewers @() -TimeoutSeconds 5",
+                "& '{}' -SnapshotDir '{}' -Reviewers @() -SettingsFile '{}' -TimeoutSeconds 5",
                 script_path.display(),
-                snapshot_dir.display()
+                snapshot_dir.display(),
+                valid_settings_file.display()
             ))
             .output();
 
@@ -954,6 +1294,131 @@ mod tests {
             assert!(
                 stdout.contains("REVIEW_SKIPPED"),
                 "0 reviewers must return REVIEW_SKIPPED, got: {stdout}"
+            );
+        }
+
+        // 3. Synthetic test: 'codex' as external reviewer is rejected
+        let output_codex = std::process::Command::new("pwsh")
+            .arg("-File")
+            .arg(&script_path)
+            .arg("-SnapshotDir")
+            .arg(&snapshot_dir)
+            .arg("-Reviewers")
+            .arg("codex")
+            .arg("-SettingsFile")
+            .arg(&valid_settings_file)
+            .arg("-TimeoutSeconds")
+            .arg("5")
+            .output();
+
+        if let Ok(out) = output_codex {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                stdout.contains("Codex is the working agent and cannot be dispatched as an external reviewer"),
+                "Codex as external reviewer must be rejected, got stdout: {stdout}"
+            );
+        }
+
+        // 4. Synthetic test: unconfirmed_migration gate blocks external review
+        let settings_file = dir.path().join("pov-review-settings.json");
+        std::fs::write(&settings_file, r#"{"schema_version": 4, "unconfirmed_migration": true, "review_mode": "external_only", "reviewers": {"gemini": false, "deepseek": true}, "priority_reviewer": "deepseek"}"#).unwrap();
+
+        let output_unconfirmed = std::process::Command::new("pwsh")
+            .arg("-File")
+            .arg(&script_path)
+            .arg("-SnapshotDir")
+            .arg(&snapshot_dir)
+            .arg("-Reviewers")
+            .arg("deepseek")
+            .arg("-SettingsFile")
+            .arg(&settings_file)
+            .arg("-TimeoutSeconds")
+            .arg("5")
+            .output();
+
+        if let Ok(out) = output_unconfirmed {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                stdout.contains("External review cannot be launched: review settings were migrated from an older version and have unconfirmed changes"),
+                "Unconfirmed migration must block dispatch, got stdout: {stdout}"
+            );
+        }
+
+        // 5. Transmission & sandbox test: verify parameter definitions and safe argument handling
+        let script_content = std::fs::read_to_string(&script_path).unwrap();
+        assert!(script_content.contains("[string]$DeepSeekModel = \"deepseek-flash\""));
+        assert!(script_content.contains("[string]$DeepSeekEffort = \"high\""));
+        assert!(script_content.contains("[string]$GeminiModel = \"\""));
+        assert!(script_content.contains("$dshArgs = @(\"--profile\", \"headless\", \"--patch\", $patchFile, $Prompt)"));
+        assert!(script_content.contains("$geminiArgs += @(\"-m\", $GeminiModel)"));
+        assert!(script_content.contains("disableStatefulTools: true"));
+        assert!(script_content.contains("disableShellExecution: true"));
+        assert!(script_content.contains("DeepSeek Harness CLI (dsh) is not found in PATH; reviewer is UNAVAILABLE"));
+
+        // 6. Synthetic test: invalid DeepSeek model is rejected
+        let output_bad_model = std::process::Command::new("pwsh")
+            .arg("-File")
+            .arg(&script_path)
+            .arg("-SnapshotDir")
+            .arg(&snapshot_dir)
+            .arg("-Reviewers")
+            .arg("deepseek")
+            .arg("-SettingsFile")
+            .arg(&valid_settings_file)
+            .arg("-DeepSeekModel")
+            .arg("deepseek-invalid-model")
+            .arg("-TimeoutSeconds")
+            .arg("5")
+            .output();
+
+        if let Ok(out) = output_bad_model {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                stdout.contains("Unsupported DeepSeek model: 'deepseek-invalid-model'"),
+                "Invalid DeepSeek model must be rejected, got: {stdout}"
+            );
+        }
+
+        // 7. Synthetic test: invalid DeepSeek effort is rejected
+        let output_bad_effort = std::process::Command::new("pwsh")
+            .arg("-File")
+            .arg(&script_path)
+            .arg("-SnapshotDir")
+            .arg(&snapshot_dir)
+            .arg("-Reviewers")
+            .arg("deepseek")
+            .arg("-SettingsFile")
+            .arg(&valid_settings_file)
+            .arg("-DeepSeekEffort")
+            .arg("extreme")
+            .arg("-TimeoutSeconds")
+            .arg("5")
+            .output();
+
+        if let Ok(out) = output_bad_effort {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                stdout.contains("Unsupported DeepSeek reasoning effort: 'extreme'"),
+                "Invalid DeepSeek effort must be rejected, got: {stdout}"
+            );
+        }
+
+        // 8. Synthetic test: DeepSeek when dsh is not in PATH returns UNAVAILABLE
+        let output_dsh_unavail = std::process::Command::new("pwsh")
+            .arg("-Command")
+            .arg(format!(
+                "$env:PATH = ''; & '{}' -SnapshotDir '{}' -Reviewers deepseek -SettingsFile '{}' -TimeoutSeconds 5",
+                script_path.display(),
+                snapshot_dir.display(),
+                valid_settings_file.display()
+            ))
+            .output();
+
+        if let Ok(out) = output_dsh_unavail {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                stdout.contains("DeepSeek Harness CLI (dsh) is not found in PATH; reviewer is UNAVAILABLE"),
+                "DeepSeek without dsh in PATH must return UNAVAILABLE, got: {stdout}"
             );
         }
     }

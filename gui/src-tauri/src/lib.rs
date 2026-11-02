@@ -28,6 +28,7 @@ pub mod cli_tools;
 pub mod codex_skills;
 pub mod codex_global_rules;
 pub mod codex_review_settings;
+pub mod reviewer_diagnostics;
 mod proxy;
 
 // ---------------------------------------------------------------------------
@@ -6559,6 +6560,25 @@ pub fn known_v0251_hash(name: &str) -> Option<&'static str> {
     }
 }
 
+pub fn is_known_outdated_antigravity_skill_hash(name: &str, digest: &str) -> bool {
+    let lower = digest.to_ascii_lowercase();
+    match name {
+        "pov-plan-only" => {
+            lower == "c34de927eba565d00073fdd88723b04e799fbe0b4c4ec5a7df5658c2a40e6c0e"
+                || lower == "be7efd6011246362536ac7d2dc40246d3a69f27bca4c2d8950344c03e1e40f98"
+        }
+        "pov-build-review" => {
+            lower == "1046a6e8578cd42ec2c145c4520cc49b9250afb6ab4fd53a681ee3b0bc493906"
+                || lower == "87f812b886442da60c8158689817b2f46a7c8613b647fbc926433045795e92b3"
+        }
+        "pov-full-cycle" => {
+            lower == "31517675c3e107508bd6a3ac935389f442e87d498d5fec38563d2c803afecc97"
+                || lower == "fd7da75a562668d29735af83e1979b140a222489271f57e2ae260067da38d854"
+        }
+        _ => false,
+    }
+}
+
 pub fn inspect_antigravity_command_status_at(
     skills_root: &Path,
     name: &str,
@@ -6633,19 +6653,17 @@ where
                 })
             } else {
                 let digest = format!("{:x}", sha2::Sha256::digest(&content));
-                if let Some(expected_v0251) = known_v0251_hash(clean_name) {
-                    if digest.eq_ignore_ascii_case(expected_v0251) {
-                        return Ok(AntigravityCommandItemInfo {
-                            name: clean_name.to_string(),
-                            slash_command: slash_cmd.to_string(),
-                            status: AntigravitySkillStatus::Outdated,
-                            skill_path: skill_path_str,
-                            error: Some(
-                                "Skill is an older standard version (v0.25.1); an update is required to support Reviewer Policy"
-                                    .to_string(),
-                            ),
-                        });
-                    }
+                if is_known_outdated_antigravity_skill_hash(clean_name, &digest) {
+                    return Ok(AntigravityCommandItemInfo {
+                        name: clean_name.to_string(),
+                        slash_command: slash_cmd.to_string(),
+                        status: AntigravitySkillStatus::Outdated,
+                        skill_path: skill_path_str,
+                        error: Some(
+                            "Skill is an older standard version; an update is required to support Reviewer Policy schema v4"
+                                .to_string(),
+                        ),
+                    });
                 }
                 Ok(AntigravityCommandItemInfo {
                     name: clean_name.to_string(),
@@ -6763,10 +6781,7 @@ where
             let current_bytes = read_file(&skill_file)
                 .map_err(|e| format!("Failed to read SKILL.md before upgrade: {e}"))?;
             let digest = format!("{:x}", sha2::Sha256::digest(&current_bytes));
-            let expected_hash = known_v0251_hash(clean_name).ok_or_else(|| {
-                "Internal error: Outdated status without known v0.25.1 hash".to_string()
-            })?;
-            if !digest.eq_ignore_ascii_case(expected_hash) {
+            if !is_known_outdated_antigravity_skill_hash(clean_name, &digest) {
                 return Err("Skill content changed before upgrade could complete; refusing to overwrite".to_string());
             }
 
@@ -7266,6 +7281,24 @@ fn save_codex_review_settings(
     settings: codex_review_settings::CodexReviewSettings,
 ) -> Result<codex_review_settings::CodexReviewSettings, String> {
     codex_review_settings::save_codex_review_settings(settings)
+}
+
+#[tauri::command]
+fn get_reviewer_diagnostic_events(limit: Option<usize>) -> Result<Vec<reviewer_diagnostics::ReviewerDiagnosticEvent>, String> {
+    let dir = reviewer_diagnostics::get_diagnostics_dir();
+    reviewer_diagnostics::read_diagnostic_events_at(&dir, limit.unwrap_or(50))
+}
+
+#[tauri::command]
+fn export_reviewer_diagnostics_report(run_id: Option<String>) -> Result<String, String> {
+    let dir = reviewer_diagnostics::get_diagnostics_dir();
+    reviewer_diagnostics::export_diagnostics_report_at(&dir, run_id.as_deref())
+}
+
+#[tauri::command]
+fn record_reviewer_diagnostic_event(event: reviewer_diagnostics::ReviewerDiagnosticEvent) -> Result<(), String> {
+    let dir = reviewer_diagnostics::get_diagnostics_dir();
+    reviewer_diagnostics::append_diagnostic_event_at(&dir, &event)
 }
 
 #[tauri::command]
@@ -10254,6 +10287,9 @@ pub fn run() {
             open_codex_home_folder,
             get_codex_review_settings,
             save_codex_review_settings,
+            get_reviewer_diagnostic_events,
+            export_reviewer_diagnostics_report,
+            record_reviewer_diagnostic_event,
             get_node_prerequisites_status,
             get_cli_auth_status,
             launch_cli_auth,

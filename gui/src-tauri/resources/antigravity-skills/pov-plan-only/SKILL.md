@@ -21,8 +21,8 @@ description: 計画作成と外部Codex/DeepSeek独立計画レビュー専用�
 - 計画、レビュー結果、修正内容、最終判定を正本計画書へ簡潔に記録する。
 - レビュー実行前に実効ポリシー（評価優先順位: Evaluation Precedence）を決定する:
   1. **実行時明示指定:** コマンドライン引数（`--review none` 等）またはユーザープロンプト内の明示指示（「Codex CLI や DeepSeek Harness によるレビューは不要」「外部レビュー不要」等）が存在する場合は、最優先でその値を実効ポリシーとする。
-  2. **GUI設定ファイル:** 実行時指定がない場合、共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` を読み取る。`policy` が `"none"`、`"codex_only"`、`"codex_plus_deepseek"` のいずれかであればその値を採用する（`schema_version: 1` の場合はマイグレーション規約により `none`）。Reviewer実行時のモデルおよび推論強度は同設定内の `codex`（`model`, `reasoning_effort`）および `deepseek`（`model`, `reasoning_effort`）に従う。
-  3. **安全側既定値 (Fail-Safe):** ファイル不在、構文エラー、未知の policy 値、未対応 schema_version、書込障害等の例外時は、安全側既定値 `none` (`Disabled`) を適用する。
+  2. **GUI設定ファイル:** 実行時指定がない場合、共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` を読み取る。`schema_version: 4` かつ `policy` が `"none"`、`"codex_only"`、`"codex_plus_deepseek"` のいずれかであればその値を採用する（`codex_plus_deepseek` の場合は有効な `priority_reviewer` ("codex_cli" または "deepseek") が必須。未選択または旧schema v1/v2/v3の場合はマイグレーション未完了として dispatch を拒否し、`none` 相当で停止する）。Reviewer実行時のモデルおよび推論強度は同設定内の `codex`（`model`, `reasoning_effort`）および `deepseek`（`model`, `reasoning_effort`）に従う。
+  3. **安全側既定値 (Fail-Safe):** ファイル不在、構文エラー、未知の policy 値、未対応 schema_version、未選択 priority、書込障害等の例外時は、安全側既定値 `none` (`Disabled`) を適用する。
 - `codex_only` では Codex CLI のみを使用し、DeepSeek Harness は起動・待機・比較・Synthesis のいずれにも使用しない。DeepSeek Rule の有無も要求しない。Codex CLI 失敗時に他Reviewerへ暗黙フォールバックしない。
 - `codex_plus_deepseek` では Codex と DeepSeek に同一ハッシュの資料を渡し、互いの回答を見せない。
 - 計画書の修正は競合を避けて順番に行う。
@@ -64,9 +64,16 @@ description: 計画作成と外部Codex/DeepSeek独立計画レビュー専用�
      - Synthesis は行わず、Codex 単一のレビュー結果に基づき合否を判断する。
    - **`codex_plus_deepseek` の場合**：
      - 同一版を Codex CLI と DeepSeek Harness CLI へ別々に渡す。
-     - 両レビュー完了後、Codex と DeepSeek が自分の指摘に必要な修正を正本計画書へ順番に反映する。
+     - 両レビュー完了後、Codex と DeepSeek が自分の指摘に必要な修正を正本計画書へ反映する。
      - Antigravityが修正後の計画を確認し、重複、矛盾、範囲逸脱を整理する。blocking findingは「Blocking findingの条件」を満たすものだけ残す。
-     - 判断が一致しない場合だけ、対象資料と両者の最終結果を外部 Codex CLI へ渡し、指摘の根拠、重複、矛盾、採否、必要な修正を統合判断させる。
+     - **判定統合と裁定（Arbitration）契約:**
+       - 両Reviewer（Codex CLI と DeepSeek Harness）に同一版を渡し、両方の結果を待つ（実行順序の変更や一方の失敗による早期停止は行わない）。
+       - いずれかのReviewerが `INCOMPLETE`、`UNAVAILABLE`、`ERROR`、タイムアウト、未実行、打ち切りの場合、全体を `INCOMPLETE` とする（優先設定で上書きしない。DeepSeek Harness のWindows読み取り専用条件が未達の間は `UNAVAILABLE` となり、Codex単独への暗黙フォールバックは禁止）。
+       - 両Reviewerが有効判定（`APPROVE` または `REQUEST_CHANGES`）を返した場合：
+         - 判定が一致していれば、その共通判定を採用する。
+         - 判定が食い違った場合、保存された `priority_reviewer`（`codex_cli` または `deepseek`）の判定を採用する。
+         - **Blocking Finding 例外規定:** いずれかのReviewerが未解決の Blocking Finding、安全性違反、または必須検査失敗を指摘している場合、優先Reviewerが `APPROVE` であっても全体を `APPROVE` にしてはならず、`REQUEST_CHANGES`（または実行・環境問題なら `INCOMPLETE`）とする。
+       - 優先されなかった側の指摘、根拠、severity もすべて最終報告と正本計画書に記録し、破棄しない。
 3. 統合判断（または `codex_only` 時の単独判定）は次のいずれかを明示する。
    - `APPROVE`: 現行計画をそのまま承認する。
    - `APPLY_AND_FINALIZE`: 承認に必要な修正が、具体的・限定的・機械的に適用可能で、新たな設計判断を必要としない場合に限る。統合判断は変更箇所、置換内容または変更条件、確認方法を明示する。
