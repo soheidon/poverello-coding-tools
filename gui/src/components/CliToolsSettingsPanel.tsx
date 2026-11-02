@@ -10,11 +10,11 @@ export function NodePrerequisitesCard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async (forceRefresh = false) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await invoke<NodePrerequisiteStatus>("get_node_prerequisites_status");
+      const res = await invoke<NodePrerequisiteStatus>("get_node_prerequisites_status", { refresh: forceRefresh });
       setStatus(res);
     } catch (e: unknown) {
       setError(String(e));
@@ -32,7 +32,7 @@ export function NodePrerequisitesCard() {
   };
 
   useEffect(() => {
-    void fetchStatus();
+    void fetchStatus(false);
   }, [fetchStatus]);
 
   return (
@@ -67,7 +67,7 @@ export function NodePrerequisitesCard() {
             type="button"
             className="btn"
             style={{ fontSize: 11, padding: "4px 10px" }}
-            onClick={fetchStatus}
+            onClick={() => fetchStatus(true)}
             disabled={loading}
             data-testid="btn-refresh-node-prereq"
           >

@@ -1,5 +1,12 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.26.1 — 2026-11-02
+
+### Windows CLI process handling
+- Prevented non-interactive CLI and Node.js/npm status checks from opening console windows during navigation, and added short-lived shared status caching to reduce repeated child-process launches.
+- Added explicit diagnostics for Windows process initialization failures, including `0xC0000142`. The exact cause on any particular user system remains environment-dependent.
+- Preserved the visible terminal for user-requested CLI login.
+
 ## v0.26.0
 
 ### Codex Autocode and Skills & Rules

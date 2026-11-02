@@ -72,7 +72,7 @@ export default function CliToolsCard() {
     try {
       setRecheckingAuth(true);
       setError(null);
-      const auth = await invoke<CliAuthInfo[]>("get_cli_auth_status");
+      const auth = await invoke<CliAuthInfo[]>("get_cli_auth_status", { refresh: true });
       setAuthStatus(auth ?? []);
     } catch (e: unknown) {
       setError(String(e));

@@ -11,6 +11,32 @@ pub const HTTP_INFERENCE_SAFETY_TIMEOUT: Duration = Duration::from_secs(180);
 pub const GIT_COMMAND_SAFETY_TIMEOUT: Duration = Duration::from_secs(60);
 pub const DRAIN_GRACE_PERIOD: Duration = Duration::from_secs(5);
 pub const MAX_CAPTURE_BYTES: usize = 1024 * 1024; // 1 MiB
+pub const STATUS_DLL_INIT_FAILED: u32 = 0xC0000142;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ProcessWindowMode {
+    #[default]
+    Hidden,
+    Visible,
+}
+
+pub fn is_dll_initialization_failure(exit_code: Option<i32>) -> bool {
+    exit_code.map_or(false, |code| (code as u32) == STATUS_DLL_INIT_FAILED)
+}
+
+pub fn format_exit_code_diagnostic(exit_code: Option<i32>) -> String {
+    match exit_code {
+        Some(code) => {
+            let u = code as u32;
+            if u == STATUS_DLL_INIT_FAILED {
+                format!("exit code {} (0x{:08X}, STATUS_DLL_INIT_FAILED)", code, u)
+            } else {
+                format!("exit code {} (0x{:08X})", code, u)
+            }
+        }
+        None => "no exit code (active or abnormal termination)".to_string(),
+    }
+}
 
 fn redact_process_output(
     redactor: &SecretRedactor,
@@ -25,7 +51,9 @@ fn redact_process_output(
 }
 
 #[derive(Debug, Clone)]
-pub struct ProcessRunner;
+pub struct ProcessRunner {
+    window_mode: ProcessWindowMode,
+}
 
 impl Default for ProcessRunner {
     fn default() -> Self {
@@ -35,7 +63,18 @@ impl Default for ProcessRunner {
 
 impl ProcessRunner {
     pub fn new() -> Self {
-        Self
+        Self {
+            window_mode: ProcessWindowMode::Hidden,
+        }
+    }
+
+    pub fn with_window_mode(mut self, window_mode: ProcessWindowMode) -> Self {
+        self.window_mode = window_mode;
+        self
+    }
+
+    pub fn window_mode(&self) -> ProcessWindowMode {
+        self.window_mode
     }
 
     /// Runs a process with cancellation, timeout, output cap, and Windows Job Object process-tree management.
@@ -208,6 +247,7 @@ impl ProcessRunner {
             working_dir,
             stdin_input.is_some(),
             env_overrides,
+            self.window_mode,
         )?;
 
         let _job_guard = SendHandleGuard(handles.job);
@@ -636,6 +676,7 @@ fn spawn_win32_child(
     working_dir: Option<&Path>,
     with_stdin: bool,
     env_overrides: Option<&[(std::ffi::OsString, std::ffi::OsString)]>,
+    window_mode: ProcessWindowMode,
 ) -> Result<Win32ChildHandles, String> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
@@ -802,6 +843,17 @@ fn spawn_win32_child(
     startup.StartupInfo.hStdError = stderr_wr;
     startup.StartupInfo.hStdInput = if with_stdin { stdin_rd } else { null_mut() };
 
+    let mut creation_flags = CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT;
+    if window_mode == ProcessWindowMode::Hidden {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        const STARTF_USESHOWWINDOW: u32 = 0x00000001;
+        const SW_HIDE: u16 = 0;
+
+        creation_flags |= CREATE_NO_WINDOW;
+        startup.StartupInfo.dwFlags |= STARTF_USESHOWWINDOW;
+        startup.StartupInfo.wShowWindow = SW_HIDE;
+    }
+
     // Restrict inheritance to the exact stdio handles assigned above.
     let mut allowed_handles = Vec::<HANDLE>::new();
     if with_stdin {
@@ -870,7 +922,7 @@ fn spawn_win32_child(
             null_mut(),
             null_mut(),
             TRUE,
-            CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT,
+            creation_flags,
             environment_w
                 .as_ref()
                 .map_or(null_mut(), |block| block.as_ptr() as *mut _),
@@ -1564,5 +1616,32 @@ mod tests {
                 "Expected duplicate child environment error"
             );
         });
+    }
+
+    #[test]
+    fn test_process_window_mode_and_dll_init_failure_diagnostics() {
+        assert_eq!(ProcessWindowMode::default(), ProcessWindowMode::Hidden);
+        let runner = ProcessRunner::new();
+        assert_eq!(runner.window_mode(), ProcessWindowMode::Hidden);
+        let visible_runner = runner.with_window_mode(ProcessWindowMode::Visible);
+        assert_eq!(visible_runner.window_mode(), ProcessWindowMode::Visible);
+
+        // 0xC0000142 as i32 is -1073741502
+        let dll_init_failed_code = -1073741502i32;
+        assert_eq!(dll_init_failed_code as u32, STATUS_DLL_INIT_FAILED);
+        assert!(is_dll_initialization_failure(Some(dll_init_failed_code)));
+        assert!(!is_dll_initialization_failure(Some(0)));
+        assert!(!is_dll_initialization_failure(Some(1)));
+        assert!(!is_dll_initialization_failure(None));
+
+        let diag_str = format_exit_code_diagnostic(Some(dll_init_failed_code));
+        assert!(diag_str.contains("0xC0000142"));
+        assert!(diag_str.contains("STATUS_DLL_INIT_FAILED"));
+
+        let normal_diag = format_exit_code_diagnostic(Some(0));
+        assert_eq!(normal_diag, "exit code 0 (0x00000000)");
+
+        let none_diag = format_exit_code_diagnostic(None);
+        assert!(none_diag.contains("no exit code"));
     }
 }

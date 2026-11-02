@@ -7157,13 +7157,13 @@ fn update_antigravity_command(name: String) -> Result<AntigravityCommandsInfo, S
 }
 
 #[tauri::command]
-async fn get_cli_tools_status() -> Result<Vec<cli_tools::CliToolInfo>, String> {
-    cli_tools::get_cli_tools_status().await
+async fn get_cli_tools_status(refresh: Option<bool>) -> Result<Vec<cli_tools::CliToolInfo>, String> {
+    cli_tools::get_cli_tools_status_cached(refresh.unwrap_or(false)).await
 }
 
 #[tauri::command]
-async fn get_codex_account_info() -> Result<cli_tools::CodexAccountInfo, String> {
-    cli_tools::get_codex_account_info().await
+async fn get_codex_account_info(refresh: Option<bool>) -> Result<cli_tools::CodexAccountInfo, String> {
+    cli_tools::get_codex_account_info_cached(refresh.unwrap_or(false)).await
 }
 
 #[tauri::command]
@@ -7269,13 +7269,13 @@ fn save_codex_review_settings(
 }
 
 #[tauri::command]
-async fn get_node_prerequisites_status() -> Result<cli_tools::NodePrerequisiteStatus, String> {
-    Ok(cli_tools::get_prerequisites_status().await)
+async fn get_node_prerequisites_status(refresh: Option<bool>) -> Result<cli_tools::NodePrerequisiteStatus, String> {
+    Ok(cli_tools::get_prerequisites_status_cached(refresh.unwrap_or(false)).await)
 }
 
 #[tauri::command]
-async fn get_cli_auth_status() -> Result<Vec<cli_tools::CliAuthInfo>, String> {
-    cli_tools::get_cli_auth_status().await
+async fn get_cli_auth_status(refresh: Option<bool>) -> Result<Vec<cli_tools::CliAuthInfo>, String> {
+    cli_tools::get_cli_auth_status_cached(refresh.unwrap_or(false)).await
 }
 
 #[tauri::command]

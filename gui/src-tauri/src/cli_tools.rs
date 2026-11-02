@@ -13,6 +13,52 @@ static CLI_MUTEX: Mutex<()> = Mutex::const_new(());
 static TEST_RUNNER_OVERRIDE_ENABLED: AtomicBool = AtomicBool::new(false);
 static TEST_MOCK_VERSIONS: StdMutex<Option<HashMap<String, String>>> = StdMutex::new(None);
 
+static CLI_TOOLS_CACHE: StdMutex<Option<(Instant, Vec<CliToolInfo>)>> = StdMutex::new(None);
+static CLI_TOOLS_GATE: Mutex<()> = Mutex::const_new(());
+
+static NODE_PREREQS_CACHE: StdMutex<Option<(Instant, NodePrerequisiteStatus)>> = StdMutex::new(None);
+static NODE_PREREQS_GATE: Mutex<()> = Mutex::const_new(());
+
+static AUTH_STATUS_CACHE: StdMutex<Option<(Instant, Vec<CliAuthInfo>)>> = StdMutex::new(None);
+static AUTH_STATUS_GATE: Mutex<()> = Mutex::const_new(());
+
+static CODEX_ACCOUNT_CACHE: StdMutex<Option<(Instant, CodexAccountInfo)>> = StdMutex::new(None);
+static CODEX_ACCOUNT_GATE: Mutex<()> = Mutex::const_new(());
+
+pub const CLI_TOOLS_CACHE_TTL: Duration = Duration::from_secs(60);
+pub const NODE_PREREQS_CACHE_TTL: Duration = Duration::from_secs(60);
+pub const AUTH_STATUS_CACHE_TTL: Duration = Duration::from_secs(30);
+pub const CODEX_ACCOUNT_CACHE_TTL: Duration = Duration::from_secs(30);
+
+pub fn invalidate_all_cli_caches() {
+    invalidate_cli_tools_cache();
+    invalidate_prerequisites_cache();
+    invalidate_auth_caches();
+    let mut guard = LATEST_CACHE.lock().unwrap();
+    *guard = None;
+}
+
+pub fn invalidate_cli_tools_cache() {
+    let mut guard = CLI_TOOLS_CACHE.lock().unwrap();
+    *guard = None;
+}
+
+pub fn invalidate_prerequisites_cache() {
+    let mut guard = NODE_PREREQS_CACHE.lock().unwrap();
+    *guard = None;
+}
+
+pub fn invalidate_auth_caches() {
+    {
+        let mut guard = AUTH_STATUS_CACHE.lock().unwrap();
+        *guard = None;
+    }
+    {
+        let mut guard = CODEX_ACCOUNT_CACHE.lock().unwrap();
+        *guard = None;
+    }
+}
+
 pub fn set_test_runner_override(enabled: bool, mock_versions: Option<HashMap<String, String>>) {
     TEST_RUNNER_OVERRIDE_ENABLED.store(enabled, Ordering::SeqCst);
     let mut guard = TEST_MOCK_VERSIONS.lock().unwrap();
@@ -289,7 +335,8 @@ pub async fn query_node_version(path: &Path) -> Result<(String, u32), String> {
             .unwrap_or(0);
         Ok((cleaned.to_string(), major))
     } else {
-        Err(format!("'node -v' failed: {}", res.stderr.text))
+        let diag = crate::orchestrator::process_runner::format_exit_code_diagnostic(res.exit_code);
+        Err(format!("'node -v' failed with {}: {}", diag, res.stderr.text))
     }
 }
 
@@ -308,11 +355,47 @@ pub async fn query_npm_version(path: &Path) -> Result<String, String> {
     if res.exit_code == Some(0) {
         Ok(res.stdout.text.trim().to_string())
     } else {
-        Err(format!("'npm -v' failed: {}", res.stderr.text))
+        let diag = crate::orchestrator::process_runner::format_exit_code_diagnostic(res.exit_code);
+        Err(format!("'npm -v' failed with {}: {}", diag, res.stderr.text))
     }
 }
 
 pub async fn get_prerequisites_status() -> NodePrerequisiteStatus {
+    get_prerequisites_status_cached(false).await
+}
+
+pub async fn get_prerequisites_status_cached(force_refresh: bool) -> NodePrerequisiteStatus {
+    if !force_refresh {
+        let guard = NODE_PREREQS_CACHE.lock().unwrap();
+        if let Some((instant, ref status)) = *guard {
+            if instant.elapsed() < NODE_PREREQS_CACHE_TTL {
+                return status.clone();
+            }
+        }
+    }
+
+    let _gate = NODE_PREREQS_GATE.lock().await;
+
+    if !force_refresh {
+        let guard = NODE_PREREQS_CACHE.lock().unwrap();
+        if let Some((instant, ref status)) = *guard {
+            if instant.elapsed() < NODE_PREREQS_CACHE_TTL {
+                return status.clone();
+            }
+        }
+    }
+
+    let status = get_prerequisites_status_uncached().await;
+
+    {
+        let mut guard = NODE_PREREQS_CACHE.lock().unwrap();
+        *guard = Some((Instant::now(), status.clone()));
+    }
+
+    status
+}
+
+pub async fn get_prerequisites_status_uncached() -> NodePrerequisiteStatus {
     let node_path_res = resolve_node_path();
     let npm_path_res = resolve_npm_path();
 
@@ -393,9 +476,10 @@ pub async fn query_cli_version(path: &Path) -> Result<String, String> {
         };
         Ok(ver)
     } else {
+        let diag = crate::orchestrator::process_runner::format_exit_code_diagnostic(res.exit_code);
         Err(format!(
-            "Process failed with exit code {:?}: {}",
-            res.exit_code, res.stderr.text
+            "Process failed with {}: {}",
+            diag, res.stderr.text
         ))
     }
 }
@@ -415,13 +499,48 @@ fn compare_semver_update(installed: &str, latest: &str) -> bool {
 }
 
 pub async fn get_cli_tools_status() -> Result<Vec<CliToolInfo>, String> {
+    get_cli_tools_status_cached(false).await
+}
+
+pub async fn get_cli_tools_status_cached(force_refresh: bool) -> Result<Vec<CliToolInfo>, String> {
+    if !force_refresh {
+        let guard = CLI_TOOLS_CACHE.lock().unwrap();
+        if let Some((instant, ref data)) = *guard {
+            if instant.elapsed() < CLI_TOOLS_CACHE_TTL {
+                return Ok(data.clone());
+            }
+        }
+    }
+
+    let _gate = CLI_TOOLS_GATE.lock().await;
+
+    if !force_refresh {
+        let guard = CLI_TOOLS_CACHE.lock().unwrap();
+        if let Some((instant, ref data)) = *guard {
+            if instant.elapsed() < CLI_TOOLS_CACHE_TTL {
+                return Ok(data.clone());
+            }
+        }
+    }
+
+    let data = get_cli_tools_status_uncached().await?;
+
+    {
+        let mut guard = CLI_TOOLS_CACHE.lock().unwrap();
+        *guard = Some((Instant::now(), data.clone()));
+    }
+
+    Ok(data)
+}
+
+pub async fn get_cli_tools_status_uncached() -> Result<Vec<CliToolInfo>, String> {
     let tools = [
         ("codex", "Codex CLI", "@openai/codex", false),
         ("dsh", "DeepSeek Harness", "@deepseek-ai/dsh", true),
         ("gemini", "Gemini CLI", "@google/gemini-cli", false),
     ];
 
-    let prereqs = get_prerequisites_status().await;
+    let prereqs = get_prerequisites_status_cached(false).await;
 
     // Check cached latest versions (valid for 10 min)
     let cached_data: Option<(String, String, HashMap<String, String>)> = {
@@ -625,7 +744,8 @@ pub async fn check_cli_tools_latest_version() -> Result<Vec<CliToolInfo>, String
         });
     }
 
-    get_cli_tools_status().await
+    invalidate_cli_tools_cache();
+    get_cli_tools_status_cached(true).await
 }
 
 pub async fn run_cli_install(tool_name: &str) -> Result<CliToolInfo, String> {
@@ -723,6 +843,8 @@ pub async fn run_cli_install(tool_name: &str) -> Result<CliToolInfo, String> {
             };
 
             let version = query_cli_version(&path).await.ok();
+
+            invalidate_all_cli_caches();
 
             Ok(CliToolInfo {
                 name: tool_name.to_string(),
@@ -890,6 +1012,8 @@ pub async fn run_cli_update(tool_name: &str, check_id: &str) -> Result<CliToolIn
 
             let version = query_cli_version(&path).await.ok();
 
+            invalidate_all_cli_caches();
+
             Ok(CliToolInfo {
                 name: tool_name.to_string(),
                 display_name: display_name.to_string(),
@@ -922,6 +1046,14 @@ pub fn parse_codex_login_status(
             "unknown".to_string(),
             None,
             Some("Command timed out while checking login status".to_string()),
+        );
+    }
+
+    if crate::orchestrator::process_runner::is_dll_initialization_failure(exit_code) {
+        return (
+            "unknown".to_string(),
+            None,
+            Some("Codex CLI failed to initialize: STATUS_DLL_INIT_FAILED (0xC0000142)".to_string()),
         );
     }
 
@@ -970,12 +1102,13 @@ pub fn parse_codex_login_status(
             Some("Not logged in. Click Login to authenticate.".to_string()),
         )
     } else {
+        let diag = crate::orchestrator::process_runner::format_exit_code_diagnostic(exit_code);
         (
             "unknown".to_string(),
             None,
             Some(format!(
-                "Status check exit code: {:?}",
-                exit_code
+                "Status check exit code: {:?} ({})",
+                exit_code, diag
             )),
         )
     }
@@ -995,12 +1128,17 @@ pub fn parse_codex_app_server_response(
         return Err("Codex app-server request timed out".to_string());
     }
 
+    if crate::orchestrator::process_runner::is_dll_initialization_failure(exit_code) {
+        return Err("Codex app-server failed to initialize: STATUS_DLL_INIT_FAILED (0xC0000142)".to_string());
+    }
+
     if let Some(code) = exit_code {
         if code != 0 {
-            return Err(format!("Codex app-server exited with non-zero code {code}"));
+            let diag = crate::orchestrator::process_runner::format_exit_code_diagnostic(Some(code));
+            return Err(format!("Codex app-server exited with non-zero {}", diag));
         }
     } else {
-        return Err("Codex app-server terminated abnormally".to_string());
+        return Err("Codex app-server terminated abnormally (no exit code)".to_string());
     }
 
     let mut init_success = false;
@@ -1076,6 +1214,41 @@ pub fn parse_codex_app_server_response(
 }
 
 pub async fn get_codex_account_info() -> Result<CodexAccountInfo, String> {
+    get_codex_account_info_cached(false).await
+}
+
+pub async fn get_codex_account_info_cached(force_refresh: bool) -> Result<CodexAccountInfo, String> {
+    if !force_refresh {
+        let guard = CODEX_ACCOUNT_CACHE.lock().unwrap();
+        if let Some((instant, ref data)) = *guard {
+            if instant.elapsed() < CODEX_ACCOUNT_CACHE_TTL {
+                return Ok(data.clone());
+            }
+        }
+    }
+
+    let _gate = CODEX_ACCOUNT_GATE.lock().await;
+
+    if !force_refresh {
+        let guard = CODEX_ACCOUNT_CACHE.lock().unwrap();
+        if let Some((instant, ref data)) = *guard {
+            if instant.elapsed() < CODEX_ACCOUNT_CACHE_TTL {
+                return Ok(data.clone());
+            }
+        }
+    }
+
+    let data = get_codex_account_info_uncached().await?;
+
+    {
+        let mut guard = CODEX_ACCOUNT_CACHE.lock().unwrap();
+        *guard = Some((Instant::now(), data.clone()));
+    }
+
+    Ok(data)
+}
+
+pub async fn get_codex_account_info_uncached() -> Result<CodexAccountInfo, String> {
     let now = chrono::Utc::now().to_rfc3339();
     let effective_codex_home = crate::codex_global_rules::resolve_codex_home().ok()
         .map(|p| p.to_string_lossy().to_string());
@@ -1105,7 +1278,7 @@ pub async fn get_codex_account_info() -> Result<CodexAccountInfo, String> {
         "params": {
             "clientInfo": {
                 "name": "poverello",
-                "version": "0.26.0"
+                "version": "0.26.1"
             }
         }
     });
@@ -1208,6 +1381,41 @@ pub fn get_cli_auth_env_allowlist() -> Vec<(std::ffi::OsString, std::ffi::OsStri
 }
 
 pub async fn get_cli_auth_status() -> Result<Vec<CliAuthInfo>, String> {
+    get_cli_auth_status_cached(false).await
+}
+
+pub async fn get_cli_auth_status_cached(force_refresh: bool) -> Result<Vec<CliAuthInfo>, String> {
+    if !force_refresh {
+        let guard = AUTH_STATUS_CACHE.lock().unwrap();
+        if let Some((instant, ref data)) = *guard {
+            if instant.elapsed() < AUTH_STATUS_CACHE_TTL {
+                return Ok(data.clone());
+            }
+        }
+    }
+
+    let _gate = AUTH_STATUS_GATE.lock().await;
+
+    if !force_refresh {
+        let guard = AUTH_STATUS_CACHE.lock().unwrap();
+        if let Some((instant, ref data)) = *guard {
+            if instant.elapsed() < AUTH_STATUS_CACHE_TTL {
+                return Ok(data.clone());
+            }
+        }
+    }
+
+    let data = get_cli_auth_status_uncached().await?;
+
+    {
+        let mut guard = AUTH_STATUS_CACHE.lock().unwrap();
+        *guard = Some((Instant::now(), data.clone()));
+    }
+
+    Ok(data)
+}
+
+pub async fn get_cli_auth_status_uncached() -> Result<Vec<CliAuthInfo>, String> {
     let mut results = Vec::new();
     let now = chrono::Utc::now().to_rfc3339();
     let effective_codex_home = crate::codex_global_rules::resolve_codex_home().ok()
@@ -1241,7 +1449,7 @@ pub async fn get_cli_auth_status() -> Result<Vec<CliAuthInfo>, String> {
 
                 // If authenticated, attempt to retrieve verified account identity via app-server read
                 let account_identity = if status == "authenticated" {
-                    get_codex_account_info().await.ok().and_then(|info| info.account_identity)
+                    get_codex_account_info_cached(false).await.ok().and_then(|info| info.account_identity)
                 } else {
                     None
                 };
@@ -1323,6 +1531,7 @@ pub async fn get_cli_auth_status() -> Result<Vec<CliAuthInfo>, String> {
 }
 
 pub fn launch_cli_auth(tool_name: &str) -> Result<(), String> {
+    invalidate_auth_caches();
     let clean_tool = tool_name.trim().to_lowercase();
     let (cmd, args) = match clean_tool.as_str() {
         "codex" => ("codex", vec!["login"]),
@@ -1701,7 +1910,8 @@ mod tests {
 
         // 7. Non-zero exit code
         let err_nonzero = parse_codex_app_server_response("", "crash", Some(1), false).unwrap_err();
-        assert!(err_nonzero.contains("exited with non-zero code 1"));
+        assert!(err_nonzero.contains("exited with non-zero"));
+        assert!(err_nonzero.contains("0x00000001"));
 
         // 8. Missing account/read response
         let stdout_only_init = r#"
@@ -1709,5 +1919,111 @@ mod tests {
 "#;
         let err_missing_acc = parse_codex_app_server_response(stdout_only_init, "", Some(0), false).unwrap_err();
         assert!(err_missing_acc.contains("Missing account/read response"));
+    }
+
+    #[test]
+    fn test_parse_codex_dll_init_failure() {
+        let code = Some(-1073741502i32); // 0xC0000142
+        let (status, auth_type, msg) = parse_codex_login_status("", "", code, false);
+        assert_eq!(status, "unknown");
+        assert_eq!(auth_type, None);
+        let msg_str = msg.unwrap();
+        assert!(msg_str.contains("0xC0000142"));
+        assert!(msg_str.contains("STATUS_DLL_INIT_FAILED"));
+
+        let err = parse_codex_app_server_response("", "", code, false).unwrap_err();
+        assert!(err.contains("0xC0000142"));
+        assert!(err.contains("STATUS_DLL_INIT_FAILED"));
+    }
+
+    #[tokio::test]
+    async fn test_cli_tools_cache_bounded_freshness_and_invalidation() {
+        invalidate_all_cli_caches();
+
+        // 1. Manually seed CLI tools cache
+        let fake_tools = vec![CliToolInfo {
+            name: "codex".to_string(),
+            display_name: "Codex CLI".to_string(),
+            installed: true,
+            path: Some("C:\\fake\\codex.exe".to_string()),
+            installed_version: Some("0.26.0".to_string()),
+            latest_version: None,
+            latest_checked_at: None,
+            check_id: None,
+            package_name: "@openai/codex".to_string(),
+            is_preview: false,
+            update_available: false,
+            prerequisite_error: None,
+        }];
+
+        {
+            let mut guard = CLI_TOOLS_CACHE.lock().unwrap();
+            *guard = Some((Instant::now(), fake_tools.clone()));
+        }
+
+        // Fresh cache returns seeded data without probing
+        let cached = get_cli_tools_status_cached(false).await.unwrap();
+        assert_eq!(cached, fake_tools);
+
+        // Invalidate cache
+        invalidate_cli_tools_cache();
+        {
+            let guard = CLI_TOOLS_CACHE.lock().unwrap();
+            assert!(guard.is_none());
+        }
+
+        // 2. Auth status cache seeding and invalidation
+        let fake_auth = vec![CliAuthInfo {
+            name: "codex".to_string(),
+            status: "authenticated".to_string(),
+            auth_type: Some("chatgpt".to_string()),
+            message: None,
+            can_launch_login: true,
+            account_identity: Some("user@example.com".to_string()),
+            codex_home: None,
+            last_checked_at: Some("2026-11-02T00:00:00Z".to_string()),
+        }];
+
+        {
+            let mut guard = AUTH_STATUS_CACHE.lock().unwrap();
+            *guard = Some((Instant::now(), fake_auth.clone()));
+        }
+
+        let cached_auth = get_cli_auth_status_cached(false).await.unwrap();
+        assert_eq!(cached_auth, fake_auth);
+
+        invalidate_auth_caches();
+        {
+            let guard = AUTH_STATUS_CACHE.lock().unwrap();
+            assert!(guard.is_none());
+        }
+
+        // 3. Node prerequisites cache seeding and invalidation
+        let fake_prereqs = NodePrerequisiteStatus {
+            node_installed: true,
+            node_version: Some("20.18.0".to_string()),
+            node_major_version: Some(20),
+            node_path: Some("C:\\fake\\node.exe".to_string()),
+            npm_installed: true,
+            npm_version: Some("10.8.2".to_string()),
+            npm_path: Some("C:\\fake\\npm.cmd".to_string()),
+            node_npm_ready: true,
+            gemini_node_ready: true,
+            message: None,
+        };
+
+        {
+            let mut guard = NODE_PREREQS_CACHE.lock().unwrap();
+            *guard = Some((Instant::now(), fake_prereqs.clone()));
+        }
+
+        let cached_prereqs = get_prerequisites_status_cached(false).await;
+        assert_eq!(cached_prereqs, fake_prereqs);
+
+        invalidate_prerequisites_cache();
+        {
+            let guard = NODE_PREREQS_CACHE.lock().unwrap();
+            assert!(guard.is_none());
+        }
     }
 }

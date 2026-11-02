@@ -120,4 +120,19 @@ describe("App navigation", () => {
     expect(screen.queryByTestId("orchestrator-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("gateway-content")).not.toBeInTheDocument();
   });
+
+  it("supports repeated rapid tab switching across tabs without error", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("gateway-content")).toBeInTheDocument());
+
+    for (let i = 0; i < 5; i++) {
+      await user.click(screen.getByTestId("titlebar-poverello-btn"));
+      expect(screen.getByTestId("poverello-panel")).toBeInTheDocument();
+
+      await user.click(screen.getByTestId("titlebar-codex-autocode-btn"));
+      expect(screen.getByTestId("codex-autocode-panel")).toBeInTheDocument();
+    }
+  });
 });
