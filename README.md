@@ -121,7 +121,7 @@ Settings > CLI Tools
 - The three Codex Workflow Skills are installed under the Codex Skills directory. Settings provides install, update, removal, backup recovery, and preview controls.
 - Poverello manages only its marked section in `CODEX_HOME/AGENTS.md`; unrelated user instructions are preserved. A higher-priority `AGENTS.override.md` may override it.
 - Codex Autocode configures selected reviewers and their priority. Gemini CLI is optional and disabled by default; enabling it in **Settings > CLI Tools** does not select it or start a review. On Windows, Gemini review remains unavailable when its read-only sandbox cannot be verified.
-- CLI installation state and authentication state are reported separately. Node.js and npm are detected as prerequisites; Poverello does not install them automatically.
+- CLI installation state and authentication state are reported separately. Node.js and npm are detected as prerequisites; Poverello does not install them automatically. Since v0.26.1, non-interactive CLI and Node.js/npm status checks run without opening console windows and reuse short-lived cached results across tab changes; process initialization failures such as `0xC0000142` are reported explicitly. User-requested login remains interactive.
 ## Installation
 
 Download the latest currently published Windows installer from the [Releases](https://github.com/soheidon/poverello-coding-tools/releases) page and run it.

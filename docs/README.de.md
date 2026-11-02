@@ -121,7 +121,7 @@ Settings > CLI Tools
 ```
 
 
-Gemini CLI ist ein optionaler Reviewer, der unter Settings > CLI Tools aktiviert werden kann. Die Aktivierung wählt ihn nicht aus und startet keine Review. Unter Windows ist Gemini Review nicht verfügbar, wenn eine schreibgeschützte Sandbox nicht verifiziert werden kann. Installations- und Authentifizierungsstatus werden getrennt angezeigt. Node.js/npm werden als Voraussetzungen erkannt, aber nicht automatisch installiert.
+Gemini CLI ist ein optionaler Reviewer, der unter Settings > CLI Tools aktiviert werden kann. Die Aktivierung wählt ihn nicht aus und startet keine Review. Unter Windows ist Gemini Review nicht verfügbar, wenn eine schreibgeschützte Sandbox nicht verifiziert werden kann. Installations- und Authentifizierungsstatus werden getrennt angezeigt. Node.js/npm werden als Voraussetzungen erkannt, aber nicht automatisch installiert. Seit v0.26.1 laufen nicht-interaktive CLI- und Node.js/npm-Statusprüfungen ohne sichtbares Konsolenfenster; kurzlebige gemeinsame Caches verhindern unnötige Starts beim Tabwechsel. Prozessinitialisierungsfehler wie `0xC0000142` werden ausdrücklich angezeigt. Ein vom Benutzer gestarteter Login bleibt interaktiv.
 
 ## Installation
 

@@ -121,7 +121,7 @@ Settings > CLI Tools
 ```
 
 
-Gemini CLI es un revisor opcional que se habilita en Settings > CLI Tools. Habilitarlo no lo selecciona ni inicia una revisión. En Windows, Gemini Review no está disponible si no se puede verificar un sandbox de solo lectura. Los estados de instalación y autenticación se muestran por separado. Node.js/npm se detectan como requisitos, pero Poverello no los instala automáticamente.
+Gemini CLI es un revisor opcional que se habilita en Settings > CLI Tools. Habilitarlo no lo selecciona ni inicia una revisión. En Windows, Gemini Review no está disponible si no se puede verificar un sandbox de solo lectura. Los estados de instalación y autenticación se muestran por separado. Node.js/npm se detectan como requisitos, pero Poverello no los instala automáticamente. Desde v0.26.1, las comprobaciones no interactivas del estado de las CLI y de Node.js/npm se ejecutan sin mostrar ventanas de consola y reutilizan cachés breves al cambiar de pestaña para evitar procesos repetidos. Los errores de inicialización, como `0xC0000142`, se notifican explícitamente. El inicio de sesión solicitado por el usuario sigue siendo interactivo.
 
 ## Instalación
 

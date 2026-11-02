@@ -121,7 +121,7 @@ Settings > CLI Tools
 ```
 
 
-Gemini CLI 是可在 Settings > CLI Tools 啟用的選用審查器。啟用本身不會選取該審查器，也不會啟動審查。若 Windows 上無法驗證唯讀 sandbox，Gemini 審查即無法使用。安裝狀態與驗證狀態分開顯示。Node.js/npm 會作為前置條件偵測，但 Poverello 不會自動安裝。
+Gemini CLI 是可在 Settings > CLI Tools 啟用的選用審查器。啟用本身不會選取該審查器，也不會啟動審查。若 Windows 上無法驗證唯讀 sandbox，Gemini 審查即無法使用。安裝狀態與驗證狀態分開顯示。Node.js/npm 會作為前置條件偵測，但 Poverello 不會自動安裝。自 v0.26.1 起，非互動式 CLI 與 Node.js/npm 狀態檢查不會開啟主控台視窗，並在切換分頁時重用短效快取結果，以避免重複啟動程序。`0xC0000142` 等程序初始化錯誤會明確回報。使用者主動啟動的登入仍使用互動式終端機。
 
 ## 安裝
 

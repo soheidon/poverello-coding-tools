@@ -3,6 +3,7 @@
 # SPEC: Poverello Coding Tools
 
 > **v0.26.0:** Codex Autocode, Codex Skills & Rules 및 공용 CLI Tools를 추가했습니다. Gemini는 기본 비활성화된 선택 리뷰어이며 Settings > CLI Tools에서 활성화해도 선택되거나 실행되지 않습니다. 설치와 인증 상태는 분리됩니다. Node.js/npm은 감지하지만 자동 설치하지 않습니다. Auto-Converge는 숨김, production dispatch 비활성화, Stage 2 미검증 상태입니다.
+> **v0.26.1:** 비대화형 CLI 및 Node.js/npm 상태 확인은 콘솔 창을 열지 않으며 탭 전환 시 짧은 캐시 결과를 재사용합니다. `0xC0000142`를 포함한 Windows 프로세스 초기화 오류를 명시적으로 보고하고, 사용자가 요청한 로그인은 계속 대화형으로 실행합니다.
 
 ## 개요
 
@@ -91,6 +92,7 @@
 - **v0.25.3 모델 및 Thinking 안전 제어**: MiniMax M3.1 Flash, Kimi K3.1 Pro / Highspeed, GLM-5.3 Direct 모델을 추가하고 Kimi Code K3.1 ID를 분리합니다. 8개 ID는 Thinking 전용이며 비활성화 요청은 upstream 전송 전에 거부됩니다. Kimi Code medium은 high, xhigh는 max로 정규화됩니다. 가격 기준일은 2026-10-31이며 Kimi USD 값은 CNY 참고 환산값이고 OpenRouter 런타임 가격이 우선합니다.
 - **Antigravity Autocode 및 Skills & Rules (v0.25.4)**: External Review와 Customize Coding Settings는 상단 Antigravity Autocode 탭에 있습니다. Reviewer 프리셋 대신 Codex CLI와 DeepSeek Harness를 직접 구성합니다. Codex 계정 식별, 인증 방식/상태, 설정 profile은 구분하며 식별할 수 없는 계정을 추측하지 않습니다. Settings > Antigravity Skills & Rules에서 Workflow Commands(확인 및 백업을 포함한 복구), CLI Tools, Task Presets, Global Rules 및 Nerf Skills를 관리합니다. OpenRouter에 GPT-6.1 Terra와 Terra Pro의 기능, 추론, 가격 메타데이터를 추가했습니다. Reviewer Policy는 schema v3를 사용하며 기본값은 none(외부 리뷰어 없음)입니다. none, codex_only, codex_plus_deepseek를 지원하고 이전 Reviewer 프리셋은 무시합니다.
 - **Codex Autocode 및 Skills & Rules (v0.26.0)**: 상단 Codex Autocode 탭에서 Codex Workflow Skills 리뷰어를 구성합니다. Settings > Codex Skills & Rules에서 세 가지 Codex 네이티브 Skill과 CODEX_HOME/AGENTS.md의 Poverello 관리 영역을 관리합니다. 공용 Settings > CLI Tools에서 Node.js/npm, Codex CLI, Gemini CLI, DeepSeek Harness를 관리합니다. Gemini는 기본 비활성화이며 활성화만으로 선택되거나 실행되지 않습니다.
+- **Windows CLI 프로세스 처리 (v0.26.1)**: 비대화형 CLI 및 Node.js/npm 상태 확인에서 콘솔 창을 숨기고 화면 이동 중 유효기간이 있는 메모리 캐시 결과를 공유합니다. `0xC0000142`와 같은 초기화 오류를 명시적으로 표시합니다. 사용자가 직접 요청한 로그인은 대화형으로 유지됩니다. 개별 환경에서 과거 오류의 원인을 모두 확인했다고 주장하지 않습니다.
 - **Anthropic 공식 직접 제공자**: `ANTHROPIC_API_KEY`로 `https://api.anthropic.com`에 직접 연결하고 네이티브 Messages 프로토콜을 변환 없이 전달합니다. 검증된 모델 카탈로그, 스트리밍/비스트리밍 토큰 한도 진단, 네이티브 샘플링 매개변수 검증을 지원합니다.
 - **멀티 제공자 게이트웨이 프로필(`gateway_profile`)**: 표준 Claude 경로(`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`)마다 독립적인 제공자와 모델을 지정합니다. `active_provider`와 `active_gateway_profile_id`로 활성화하고 `gateway_profiles`에 프로필을 저장하며, 기능 검사와 Claude Code 자동 압축용 컨텍스트 계산에 통합됩니다.
 - **정식 Poverello Skills 및 MCP 네임스페이스**: 정식 도구는 `poverello/plan`, `poverello/revise`, `poverello/review`, 명령은 `/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`입니다. Antigravity에 `poverello` 서버 키를 추가 등록하며, 하위 호환성을 위해 `anthro-bridge`와 기존 `/anthro-*` Skills도 유지합니다. 단일 파일 수명주기를 안전하게 관리합니다. 직접 MCP Skill 3개와 함께 상위 워크플로 Skill `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-review`도 제공합니다.

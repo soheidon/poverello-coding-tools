@@ -162,3 +162,4 @@ Before creating a release, verify the following:
 - [ ] Codex Autocode reviewer selection and priority persist across navigation; enabling Gemini does not select or launch it.
 - [ ] Settings > Codex Skills & Rules preserves content outside Poverello's marked `AGENTS.md` block and reports when `AGENTS.override.md` shadows the managed rules.
 - [ ] Settings > CLI Tools shows Node.js/npm prerequisites separately from CLI installation and authentication status; verify that Node.js is not installed automatically.
+- [ ] Non-interactive CLI and Node.js/npm status probes do not show console windows, repeated tab navigation reuses bounded cached results, explicit refresh invalidates the relevant cache, and user-requested login remains interactive. Verify that initialization errors such as `0xC0000142` are surfaced rather than treated as success.
