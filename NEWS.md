@@ -3,11 +3,11 @@
 ## v0.26.2 — 2026-11-02
 
 ### External Reviewers and Workflow Skills
-- Enabled practical review dispatch with isolated snapshot directories and a patch overlay enforcing read-only sandbox mode and disabling non-review tools (file editing, shell execution, browsers).
-- Added Windows batch compatibility to launch npm-installed tools under Windows Job Objects with timeout enforcement, child-process reaping, and stdout capping.
-- Added structured JSONL reviewer diagnostic logs with automatic credential masking, 5MB rotation, and an in-app viewer modal with export support.
-- Updated Priority Reviewer semantics across skills and GUI to act as arbitrator when reviewers disagree, preserving all blocking findings from all reviewers.
-- Improved workflow skill template recognition to identify official historical releases as update-available rather than conflicting.
+- Distinguished Codex's in-session work from external review. Priority Reviewer now arbitrates only between valid conflicting verdicts; incomplete reviews and unresolved blocking findings cannot be overridden.
+- Added a DeepSeek Harness headless configuration overlay that requests read-only policy and disables selected stateful, shell, web, and workflow tools. Snapshot and DSH configuration restrictions do not prove Windows OS-level filesystem or network isolation; do not treat them as such.
+- Added Windows batch-launch support under a Job Object with timeout handling, child-process cleanup, and capped standard output.
+- Added JSONL reviewer diagnostics, bounded log rotation, and an in-app viewer with filtered export for troubleshooting. Logs record execution metadata, not review prompts or response bodies.
+- Improved Codex Workflow Skill status reporting for verified historical templates, while keeping unknown or modified files protected and requiring backup and confirmation for updates.
 
 ## v0.26.1 — 2026-11-02
 

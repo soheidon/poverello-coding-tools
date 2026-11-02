@@ -109,7 +109,7 @@ Settings > CLI Tools
 ```text
 Codex Workflow Skills
        ↓ configured reviewers
-Codex CLI / optional DeepSeek Harness or Gemini CLI
+Codex 工作階段內審查 / 選用的外部 DeepSeek Harness 或 Gemini CLI
        ↓
 Codex Autocode review settings
 
@@ -122,6 +122,8 @@ Settings > CLI Tools
 
 
 Gemini CLI 是可在 Settings > CLI Tools 啟用的選用審查器。啟用本身不會選取該審查器，也不會啟動審查。若 Windows 上無法驗證唯讀 sandbox，Gemini 審查即無法使用。安裝狀態與驗證狀態分開顯示。Node.js/npm 會作為前置條件偵測，但 Poverello 不會自動安裝。自 v0.26.1 起，非互動式 CLI 與 Node.js/npm 狀態檢查不會開啟主控台視窗，並在切換分頁時重用短效快取結果，以避免重複啟動程序。`0xC0000142` 等程序初始化錯誤會明確回報。使用者主動啟動的登入仍使用互動式終端機。
+
+自 v0.26.2 起，優先審查器僅用於裁決有效判定之間的分歧，不能覆蓋失敗或未完成的審查，也不能忽略尚未解決的阻擋問題。新增診斷記錄，以及含備份與確認步驟的歷史 Codex Skill 範本安全更新。DeepSeek Harness 的唯讀設定與工具限制無法證明 Windows 作業系統層級的檔案系統或網路隔離；若無法驗證該安全界線，DeepSeek 審查將維持不可用。
 
 ## 安裝
 

@@ -109,7 +109,7 @@ Settings > Codex Skills & Rules에서 Codex Workflow Skills(/pov-plan-only, /pov
 ```text
 Codex Workflow Skills
        ↓ configured reviewers
-Codex CLI / optional DeepSeek Harness or Gemini CLI
+Codex 세션 내 리뷰 / 선택적 외부 DeepSeek Harness 또는 Gemini CLI
        ↓
 Codex Autocode review settings
 
@@ -122,6 +122,8 @@ Settings > CLI Tools
 
 
 Gemini CLI는 Settings > CLI Tools에서 활성화할 수 있는 선택적 리뷰어입니다. 활성화만으로 리뷰어가 선택되거나 리뷰가 실행되지는 않습니다. Windows에서 읽기 전용 sandbox를 검증할 수 없으면 Gemini 리뷰를 사용할 수 없습니다. 설치 상태와 인증 상태는 별도로 표시됩니다. Node.js/npm은 요구 사항으로 감지되지만 자동 설치되지 않습니다. v0.26.1부터 비대화형 CLI 및 Node.js/npm 상태 확인은 콘솔 창을 표시하지 않으며, 탭을 전환할 때 짧은 캐시 결과를 재사용해 프로세스가 반복 실행되지 않도록 합니다. `0xC0000142`와 같은 프로세스 초기화 오류는 명시적으로 표시합니다. 사용자가 요청한 로그인은 계속 대화형 터미널에서 실행됩니다.
+
+v0.26.2부터 우선 리뷰어는 유효한 판정이 서로 다를 때만 조정에 사용되며, 실패 또는 미완료 리뷰나 해결되지 않은 차단 지적을 무시할 수 없습니다. 진단 로그와 백업·확인 절차를 포함한 과거 정식 Codex Skill 템플릿의 안전한 업데이트를 제공합니다. DeepSeek Harness의 읽기 전용 설정과 도구 제한은 Windows 운영체제가 강제하는 파일 시스템 또는 네트워크 격리를 증명하지 않습니다. 해당 안전 경계를 검증하지 못하면 DeepSeek 리뷰는 사용할 수 없는 상태로 유지됩니다.
 
 ## 설치
 

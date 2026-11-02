@@ -4,6 +4,7 @@
 
 > **v0.26.0:** Codex Autocode、Codex Skills & Rules、共通CLI Toolsを追加。Geminiは既定で無効の任意Codex Reviewerで、設定 > CLI Toolsから有効化します。有効化だけではReviewer選択・起動されません。導入と認証状態は別々です。Node.js/npmは検出しますが自動導入しません。Auto-Convergeは非表示、本番dispatch無効、Stage 2隔離未検証です。
 > **v0.26.1:** 非対話のCLI・Node.js/npm状態確認ではコンソールを表示せず、タブ切替時は短時間のキャッシュ結果を再利用します。`0xC0000142`などのWindowsプロセス初期化エラーを明示し、ユーザーが開始するログイン端末は引き続き対話式で表示します。
+> **v0.26.2:** Codex AutocodeではCodexの同一セッション内作業と外部Reviewerを区別し、有効な判定の不一致に限って優先Reviewerで裁定します。DeepSeekのheadless設定やツール制限はWindows OSレベルのファイルシステム・ネットワーク隔離を証明しません。診断ログと、履歴のあるSkillテンプレートの安全な更新に対応します。
 
 ## 概要
 
@@ -93,6 +94,7 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
 - **Antigravity Autocode と Skills & Rules（v0.25.4）**: 上部のAntigravity AutocodeタブにExternal ReviewとCustomize Coding Settingsを配置。Reviewer presetを廃止し、Codex CLIとDeepSeek Harnessを直接設定します。Codexのアカウント識別、認証方式・状態、設定profileは区別し、本人を特定できない場合は推測しません。設定 > Antigravity Skills & RulesではWorkflow Commands（バックアップ付きの確認制修復を含む）、CLI Tools、Task Presets、Global Rules、Nerf Skillsを管理します。OpenRouterにGPT-6.1 TerraとTerra Proの機能・推論・料金メタデータを追加。Reviewer Policyはschema v3を使用し、既定値はnone（外部レビュアーなし）です。none、codex_only、codex_plus_deepseekをサポートし、旧Reviewer presetは無視します。
 - **Codex Autocode と Skills & Rules（v0.26.0）**: 上部Codex AutocodeタブでCodex Workflow SkillのReviewerを設定します。設定 > Codex Skills & Rulesでは3つのCodex SkillとCODEX_HOME/AGENTS.md内のPoverello管理領域を管理します。共通の設定 > CLI ToolsではNode.js/npm、Codex CLI、Gemini CLI、DeepSeek Harnessを管理します。Geminiは既定で無効で、有効化だけでは選択・起動されません。
 - **Windows CLIプロセス処理（v0.26.1）**: 非対話CLIおよびNode.js/npm状態確認のコンソール表示を抑止し、画面遷移間で有効期限付きのメモリ内結果を共有します。`0xC0000142`などの初期化失敗を明示します。ユーザーが明示的に開始するログインは引き続き対話式です。個々の環境で過去に発生した初期化失敗の原因を特定したと主張するものではありません。
+- **Codexレビューと診断（v0.26.2）**: Codexの同一セッション内作業と外部レビューを分離します。優先Reviewerは有効な判定の不一致だけを裁定し、失敗・未完了や未解決のBlocking指摘は上書きできません。DeepSeekの設定overlayはOS強制隔離の証明ではありません。JSONL診断と、バックアップ・確認付きの履歴Skill更新を提供します。
 - **Anthropic 公式 Direct プロバイダー対応**: `https://api.anthropic.com` を `ANTHROPIC_API_KEY` 経由で直接利用。ネイティブの Messages プロトコルをプロトコル変換なしで透過転送。検証済みモデルカタログ（`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5` 等）、ストリーミングおよび非ストリーミングのトークン上限障害診断（思考ブロックのみで最終テキストが生成されないまま `stop_reason: "max_tokens"` となった場合に明示的エラーでフェイルクローズ）、およびサンプリングパラメータ検証。
 - **マルチプロバイダーゲートウェイプロファイル（`gateway_profile`）**: 3つの標準 Claude ルート（`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`）それぞれに独立して異なるプロバイダーとモデルを割り当て可能。`active_provider: "gateway_profile"` および `active_gateway_profile_id` で制御され、`gateway_profiles` 配下の指定プロファイルを参照する。ルートごとの機能チェックおよび Claude Code 自動圧縮のためのコンテキスト容量計算に統合される。
 - **正本 Poverello スキル & MCP 名前空間の移行**: 正本 MCP ツール（`poverello/plan`, `poverello/revise`, `poverello/review`）およびスラッシュコマンド（`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`）。Poverello は Antigravity の `mcp_config.json` に `poverello` サーバーキーを加法的に登録し、既存の `anthro-bridge` キーや旧 `/anthro-*` スキルを完全な後方互換性のために保持する。親ディレクトリを削除しない堅牢な単一ファイルライフサイクル管理。 直接MCPスキルに加え、上位ワークフローSkill `/pov-full-cycle`、`/pov-plan-only`、`/pov-build-review`も提供します。

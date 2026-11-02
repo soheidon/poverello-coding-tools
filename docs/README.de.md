@@ -109,7 +109,7 @@ Verwalten Sie die Codex Workflow Skills (/pov-plan-only, /pov-build-review, /pov
 ```text
 Codex Workflow Skills
        ↓ configured reviewers
-Codex CLI / optional DeepSeek Harness or Gemini CLI
+Codex-internes Review / optionaler externer DeepSeek Harness oder Gemini CLI
        ↓
 Codex Autocode review settings
 
@@ -122,6 +122,8 @@ Settings > CLI Tools
 
 
 Gemini CLI ist ein optionaler Reviewer, der unter Settings > CLI Tools aktiviert werden kann. Die Aktivierung wählt ihn nicht aus und startet keine Review. Unter Windows ist Gemini Review nicht verfügbar, wenn eine schreibgeschützte Sandbox nicht verifiziert werden kann. Installations- und Authentifizierungsstatus werden getrennt angezeigt. Node.js/npm werden als Voraussetzungen erkannt, aber nicht automatisch installiert. Seit v0.26.1 laufen nicht-interaktive CLI- und Node.js/npm-Statusprüfungen ohne sichtbares Konsolenfenster; kurzlebige gemeinsame Caches verhindern unnötige Starts beim Tabwechsel. Prozessinitialisierungsfehler wie `0xC0000142` werden ausdrücklich angezeigt. Ein vom Benutzer gestarteter Login bleibt interaktiv.
+
+Seit v0.26.2 entscheidet der Prioritäts-Reviewer nur bei widersprüchlichen gültigen Urteilen; fehlgeschlagene oder unvollständige Reviews sowie ungelöste Blocking Findings können dadurch nicht überstimmt werden. Diagnoseprotokolle und sichere Updates historischer Codex-Skill-Vorlagen mit Backup und Bestätigung sind verfügbar. Die Read-only-Konfiguration und Tool-Beschränkungen des DeepSeek Harness belegen keine von Windows erzwungene Datei- oder Netzwerkisolation. Ohne nachgewiesene Sicherheitsgrenze bleibt das DeepSeek-Review nicht verfügbar.
 
 ## Installation
 

@@ -107,7 +107,7 @@ Settings > CLI Tools
 ```text
 Codex Workflow Skills
        ↓ configured reviewers
-Codex CLI / optional DeepSeek Harness or Gemini CLI
+Codex in-session review / optional external DeepSeek Harness or Gemini CLI
        ↓
 Codex Autocode review settings
 
@@ -122,6 +122,7 @@ Settings > CLI Tools
 - Poverello manages only its marked section in `CODEX_HOME/AGENTS.md`; unrelated user instructions are preserved. A higher-priority `AGENTS.override.md` may override it.
 - Codex Autocode configures selected reviewers and their priority. Gemini CLI is optional and disabled by default; enabling it in **Settings > CLI Tools** does not select it or start a review. On Windows, Gemini review remains unavailable when its read-only sandbox cannot be verified.
 - CLI installation state and authentication state are reported separately. Node.js and npm are detected as prerequisites; Poverello does not install them automatically. Since v0.26.1, non-interactive CLI and Node.js/npm status checks run without opening console windows and reuse short-lived cached results across tab changes; process initialization failures such as `0xC0000142` are reported explicitly. User-requested login remains interactive.
+- Since v0.26.2, Codex Autocode distinguishes Codex's in-session work from external reviewers, applies priority only to conflicting valid verdicts, and preserves all findings. Reviewer-specific DeepSeek model and effort settings, JSONL diagnostics, and protected Skill updates are available. DeepSeek's snapshot and tool configuration do not claim Windows OS-level filesystem or network isolation; where that safety boundary is required but unverified, treat DeepSeek review as unavailable.
 ## Installation
 
 Download the latest currently published Windows installer from the [Releases](https://github.com/soheidon/poverello-coding-tools/releases) page and run it.

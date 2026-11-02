@@ -4,6 +4,7 @@
 
 > **v0.26.0：** 新增 Codex Autocode、Codex Skills & Rules 和共享 CLI Tools。Gemini 默认关闭；在 Settings > CLI Tools 启用不会自动选择或启动审查。安装状态与认证状态分开。检测 Node.js/npm，但不会自动安装。Auto-Converge 仍隐藏，生产 dispatch 已禁用，Stage 2 隔离未验证。
 > **v0.26.1：** 非交互式 CLI 和 Node.js/npm 状态检查不会打开控制台窗口，并会在切换标签页时复用短时缓存结果。Windows 的进程初始化错误（包括 `0xC0000142`）会明确报告；用户主动发起的登录仍使用交互式终端。
+> **v0.26.2：** Codex Autocode 区分 Codex 在当前会话中的工作与外部审查器。优先审查器只裁定有效判定之间的分歧。DeepSeek Harness 的 headless 配置和工具限制不能证明 Windows 操作系统层面的文件系统或网络隔离。新增诊断日志和历史 Skill 模板的安全更新。
 
 ## 概述
 
@@ -93,6 +94,7 @@
 - **Antigravity Autocode 与 Skills & Rules（v0.25.4）**：External Review 和 Customize Coding Settings 位于顶部 Antigravity Autocode 标签页。以直接配置 Codex CLI 和 DeepSeek Harness 取代 Reviewer 预设；Codex 账户身份、认证方式/状态和配置 profile 分别处理，身份未知时不作推断。Settings > Antigravity Skills & Rules 管理 Workflow Commands（含需确认并备份的修复）、CLI Tools、Task Presets、Global Rules 和 Nerf Skills。OpenRouter 新增 GPT-6.1 Terra 和 Terra Pro 的能力、推理及价格元数据。Reviewer Policy 使用 schema v3，默认值为 none（不使用外部审查器），支持 none、codex_only 和 codex_plus_deepseek；旧版 Reviewer 预设会被忽略。
 - **Codex Autocode 与 Skills & Rules（v0.26.0）**：Codex Autocode 标签页用于配置 Codex Workflow Skills 的审查器。Settings > Codex Skills & Rules 管理三个 Codex 原生 Skill 和 CODEX_HOME/AGENTS.md 中由 Poverello 管理的区域。共享 Settings > CLI Tools 管理 Node.js/npm、Codex CLI、Gemini CLI 和 DeepSeek Harness。Gemini 默认关闭；启用不会自动选择或启动。
 - **Windows CLI 进程处理（v0.26.1）**：非交互式 CLI 和 Node.js/npm 状态检查会隐藏控制台窗口，并在页面导航时共享有期限的内存缓存。`0xC0000142` 等初始化错误会明确报告。用户主动启动的登录仍保持交互式。此说明不代表已查明每个受影响环境中的历史故障原因。
+- **Codex 审查与诊断（v0.26.2）**：区分 Codex 当前会话中的工作与外部审查。优先审查器仅裁定有效判定之间的分歧，不能覆盖失败或未完成的审查，也不能忽略尚未解决的阻断问题。DeepSeek 配置 overlay 不能证明操作系统强制隔离。提供 JSONL 诊断及带备份、确认的历史 Skill 模板安全更新。
 - **Anthropic 官方直连提供商**：通过 `ANTHROPIC_API_KEY` 直连 `https://api.anthropic.com`，不经协议转换转发原生 Messages 请求；包括已验证模型目录、流式和非流式 token 上限故障诊断，以及原生采样参数验证。
 - **多提供商网关配置（`gateway_profile`）**：可为三个标准 Claude 路由（`claude-opus-5`、`claude-sonnet-5`、`claude-haiku-4-5`）分别指定提供商和模型。由 `active_provider` 与 `active_gateway_profile_id` 激活，配置存放于 `gateway_profiles`，并集成能力检查及 Claude Code 自动压缩的上下文计算。
 - **Poverello Skills 与 MCP 正式命名空间**：正式工具为 `poverello/plan`、`poverello/revise`、`poverello/review`，斜杠命令为 `/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`。Poverello 会在 Antigravity 中增量注册 `poverello` 服务键，同时保留 `anthro-bridge` 和旧 `/anthro-*` Skills 以保持兼容，并安全管理单文件生命周期。 除三个直接 MCP Skills 外，还提供上层工作流 Skills `/pov-full-cycle`、`/pov-plan-only` 和 `/pov-build-review`。

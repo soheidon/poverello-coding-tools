@@ -4,6 +4,7 @@
 
 > **v0.26.0：** 新增 Codex Autocode、Codex Skills & Rules 與共用 CLI Tools。Gemini 預設關閉；在 Settings > CLI Tools 啟用不會自動選取或啟動審查。安裝與驗證狀態分開。偵測 Node.js/npm，但不會自動安裝。Auto-Converge 仍隱藏，Production dispatch 已停用，Stage 2 隔離未驗證。
 > **v0.26.1：** 非互動式 CLI 與 Node.js/npm 狀態檢查不會開啟主控台視窗，並在切換分頁時重用短效快取結果。Windows 程序初始化錯誤（包含 `0xC0000142`）會明確回報；使用者主動啟動的登入仍使用互動式終端機。
+> **v0.26.2：** Codex Autocode 區分 Codex 在目前工作階段中的工作與外部審查器。優先審查器僅裁決有效判定之間的分歧。DeepSeek Harness 的 headless 設定與工具限制無法證明 Windows 作業系統層級的檔案系統或網路隔離。新增診斷記錄與歷史 Skill 範本的安全更新。
 
 ## 概述
 
@@ -93,6 +94,7 @@
 - **Antigravity Autocode 與 Skills & Rules（v0.25.4）**：External Review 與 Customize Coding Settings 位於頂部 Antigravity Autocode 分頁。以直接設定 Codex CLI 和 DeepSeek Harness 取代 Reviewer 預設組合；Codex 帳戶身分、驗證方式/狀態與設定 profile 分別處理，身分未知時不推測。Settings > Antigravity Skills & Rules 管理 Workflow Commands（含需確認並備份的修復）、CLI Tools、Task Presets、Global Rules 與 Nerf Skills。OpenRouter 新增 GPT-6.1 Terra 和 Terra Pro 的功能、推理與價格中繼資料。Reviewer Policy 使用 schema v3，預設值為 none（不使用外部審查器），支援 none、codex_only 與 codex_plus_deepseek；舊版 Reviewer 預設組合會被忽略。
 - **Codex Autocode 與 Skills & Rules（v0.26.0）**：Codex Autocode 分頁用來設定 Codex Workflow Skills 的審查器。Settings > Codex Skills & Rules 管理三個 Codex 原生 Skill 與 CODEX_HOME/AGENTS.md 中由 Poverello 管理的區域。共用 Settings > CLI Tools 管理 Node.js/npm、Codex CLI、Gemini CLI 和 DeepSeek Harness。Gemini 預設關閉；啟用不會自動選取或啟動。
 - **Windows CLI 程序處理（v0.26.1）**：非互動式 CLI 與 Node.js/npm 狀態檢查會隱藏主控台視窗，並在頁面導覽時共用具有效期限的記憶體快取。`0xC0000142` 等初始化錯誤會明確回報。使用者主動啟動的登入仍為互動式。此說明不表示已查明每個受影響環境中的歷史故障原因。
+- **Codex 審查與診斷（v0.26.2）**：區分 Codex 目前工作階段中的工作與外部審查。優先審查器僅裁決有效判定之間的分歧，不能覆蓋失敗或未完成的審查，也不能忽略尚未解決的阻擋問題。DeepSeek 設定 overlay 無法證明作業系統強制隔離。提供 JSONL 診斷及附備份、確認流程的歷史 Skill 範本安全更新。
 - **Anthropic 官方直接提供者**：透過 `ANTHROPIC_API_KEY` 直接連線 `https://api.anthropic.com`，不做協定轉換而轉送原生 Messages 請求；包含已驗證模型目錄、串流與非串流 token 上限故障診斷，以及原生取樣參數驗證。
 - **多提供者閘道設定檔（`gateway_profile`）**：可為三個標準 Claude 路由（`claude-opus-5`、`claude-sonnet-5`、`claude-haiku-4-5`）分別指定提供者與模型。透過 `active_provider` 和 `active_gateway_profile_id` 啟用，設定存於 `gateway_profiles`，並整合能力檢查及 Claude Code 自動壓縮的上下文計算。
 - **Poverello Skills 與 MCP 正式命名空間**：正式工具為 `poverello/plan`、`poverello/revise`、`poverello/review`，斜線命令為 `/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`。Poverello 會在 Antigravity 中以新增方式註冊 `poverello` 伺服器鍵，同時保留 `anthro-bridge` 與舊 `/anthro-*` Skills 以維持相容性，並安全管理單一檔案生命週期。 除三個直接 MCP Skills 外，亦提供上層工作流程 Skills `/pov-full-cycle`、`/pov-plan-only` 與 `/pov-build-review`。

@@ -109,7 +109,7 @@ Gérez les Codex Workflow Skills (/pov-plan-only, /pov-build-review, /pov-full-c
 ```text
 Codex Workflow Skills
        ↓ configured reviewers
-Codex CLI / optional DeepSeek Harness or Gemini CLI
+Revue dans la session Codex / DeepSeek Harness ou Gemini CLI externe en option
        ↓
 Codex Autocode review settings
 
@@ -122,6 +122,8 @@ Settings > CLI Tools
 
 
 Gemini CLI est un réviseur facultatif à activer dans Settings > CLI Tools. L’activer ne le sélectionne pas et ne lance aucune revue. Sous Windows, Gemini Review est indisponible si un sandbox en lecture seule ne peut pas être vérifié. Les états d’installation et d’authentification sont affichés séparément. Node.js/npm sont détectés comme prérequis, mais ne sont pas installés automatiquement par Poverello. Depuis v0.26.1, les vérifications non interactives des CLI et de Node.js/npm n’ouvrent pas de fenêtre de console et réutilisent des résultats en cache de courte durée lors du changement d’onglet, afin d’éviter les lancements répétés. Les erreurs d’initialisation telles que `0xC0000142` sont signalées explicitement. La connexion demandée par l’utilisateur reste interactive.
+
+Depuis v0.26.2, le réviseur prioritaire ne tranche qu’entre des verdicts valides contradictoires ; il ne peut pas remplacer les revues échouées ou incomplètes ni les constats bloquants non résolus. Des diagnostics et des mises à jour protégées des anciens modèles de Codex Skills, avec sauvegarde et confirmation, sont disponibles. La configuration en lecture seule et les restrictions d’outils de DeepSeek Harness ne prouvent pas une isolation des fichiers ou du réseau imposée par Windows. Sans preuve de cette frontière de sécurité, la revue DeepSeek reste indisponible.
 
 ## Installation
 

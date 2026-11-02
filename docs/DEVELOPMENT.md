@@ -160,6 +160,10 @@ Before creating a release, verify the following:
 - [ ] Copied Claude Code launch commands contain correct base URL and context window parameters.
 - [ ] Poverello MCP server connects cleanly to Google Antigravity and executes `poverello/plan`.
 - [ ] Codex Autocode reviewer selection and priority persist across navigation; enabling Gemini does not select or launch it.
+- [ ] Priority Reviewer arbitrates only valid conflicting verdicts; failed/incomplete reviews and unresolved blocking findings cannot be overridden, and all findings remain visible.
+- [ ] DeepSeek reviewer configuration uses the intended headless overlay; documentation does not claim OS-level filesystem/network isolation from snapshot or tool settings alone.
+- [ ] Reviewer diagnostic JSONL contains no prompts, response bodies, or credentials; retention/rotation and export filtering match the implementation.
+- [ ] Historical Codex Skill template updates distinguish verified releases from unknown/modified files and preserve backups; tests use synthetic directories, not the user's installed Skills.
 - [ ] Settings > Codex Skills & Rules preserves content outside Poverello's marked `AGENTS.md` block and reports when `AGENTS.override.md` shadows the managed rules.
 - [ ] Settings > CLI Tools shows Node.js/npm prerequisites separately from CLI installation and authentication status; verify that Node.js is not installed automatically.
 - [ ] Non-interactive CLI and Node.js/npm status probes do not show console windows, repeated tab navigation reuses bounded cached results, explicit refresh invalidates the relevant cache, and user-requested login remains interactive. Verify that initialization errors such as `0xC0000142` are surfaced rather than treated as success.
