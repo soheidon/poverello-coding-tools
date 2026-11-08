@@ -1,5 +1,11 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.27.1 — 2026-11-09
+
+### Application Updates
+- Verified in-app automatic updater operation against the official production endpoint.
+- Corrected release updater configuration for production channel delivery.
+
 ## v0.27.0 — 2026-11-08
 
 ### Antigravity Nerf Settings and Slash Command Decommissioning

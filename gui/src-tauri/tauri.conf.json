@@ -1,6 +1,6 @@
 {
   "productName": "Poverello Coding Tools",
-  "version": "0.27.0",
+  "version": "0.27.1",
   "identifier": "com.soheidon.anthro-bridge",
   "build": {
     "frontendDist": "../dist",
@@ -46,7 +46,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg2QTEwQzEzMTAzNjM4RDcKUldUWE9EWVFFd3loaHVxQVJNN2RtY1ZNZ1hEejc0Y0NNZW5UOVRpZ0tvYU1WeWVsQzhJdCtPK2sK",
       "endpoints": [
         "https://github.com/soheidon/poverello-coding-tools/releases/latest/download/latest.json"
       ],
