@@ -4,6 +4,7 @@
   "windows": ["*"],
   "permissions": [
     "core:default",
+    "updater:default",
     "core:window:allow-close",
     "core:window:allow-minimize",
     "core:window:allow-maximize",

@@ -32,6 +32,101 @@ pub mod reviewer_diagnostics;
 pub mod plan_manager;
 mod proxy;
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdaterRuntimeStatus {
+    configured: bool,
+    current_version: &'static str,
+    channel: &'static str,
+    build_mode: &'static str,
+    reason: &'static str,
+}
+
+fn updater_public_key() -> Option<&'static str> {
+    let channel = option_env!("ANTHRO_BRIDGE_CHANNEL").unwrap_or("dev");
+    let build_mode = updater_build_mode(channel);
+    resolve_updater_public_key(
+        cfg!(windows),
+        channel,
+        build_mode,
+        option_env!("PCT_UPDATER_PUBLIC_KEY"),
+    )
+}
+
+fn updater_build_mode(channel: &'static str) -> &'static str {
+    match option_env!("PCT_UPDATER_BUILD_MODE") {
+        Some("dev") => "dev",
+        Some("staging") => "staging",
+        Some("stable") => "stable",
+        Some(_) => "unknown",
+        // Preserve the behavior of already-built clients that predate this
+        // explicit flavor while making all new release scripts set the mode.
+        None if channel == "stable" => "stable",
+        None => "dev",
+    }
+}
+
+fn resolve_updater_public_key(
+    is_windows: bool,
+    channel: &str,
+    build_mode: &str,
+    public_key: Option<&'static str>,
+) -> Option<&'static str> {
+    let channel_matches_mode = match build_mode {
+        "stable" => channel == "stable",
+        "staging" => channel == "dev",
+        _ => false,
+    };
+    if !is_windows || !channel_matches_mode {
+        return None;
+    }
+    public_key.filter(|key| !key.trim().is_empty())
+}
+
+#[tauri::command]
+fn get_updater_runtime_status() -> UpdaterRuntimeStatus {
+    let channel = option_env!("ANTHRO_BRIDGE_CHANNEL").unwrap_or("dev");
+    let build_mode = updater_build_mode(channel);
+    let configured = updater_public_key().is_some();
+    let reason = if configured {
+        "ready"
+    } else {
+        match build_mode {
+            "dev" => "development_disabled",
+            "staging" => "staging_misconfigured",
+            "stable" => "stable_misconfigured",
+            _ => "configuration_unavailable",
+        }
+    };
+    UpdaterRuntimeStatus {
+        configured,
+        current_version: env!("CARGO_PKG_VERSION"),
+        channel,
+        build_mode,
+        reason,
+    }
+}
+
+#[cfg(test)]
+mod updater_runtime_tests {
+    use super::resolve_updater_public_key;
+
+    #[test]
+    fn updater_is_enabled_only_for_matching_windows_build_mode_and_channel() {
+        assert_eq!(
+            resolve_updater_public_key(true, "stable", "stable", Some("test-public-key")),
+            Some("test-public-key")
+        );
+        assert_eq!(resolve_updater_public_key(true, "dev", "dev", Some("test-public-key")), None);
+        assert_eq!(resolve_updater_public_key(true, "dev", "staging", Some("test-public-key")), Some("test-public-key"));
+        assert_eq!(resolve_updater_public_key(true, "stable", "staging", Some("test-public-key")), None);
+        assert_eq!(resolve_updater_public_key(true, "dev", "stable", Some("test-public-key")), None);
+        assert_eq!(resolve_updater_public_key(false, "stable", "stable", Some("test-public-key")), None);
+        assert_eq!(resolve_updater_public_key(true, "stable", "stable", None), None);
+        assert_eq!(resolve_updater_public_key(true, "stable", "stable", Some("  ")), None);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Path helpers — all delegated to paths.rs module
 // ---------------------------------------------------------------------------
@@ -7444,6 +7539,18 @@ fn set_active_plan(
 }
 
 #[tauri::command]
+fn get_plan_role_assignment(surface: String, repo_path: Option<String>) -> Result<plan_manager::RoleAssignment, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::get_role_assignment_for_active_plan(&repo_root, &surface)
+}
+
+#[tauri::command]
+fn set_plan_role_assignment(surface: String, assignment: plan_manager::RoleAssignment, repo_path: Option<String>) -> Result<plan_manager::RoleAssignment, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::set_role_assignment(&repo_root, &surface, assignment)
+}
+
+#[tauri::command]
 fn create_plan_file(
     request: plan_manager::CreatePlanRequest,
     repo_path: Option<String>,
@@ -7465,14 +7572,33 @@ fn append_plan_audit_trail(
 }
 
 #[tauri::command]
+fn apply_plan_candidate(
+    relative_path: String,
+    expected_file_identity: String,
+    expected_sha256: String,
+    candidate: String,
+    repo_path: Option<String>,
+) -> Result<plan_manager::PlanFileDetails, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::apply_plan_candidate_if_unchanged(
+        &repo_root,
+        &relative_path,
+        &expected_file_identity,
+        &expected_sha256,
+        &candidate,
+    )
+}
+
+#[tauri::command]
 fn save_plan_checkpoint(
     relative_path: String,
     checkpoint: plan_manager::ExecutionCheckpoint,
+    expected_file_identity: String,
     expected_sha256: String,
     repo_path: Option<String>,
 ) -> Result<plan_manager::PlanFileDetails, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
-    plan_manager::save_execution_checkpoint(&repo_root, &relative_path, &checkpoint, &expected_sha256)
+    plan_manager::save_execution_checkpoint(&repo_root, &relative_path, &checkpoint, &expected_file_identity, &expected_sha256)
 }
 
 #[tauri::command]
@@ -10345,7 +10471,18 @@ pub fn run() {
         std::process::exit(1);
     }
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(windows)]
+    let builder = match updater_public_key() {
+        Some(public_key) => builder.plugin(
+            tauri_plugin_updater::Builder::new()
+                .pubkey(public_key)
+                .build(),
+        ),
+        None => builder,
+    };
+
+    builder
         .setup(|app| {
             // Initialize file-based tracing
             let log_dir = paths::log_dir();
@@ -10393,6 +10530,7 @@ pub fn run() {
             )),
         ))
         .invoke_handler(tauri::generate_handler![
+            get_updater_runtime_status,
             check_health,
             check_gateway_status,
             check_api_key,
@@ -10487,8 +10625,11 @@ pub fn run() {
             select_plan_folder_dialog,
             get_active_plan,
             set_active_plan,
+            get_plan_role_assignment,
+            set_plan_role_assignment,
             create_plan_file,
             append_plan_audit_trail,
+            apply_plan_candidate,
             save_plan_checkpoint,
             get_plan_checkpoint,
             verify_plan_resumption,

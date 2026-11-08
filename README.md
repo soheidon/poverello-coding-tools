@@ -165,7 +165,18 @@ The Windows installer supports 8 languages. Poverello keeps the existing applica
 1. In **Settings > CLI Tools**, check Node.js/npm and the Codex CLI / optional reviewer CLI status. Installation and authentication are separate states; Node.js is not installed automatically.
 2. In **Settings > Codex Skills & Rules**, install or update `/pov-plan-only`, `/pov-build-review`, and `/pov-full-cycle`, and manage Poverello's section of `CODEX_HOME/AGENTS.md`.
 3. In **Codex Autocode**, choose reviewers and a priority reviewer. Gemini CLI must first be enabled in **Settings > CLI Tools**; enabling it does not select it. Gemini review is unavailable on Windows when a verified read-only sandbox is absent.
+
+## v0.27.0 Highlights
+
+- **Active Plan and roles:** Select a plan file for the repository and assign Planner and Reviser identities separately for Codex Autocode and Antigravity Autocode. Workflow Skills use these assignments and stop when a required role is missing or unsupported; they do not silently substitute another role.
+- **Checkpointed workflows:** Workflow progress is stored in the active plan. Before resuming, Poverello checks repository and plan identity, plan revision, unresolved review findings, and the state of modified files. A failed check stops the workflow for review.
+- **Tencent Hy4:** The built-in OpenRouter profile is named **OpenRouter: Tencent** and includes `tencent/hy4`, with vision and Thinking controls. The General pricing table includes a dated reference price snapshot; provider charges may differ.
+- **Antigravity Nerf Settings:** Nerf controls are managed in Antigravity Autocode. The former `/pov-nerf-balanced` and `/pov-nerf-lightweight` slash commands have been retired.
+- **Application updates:** Automatic updating is not enabled. Use the published Releases page for installers.
+
 ## Documentation
+- [Provider details and inference controls](docs/PROVIDERS.md)
+
 
 - [Release Notes (NEWS.md)](NEWS.md) — Version-by-version feature updates and implementation details.
 - [Claude Desktop / Cowork 3P Gateway Setup](docs/THIRD_PARTY_INFERENCE.md)

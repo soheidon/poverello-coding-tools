@@ -5,6 +5,7 @@
 > **v0.26.0:** Adds Codex Autocode, Codex Skills & Rules, and shared CLI Tools under Settings. Gemini is an optional Codex reviewer, disabled by default and enabled in Settings > CLI Tools; enabling it does not select or launch it. Installation and authentication are separate states. Node.js/npm are detected but not installed automatically. Auto-Converge remains hidden, production dispatch disabled, and Stage 2 isolation unverified.
 > **v0.26.1:** Non-interactive CLI and Node.js/npm status probes run without opening console windows and reuse short-lived cached results across tab changes. Windows process initialization failures, including `0xC0000142`, are reported explicitly; user-requested login remains interactive.
 > **v0.26.2:** Codex Autocode separates Codex's in-session work from external reviewers and applies Priority Reviewer only to conflicting valid verdicts. Reviewer findings are retained, including blocking findings. DeepSeek uses a headless configuration overlay and selected tool restrictions; these do not establish Windows OS-level filesystem or network isolation. Diagnostic logs and safer historical Skill-template update handling are available.
+> **v0.27.0:** Adds repository-scoped Active Plan selection, per-surface Planner / Reviser assignments, and checkpoint-based workflow resumption with fail-closed identity and finding checks. Adds OpenRouter Tencent Hy4 catalog and pricing metadata, and moves Antigravity Nerf controls to the GUI while retiring the former Nerf slash commands. Automatic application updates are not enabled.
 
 ## Overview
 
@@ -108,7 +109,7 @@ A thin proxy + GUI management tool that routes Claude Desktop / Claude Code API 
   - Dynamic re-aggregation in `list_journals()`: dynamically recalculates cost summaries from the immutable dispatch records on every read, ensuring stale, unverified on-disk summaries cannot bypass fail-closed verification.
 ### GUI Management Tool
 
-Tauri v2 + React 19 + TypeScript. Top-level navigation: Gateway (Dashboard), MCP, Antigravity Autocode, Codex Autocode, and Settings. Antigravity Autocode contains Antigravity review and coding settings; Codex Autocode configures reviewers for Codex Workflow Skills. Settings contains General, CLI Tools, Claude Desktop, Antigravity MCP, Antigravity Skills & Rules, and Codex Skills & Rules. Codex Skills & Rules manages three Codex Workflow Skills and Poverello-managed instructions in CODEX_HOME/AGENTS.md. Orchestrator and Auto-Converge remain hidden; production dispatch is disabled and Stage 2 isolation is unverified.
+Tauri v2 + React 19 + TypeScript. Top-level navigation: Gateway (Dashboard), MCP, Antigravity Autocode, Codex Autocode, and Settings. Antigravity Autocode contains Antigravity review and Nerf coding settings; Codex Autocode configures reviewers for Codex Workflow Skills. Settings contains General, CLI Tools, Claude Desktop, Antigravity MCP, Antigravity Skills & Rules, and Codex Skills & Rules. Antigravity Skills & Rules manages Workflow Skills and Global Rules; the retired `/pov-nerf-balanced` and `/pov-nerf-lightweight` commands are not part of the current UI. Codex Skills & Rules manages three Codex Workflow Skills and Poverello-managed instructions in CODEX_HOME/AGENTS.md. Orchestrator and Auto-Converge remain hidden; production dispatch is disabled and Stage 2 isolation is unverified.
 
 ```
 +------------------------------------------+
@@ -190,6 +191,20 @@ Settings (=):
 | 45 | `install_antigravity_global_rule` | sync | Install official bundled global rule template (`codex-cli.md` or `deepseek-harness.md`) |
 | 46 | `remove_antigravity_global_rule` | sync | Remove installed global rule template with SHA-256 verification (Windows-only) |
 | 47 | `install_all_antigravity_mcp_commands` | sync | Batch install exclusively the 3 MCP skills (`pov-mcp-plan`, `pov-mcp-revise`, `pov-mcp-review`) |
+
+### Active Plan and Workflow Role Management
+
+- One Active Plan file is selected per repository and shared by Codex Autocode and Antigravity Autocode. Planner and Reviser assignments are stored separately for each Autocode surface; reviewer selection remains in the existing reviewer-policy settings.
+- Workflow Skills read their surface's role assignments. A missing, unsupported, or unavailable required role stops the workflow; no implicit role fallback is used. Role assignment does not itself start an agent or bypass reviewer safety gates.
+- Checkpoints are stored in the Active Plan file and record workflow state, completed work, modified files, validation, review state, and next action. Resume preflight verifies repository identity, active-plan path, plan revision and file identity, unresolved findings, and modified-file state. Any mismatch fails closed.
+- Candidate plan changes, audit appends, and checkpoint saves use compare-and-swap checks over both the expected file identity and SHA-256. Successful writes return the new identity and hash for the next stage.
+
+### Tencent Hy4 Model Support
+
+- The curated OpenRouter catalog includes `tencent/hy4` with a 1,048,576-token context window, image URL/base64 support, and selectable Thinking / High reasoning. The built-in Tencent profile routes the Opus model to Hy4 by default while preserving user-customized profile settings during migration.
+- The General pricing table displays a dated reference snapshot for Hy4 (2026-11-08). It is catalog data, not a guarantee of provider billing.
+- Antigravity Nerf controls are managed in the GUI. The `/pov-nerf-balanced` and `/pov-nerf-lightweight` commands are retired; their former settings are no longer managed as slash-command skills.
+- Automatic application updates are not configured in v0.27.0; signed updater artifacts and a production updater key are absent.
 
 ### Proxy Server (proxy.rs)
 

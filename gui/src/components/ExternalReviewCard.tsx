@@ -125,8 +125,6 @@ export default function ExternalReviewCard() {
             deepseek: configToSave.deepseek ?? reviewerPolicy?.deepseek ?? null,
             content_hash: expectedHash,
             active_plan_path: configToSave.active_plan_path ?? null,
-            planner_role: configToSave.planner_role || "antigravity",
-            reviser_role: configToSave.reviser_role || "antigravity",
           },
           expectedHash,
         });
@@ -343,14 +341,13 @@ export default function ExternalReviewCard() {
       planReviewPolicy,
       planReviewers,
     }: {
-      plannerRole?: string;
-      reviserRole?: string;
+      plannerRole?: string | null;
+      reviserRole?: string | null;
       planReviewPolicy?: ReviewerPolicy;
       planReviewers?: string[] | null;
     }) => {
       if (!reviewerPolicy) return;
-      const normalizedPlanner = plannerRole !== undefined ? (plannerRole || "antigravity") : (reviewerPolicy.planner_role || "antigravity");
-      const normalizedReviser = reviserRole !== undefined ? (reviserRole || "antigravity") : (reviewerPolicy.reviser_role || "antigravity");
+      if (plannerRole !== undefined || reviserRole !== undefined) return;
       const nextPlanReviewers = planReviewers !== undefined ? planReviewers : (reviewerPolicy.plan_reviewers ?? null);
 
       let nextPlanPolicy: ReviewerPolicy;
@@ -375,8 +372,6 @@ export default function ExternalReviewCard() {
       }
 
       if (
-        reviewerPolicy.planner_role === normalizedPlanner &&
-        reviewerPolicy.reviser_role === normalizedReviser &&
         reviewerPolicy.plan_review_policy === nextPlanPolicy &&
         reviewerPolicy.plan_priority_reviewer === nextPlanPriority &&
         JSON.stringify(reviewerPolicy.plan_reviewers ?? null) === JSON.stringify(nextPlanReviewers)
@@ -385,8 +380,6 @@ export default function ExternalReviewCard() {
       }
       const updated: ReviewerPolicyConfig = {
         ...reviewerPolicy,
-        planner_role: normalizedPlanner,
-        reviser_role: normalizedReviser,
         plan_reviewers: nextPlanReviewers,
         plan_review_policy: nextPlanPolicy,
         plan_priority_reviewer: nextPlanPriority,
@@ -450,8 +443,6 @@ export default function ExternalReviewCard() {
           embedded
           surface="antigravity"
           activePlanPath={reviewerPolicy?.active_plan_path}
-          plannerRole={reviewerPolicy?.planner_role || "antigravity"}
-          reviserRole={reviewerPolicy?.reviser_role || "antigravity"}
           planReviewPolicy={reviewerPolicy?.plan_review_policy ?? reviewerPolicy?.policy}
           planReviewers={reviewerPolicy?.plan_reviewers ?? null}
           onActivePlanChanged={handleActivePlanChanged}

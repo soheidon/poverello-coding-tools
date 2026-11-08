@@ -362,6 +362,27 @@ body {
   border-left-color: var(--accent, #0078d4);
 }
 
+.updater-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 16px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.updater-notice button {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 9px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  cursor: pointer;
+}
+
 .settings-content {
   flex: 1;
   min-height: 0;

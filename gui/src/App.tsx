@@ -23,6 +23,7 @@ import CliToolsSettingsPanel from "./components/CliToolsSettingsPanel";
 import PoverelloPanel from "./components/PoverelloPanel";
 import OrchestratorPanel from "./components/orchestrator/OrchestratorPanel";
 import OrchestratorSettingsPanel from "./components/orchestrator/OrchestratorSettingsPanel";
+import ApplicationUpdatesPanel from "./components/ApplicationUpdatesPanel";
 import { useHealthCheck } from "./hooks/useHealthCheck";
 import { useProxyToggle } from "./hooks/useProxyToggle";
 import { LanguageProvider, useTranslation } from "./i18n";
@@ -280,6 +281,14 @@ function AppContent() {
         onToggleAutoCompact={handleToggleAutoCompact}
         autoCompactSaving={autoCompactSaving}
       />
+      <div id="application-update-notice-slot" />
+      <ApplicationUpdatesPanel
+        visible={mainTab === "settings" && settingsTab === "general"}
+        onOpenSettings={() => {
+          setSettingsTab("general");
+          setMainTab("settings");
+        }}
+      />
       {mainTab === "settings" ? (
         <div className="settings-layout">
           <nav className="settings-sidebar">
@@ -332,6 +341,7 @@ function AppContent() {
                 <LanguageSelector />
                 <TimezoneSettingPanel />
                 <ModelPricingAccordion />
+                <div id="application-updates-slot" />
               </>
             )}
             {settingsTab === "cliTools" && (

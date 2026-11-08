@@ -267,7 +267,7 @@ describe("PlanFileManagerCard Component", () => {
     expect(mockInvoke).not.toHaveBeenCalledWith("create_plan_file", expect.anything());
   });
 
-  it("renders role segment buttons with default Antigravity state on antigravity surface", async () => {
+  it("keeps roles unselected on antigravity surface until explicitly chosen", async () => {
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "list_available_plans") {
         return Promise.resolve(mockPlanDetailsWithPlans);
@@ -289,18 +289,17 @@ describe("PlanFileManagerCard Component", () => {
       expect(screen.getByTestId("planner-role-antigravity")).toBeInTheDocument();
     });
 
-    // Antigravity selected by default in Antigravity mode
-    expect(screen.getByTestId("planner-role-antigravity")).toBeChecked();
-    expect(screen.getByTestId("reviser-role-antigravity")).toBeChecked();
+    expect(screen.getByTestId("planner-role-none")).toBeChecked();
+    expect(screen.getByTestId("reviser-role-none")).toBeChecked();
 
     // Available options on Antigravity surface: only Antigravity and Codex CLI (no unselected, no deepseek for planner/reviser)
     expect(screen.getByTestId("planner-role-codex")).toBeInTheDocument();
     expect(screen.queryByTestId("planner-role-deepseek")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("planner-role-none")).not.toBeInTheDocument();
+    expect(screen.getByTestId("planner-role-none")).toBeInTheDocument();
 
     expect(screen.getByTestId("reviser-role-codex")).toBeInTheDocument();
     expect(screen.queryByTestId("reviser-role-deepseek")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("reviser-role-none")).not.toBeInTheDocument();
+    expect(screen.getByTestId("reviser-role-none")).toBeInTheDocument();
 
     expect(screen.getByTestId("planner-role-codex")).not.toBeChecked();
     expect(screen.getByTestId("reviser-role-codex")).not.toBeChecked();
@@ -311,6 +310,26 @@ describe("PlanFileManagerCard Component", () => {
     expect(screen.getByTestId("plan-reviewer-antigravity-toggle")).toBeInTheDocument();
     expect(screen.getByTestId("plan-reviewer-codex-toggle")).toBeInTheDocument();
     expect(screen.getByTestId("plan-reviewer-deepseek-toggle")).toBeInTheDocument();
+  });
+
+  it("restores persisted roles when saving a selection fails", async () => {
+    const user = userEvent.setup();
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "list_available_plans") return Promise.resolve(mockPlanDetailsWithPlans);
+      if (cmd === "get_plan_role_assignment") return Promise.resolve({ planner_id: null, reviser_id: null });
+      if (cmd === "set_plan_role_assignment") return Promise.reject(new Error("disk full"));
+      return Promise.resolve();
+    });
+
+    render(
+      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+        <PlanFileManagerCard surface="antigravity" />
+      </LanguageContext.Provider>
+    );
+    await waitFor(() => expect(screen.getByTestId("planner-role-antigravity")).toBeInTheDocument());
+    await user.click(screen.getByTestId("planner-role-antigravity"));
+    await waitFor(() => expect(screen.getByTestId("planner-role-none")).toBeChecked());
+    expect(screen.getByText("Error: disk full")).toBeInTheDocument();
   });
 
   it("handles independent role selections and invokes onRolesChanged for Planner and Reviser combinations", async () => {
@@ -342,10 +361,7 @@ describe("PlanFileManagerCard Component", () => {
     // Select Planner: Codex CLI
     await user.click(screen.getByTestId("planner-role-codex"));
     expect(onRolesChanged).toHaveBeenCalledWith(
-      expect.objectContaining({
-        plannerRole: "codex",
-        reviserRole: "antigravity",
-      })
+      { plannerRole: "codex" }
     );
 
     // Rerender with Planner=codex, Reviser=antigravity
@@ -363,10 +379,7 @@ describe("PlanFileManagerCard Component", () => {
     // Select Reviser: Codex CLI
     await user.click(screen.getByTestId("reviser-role-codex"));
     expect(onRolesChanged).toHaveBeenCalledWith(
-      expect.objectContaining({
-        plannerRole: "codex",
-        reviserRole: "codex",
-      })
+      { reviserRole: "codex" }
     );
 
     // Switch Planner back to Antigravity
@@ -382,10 +395,7 @@ describe("PlanFileManagerCard Component", () => {
     );
     await user.click(screen.getByTestId("planner-role-antigravity"));
     expect(onRolesChanged).toHaveBeenCalledWith(
-      expect.objectContaining({
-        plannerRole: "antigravity",
-        reviserRole: "codex",
-      })
+      { plannerRole: "antigravity" }
     );
   });
 
@@ -512,12 +522,14 @@ describe("PlanFileManagerCard Component", () => {
       expect(screen.getByTestId("planner-role-codex-session")).toBeInTheDocument();
     });
 
-    // Codex surface has codex_session for planner & reviser; no 'none' or antigravity
+    // Codex surface offers Codex Session and an explicit unselected choice.
     expect(screen.getByTestId("planner-role-codex-session")).toBeInTheDocument();
-    expect(screen.queryByTestId("planner-role-none")).not.toBeInTheDocument();
+    expect(screen.getByTestId("planner-role-none")).toBeInTheDocument();
+    expect(screen.getByTestId("planner-role-none")).toBeChecked();
     expect(screen.queryByTestId("planner-role-antigravity")).not.toBeInTheDocument();
     expect(screen.getByTestId("reviser-role-codex-session")).toBeInTheDocument();
     expect(screen.queryByTestId("reviser-role-antigravity")).not.toBeInTheDocument();
+    expect(screen.getByTestId("reviser-role-none")).toBeChecked();
 
     // Plan reviewer group is present with inherit, codex session, and deepseek, but no antigravity
     expect(screen.getByTestId("plan-reviewer-inherit-toggle")).toBeInTheDocument();

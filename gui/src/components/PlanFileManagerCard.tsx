@@ -15,8 +15,8 @@ export interface PlanFileManagerCardProps {
   embedded?: boolean;
   onActivePlanChanged?: (planRelativePath: string | null) => void;
   onRolesChanged?: (roles: {
-    plannerRole: string;
-    reviserRole: string;
+    plannerRole?: string | null;
+    reviserRole?: string | null;
     planReviewPolicy?: ReviewerPolicy;
     planReviewers?: string[] | null;
   }) => void;
@@ -49,6 +49,32 @@ export default function PlanFileManagerCard({
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
+  // Keep role assignments scoped to this repository and Autocode surface.
+  const [currentPlannerRole, setCurrentPlannerRole] = useState<string | null>(plannerRole || null);
+  const [currentReviserRole, setCurrentReviserRole] = useState<string | null>(reviserRole || null);
+  const roleAssignmentRef = useRef({ plannerRole: plannerRole || null, reviserRole: reviserRole || null });
+  const roleSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const roleSaveSequenceRef = useRef(0);
+  const onRolesChangedRef = useRef(onRolesChanged);
+  useEffect(() => { onRolesChangedRef.current = onRolesChanged; }, [onRolesChanged]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void invoke<{ planner_id: string | null; reviser_id: string | null }>("get_plan_role_assignment", { surface, repoPath: repoPath ?? null })
+      .then((assignment) => {
+        if (cancelled) return;
+        setCurrentPlannerRole(assignment.planner_id);
+        setCurrentReviserRole(assignment.reviser_id);
+        roleAssignmentRef.current = { plannerRole: assignment.planner_id, reviserRole: assignment.reviser_id };
+      onRolesChangedRef.current?.({
+        plannerRole: assignment.planner_id,
+        reviserRole: assignment.reviser_id,
+      });
+      })
+      .catch((e) => { if (!cancelled) setError(String(e)); });
+    return () => { cancelled = true; };
+  }, [surface, repoPath]);
+
   // Keep callback and activePlanPath references in refs to avoid re-render loops
   const onActivePlanChangedRef = useRef(onActivePlanChanged);
   useEffect(() => {
@@ -65,30 +91,12 @@ export default function PlanFileManagerCard({
     selectedFolderRef.current = selectedFolder;
   });
 
-  // Local role state fallback
-  const defaultRole = surface === "antigravity" ? "antigravity" : "codex_session";
-  const [currentPlannerRole, setCurrentPlannerRole] = useState(
-    plannerRole || defaultRole
-  );
-  const [currentReviserRole, setCurrentReviserRole] = useState(
-    reviserRole || defaultRole
-  );
   const [currentPlanReviewPolicy, setCurrentPlanReviewPolicy] = useState<ReviewerPolicy>(
     planReviewPolicy || "antigravity"
   );
   const [currentPlanReviewers, setCurrentPlanReviewers] = useState<string[] | null>(
     planReviewers !== undefined ? planReviewers : null
   );
-
-  useEffect(() => {
-    const next = plannerRole || defaultRole;
-    setCurrentPlannerRole((prev) => (prev === next ? prev : next));
-  }, [plannerRole, defaultRole]);
-
-  useEffect(() => {
-    const next = reviserRole || defaultRole;
-    setCurrentReviserRole((prev) => (prev === next ? prev : next));
-  }, [reviserRole, defaultRole]);
 
   useEffect(() => {
     if (planReviewPolicy) {
@@ -229,27 +237,53 @@ export default function PlanFileManagerCard({
     }
   };
 
-  const handlePlannerRoleChange = (role: string) => {
-    setCurrentPlannerRole(role);
+  const persistRoleAssignment = async (plannerRole: string | null, reviserRole: string | null) => {
+    setError(null);
+    const target = { plannerRole, reviserRole };
+    roleAssignmentRef.current = target;
+    setCurrentPlannerRole(plannerRole);
+    setCurrentReviserRole(reviserRole);
+    const sequence = ++roleSaveSequenceRef.current;
+    roleSaveQueueRef.current = roleSaveQueueRef.current.catch(() => undefined).then(async () => {
+      try {
+        await invoke("set_plan_role_assignment", {
+          surface,
+          repoPath: repoPath ?? null,
+          assignment: { planner_id: target.plannerRole, reviser_id: target.reviserRole },
+        });
+        if (sequence === roleSaveSequenceRef.current) setError(null);
+      } catch (e) {
+        if (sequence !== roleSaveSequenceRef.current) return;
+        setError(String(e));
+        try {
+          const stored = await invoke<{ planner_id: string | null; reviser_id: string | null }>("get_plan_role_assignment", {
+            surface,
+            repoPath: repoPath ?? null,
+          });
+          if (sequence === roleSaveSequenceRef.current) {
+            roleAssignmentRef.current = { plannerRole: stored.planner_id, reviserRole: stored.reviser_id };
+            setCurrentPlannerRole(stored.planner_id);
+            setCurrentReviserRole(stored.reviser_id);
+          }
+        } catch (reloadError) {
+          if (sequence === roleSaveSequenceRef.current) setError(`${String(e)}; failed to reload saved role assignment: ${String(reloadError)}`);
+        }
+      }
+    });
+    await roleSaveQueueRef.current;
+  };
+
+  const handlePlannerRoleChange = (role: string | null) => {
+    void persistRoleAssignment(role, roleAssignmentRef.current.reviserRole);
     if (onRolesChanged) {
-      onRolesChanged({
-        plannerRole: role,
-        reviserRole: currentReviserRole,
-        planReviewPolicy: currentPlanReviewPolicy,
-        planReviewers: currentPlanReviewers,
-      });
+      onRolesChanged({ plannerRole: role });
     }
   };
 
-  const handleReviserRoleChange = (role: string) => {
-    setCurrentReviserRole(role);
+  const handleReviserRoleChange = (role: string | null) => {
+    void persistRoleAssignment(roleAssignmentRef.current.plannerRole, role);
     if (onRolesChanged) {
-      onRolesChanged({
-        plannerRole: currentPlannerRole,
-        reviserRole: role,
-        planReviewPolicy: currentPlanReviewPolicy,
-        planReviewers: currentPlanReviewers,
-      });
+      onRolesChanged({ reviserRole: role });
     }
   };
 
@@ -551,7 +585,7 @@ export default function PlanFileManagerCard({
               if (optVal === "codex_session") return current === "codex_session" || current === "codex";
             }
             if (surface === "antigravity") {
-              if (optVal === "antigravity") return !current || current === "antigravity";
+              if (optVal === "antigravity") return current === "antigravity";
               if (optVal === "codex") return current === "codex" || current === "codex_session";
             }
             return current === optVal;
@@ -559,9 +593,11 @@ export default function PlanFileManagerCard({
 
           const roleOptions = surface === "codex"
             ? [
+                { value: "", labelKey: "planManager.roleNone", defaultLabel: "Unselected" },
                 { value: "codex_session", labelKey: "planManager.roleCodexSession", defaultLabel: "Codex (Session)" },
               ]
             : [
+                { value: "", labelKey: "planManager.roleNone", defaultLabel: "Unselected" },
                 { value: "antigravity", labelKey: "planManager.roleAntigravity", defaultLabel: "Antigravity" },
                 { value: "codex", labelKey: "planManager.roleCodex", defaultLabel: "Codex CLI" },
               ];
@@ -593,7 +629,7 @@ export default function PlanFileManagerCard({
                   style={{ display: "inline-flex", flexWrap: "wrap", gap: 2, maxWidth: "100%" }}
                 >
                   {roleOptions.map((opt) => {
-                    const selected = isSelectedRole(currentPlannerRole, opt.value);
+                    const selected = opt.value === "" ? !currentPlannerRole : isSelectedRole(currentPlannerRole || "", opt.value);
                     const testIdKey = opt.value ? opt.value.replace(/_/g, "-") : "none";
                     return (
                       <label
@@ -606,7 +642,7 @@ export default function PlanFileManagerCard({
                           name="plannerRole"
                           value={opt.value}
                           checked={selected}
-                          onChange={() => handlePlannerRoleChange(opt.value)}
+                          onChange={() => handlePlannerRoleChange(opt.value || null)}
                           className="sr-only"
                           data-testid={`planner-role-${testIdKey}`}
                         />
@@ -714,7 +750,7 @@ export default function PlanFileManagerCard({
                   style={{ display: "inline-flex", flexWrap: "wrap", gap: 2, maxWidth: "100%" }}
                 >
                   {roleOptions.map((opt) => {
-                    const selected = isSelectedRole(currentReviserRole, opt.value);
+                    const selected = opt.value === "" ? !currentReviserRole : isSelectedRole(currentReviserRole || "", opt.value);
                     const testIdKey = opt.value ? opt.value.replace(/_/g, "-") : "none";
                     return (
                       <label
@@ -727,7 +763,7 @@ export default function PlanFileManagerCard({
                           name="reviserRole"
                           value={opt.value}
                           checked={selected}
-                          onChange={() => handleReviserRoleChange(opt.value)}
+                          onChange={() => handleReviserRoleChange(opt.value || null)}
                           className="sr-only"
                           data-testid={`reviser-role-${testIdKey}`}
                         />

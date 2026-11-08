@@ -134,8 +134,8 @@ vi.mock("./i18n", () => {
       copied: "Copied!",
     },
     antigravity: {
-      reviewerPolicyTitle: "External Review Configuration",
-      reviewerPolicyDesc: "Configure automated independent review policy for Workflow Skills (pov-plan-only, pov-build-review, pov-full-cycle).",
+      reviewerPolicyTitle: "Select Implementation Review AI",
+      reviewerPolicyDesc: "Multi-select supported. Each selected AI performs a review",
       reviewerPolicyDisabled: "Disabled",
       reviewerPolicyDisabledDesc: "Do not invoke Codex CLI or DeepSeek Harness.",
       reviewerPolicyCodexOnly: "Codex CLI only",
@@ -175,8 +175,8 @@ vi.mock("./i18n", () => {
     },
     antigravityRules: {
       tabTitle: "Antigravity Rules",
-      panelTitle: "Customize Coding Settings",
-      panelSubtitle: "Conditional rules for lightweight Antigravity software implementation",
+      panelTitle: "Antigravity Nerf Settings",
+      panelSubtitle: "Reduce excessive exploration and verification in Antigravity to streamline coding tasks.",
       mode: {
         title: "Preset",
         presetStandard: "Gemini 3.8 Standard",

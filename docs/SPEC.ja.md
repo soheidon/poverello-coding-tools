@@ -5,6 +5,7 @@
 > **v0.26.0:** Codex Autocode、Codex Skills & Rules、共通CLI Toolsを追加。Geminiは既定で無効の任意Codex Reviewerで、設定 > CLI Toolsから有効化します。有効化だけではReviewer選択・起動されません。導入と認証状態は別々です。Node.js/npmは検出しますが自動導入しません。Auto-Convergeは非表示、本番dispatch無効、Stage 2隔離未検証です。
 > **v0.26.1:** 非対話のCLI・Node.js/npm状態確認ではコンソールを表示せず、タブ切替時は短時間のキャッシュ結果を再利用します。`0xC0000142`などのWindowsプロセス初期化エラーを明示し、ユーザーが開始するログイン端末は引き続き対話式で表示します。
 > **v0.26.2:** Codex AutocodeではCodexの同一セッション内作業と外部Reviewerを区別し、有効な判定の不一致に限って優先Reviewerで裁定します。DeepSeekのheadless設定やツール制限はWindows OSレベルのファイルシステム・ネットワーク隔離を証明しません。診断ログと、履歴のあるSkillテンプレートの安全な更新に対応します。
+> **v0.27.0:** リポジトリ単位のActive Plan、画面別Planner / Reviser割当、同一性と指摘をfail-closedで検査するチェックポイント再開を追加します。OpenRouter Tencent Hy4のモデル・料金メタデータを追加し、Antigravity Nerf設定をGUIへ集約して旧スラッシュコマンドを廃止します。自動アップデートは有効化されていません。
 
 ## 概要
 
@@ -107,7 +108,7 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
   - `list_journals()` による動的再集計: ジャーナル一覧取得時にディスク上の不変ディスパッチ記録から動的に再集計を実行し、ディスク上の古い集計値が厳格な検証を迂回して表示されるのを完全に防止。
 ### GUI 管理ツール
 
-Tauri v2 + React 19 + TypeScript。トップレベルナビゲーション: Gateway（ダッシュボード）、MCP、Antigravity Autocode、Settings。Antigravity AutocodeにはExternal ReviewとCustomize Coding Settingsを配置します。SettingsにはGeneral、Claude Desktop、Antigravity MCP、Antigravity Skills & Rules（Workflow Commands、Task Presets、Global Rules、Nerf Skills）を配置します。OrchestratorとAuto-Convergeは通常ナビゲーションから非表示にし、内部状態とルートは保持します。 Codex AutocodeはCodex Workflow Skills用Reviewerを設定します。SettingsにはCLI ToolsとCodex Skills & Rulesも追加され、3つのCodex SkillとCODEX_HOME/AGENTS.md内のPoverello管理領域を管理します。
+Tauri v2 + React 19 + TypeScript。トップレベルナビゲーション: Gateway（ダッシュボード）、MCP、Antigravity Autocode、Codex Autocode、Settings。Antigravity AutocodeにはExternal ReviewとNerfのコーディング設定を配置し、Codex AutocodeはCodex Workflow Skills用Reviewerを設定します。SettingsにはGeneral、CLI Tools、Claude Desktop、Antigravity MCP、Antigravity Skills & Rules、Codex Skills & Rulesがあります。Antigravity Skills & RulesではWorkflow SkillsとGlobal Rulesを管理します。旧コマンド `/pov-nerf-balanced` と `/pov-nerf-lightweight` は廃止されています。Codex Skills & Rulesは3つのCodex Workflow SkillsとCODEX_HOME/AGENTS.md内のPoverello管理領域を管理します。OrchestratorとAuto-Convergeは通常ナビゲーションから非表示です。実運用のdispatchは無効で、Stage 2の分離は未検証です。
 
 ```
 +------------------------------------------+
@@ -137,6 +138,19 @@ Tauri v2 + React 19 + TypeScript。トップレベルナビゲーション: Gate
   | config.json エディタ（上級者向け）     |
   +---------------------------------------+
 ```
+
+### Active Plan とWorkflow担当割当
+
+- Active Planファイルはリポジトリごとに1つ選択し、Codex AutocodeとAntigravity Autocodeで共有します。PlannerとReviserは画面ごとに別々に保存し、Reviewer設定は既存のレビュー設定を参照します。
+- Workflow Skillsは画面ごとの担当割当を読み込みます。必要な担当が未設定、非対応、または利用できない場合は、暗黙に別担当へ切り替えず停止します。担当割当自体がエージェントを起動したり、Reviewerの安全ゲートを迂回したりすることはありません。
+- チェックポイントはActive Plan内にワークフロー状態、完了作業、変更ファイル、検証結果、レビュー状態、次の操作を保存します。再開前にリポジトリ同一性、Active Planのパス、計画revisionとfile identity、未解決指摘、変更ファイル状態を検査し、不一致があれば停止します。
+- 計画候補の反映、監査追記、チェックポイント保存は、期待file identityとSHA-256の両方を使うCASで保護します。関連IPCは `apply_plan_candidate`、`append_plan_audit_trail`、`save_plan_checkpoint`、`get_plan_checkpoint`、`verify_plan_resumption` です。
+
+### Tencent Hy4 と Antigravity Nerf設定
+
+- OpenRouterの厳選カタログに `tencent/hy4` を追加しました。コンテキスト長は1,048,576トークンで、画像URL/base64入力とThinking / High推論設定に対応します。組み込み `OpenRouter: Tencent` プロファイルではOpusルートの既定モデルです。Generalの料金表には2026-11-08基準の参考価格を掲載します。
+- Nerf設定はAntigravity Autocodeで管理します。旧 `/pov-nerf-balanced` と `/pov-nerf-lightweight` コマンドは廃止しました。
+- v0.27.0では自動アップデートを設定していません。署名済みUpdater成果物と本番署名鍵は含まれません。
 
 ### Tauri コマンド一覧
 

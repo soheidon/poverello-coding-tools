@@ -11,6 +11,21 @@
 - Changed default OpenRouter profile display name from `OpenRouter: Hy3` to `OpenRouter: Tencent` to accurately represent multiple Tencent models.
 - Provided safe, non-destructive migration for existing canonical profile installations while strictly preserving user custom profiles, model assignments, thinking mode parameters, and API keys.
 
+### Active Plan and Workflow Roles
+- Added repository-scoped Active Plan selection and separate Planner / Reviser assignments for the Codex and Antigravity Autocode surfaces. Workflow Skills honor configured role IDs and stop when a required role is missing or unsupported instead of silently choosing a fallback.
+- Added plan-file checkpoints for workflow progress, completed work, modified files, validation results, review state, and next action. Resume preflight checks repository and active-plan identity, plan revision and file identity, unresolved findings, and modified-file state before allowing work to continue.
+- Protected plan candidate updates, audit appends, and checkpoint writes with compare-and-swap checks over both file identity and SHA-256.
+
+### OpenRouter Tencent Hy4
+- Added `tencent/hy4` to the curated OpenRouter model catalog with a 1,048,576-token context window, image URL/base64 vision support, and selectable Thinking / High reasoning controls.
+- Set Hy4 as the default Opus route in the built-in `OpenRouter: Tencent` profile and added its campaign and regular reference prices to the General pricing table (snapshot date: 2026-11-08). Displayed prices are reference data and are not a billing guarantee.
+
+### Antigravity Nerf Settings
+- Consolidated Nerf controls in the Antigravity Autocode GUI and retired the `/pov-nerf-balanced` and `/pov-nerf-lightweight` slash commands. The existing settings remain managed in the GUI.
+
+### Release Notes
+- Automatic application updates are not enabled in this version. Installers must be obtained from the published Releases page; signed updater artifacts and a production updater key are not configured in this checkout.
+
 ## v0.26.2 — 2026-11-02
 
 ### External Reviewers and Workflow Skills

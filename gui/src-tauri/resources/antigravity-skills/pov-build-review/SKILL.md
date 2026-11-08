@@ -8,7 +8,11 @@ description: 承認済み計画に基づく実装・テスト、外部Codex/Deep
 ## 役割と権能分離 (Separation of Powers)
 
 - **正本計画書（Active Plan File）**: 作業開始前に必ず確認する。GUIでアクティブプランファイルが指定されていない場合、即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED: Poverello GUI の Autocode 画面から作業対象のプランファイルを指定または新規作成してください。` を出力して停止する。計画書ファイルを読み込み、そのSHA-256ダイジェストを記録する。以降のすべてのフェーズ（実装、テスト結果、レビュー判定、是正）の更新は、直前フェーズのSHA-256ダイジェストを `expected_sha256` として指定した `append_plan_audit_trail` による CAS（Compare-And-Swap）更新を用いて、正本計画書の `## 5. Execution History & Audit Trail` へ順次追記する。
+- 計画candidateは一時領域で作成し、`apply_plan_candidate` に工程開始時の `expected_file_identity` とSHA-256を渡して反映する。監査追記eventとチェックポイント保存の両方にidentityとSHA-256を指定し（いずれも必須）、各信頼済み書込み後に返されたidentity/Hashを次工程へ引き継ぐ。再開時は `get_plan_checkpoint` と `verify_plan_resumption` を実行し、repo、path、revision、file identity、Findingの全検査が成功しなければ停止する。
 - **実装主体 (Implementer)**: 承認済み正本計画書に基づき実装およびテストを実施し、計画書の Audit Trail セクションへ記録する。
+- Planner/Reviserは `.plan/.active-plan.json` の `role_assignments.antigravity.planner_id` / `reviser_id` を用いる。未設定・不正なら停止し、global設定や別roleへのfallbackを禁止する。
+- Role mapping: `antigravity` は現在のAntigravityセッション、`codex` / `codex_cli` は `codex exec` を使う。対象工程前に保存値とActive Plan Fileを再確認し、未設定・不正ID・実行失敗時は担当名と理由を報告して停止する。Reviewer工程を終了した後にだけReviser/Implementerを別呼び出しで実行する。同一IDでもReviewerのread-only制約を解除・共有しない。
+- 各工程境界では監査イベントをfile identity/HashでCAS追記し、その成功応答を使ってチェックポイントを保存する。チェックポイント保存後のidentity/Hashを次工程の期待状態にする。
 - **Reviewer (検査担当)**: 外部Reviewer（Codex CLI / DeepSeek Harness）は完全な読み取り専用（Read-Only）として検査し、合否判定（`APPROVED` / `REQUEST_CHANGES`）と指摘のみを返す。**Reviewer 自身によるコード・計画書の直接変更は禁止される**。
 - **Reviser (是正担当)**: 指摘事項に基づき最小限の是正実装を行い、回帰テストを実施する。
 - 外部Reviewer構成は、共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json`（他OSでは対応するホームディレクトリ配下）の設定に従う。

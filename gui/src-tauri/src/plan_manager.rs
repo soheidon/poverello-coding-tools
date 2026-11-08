@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 
 pub const PLAN_DIR_NAME: &str = ".plan";
 pub const ACTIVE_PLAN_FILE_NAME: &str = ".active-plan.json";
+static ACTIVE_PLAN_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PlanFileEntry {
@@ -44,6 +45,7 @@ pub struct PlanFileDetails {
     pub status: Option<String>,
     pub content: String,
     pub sha256_hash: String,
+    pub file_identity: Option<String>,
     pub last_modified_unix: u64,
 }
 
@@ -51,6 +53,70 @@ pub struct PlanFileDetails {
 pub struct ActivePlanState {
     pub active_plan_path: Option<String>,
     pub last_updated_unix: u64,
+    #[serde(default)]
+    pub role_assignments: std::collections::HashMap<String, RoleAssignment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct RoleAssignment {
+    pub planner_id: Option<String>,
+    pub reviser_id: Option<String>,
+}
+
+fn load_active_plan_state(repo_root: &Path) -> Result<ActivePlanState, String> {
+    let path = repo_root.join(PLAN_DIR_NAME).join(ACTIVE_PLAN_FILE_NAME);
+    if !path.exists() {
+        return Ok(ActivePlanState { active_plan_path: None, last_updated_unix: 0, role_assignments: Default::default() });
+    }
+    let raw = std::fs::read_to_string(path).map_err(|e| format!("Failed to read active plan state: {e}"))?;
+    serde_json::from_str(&raw).map_err(|e| format!("Failed to parse active plan state: {e}"))
+}
+
+pub fn get_role_assignment(repo_root: &Path, surface: &str) -> Result<RoleAssignment, String> {
+    if !matches!(surface, "codex" | "antigravity") { return Err(format!("Unsupported Autocode surface: '{surface}'")); }
+    Ok(load_active_plan_state(repo_root)?.role_assignments.get(surface).cloned().unwrap_or_default())
+}
+
+pub fn set_role_assignment(repo_root: &Path, surface: &str, assignment: RoleAssignment) -> Result<RoleAssignment, String> {
+    if !matches!(surface, "codex" | "antigravity") { return Err(format!("Unsupported Autocode surface: '{surface}'")); }
+    let allowed: &[&str] = if surface == "codex" { &["codex_session", "codex"] } else { &["antigravity", "codex", "codex_cli"] };
+    for role in [&assignment.planner_id, &assignment.reviser_id].into_iter().flatten() {
+        if !allowed.contains(&role.as_str()) { return Err(format!("Unsupported role '{role}' for {surface} surface")); }
+    }
+    let _lock = ACTIVE_PLAN_STATE_LOCK.lock().map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
+    let mut state = load_active_plan_state(repo_root)?;
+    state.role_assignments.insert(surface.to_string(), assignment.clone());
+    state.last_updated_unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    write_active_plan_state_unlocked(repo_root, &state)?;
+    Ok(assignment)
+}
+
+/// Read and verify both per-surface role assignments and the active plan from
+/// the repository state file. Workflow launchers can use this to fail closed
+/// until role execution is wired to their dispatcher.
+pub fn get_role_assignment_for_active_plan(repo_root: &Path, surface: &str) -> Result<RoleAssignment, String> {
+    let state = load_active_plan_state(repo_root)?;
+    let active = state.active_plan_path.as_deref().ok_or_else(|| "No active plan file is configured".to_string())?;
+    let path = validate_plan_path(repo_root, active)?;
+    if !path.is_file() {
+        return Err(format!("Active plan file does not exist: '{active}'"));
+    }
+    if !matches!(surface, "codex" | "antigravity") {
+        return Err(format!("Unsupported Autocode surface: '{surface}'"));
+    }
+    Ok(state.role_assignments.get(surface).cloned().unwrap_or_default())
+}
+
+fn write_active_plan_state_unlocked(repo_root: &Path, state: &ActivePlanState) -> Result<(), String> {
+    let plan_dir = repo_root.join(PLAN_DIR_NAME);
+    if !plan_dir.exists() { std::fs::create_dir_all(&plan_dir).map_err(|e| format!("Failed to create .plan directory: {e}"))?; }
+    let bytes = serde_json::to_vec_pretty(state).map_err(|e| format!("Failed to serialize active plan state: {e}"))?;
+    let active_file = plan_dir.join(ACTIVE_PLAN_FILE_NAME);
+    let nonce = TMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let tmp_file = plan_dir.join(format!("{ACTIVE_PLAN_FILE_NAME}.tmp.{}.{}", std::process::id(), nonce));
+    std::fs::write(&tmp_file, bytes).map_err(|e| format!("Failed to write temporary active plan file: {e}"))?;
+    std::fs::rename(&tmp_file, &active_file).map_err(|e| format!("Failed to commit active plan file: {e}"))?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +135,8 @@ pub struct AuditTrailEvent {
     pub result: String,
     pub notes: String,
     pub expected_sha256: String,
+    #[serde(default)]
+    pub expected_file_identity: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -81,6 +149,8 @@ pub struct ExecutionCheckpoint {
     pub repository: String,
     pub active_plan: String,
     pub plan_revision: String,
+    #[serde(default)]
+    pub plan_file_identity: String,
     pub workflow_run_id: String,
     #[serde(default)]
     pub completed_work: Vec<String>,
@@ -381,6 +451,7 @@ pub fn get_active_plan(repo_root: &Path) -> Result<Option<PlanFileDetails>, Stri
         status,
         content,
         sha256_hash,
+        file_identity: plan_file_identity(&abs_path).ok(),
         last_modified_unix,
     }))
 }
@@ -456,6 +527,7 @@ pub fn set_active_plan(repo_root: &Path, rel_path: &str) -> Result<PlanFileDetai
     let normalized_rel = rel_path.trim().replace('\\', "/");
 
     // Persist active plan state in repo
+    let _state_lock = ACTIVE_PLAN_STATE_LOCK.lock().map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
     let plan_dir = repo_root.join(PLAN_DIR_NAME);
     if !plan_dir.exists() {
         std::fs::create_dir_all(&plan_dir).map_err(|e| format!("Failed to create .plan directory: {e}"))?;
@@ -466,21 +538,10 @@ pub fn set_active_plan(repo_root: &Path, rel_path: &str) -> Result<PlanFileDetai
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    let state = ActivePlanState {
-        active_plan_path: Some(normalized_rel.clone()),
-        last_updated_unix: now_unix,
-    };
-
-    let active_file = plan_dir.join(ACTIVE_PLAN_FILE_NAME);
-    let json_bytes = serde_json::to_string_pretty(&state)
-        .map_err(|e| format!("Failed to serialize active plan state: {e}"))?;
-
-    // Atomic write via temp file
-    let tmp_file = plan_dir.join(format!("{ACTIVE_PLAN_FILE_NAME}.tmp.{}", std::process::id()));
-    std::fs::write(&tmp_file, json_bytes)
-        .map_err(|e| format!("Failed to write temporary active plan file: {e}"))?;
-    std::fs::rename(&tmp_file, &active_file)
-        .map_err(|e| format!("Failed to commit active plan file: {e}"))?;
+    let mut state = load_active_plan_state(repo_root)?;
+    state.active_plan_path = Some(normalized_rel.clone());
+    state.last_updated_unix = now_unix;
+    write_active_plan_state_unlocked(repo_root, &state)?;
 
     Ok(PlanFileDetails {
         rel_path: normalized_rel,
@@ -490,6 +551,7 @@ pub fn set_active_plan(repo_root: &Path, rel_path: &str) -> Result<PlanFileDetai
         status,
         content,
         sha256_hash,
+        file_identity: plan_file_identity(&abs_path).ok(),
         last_modified_unix,
     })
 }
@@ -522,6 +584,18 @@ pub fn create_plan_file(repo_root: &Path, req: &CreatePlanRequest) -> Result<Pla
     };
 
     let canonical_repo = repo_root.canonicalize().map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
+
+    // Validate the nearest existing ancestor before creating anything. A missing
+    // child beneath an in-repository symlink can otherwise cause create_dir_all
+    // to write outside the repository before the later canonical-path check.
+    let mut ancestor = target_dir.as_path();
+    while !ancestor.exists() {
+        ancestor = ancestor.parent().ok_or_else(|| "Cannot find existing ancestor for plan directory".to_string())?;
+    }
+    let canonical_ancestor = ancestor.canonicalize().map_err(|e| format!("Cannot canonicalize plan directory ancestor: {e}"))?;
+    if !canonical_ancestor.starts_with(&canonical_repo) {
+        return Err("Target folder resolves outside repo root".to_string());
+    }
 
     if !target_dir.exists() {
         std::fs::create_dir_all(&target_dir).map_err(|e| format!("Failed to create plan directory '{}': {e}", target_dir.display()))?;
@@ -623,6 +697,7 @@ r#"# {title}
             status,
             content,
             sha256_hash,
+            file_identity: plan_file_identity(&abs_path).ok(),
             last_modified_unix,
         })
     }
@@ -631,13 +706,78 @@ r#"# {title}
 static PLAN_MUTATION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static TMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
+fn plan_file_identity(path: &Path) -> Result<String, String> {
+    let file = std::fs::File::open(path).map_err(|e| format!("Failed to open plan for identity check: {e}"))?;
+    let id = crate::pov_nerf::FileIdentity::from_file(&file)
+        .ok_or_else(|| "Could not determine plan file identity".to_string())?;
+    #[cfg(windows)]
+    { return Ok(format!("{}:{}", id.volume_serial_number, id.file_index)); }
+    #[cfg(unix)]
+    { return Ok(format!("{}:{}", id.dev, id.ino)); }
+    #[cfg(not(any(windows, unix)))]
+    { let _ = id; Err("Plan file identity is unsupported on this platform".to_string()) }
+}
+
+pub fn apply_plan_candidate_if_unchanged(
+    repo_root: &Path,
+    rel_path: &str,
+    expected_file_identity: &str,
+    expected_sha256: &str,
+    candidate: &str,
+) -> Result<PlanFileDetails, String> {
+    if expected_file_identity.trim().is_empty() || expected_sha256.trim().is_empty() {
+        return Err("Plan candidate update requires expected file identity and SHA-256".to_string());
+    }
+    let abs_path = validate_plan_path(repo_root, rel_path)?;
+    let _lock = PLAN_MUTATION_LOCK.lock().map_err(|e| format!("Failed to acquire plan mutation lock: {e}"))?;
+    let current = std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan: {e}"))?;
+    let current_hash = format!("{:x}", Sha256::digest(current.as_bytes()));
+    let current_identity = plan_file_identity(&abs_path)?;
+    if current_hash != expected_sha256 || current_identity != expected_file_identity {
+        return Err("Plan candidate compare-and-swap conflict: file identity or SHA-256 changed".to_string());
+    }
+    let counter = TMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let tmp_path = abs_path.with_extension(format!("tmp.{}.{}", std::process::id(), counter));
+    std::fs::write(&tmp_path, candidate).map_err(|e| format!("Failed to write plan candidate: {e}"))?;
+    let before_commit = std::fs::read_to_string(&abs_path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("Failed to re-read plan before candidate commit: {e}")
+    })?;
+    let before_hash = format!("{:x}", Sha256::digest(before_commit.as_bytes()));
+    let before_identity = plan_file_identity(&abs_path)?;
+    if before_hash != expected_sha256 || before_identity != expected_file_identity {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err("Plan candidate compare-and-swap conflict before commit".to_string());
+    }
+    std::fs::rename(&tmp_path, &abs_path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("Failed to atomically commit plan candidate: {e}")
+    })?;
+    let details = plan_details(rel_path, abs_path)?;
+    if details.file_identity.is_none() {
+        return Err("Could not determine the updated plan file identity".to_string());
+    }
+    Ok(details)
+}
+
+fn plan_details(rel_path: &str, abs_path: PathBuf) -> Result<PlanFileDetails, String> {
+    let content = std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read updated plan: {e}"))?;
+    let file_name = abs_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let (title, status) = extract_title_and_status(&content, &file_name);
+    let sha256_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
+    let file_identity = plan_file_identity(&abs_path).ok();
+    let last_modified_unix = abs_path.metadata().ok().and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+    Ok(PlanFileDetails { rel_path: rel_path.trim().replace('\\', "/"), abs_path: abs_path.to_string_lossy().to_string(), file_name, title, status, content, sha256_hash, file_identity, last_modified_unix })
+}
+
 pub fn append_audit_trail_event(
     repo_root: &Path,
     rel_path: &str,
     event: &AuditTrailEvent,
 ) -> Result<PlanFileDetails, String> {
-    if event.expected_sha256.trim().is_empty() {
-        return Err("AuditTrailEvent requires non-empty expected_sha256 for Compare-And-Swap (CAS) integrity".to_string());
+    if event.expected_sha256.trim().is_empty() || event.expected_file_identity.as_deref().unwrap_or("").trim().is_empty() {
+        return Err("AuditTrailEvent requires non-empty expected_file_identity and expected_sha256 for Compare-And-Swap (CAS) integrity".to_string());
     }
 
     let abs_path = validate_plan_path(repo_root, rel_path)?;
@@ -651,7 +791,6 @@ pub fn append_audit_trail_event(
 
     let content = std::fs::read_to_string(&abs_path)
         .map_err(|e| format!("Failed to read plan file: {e}"))?;
-
     // Compare-And-Swap verification
     let current_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
     if !current_hash.eq_ignore_ascii_case(event.expected_sha256.trim()) {
@@ -660,6 +799,10 @@ pub fn append_audit_trail_event(
             event.expected_sha256
         ));
     }
+    let expected_identity = event.expected_file_identity.as_deref().expect("validated above");
+    if plan_file_identity(&abs_path)? != expected_identity {
+        return Err("Compare-and-swap conflict: plan file identity changed".to_string());
+    }
 
     let now = chrono::Utc::now().to_rfc3339();
     let row = format!(
@@ -667,21 +810,7 @@ pub fn append_audit_trail_event(
         now, event.phase, event.role_actor, event.result, event.notes
     );
 
-    let updated_content = if content.contains("## 5. Execution History & Audit Trail") {
-        let marker = "## 5. Execution History & Audit Trail";
-        let parts: Vec<&str> = content.splitn(2, marker).collect();
-        format!("{}{}{}{}", parts[0], marker, parts[1].trim_end(), format!("\n{}", row))
-    } else if content.contains("## Audit Trail") {
-        let marker = "## Audit Trail";
-        let parts: Vec<&str> = content.splitn(2, marker).collect();
-        format!("{}{}{}{}", parts[0], marker, parts[1].trim_end(), format!("\n{}", row))
-    } else {
-        format!(
-            "{}\n\n## Audit Trail\n\n| Timestamp | Phase | Role / Actor | Result | Notes |\n| --- | --- | --- | --- | --- |\n{}",
-            content.trim_end(),
-            row
-        )
-    };
+    let updated_content = append_audit_trail_row(&content, &row);
 
     let counter = TMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let tmp_path = abs_path.with_extension(format!("tmp.{}.{}", std::process::id(), counter));
@@ -701,6 +830,10 @@ pub fn append_audit_trail_event(
             "Compare-and-swap conflict on plan '{rel_path}' prior to commit: expected hash '{}', got '{pre_commit_hash}'",
             event.expected_sha256
         ));
+    }
+    if plan_file_identity(&abs_path)? != expected_identity {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err("Compare-and-swap conflict prior to commit: plan file identity changed".to_string());
     }
 
     std::fs::rename(&tmp_path, &abs_path)
@@ -725,8 +858,68 @@ pub fn append_audit_trail_event(
         status,
         content: updated_content,
         sha256_hash,
+        file_identity: plan_file_identity(&abs_path).ok(),
         last_modified_unix,
     })
+}
+
+fn append_audit_trail_row(content: &str, row: &str) -> String {
+    let accepted_headers = [
+        "## 5. Execution History & Audit Trail",
+        "## 11. Execution History & Audit Trail",
+        "## Execution History & Audit Trail",
+        "## Audit Trail",
+    ];
+
+    let mut fence: Option<(u8, usize)> = None;
+    let mut offset = 0;
+    let mut section: Option<(usize, usize)> = None;
+    for line in content.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let bytes = trimmed.as_bytes();
+        if let Some(ch @ (b'`' | b'~')) = bytes.first().copied() {
+            let run_len = bytes.iter().take_while(|&&b| b == ch).count();
+            if run_len >= 3 {
+                match fence {
+                    None => fence = Some((ch, run_len)),
+                    Some((open_ch, open_len)) if ch == open_ch && run_len >= open_len => fence = None,
+                    _ => {}
+                }
+            }
+        } else if fence.is_none() {
+            let heading = line.trim_end_matches(|ch| ch == '\r' || ch == '\n');
+            if section.is_none() && accepted_headers.contains(&heading) {
+                section = Some((offset, offset + line.len()));
+            } else if let Some((start, _)) = section {
+                if heading.starts_with("## ") {
+                    section = Some((start, offset));
+                    break;
+                }
+                section = Some((start, offset + line.len()));
+            }
+        }
+        offset += line.len();
+    }
+
+    if let Some((start, end)) = section {
+        let section_text = &content[start..end];
+        if let Some(last_row) = section_text.rfind("\n|") {
+            let row_start = last_row + 1;
+            let insertion = section_text[row_start..]
+                .find('\n')
+                .map(|line_end| start + row_start + line_end + 1)
+                .unwrap_or(end);
+            return format!("{}{}{}", &content[..insertion], row, &content[insertion..]);
+        }
+        let insertion = end;
+        return format!("{}\n{}{}", content[..insertion].trim_end_matches(|ch| ch == '\r' || ch == '\n'), row, &content[insertion..]);
+    }
+
+    format!(
+        "{}\n\n## Audit Trail\n\n| Timestamp | Phase | Role / Actor | Result | Notes |\n| --- | --- | --- | --- | --- |\n{}",
+        content.trim_end(),
+        row
+    )
 }
 
 pub fn render_checkpoint_markdown(cp: &ExecutionCheckpoint) -> String {
@@ -754,6 +947,7 @@ pub fn render_checkpoint_markdown(cp: &ExecutionCheckpoint) -> String {
     out.push_str(&format!("- Repository: {}\n", cp.repository));
     out.push_str(&format!("- Active Plan: {}\n", cp.active_plan));
     out.push_str(&format!("- Plan Revision: {}\n", cp.plan_revision));
+    out.push_str(&format!("- Plan File Identity: {}\n", cp.plan_file_identity));
     out.push_str(&format!("- Workflow Run ID: {}\n", cp.workflow_run_id));
     out.push('\n');
     out.push_str("### Completed Work\n");
@@ -808,11 +1002,28 @@ pub fn render_checkpoint_markdown(cp: &ExecutionCheckpoint) -> String {
     out
 }
 
+fn checkpoint_revision_digest(content: &str) -> String {
+    let revision_content = if let Some((start_idx, end_idx)) = find_checkpoint_markers(content) {
+        let section_start = content[..start_idx].rfind(CHECKPOINT_SECTION_HEADER).unwrap_or(start_idx);
+        let after_end = end_idx + CHECKPOINT_END_MARKER.len();
+        let prefix = content[..section_start].trim_end();
+        let suffix = content[after_end..].trim_start();
+        if suffix.starts_with("---") {
+            let suffix = suffix.trim_start_matches('-').trim_start();
+            format!("{}\n\n{}", prefix, suffix)
+        } else {
+            format!("{}{}", prefix, suffix)
+        }
+    } else {
+        content.to_string()
+    };
+    format!("{:x}", Sha256::digest(revision_content.as_bytes()))
+}
+
 pub fn extract_execution_checkpoint(content: &str) -> Option<ExecutionCheckpoint> {
-    let start_idx = content.find(CHECKPOINT_START_MARKER)?;
+    let (start_idx, end_idx) = find_checkpoint_markers(content)?;
     let block_start = start_idx + CHECKPOINT_START_MARKER.len();
-    let end_idx = content[block_start..].find(CHECKPOINT_END_MARKER)?;
-    let block = &content[block_start..block_start + end_idx];
+    let block = &content[block_start..end_idx];
 
     // Priority 1: Exact structured JSON comment if present
     if let Some(json_start) = block.find(CHECKPOINT_DATA_PREFIX) {
@@ -835,6 +1046,7 @@ pub fn extract_execution_checkpoint(content: &str) -> Option<ExecutionCheckpoint
         repository: String::new(),
         active_plan: String::new(),
         plan_revision: String::new(),
+        plan_file_identity: String::new(),
         workflow_run_id: String::new(),
         completed_work: Vec::new(),
         modified_files: Vec::new(),
@@ -882,6 +1094,8 @@ pub fn extract_execution_checkpoint(content: &str) -> Option<ExecutionCheckpoint
                 cp.active_plan = trimmed["- Active Plan:".len()..].trim().to_string();
             } else if trimmed.starts_with("- Plan Revision:") {
                 cp.plan_revision = trimmed["- Plan Revision:".len()..].trim().to_string();
+            } else if trimmed.starts_with("- Plan File Identity:") {
+                cp.plan_file_identity = trimmed["- Plan File Identity:".len()..].trim().to_string();
             } else if trimmed.starts_with("- Workflow Run ID:") {
                 cp.workflow_run_id = trimmed["- Workflow Run ID:".len()..].trim().to_string();
             }
@@ -925,14 +1139,57 @@ pub fn extract_execution_checkpoint(content: &str) -> Option<ExecutionCheckpoint
     Some(cp)
 }
 
+/// Finds the sole complete checkpoint marker pair outside Markdown fenced code.
+/// Marker examples in documentation are deliberately ignored.
+fn find_checkpoint_markers(content: &str) -> Option<(usize, usize)> {
+    let mut fence: Option<(u8, usize)> = None;
+    let mut start = None;
+    let mut end = None;
+    let mut offset = 0;
+
+    for line in content.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let bytes = trimmed.as_bytes();
+        let fence_char = bytes.first().copied();
+        if matches!(fence_char, Some(b'`' | b'~')) {
+            let ch = fence_char.unwrap();
+            let run_len = bytes.iter().take_while(|&&b| b == ch).count();
+            if run_len >= 3 {
+                match fence {
+                    None => fence = Some((ch, run_len)),
+                    Some((open_ch, open_len)) if ch == open_ch && run_len >= open_len => fence = None,
+                    _ => {}
+                }
+            }
+        } else if fence.is_none() {
+            if let Some(pos) = line.find(CHECKPOINT_START_MARKER) {
+                if start.is_some() { return None; }
+                start = Some(offset + pos);
+            }
+            if let Some(pos) = line.find(CHECKPOINT_END_MARKER) {
+                if end.is_some() { return None; }
+                end = Some(offset + pos);
+            }
+        }
+        offset += line.len();
+    }
+
+    match (start, end) {
+        (Some(s), Some(e)) if s < e => Some((s, e)),
+        (None, None) => None,
+        _ => None,
+    }
+}
+
 pub fn save_execution_checkpoint(
     repo_root: &Path,
     rel_path: &str,
     checkpoint: &ExecutionCheckpoint,
+    expected_file_identity: &str,
     expected_sha256: &str,
 ) -> Result<PlanFileDetails, String> {
-    if expected_sha256.trim().is_empty() {
-        return Err("save_execution_checkpoint requires non-empty expected_sha256 for CAS integrity".to_string());
+    if expected_file_identity.trim().is_empty() || expected_sha256.trim().is_empty() {
+        return Err("save_execution_checkpoint requires non-empty expected_file_identity and expected_sha256 for CAS integrity".to_string());
     }
 
     let abs_path = validate_plan_path(repo_root, rel_path)?;
@@ -946,6 +1203,10 @@ pub fn save_execution_checkpoint(
 
     let content = std::fs::read_to_string(&abs_path)
         .map_err(|e| format!("Failed to read plan file: {e}"))?;
+    let source_file_identity = plan_file_identity(&abs_path)?;
+    if source_file_identity != expected_file_identity {
+        return Err("Compare-and-swap conflict: plan file identity changed".to_string());
+    }
 
     // Compare-And-Swap verification
     let current_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
@@ -955,13 +1216,16 @@ pub fn save_execution_checkpoint(
         ));
     }
 
-    let rendered_checkpoint = render_checkpoint_markdown(checkpoint);
+    // Hash all human/audit content while excluding the checkpoint itself. Store
+    // this stable revision digest in the checkpoint so its own save is not
+    // self-referential and repeated checkpoint updates keep the same revision.
+    let mut checkpoint_to_save = checkpoint.clone();
+    checkpoint_to_save.plan_revision = checkpoint_revision_digest(&content);
+    checkpoint_to_save.plan_file_identity.clear();
+    let rendered_checkpoint = render_checkpoint_markdown(&checkpoint_to_save);
 
-    let updated_content = if let (Some(start_marker_idx), Some(end_marker_rel_idx)) = (
-        content.find(CHECKPOINT_START_MARKER),
-        content[content.find(CHECKPOINT_START_MARKER).unwrap_or(0)..].find(CHECKPOINT_END_MARKER),
-    ) {
-        let end_marker_idx = start_marker_idx + end_marker_rel_idx + CHECKPOINT_END_MARKER.len();
+    let updated_content = if let Some((start_marker_idx, end_marker_start_idx)) = find_checkpoint_markers(&content) {
+        let end_marker_idx = end_marker_start_idx + CHECKPOINT_END_MARKER.len();
         let section_start = match content[..start_marker_idx].rfind(CHECKPOINT_SECTION_HEADER) {
             Some(idx) => idx,
             None => start_marker_idx,
@@ -1009,6 +1273,21 @@ pub fn save_execution_checkpoint(
     std::fs::write(&tmp_path, &updated_content)
         .map_err(|e| format!("Failed to write temporary updated plan: {e}"))?;
 
+    // A checkpoint replacement changes the plan file identity. Record the
+    // identity of the already-created temporary file, then rewrite its bytes
+    // in place so rename preserves that identity without self-reference.
+    checkpoint_to_save.plan_file_identity = plan_file_identity(&tmp_path)?;
+    let final_rendered_checkpoint = render_checkpoint_markdown(&checkpoint_to_save);
+    let final_content = updated_content.replacen(&rendered_checkpoint, &final_rendered_checkpoint, 1);
+    if final_content == updated_content {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err("Could not embed checkpoint plan file identity".to_string());
+    }
+    std::fs::write(&tmp_path, &final_content).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("Failed to finalize temporary checkpoint: {e}")
+    })?;
+
     // Pre-commit verification: re-read source file directly before atomic rename
     let pre_commit_content = std::fs::read_to_string(&abs_path)
         .map_err(|e| {
@@ -1022,6 +1301,10 @@ pub fn save_execution_checkpoint(
             "Compare-and-swap conflict on plan '{rel_path}' prior to commit: expected hash '{expected_sha256}', got '{pre_commit_hash}'"
         ));
     }
+    if plan_file_identity(&abs_path)? != source_file_identity {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err("Compare-and-swap conflict prior to checkpoint commit: plan file identity changed".to_string());
+    }
 
     std::fs::rename(&tmp_path, &abs_path)
         .map_err(|e| {
@@ -1030,8 +1313,8 @@ pub fn save_execution_checkpoint(
         })?;
 
     let file_name = abs_path.file_name().unwrap_or_default().to_string_lossy().to_string();
-    let (title, status) = extract_title_and_status(&updated_content, &file_name);
-    let sha256_hash = format!("{:x}", Sha256::digest(updated_content.as_bytes()));
+    let (title, status) = extract_title_and_status(&final_content, &file_name);
+    let sha256_hash = format!("{:x}", Sha256::digest(final_content.as_bytes()));
     let last_modified_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -1043,8 +1326,9 @@ pub fn save_execution_checkpoint(
         file_name,
         title,
         status,
-        content: updated_content,
+        content: final_content,
         sha256_hash,
+        file_identity: plan_file_identity(&abs_path).ok(),
         last_modified_unix,
     })
 }
@@ -1073,32 +1357,44 @@ pub fn verify_resumption_preflight(
     let mut reasons = Vec::new();
     let mut is_resumable = true;
 
-    // 1. Verify repository
-    if !checkpoint.repository.trim().is_empty() {
-        let cp_repo_path = PathBuf::from(&checkpoint.repository);
-        if cp_repo_path.exists() {
-            if let Ok(canonical_cp_repo) = cp_repo_path.canonicalize() {
-                if canonical_cp_repo != canonical_repo {
-                    is_resumable = false;
-                    reasons.push(format!(
-                        "Repository mismatch: checkpoint repo '{}' differs from current repo '{}'",
-                        canonical_cp_repo.display(),
-                        canonical_repo.display()
-                    ));
-                }
-            }
+    // 1. Verify repository identity; absent or unverifiable identity fails closed.
+    let cp_repo_path = PathBuf::from(checkpoint.repository.trim());
+    match cp_repo_path.canonicalize() {
+        Ok(canonical_cp_repo) if canonical_cp_repo == canonical_repo => {}
+        Ok(canonical_cp_repo) => {
+            is_resumable = false;
+            reasons.push(format!("Repository mismatch: checkpoint repo '{}' differs from current repo '{}'", canonical_cp_repo.display(), canonical_repo.display()));
+        }
+        Err(_) => {
+            is_resumable = false;
+            reasons.push("Checkpoint repository identity is missing or cannot be verified".to_string());
         }
     }
 
     // 2. Verify active plan path
     let normalized_rel = rel_path.trim().replace('\\', "/");
     let normalized_cp_plan = checkpoint.active_plan.trim().replace('\\', "/");
-    if !normalized_cp_plan.is_empty() && normalized_rel != normalized_cp_plan {
+    if normalized_cp_plan.is_empty() || normalized_rel != normalized_cp_plan {
         is_resumable = false;
         reasons.push(format!(
-            "Plan file path mismatch: checkpoint references '{}', requested '{}'",
+            "Plan file path is missing or mismatched: checkpoint references '{}', requested '{}'",
             normalized_cp_plan, normalized_rel
         ));
+    }
+    let configured_active = load_active_plan_state(repo_root)?.active_plan_path.unwrap_or_default().replace('\\', "/");
+    if configured_active.is_empty() || configured_active != normalized_rel {
+        is_resumable = false;
+        reasons.push("Requested plan does not match the repository's configured Active Plan File".to_string());
+    }
+
+    // Unknown checkpoint fields cannot safely select a workflow stage.
+    if checkpoint.checkpoint_version != 1
+        || checkpoint.workflow.trim().is_empty()
+        || checkpoint.status.trim().is_empty()
+        || checkpoint.next_action.trim().is_empty()
+    {
+        is_resumable = false;
+        reasons.push("Checkpoint workflow state is incomplete or uses an unsupported version".to_string());
     }
 
     // 3. Verify plan file exists
@@ -1106,6 +1402,23 @@ pub fn verify_resumption_preflight(
     if !abs_path.exists() {
         is_resumable = false;
         reasons.push(format!("Plan file not found on disk: '{rel_path}'"));
+    }
+
+    // Checkpoint revision is the hash of the plan with its live checkpoint block
+    // removed, avoiding a self-referential digest while detecting external edits.
+    if abs_path.exists() {
+        let plan_content = std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan for revision check: {e}"))?;
+        let actual_revision = checkpoint_revision_digest(&plan_content);
+        if checkpoint.plan_revision.trim().is_empty() || !checkpoint.plan_revision.eq_ignore_ascii_case(&actual_revision) {
+            is_resumable = false;
+            reasons.push("Plan revision hash is missing or does not match the current plan".to_string());
+        }
+        if checkpoint.plan_file_identity.trim().is_empty()
+            || plan_file_identity(&abs_path).map(|identity| identity != checkpoint.plan_file_identity).unwrap_or(true)
+        {
+            is_resumable = false;
+            reasons.push("Plan file identity is missing or does not match the current file".to_string());
+        }
     }
 
     // 4. Check completed status
@@ -1116,7 +1429,13 @@ pub fn verify_resumption_preflight(
 
     // 5. Check halted status
     if checkpoint.status.eq_ignore_ascii_case("HALTED") {
+        is_resumable = false;
         reasons.push("Workflow was previously HALTED; requires explicit confirmation to resume".to_string());
+    }
+
+    if !checkpoint.unresolved_findings.is_empty() {
+        is_resumable = false;
+        reasons.push("Unresolved review findings remain in checkpoint".to_string());
     }
 
     // 6. Verify modified files still exist
@@ -1124,9 +1443,13 @@ pub fn verify_resumption_preflight(
         if f.trim().is_empty() || f.eq_ignore_ascii_case("None") {
             continue;
         }
-        let full_p = repo_root.join(f);
-        if !full_p.exists() {
-            reasons.push(format!("Modified file noted in checkpoint does not exist: '{f}'"));
+        let relative = PathBuf::from(f);
+        let invalid_relative = relative.is_absolute() || relative.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::Prefix(_)));
+        let full_p = repo_root.join(&relative);
+        let escapes_repo = full_p.canonicalize().map(|p| !p.starts_with(&canonical_repo)).unwrap_or(false);
+        if invalid_relative || escapes_repo || !full_p.is_file() {
+            is_resumable = false;
+            reasons.push(format!("Modified file noted in checkpoint is missing, unsafe, or outside the repository: '{f}'"));
         }
     }
 
@@ -1166,6 +1489,23 @@ mod tests {
         assert!(validate_plan_path(repo, ".plan/V0.26.3.md").is_ok());
         assert!(validate_plan_path(repo, "plans/my_plan.md").is_ok());
         assert!(validate_plan_path(repo, "docs/my_plan.md").is_ok());
+    }
+
+    #[test]
+    fn test_create_plan_rejects_symlink_escape_before_creating_children() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&outside, repo.join("linked")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, repo.join("linked")).unwrap();
+
+        let req = CreatePlanRequest { name: "escape".into(), folder: Some("linked/new/nested".into()), title: None, set_as_active: Some(false) };
+        assert!(create_plan_file(&repo, &req).is_err());
+        assert!(!outside.join("new").exists(), "external directory must not be created before validation");
     }
 
     #[test]
@@ -1253,7 +1593,7 @@ mod tests {
             set_as_active: Some(true),
         };
         let created = create_plan_file(repo, &req).unwrap();
-        let initial_hash = created.sha256_hash;
+        let initial_hash = created.sha256_hash.clone();
 
         // 1. Successful CAS append
         let event = AuditTrailEvent {
@@ -1262,6 +1602,7 @@ mod tests {
             result: "APPROVED".to_string(),
             notes: "All requirements met".to_string(),
             expected_sha256: initial_hash.clone(),
+            expected_file_identity: Some(created.file_identity.clone().unwrap()),
         };
         let updated = append_audit_trail_event(repo, &created.rel_path, &event).unwrap();
         assert!(updated.content.contains("CodexReviewer"));
@@ -1275,6 +1616,7 @@ mod tests {
             result: "APPROVED".to_string(),
             notes: "Stale attempt".to_string(),
             expected_sha256: initial_hash, // using old hash
+            expected_file_identity: Some(created.file_identity.clone().unwrap()),
         };
         let err = append_audit_trail_event(repo, &created.rel_path, &stale_event);
         assert!(err.is_err());
@@ -1287,10 +1629,53 @@ mod tests {
             result: "APPROVED".to_string(),
             notes: "No hash".to_string(),
             expected_sha256: "   ".to_string(),
+            expected_file_identity: Some(created.file_identity.clone().unwrap()),
         };
         let err_missing = append_audit_trail_event(repo, &created.rel_path, &missing_hash_event);
         assert!(err_missing.is_err());
         assert!(err_missing.unwrap_err().contains("expected_sha256"));
+
+        let mut missing_identity_event = event;
+        missing_identity_event.expected_sha256 = updated.sha256_hash;
+        missing_identity_event.expected_file_identity = None;
+        let err_missing_identity = append_audit_trail_event(repo, &created.rel_path, &missing_identity_event);
+        assert!(err_missing_identity.unwrap_err().contains("expected_file_identity"));
+    }
+
+    #[test]
+    fn test_audit_append_targets_numbered_section_before_following_sections() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        let created = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "numbered-audit".into(),
+                folder: None,
+                title: Some("Numbered audit section".into()),
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
+        let content = "# Numbered audit section\n\n## 11. Execution History & Audit Trail\n\n| Timestamp | Phase | Role / Actor | Result | Notes |\n| --- | --- | --- | --- | --- |\n| old | PlanReview | Reviewer | APPROVED | prior event |\n\n## 12. Next Plan Section\n\nKeep this section after the audit table.\n";
+        let path = repo.join(&created.rel_path);
+        std::fs::write(&path, content).unwrap();
+        let expected_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
+        let expected_identity = plan_file_identity(&path).unwrap();
+        let event = AuditTrailEvent {
+            phase: "BuildReview".into(),
+            role_actor: "Codex".into(),
+            result: "APPROVED".into(),
+            notes: "new audit event".into(),
+            expected_sha256: expected_hash,
+            expected_file_identity: Some(expected_identity),
+        };
+
+        let updated = append_audit_trail_event(repo, &created.rel_path, &event).unwrap();
+        let audit_section = updated.content.split("## 12. Next Plan Section").next().unwrap();
+        let following_section = updated.content.split("## 12. Next Plan Section").nth(1).unwrap();
+        assert!(audit_section.contains("new audit event"));
+        assert!(following_section.contains("Keep this section"));
+        assert!(!following_section.contains("new audit event"));
     }
 
     #[test]
@@ -1323,6 +1708,7 @@ Some description here...
             repository: "C:/test-repo".to_string(),
             active_plan: ".plan/feature-test.md".to_string(),
             plan_revision: "abc123hash".to_string(),
+            plan_file_identity: "".to_string(),
             workflow_run_id: "run-20261108-01".to_string(),
             completed_work: vec!["Task 1 finished".to_string(), "Task 2 tested".to_string()],
             modified_files: vec!["src/lib.rs".to_string(), "src/main.rs".to_string()],
@@ -1363,6 +1749,81 @@ Some description here...
     }
 
     #[test]
+    fn test_checkpoint_markers_in_fenced_example_are_ignored_and_preserved() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        let req = CreatePlanRequest { name: "fenced-checkpoint".into(), folder: None, title: None, set_as_active: Some(false) };
+        let created = create_plan_file(repo, &req).unwrap();
+        let example = format!("\n```markdown\n{}\nStatus: EXAMPLE\n{}\n```\n", CHECKPOINT_START_MARKER, CHECKPOINT_END_MARKER);
+        let content = format!("{}{}", std::fs::read_to_string(repo.join(&created.rel_path)).unwrap(), example);
+        std::fs::write(repo.join(&created.rel_path), &content).unwrap();
+        assert!(extract_execution_checkpoint(&content).is_none());
+
+        let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
+        let cp = ExecutionCheckpoint { checkpoint_version: 1, workflow: "pov-full-cycle".into(), status: "IMPLEMENTATION".into(), last_completed: "TESTS".into(), next_action: "REVIEW".into(), repository: repo.to_string_lossy().into_owned(), active_plan: created.rel_path.clone(), plan_revision: String::new(), plan_file_identity: String::new(), workflow_run_id: "test".into(), completed_work: vec![], modified_files: vec![], validation: vec![], reviewer: "Codex".into(), review_result: "PENDING".into(), unresolved_findings: vec![], pending_work: vec![], timestamp: "now".into() };
+        let saved = save_execution_checkpoint(repo, &created.rel_path, &cp, &created.file_identity.clone().unwrap(), &hash).unwrap();
+        assert!(saved.content.contains(&example), "documentation example must remain byte-for-byte present");
+        assert_eq!(saved.content.matches(CHECKPOINT_START_MARKER).count(), 2);
+        assert_eq!(get_execution_checkpoint(repo, &created.rel_path).unwrap().unwrap().status, "IMPLEMENTATION");
+    }
+
+    #[test]
+    fn test_fenced_checkpoint_example_in_plan_is_ignored_without_overwrite() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        let created = create_plan_file(repo, &CreatePlanRequest { name: "documented-checkpoint".into(), folder: None, title: None, set_as_active: Some(false) }).unwrap();
+        let example = format!("\n### Example\n\n```markdown\n{}\nStatus: EXAMPLE\n{}\n```\n", CHECKPOINT_START_MARKER, CHECKPOINT_END_MARKER);
+        let original = std::fs::read_to_string(repo.join(&created.rel_path)).unwrap();
+        let content = format!("{}{}", original, example);
+        std::fs::write(repo.join(&created.rel_path), &content).unwrap();
+        assert!(extract_execution_checkpoint(&content).is_none());
+
+        let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
+        let cp = ExecutionCheckpoint { checkpoint_version: 1, workflow: "pov-full-cycle".into(), status: "REVIEW".into(), last_completed: "TESTS".into(), next_action: "REVIEW".into(), repository: repo.to_string_lossy().into_owned(), active_plan: created.rel_path.clone(), plan_revision: String::new(), plan_file_identity: String::new(), workflow_run_id: "test".into(), completed_work: vec![], modified_files: vec![], validation: vec![], reviewer: "Codex".into(), review_result: "PENDING".into(), unresolved_findings: vec![], pending_work: vec![], timestamp: "now".into() };
+        let saved = save_execution_checkpoint(repo, &created.rel_path, &cp, &created.file_identity.clone().unwrap(), &hash).unwrap();
+        assert!(saved.content.contains(&example));
+        assert_eq!(saved.content.matches(CHECKPOINT_START_MARKER).count(), 2);
+        assert_eq!(get_execution_checkpoint(repo, &created.rel_path).unwrap().unwrap().status, "REVIEW");
+    }
+
+    #[test]
+    fn test_fenced_marker_examples_and_ambiguous_markers_fail_closed() {
+        let example = format!("```markdown\n{}\n{}\n```", CHECKPOINT_START_MARKER, CHECKPOINT_END_MARKER);
+        assert!(extract_execution_checkpoint(&example).is_none());
+        let pair = format!("{}\n{}", CHECKPOINT_START_MARKER, CHECKPOINT_END_MARKER);
+        assert!(extract_execution_checkpoint(&format!("{}\n{}", pair, pair)).is_none());
+        assert!(extract_execution_checkpoint(CHECKPOINT_START_MARKER).is_none());
+        assert!(extract_execution_checkpoint(CHECKPOINT_END_MARKER).is_none());
+    }
+
+    #[test]
+    fn test_checkpoint_revision_round_trip_is_stable_and_preflight_detects_edits() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        let created = create_plan_file(repo, &CreatePlanRequest { name: "revision-checkpoint".into(), folder: None, title: None, set_as_active: Some(true) }).unwrap();
+        let cp = ExecutionCheckpoint { checkpoint_version: 1, workflow: "pov-full-cycle".into(), status: "IMPLEMENTATION".into(), last_completed: "TESTS".into(), next_action: "REVIEW".into(), repository: repo.to_string_lossy().into_owned(), active_plan: created.rel_path.clone(), plan_revision: String::new(), plan_file_identity: String::new(), workflow_run_id: "run".into(), completed_work: vec![], modified_files: vec![], validation: vec![], reviewer: "Codex".into(), review_result: "PENDING".into(), unresolved_findings: vec![], pending_work: vec![], timestamp: "now".into() };
+        let saved = save_execution_checkpoint(repo, &created.rel_path, &cp, &created.file_identity.clone().unwrap(), &created.sha256_hash).unwrap();
+        let stored = get_execution_checkpoint(repo, &created.rel_path).unwrap().unwrap();
+        let good = verify_resumption_preflight(repo, &created.rel_path, &stored).unwrap();
+        assert!(good.is_resumable, "{:?}", good.reasons);
+
+        let mut edited = saved.content.clone();
+        edited.push_str("\nExternal plan edit\n");
+        std::fs::write(repo.join(&created.rel_path), edited).unwrap();
+        let stale = verify_resumption_preflight(repo, &created.rel_path, &stored).unwrap();
+        assert!(!stale.is_resumable);
+        assert!(stale.reasons.iter().any(|reason| reason.contains("revision hash")));
+    }
+
+    #[test]
+    fn test_extract_checkpoint_rejects_multiple_or_unbalanced_live_markers() {
+        let pair = format!("{}\n{}", CHECKPOINT_START_MARKER, CHECKPOINT_END_MARKER);
+        assert!(extract_execution_checkpoint(&format!("{}\n{}", pair, pair)).is_none());
+        assert!(extract_execution_checkpoint(CHECKPOINT_START_MARKER).is_none());
+        assert!(extract_execution_checkpoint(CHECKPOINT_END_MARKER).is_none());
+    }
+
+    #[test]
     fn test_save_execution_checkpoint_preserves_plan_and_audit_trail() {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
@@ -1384,6 +1845,7 @@ Some description here...
             result: "PROPOSED".to_string(),
             notes: "Initial draft".to_string(),
             expected_sha256: cur_hash.clone(),
+            expected_file_identity: Some(created.file_identity.clone().unwrap()),
         };
         let with_audit = append_audit_trail_event(repo, plan_path, &event).unwrap();
         cur_hash = with_audit.sha256_hash;
@@ -1400,6 +1862,7 @@ Some description here...
             repository: repo.to_string_lossy().to_string(),
             active_plan: plan_path.clone(),
             plan_revision: cur_hash.clone(),
+            plan_file_identity: String::new(),
             workflow_run_id: "run-01".to_string(),
             completed_work: vec!["Draft created".to_string()],
             modified_files: vec![],
@@ -1410,7 +1873,7 @@ Some description here...
             pending_work: vec!["Review plan".to_string()],
             timestamp: "2026-11-08T04:05:00Z".to_string(),
         };
-        let saved1 = save_execution_checkpoint(repo, plan_path, &cp1, &cur_hash).unwrap();
+        let saved1 = save_execution_checkpoint(repo, plan_path, &cp1, with_audit.file_identity.as_deref().unwrap(), &cur_hash).unwrap();
         cur_hash = saved1.sha256_hash;
 
         // Verify plan contents, checkpoint, and audit trail are all present
@@ -1436,6 +1899,7 @@ Some description here...
             repository: repo.to_string_lossy().to_string(),
             active_plan: plan_path.clone(),
             plan_revision: cur_hash.clone(),
+            plan_file_identity: String::new(),
             workflow_run_id: "run-01".to_string(),
             completed_work: vec!["Plan reviewed and approved".to_string()],
             modified_files: vec!["src/lib.rs".to_string()],
@@ -1446,7 +1910,7 @@ Some description here...
             pending_work: vec!["Write code".to_string()],
             timestamp: "2026-11-08T04:10:00Z".to_string(),
         };
-        let saved2 = save_execution_checkpoint(repo, plan_path, &cp2, &cur_hash).unwrap();
+        let saved2 = save_execution_checkpoint(repo, plan_path, &cp2, saved1.file_identity.as_deref().unwrap(), &cur_hash).unwrap();
         let _ = cur_hash;
 
         // Verify it was updated in-place without duplicating the section header
@@ -1457,7 +1921,7 @@ Some description here...
 
         // 4. Stale CAS update must fail
         let cp_stale = cp2.clone();
-        let stale_res = save_execution_checkpoint(repo, plan_path, &cp_stale, "stale_hash_value");
+        let stale_res = save_execution_checkpoint(repo, plan_path, &cp_stale, saved2.file_identity.as_deref().unwrap(), "stale_hash_value");
         assert!(stale_res.is_err());
         assert!(stale_res.unwrap_err().contains("Compare-and-swap conflict"));
     }
@@ -1486,7 +1950,8 @@ Some description here...
             next_action: "IMPLEMENT".to_string(),
             repository: repo.to_string_lossy().to_string(),
             active_plan: created.rel_path.clone(),
-            plan_revision: created.sha256_hash.clone(),
+            plan_revision: format!("{:x}", Sha256::digest(std::fs::read_to_string(repo.join(&created.rel_path)).unwrap().as_bytes())),
+            plan_file_identity: plan_file_identity(&repo.join(&created.rel_path)).unwrap(),
             workflow_run_id: "run-preflight".to_string(),
             completed_work: vec![],
             modified_files: vec!["changed_file.txt".to_string()],
@@ -1503,6 +1968,18 @@ Some description here...
         assert!(res_ok.is_resumable);
         assert_eq!(res_ok.next_action, "IMPLEMENT");
         assert!(res_ok.reasons.is_empty());
+
+        // Plan edits and missing revision hashes fail closed.
+        let mut changed_plan_cp = valid_cp.clone();
+        std::fs::write(repo.join(&created.rel_path), "# externally changed plan\n").unwrap();
+        let changed = verify_resumption_preflight(repo, &created.rel_path, &changed_plan_cp).unwrap();
+        assert!(!changed.is_resumable);
+        assert!(changed.reasons.iter().any(|r| r.contains("revision hash")));
+        std::fs::write(repo.join(&created.rel_path), &created.content).unwrap();
+        changed_plan_cp.plan_revision = "".to_string();
+        let missing_revision = verify_resumption_preflight(repo, &created.rel_path, &changed_plan_cp).unwrap();
+        assert!(!missing_revision.is_resumable);
+        assert!(missing_revision.reasons.iter().any(|r| r.contains("revision hash")));
 
         // 2. Mismatched repo preflight
         let mut invalid_repo_cp = valid_cp.clone();
@@ -1525,5 +2002,122 @@ Some description here...
         missing_file_cp.modified_files = vec!["nonexistent_file.rs".to_string()];
         let res_missing_file = verify_resumption_preflight(repo, &created.rel_path, &missing_file_cp).unwrap();
         assert!(res_missing_file.reasons.iter().any(|r| r.contains("nonexistent_file.rs")));
+    }
+
+    #[test]
+    fn test_role_assignments_are_surface_scoped_and_preserved_when_active_plan_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        let codex = RoleAssignment { planner_id: Some("codex_session".into()), reviser_id: None };
+        let ag = RoleAssignment { planner_id: Some("antigravity".into()), reviser_id: Some("codex".into()) };
+        set_role_assignment(repo, "codex", codex.clone()).unwrap();
+        set_role_assignment(repo, "antigravity", ag.clone()).unwrap();
+        assert_eq!(get_role_assignment(repo, "codex").unwrap(), codex);
+        assert_eq!(get_role_assignment(repo, "antigravity").unwrap(), ag);
+        assert!(set_role_assignment(repo, "codex", RoleAssignment { planner_id: Some("antigravity".into()), reviser_id: None }).is_err());
+
+        let created = create_plan_file(repo, &CreatePlanRequest { name: "roles".into(), folder: None, title: None, set_as_active: Some(true) }).unwrap();
+        set_active_plan(repo, &created.rel_path).unwrap();
+        assert_eq!(get_role_assignment(repo, "codex").unwrap(), codex);
+        assert_eq!(get_role_assignment(repo, "antigravity").unwrap(), ag);
+    }
+
+    #[test]
+    fn test_legacy_active_plan_state_is_preserved_when_assigning_roles() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        let plan_dir = repo.join(PLAN_DIR_NAME);
+        std::fs::create_dir_all(&plan_dir).unwrap();
+        std::fs::write(plan_dir.join(ACTIVE_PLAN_FILE_NAME), r#"{"active_plan_path":".plan/legacy.md","last_updated_unix":1}"#).unwrap();
+        let assignment = RoleAssignment { planner_id: Some("codex_session".into()), reviser_id: Some("codex_session".into()) };
+        set_role_assignment(repo, "codex", assignment.clone()).unwrap();
+        let state = load_active_plan_state(repo).unwrap();
+        assert_eq!(state.active_plan_path.as_deref(), Some(".plan/legacy.md"));
+        assert_eq!(state.role_assignments.get("codex"), Some(&assignment));
+    }
+
+    #[test]
+    fn test_role_assignment_requires_valid_active_plan() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        let assignment = RoleAssignment { planner_id: Some("codex_session".into()), reviser_id: None };
+        set_role_assignment(repo, "codex", assignment.clone()).unwrap();
+        assert!(get_role_assignment_for_active_plan(repo, "codex").is_err());
+
+        let created = create_plan_file(repo, &CreatePlanRequest { name: "active-role-plan".into(), folder: None, title: None, set_as_active: Some(true) }).unwrap();
+        assert_eq!(get_role_assignment_for_active_plan(repo, "codex").unwrap(), assignment);
+        std::fs::remove_file(repo.join(created.rel_path)).unwrap();
+        assert!(get_role_assignment_for_active_plan(repo, "codex").is_err());
+    }
+
+    #[test]
+    fn test_resumption_fails_closed_for_missing_state_halted_or_missing_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        let created = create_plan_file(repo, &CreatePlanRequest { name: "resume-guards".into(), folder: None, title: None, set_as_active: Some(false) }).unwrap();
+        let cp = ExecutionCheckpoint {
+            checkpoint_version: 1,
+            workflow: "pov-full-cycle".into(),
+            status: "IMPLEMENTATION".into(),
+            last_completed: "TESTS".into(),
+            next_action: "REVIEW".into(),
+            repository: repo.to_string_lossy().into_owned(),
+            active_plan: created.rel_path.clone(),
+            plan_revision: checkpoint_revision_digest(&created.content),
+            plan_file_identity: String::new(),
+            workflow_run_id: "resume-test".into(),
+            completed_work: vec![],
+            modified_files: vec![],
+            validation: vec![],
+            reviewer: "Codex".into(),
+            review_result: "PENDING".into(),
+            unresolved_findings: vec![],
+            pending_work: vec![],
+            timestamp: "now".into(),
+        };
+
+        let mut missing_path = cp.clone();
+        missing_path.active_plan.clear();
+        assert!(!verify_resumption_preflight(repo, &created.rel_path, &missing_path).unwrap().is_resumable);
+
+        let mut halted = cp.clone();
+        halted.status = "HALTED".into();
+        assert!(!verify_resumption_preflight(repo, &created.rel_path, &halted).unwrap().is_resumable);
+
+        let mut missing_modified = cp.clone();
+        missing_modified.modified_files.push("src/missing.rs".into());
+        assert!(!verify_resumption_preflight(repo, &created.rel_path, &missing_modified).unwrap().is_resumable);
+
+        let mut unknown = cp;
+        unknown.next_action.clear();
+        assert!(!verify_resumption_preflight(repo, &created.rel_path, &unknown).unwrap().is_resumable);
+    }
+
+    #[test]
+    fn test_plan_candidate_checks_identity_and_hash_and_returns_new_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        let created = create_plan_file(repo, &CreatePlanRequest { name: "candidate-cas".into(), folder: None, title: None, set_as_active: Some(false) }).unwrap();
+        let identity = created.file_identity.clone().expect("filesystem identity is supported");
+        let candidate = format!("{}\nCandidate revision\n", created.content);
+        let updated = apply_plan_candidate_if_unchanged(repo, &created.rel_path, &identity, &created.sha256_hash, &candidate).unwrap();
+        assert!(updated.content.contains("Candidate revision"));
+        assert!(updated.file_identity.is_some());
+
+        let stale = apply_plan_candidate_if_unchanged(repo, &created.rel_path, "wrong-identity", &updated.sha256_hash, "stale");
+        assert!(stale.unwrap_err().contains("identity or SHA-256 changed"));
+
+        let event = AuditTrailEvent {
+            phase: "Review".into(), role_actor: "Reviewer".into(), result: "APPROVED".into(),
+            notes: "Identity-bound audit append".into(), expected_sha256: updated.sha256_hash.clone(),
+            expected_file_identity: Some(updated.file_identity.unwrap()),
+        };
+        let audited = append_audit_trail_event(repo, &created.rel_path, &event).unwrap();
+        assert!(audited.content.contains("Identity-bound audit append"));
+
+        let mut stale_event = event;
+        stale_event.expected_sha256 = audited.sha256_hash;
+        stale_event.expected_file_identity = Some("wrong-identity".into());
+        assert!(append_audit_trail_event(repo, &created.rel_path, &stale_event).is_err());
     }
 }

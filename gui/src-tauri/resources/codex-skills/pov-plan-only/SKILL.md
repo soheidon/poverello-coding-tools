@@ -11,6 +11,7 @@ description: 計画作成と独立計画レビュー専用のCodex Skill。承�
 - **Planner (計画作成担当)**: 指定された正本計画書（`.plan/<name>.md` 等）に初期計画を作成する。
 - **Reviewer (検査担当)**: 計画書を完全な読み取り専用（Read-Only）として検査し、合否判定（`APPROVED` / `REQUEST_CHANGES`）と具体的根拠付き指摘（P0/P1/P2）のみを返す。**Reviewer 自身が正本計画書を直接編集・修正・承認改ざんすることは厳格に禁止される**。
 - **Reviser (計画修正担当)**: Reviewer の指摘を受けて計画書を修正する担当。修正は必ず Reviser（Codex作業セッション等）が行い、修正完了後に正本計画書を固定して再度 Reviewer の検査を仰ぐ。
+- **Role assignmentの実行**: `.plan/.active-plan.json` の `role_assignments.codex` を読み、`planner_id` / `reviser_id` が `codex_session` または後方互換の `codex` のときだけ現在のCodexセッションがその工程を担当する。未設定・不正ID・未選択Active Planは開始前に停止し、別担当やReviewerへ切り替えない。Reviewer設定は既存の `CODEX_HOME/pov-review-settings.json` から独立して解決する。Reviewer工程を完了・終了してからReviser工程を別工程として起動し、同一担当IDでも権限・入力・監査境界を共有しない。
 - 承認判定（`APPROVED` / `APPROVED_WITH_NON_BLOCKING_FINDINGS`）が得られた場合でも、実装へ進まず計画記録のみで停止する。
 - コード、テスト、設定は変更しない。
 
@@ -27,6 +28,7 @@ Active Plan File（`.plan/<name>.md`）を作業状態の永続的正本（Groun
 
 - **チェックポイントの保存領域**:
   正本計画書の `## 5. Execution History & Audit Trail`（または該当監査セクション）直前に、専用のマーカー付き領域 `## Poverello Execution Checkpoint`（`<!-- POVERELLO-CHECKPOINT:START -->` ... `<!-- POVERELLO-CHECKPOINT:END -->`）を設けて記録する。人間が記述した計画本文や既存の監査ログを一切削除・要約・破壊しない。
+- 各工程境界では監査イベントをfile identity/HashでCAS追記し、その成功応答を使ってチェックポイントを保存する。チェックポイント保存後のidentity/Hashを次工程の期待状態にする。
 - **保存タイミング**:
   1. 計画作成完了時
   2. 計画レビュー判定確定時
@@ -46,7 +48,8 @@ Active Plan File（`.plan/<name>.md`）を作業状態の永続的正本（Groun
 ## レビュー方式と並列レビュー契約
 
 1. **レビュー方式（review_mode）の解決**:
-   - 作業開始前にリポジトリ内 `.plan/.active-plan.json` または `CODEX_HOME/pov-review-settings.json` を読み込む。
+   - 作業開始前にリポジトリ内 `.plan/.active-plan.json` と `CODEX_HOME/pov-review-settings.json` を読み込む。Planner/Reviserは前掲のCodex role mappingと一致するときだけこのセッションで実行し、必要なroleが未設定・不正なら推測やfallbackをせず停止する。Reviewer/review modeは既存のglobal reviewer設定から取得する。
+   - 計画candidateは一時領域で作成し、`apply_plan_candidate` に工程開始時の `expected_file_identity` とSHA-256を渡して反映する。監査追記eventとチェックポイント保存の両方に直前のidentityとSHA-256を渡す（いずれも必須）。各成功後に返された新しいidentityとHashを次工程へ引き継ぐ。チェックポイント保存時の `plan_revision` はチェックポイント領域を除く計画本文・監査履歴のSHA-256とし、再開時に `verify_plan_resumption` がrepo、path、revision、file identity、Findingをすべて検証しない場合は停止する。
    - `active_plan_path` が未設定、または指定されたファイルが存在しない場合、**即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED: Poverello GUI の Autocode 画面から作業対象のプランファイルを指定または新規作成してください。` と出力して停止する**。
    - 計画書ファイルを読み込み、そのSHA-256ダイジェストを記録する。以降のすべてのフェーズ（計画作成、レビュー判定、是正）の更新は、直前フェーズのSHA-256ダイジェストを `expected_sha256` として指定した `append_plan_audit_trail` による CAS（Compare-And-Swap）更新を用いて、正本計画書の `## 5. Execution History & Audit Trail` へ順次追記する。
    - 計画レビュー担当Reviewerは `plan_reviewers`（未設定時は `build_reviewers` または `review_mode` を継承）に基づいて解決し、4区分に従ってレビュー工程を実行する：

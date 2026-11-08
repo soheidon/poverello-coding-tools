@@ -5,6 +5,7 @@
 > **v0.26.0:** Ergänzt Codex Autocode, Codex Skills & Rules und gemeinsame CLI Tools. Gemini ist optional und standardmäßig deaktiviert; Aktivierung unter Settings > CLI Tools wählt es nicht aus und startet keine Review. Installations- und Authentifizierungsstatus sind getrennt. Node.js/npm werden erkannt, aber nicht automatisch installiert. Auto-Converge bleibt verborgen, Produktions-Dispatch deaktiviert und Stage-2-Isolierung unverifiziert.
 > **v0.26.1:** Nicht-interaktive CLI- und Node.js/npm-Statusprüfungen öffnen keine Konsolenfenster und verwenden beim Tabwechsel kurzlebige Cache-Ergebnisse erneut. Windows-Prozessinitialisierungsfehler wie `0xC0000142` werden ausdrücklich gemeldet; ein vom Benutzer gestarteter Login bleibt interaktiv.
 > **v0.26.2:** Codex Autocode trennt Codex' Arbeit in der aktuellen Sitzung von externen Reviewern. Der Prioritäts-Reviewer entscheidet nur bei widersprüchlichen gültigen Urteilen. Die Headless-Konfiguration und Tool-Beschränkungen des DeepSeek Harness belegen keine von Windows erzwungene Datei- oder Netzwerkisolation. Diagnoseprotokolle und sichere Updates historischer Skill-Vorlagen sind verfügbar.
+> **v0.27.0:** Ergänzt die repositorybezogene Auswahl eines Active Plans, separate Planner-/Reviser-Zuweisungen pro Oberfläche und eine Checkpoint-Fortsetzung mit strikter Identitäts- und Finding-Prüfung. Ergänzt Tencent-Hy4-Katalog- und Preismetadaten für OpenRouter; Antigravity-Nerf-Einstellungen werden in der GUI verwaltet und frühere Slash-Befehle eingestellt. Automatische App-Updates sind nicht aktiviert.
 
 ## Überblick
 
@@ -101,7 +102,7 @@ Ein schlankes Proxy- + GUI-Verwaltungstool, das Claude Desktop / Claude Code API
 - **Normalisierte Nutzung und Finanzkosten im Orchestrator**: Unterstützte Nutzungsfelder (`input_tokens`, `output_tokens`, `raw_total_tokens`, `cache_read_tokens`, `cache_write_tokens`) werden in RunJournal und Audit protokolliert; fehlende/ungültige Werte bleiben unbekannt, und Cache-Erstellung wird als `cacheWriteTokens` serialisiert. Kosten werden derzeit nur für qualifizierte Planner–Reviewer-Dispatches mit Anthropic Direct Opus 5.5/Sonnet 5.5 und explizit null Cache-Buckets geschätzt; andere Fälle sind nicht bepreist, nicht kostenlos. Geldbeträge verwenden ganzzahlige Nano-Dollar (`amount_nanos: u64`), als Dezimalstrings serialisiert; Fließkommaarithmetik ist ausgeschlossen. Raten werden exakt nach Schedule-ID, Anbieter, Modell und Währung geprüft; unbekannte oder abweichende Raten führen fail-closed zu „unpriced“. `RunCostSummary` kennt `Complete`, `Partial` und `Unavailable`; `list_journals()` berechnet Summen bei jedem Lesen aus unveränderlichen Dispatch-Datensätzen neu.
 ### GUI-Verwaltungstool
 
-Tauri v2 + React 19 + TypeScript. Obere Navigation: Gateway (Dashboard), MCP, Antigravity Autocode und Settings. Antigravity Autocode enthält External Review und Customize Coding Settings. Settings enthält General, Claude Desktop, Antigravity MCP und Antigravity Skills & Rules (Workflow Commands, Task Presets, Global Rules und Nerf-Skills). Orchestrator und Auto-Converge bleiben in der normalen Navigation ausgeblendet; interne Zustände und Routen bleiben erhalten. Codex Autocode konfiguriert Reviewer für Codex Workflow Skills. Settings enthält außerdem CLI Tools und Codex Skills & Rules zur Verwaltung der drei Codex Skills und des Poverello-Abschnitts in CODEX_HOME/AGENTS.md.
+Tauri v2 + React 19 + TypeScript. Obere Navigation: Gateway (Dashboard), MCP, Antigravity Autocode, Codex Autocode und Settings. Antigravity Autocode enthält External Review und Nerf-Coding-Einstellungen; Codex Autocode konfiguriert Reviewer für Codex Workflow Skills. Settings enthält General, CLI Tools, Claude Desktop, Antigravity MCP, Antigravity Skills & Rules und Codex Skills & Rules. Antigravity Skills & Rules verwaltet Workflow Skills und Global Rules; die früheren Befehle `/pov-nerf-balanced` und `/pov-nerf-lightweight` wurden entfernt. Codex Skills & Rules verwaltet drei Codex Workflow Skills und den Poverello-Abschnitt in CODEX_HOME/AGENTS.md. Orchestrator und Auto-Converge bleiben in der normalen Navigation ausgeblendet; produktiver Dispatch ist deaktiviert und Stage-2-Isolation nicht verifiziert.
 
 ```
 +------------------------------------------+
@@ -131,6 +132,19 @@ Einstellungen (=):
   | config.json-Editor (erweitert)         |
   +---------------------------------------+
 ```
+
+### Aktiver Plan und Workflow-Rollen
+
+- Pro Repository wird eine Active-Plan-Datei ausgewählt, die Codex Autocode und Antigravity Autocode gemeinsam verwenden. Planner und Reviser werden getrennt je Autocode-Oberfläche gespeichert; Reviewer-Auswahl bleibt in den vorhandenen Reviewer-Richtlinieneinstellungen.
+- Workflow Skills lesen die Rollenzuweisungen ihrer Oberfläche. Fehlt eine erforderliche Rolle, wird sie nicht unterstützt oder ist sie nicht verfügbar, stoppt der Workflow ohne stillen Rollenwechsel. Eine Rollenzuweisung startet keinen Agenten und umgeht keine Reviewer-Sicherheitsprüfungen.
+- Checkpoints im Active Plan speichern Workflow-Status, abgeschlossene Arbeiten, geänderte Dateien, Validierung, Review-Status und nächste Aktion. Vor dem Fortsetzen prüft Poverello Repository-Identität, Active-Plan-Pfad, Planrevision und Dateiidentität, ungelöste Findings sowie den Zustand geänderter Dateien. Bei Abweichungen wird die Fortsetzung blockiert.
+- Plan-Kandidaten, Audit-Ergänzungen und Checkpoint-Speicherungen verwenden CAS mit erwarteter Dateiidentität und SHA-256. Relevante IPC-Befehle sind `apply_plan_candidate`, `append_plan_audit_trail`, `save_plan_checkpoint`, `get_plan_checkpoint` und `verify_plan_resumption`.
+
+### Tencent Hy4 und Antigravity-Nerf-Einstellungen
+
+- Der ausgewählte OpenRouter-Katalog enthält `tencent/hy4` mit einem Kontextfenster von 1.048.576 Tokens, Bildunterstützung per URL/base64 und Thinking-/High-Steuerung. Das integrierte Profil `OpenRouter: Tencent` verwendet Hy4 standardmäßig für die Opus-Route; die General-Preistabelle zeigt einen Referenzstand vom 2026-11-08.
+- Nerf-Einstellungen werden in Antigravity Autocode verwaltet. Die bisherigen Befehle `/pov-nerf-balanced` und `/pov-nerf-lightweight` sind eingestellt.
+- Automatische App-Updates sind in v0.27.0 nicht konfiguriert; signierte Update-Artefakte und ein Produktionsschlüssel fehlen.
 
 ### Tauri-Befehle
 

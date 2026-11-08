@@ -5,6 +5,7 @@
 > **v0.26.0 :** Ajoute Codex Autocode, Codex Skills & Rules et les CLI Tools partagés. Gemini est facultatif et désactivé par défaut ; l’activer dans Settings > CLI Tools ne le sélectionne pas et ne lance aucune revue. Les états d’installation et d’authentification sont séparés. Node.js/npm sont détectés, mais non installés automatiquement. Auto-Converge reste masqué, le dispatch désactivé et Stage 2 non vérifiée.
 > **v0.26.1 :** Les vérifications non interactives des CLI et de Node.js/npm n’ouvrent pas de fenêtre de console et réutilisent des résultats en cache de courte durée lors du changement d’onglet. Les erreurs d’initialisation de processus Windows, dont `0xC0000142`, sont signalées explicitement ; la connexion lancée par l’utilisateur reste interactive.
 > **v0.26.2 :** Codex Autocode distingue le travail de Codex dans la session actuelle des réviseurs externes. Le réviseur prioritaire ne tranche qu’entre des verdicts valides contradictoires. La configuration headless et les restrictions d’outils de DeepSeek Harness ne prouvent pas une isolation des fichiers ou du réseau imposée par Windows. Des diagnostics et des mises à jour protégées des modèles historiques de Skills sont disponibles.
+> **v0.27.0 :** Ajoute la sélection d’un plan actif par dépôt, l’attribution des rôles Planner / Reviser par interface et la reprise par point de contrôle avec vérification stricte des identités et constats non résolus. Ajoute le catalogue et les métadonnées tarifaires de Tencent Hy4 sur OpenRouter ; les paramètres Nerf d’Antigravity passent dans l’interface graphique et les anciennes commandes slash sont retirées. La mise à jour automatique de l’application n’est pas activée.
 
 ## Aperçu
 
@@ -101,7 +102,7 @@ Un outil léger de proxy + gestion GUI qui route les requêtes API de Claude Des
 - **Usage normalisé et moteur financier de coûts Orchestrator** : Les champs d’usage pris en charge (`input_tokens`, `output_tokens`, `raw_total_tokens`, `cache_read_tokens`, `cache_write_tokens`) sont enregistrés dans RunJournal et les audits ; les données absentes ou invalides restent inconnues et l’écriture de cache est sérialisée sous `cacheWriteTokens`. L’estimation actuelle ne couvre que les dispatches Planner–Reviewer admissibles avec Anthropic Direct Opus 5.5/Sonnet 5.5 et des compartiments de cache explicitement à zéro ; les autres cas sont non tarifés, pas gratuits. Montants en nanodollars entiers (`amount_nanos: u64`) sérialisés en chaînes décimales, sans calcul flottant. Vérification exacte de l’ID de tarif, du fournisseur, du modèle et de la devise ; toute incohérence échoue de manière fermée en « unpriced ». `RunCostSummary` est `Complete`, `Partial` ou `Unavailable` ; `list_journals()` recalcule les totaux à chaque lecture depuis les enregistrements de dispatch immuables.
 ### Outil de gestion GUI
 
-Tauri v2 + React 19 + TypeScript. Navigation supérieure : Gateway (Dashboard), MCP, Antigravity Autocode et Settings. Antigravity Autocode regroupe External Review et Customize Coding Settings. Settings contient General, Claude Desktop, Antigravity MCP et Antigravity Skills & Rules (Workflow Commands, Task Presets, Global Rules et Nerf Skills). Orchestrator et Auto-Converge restent masqués dans la navigation normale ; les états et routes internes sont conservés. Codex Autocode configure les reviewers des Codex Workflow Skills. Settings comprend aussi CLI Tools et Codex Skills & Rules pour gérer les trois Skills Codex et la section Poverello dans CODEX_HOME/AGENTS.md.
+Tauri v2 + React 19 + TypeScript. Navigation supérieure : Gateway (Dashboard), MCP, Antigravity Autocode, Codex Autocode et Settings. Antigravity Autocode regroupe External Review et les paramètres de codage Nerf ; Codex Autocode configure les reviewers des Codex Workflow Skills. Settings contient General, CLI Tools, Claude Desktop, Antigravity MCP, Antigravity Skills & Rules et Codex Skills & Rules. Antigravity Skills & Rules gère les Workflow Skills et les Global Rules ; les anciennes commandes `/pov-nerf-balanced` et `/pov-nerf-lightweight` sont retirées. Codex Skills & Rules gère les trois Codex Workflow Skills et la section Poverello dans CODEX_HOME/AGENTS.md. Orchestrator et Auto-Converge restent masqués dans la navigation normale ; le dispatch de production est désactivé et l’isolation Stage 2 n’est pas vérifiée.
 
 ```
 +------------------------------------------+
@@ -131,6 +132,19 @@ Paramètres (=):
   | Éditeur config.json (avancé)          |
   +---------------------------------------+
 ```
+
+### Plan actif et rôles du workflow
+
+- Un fichier Active Plan est sélectionné par dépôt et partagé entre Codex Autocode et Antigravity Autocode. Les rôles Planner et Reviser sont enregistrés séparément pour chaque interface ; la sélection des réviseurs reste dans les paramètres de revue existants.
+- Les Workflow Skills lisent les rôles de leur interface. Si un rôle requis est absent, non pris en charge ou indisponible, le workflow s’arrête sans basculer implicitement vers un autre rôle. L’attribution d’un rôle ne lance pas d’agent et ne contourne pas les contrôles de sécurité des réviseurs.
+- Les points de contrôle enregistrés dans l’Active Plan contiennent l’état du workflow, le travail terminé, les fichiers modifiés, la validation, l’état de revue et l’action suivante. Avant toute reprise, le système vérifie l’identité du dépôt, le chemin du plan actif, sa révision et son identité de fichier, les constats non résolus et l’état des fichiers modifiés ; toute incohérence bloque la reprise.
+- Les mises à jour de plan candidat, ajouts au journal d’audit et sauvegardes de points de contrôle utilisent un CAS vérifiant l’identité de fichier et le SHA-256 attendus. Les commandes IPC concernées comprennent `apply_plan_candidate`, `append_plan_audit_trail`, `save_plan_checkpoint`, `get_plan_checkpoint` et `verify_plan_resumption`.
+
+### Tencent Hy4 et paramètres Nerf d’Antigravity
+
+- Le catalogue OpenRouter sélectionné inclut `tencent/hy4`, avec une fenêtre de contexte de 1 048 576 tokens, la prise en charge des images par URL/base64 et le contrôle Thinking / High. Le profil intégré `OpenRouter: Tencent` utilise Hy4 par défaut pour la route Opus ; le tableau General affiche un instantané tarifaire de référence daté du 2026-11-08.
+- Les paramètres Nerf se gèrent dans Antigravity Autocode. Les anciennes commandes `/pov-nerf-balanced` et `/pov-nerf-lightweight` sont retirées.
+- La mise à jour automatique n’est pas configurée dans v0.27.0 ; les artefacts signés et la clé de production ne sont pas inclus.
 
 ### Commandes Tauri
 

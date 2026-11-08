@@ -118,6 +118,12 @@ OpenRouter acts as a multi-profile gateway supporting hundreds of upstream model
 - **OpenAI**: GPT-6.1 Sol / Sol Pro, GPT-6.1 Terra / Terra Pro, GPT-6 Sol / Sol Pro, GPT-6 Luna / Luna Pro, GPT-6 Astra / Astra Pro, GPT Astra Latest, and GPT-5.6 Sol / Sol Pro, Terra / Terra Pro, Luna / Luna Pro. Reasoning options are model-specific and follow the shared catalog; GPT-6 Astra Pro uses always-on Pro reasoning without a selectable effort value.
 - **Google**: Gemini 3.1 Pro Preview and Gemini 3.7 Flash.
 
+### Tencent model catalog
+
+The curated Tencent entries are `tencent/hy4`, `tencent/hy4-preview`, and `tencent/hy3`. The built-in profile is named **OpenRouter: Tencent** and routes the Opus model to `tencent/hy4` by default; users can select another supported model in the profile. Hy4 has a 1,048,576-token context window, image URL and base64 support, and a Thinking control with High reasoning. Hy4 Preview and Hy3 have separate capability and context metadata in the catalog.
+
+The General pricing table's Hy4 snapshot was updated on 2026-11-08. It displays campaign reference rates of $0.417 input, $1.251 output, and $0.021 cached input per million tokens, with regular reference rates of $0.834, $2.501, and $0.042 respectively. Promotional eligibility, upstream routing, cache accounting, and billed amounts are determined by OpenRouter and may differ from this bundled snapshot.
+
 ---
 
 ## 5. Response Model Normalization

@@ -118,7 +118,7 @@ Poverello では、プランナーの選択と詳細設定の役割が明確に�
    - MCP サーバー登録状態、対象実行ファイル、および MCP Commands（`/pov-mcp-plan`、`/pov-mcp-revise`、`/pov-mcp-review`）を管理します。
    - **すべてインストール** (`antigravity.btnInstallAll`) をクリックすると、ワークフロースキルに干渉せず MCP Skill 3 件のみを一括インストールします。
 2. **トップレベルの `Antigravity Autocode` タブ**: External ReviewのポリシーとCodex CLI / DeepSeek Harnessの設定を行います。Codexのアカウント識別、認証方式・状態、設定profileは別々に表示し、識別できないアカウントは推測しません。
-3. **設定 > Antigravity Skills & Rules**: PoverelloのAntigravity Workflow Skill 3件をインストール・修復します（修復は確認後に実行しバックアップを保持）。Task Presets、標準Global Rules、Nerf Skillsも管理します。共通CLI Toolsは**設定 > CLI Tools**にあります。
+3. **設定 > Antigravity Skills & Rules**: PoverelloのAntigravity Workflow Skill 3件をインストール・修復します（修復は確認後に実行しバックアップを保持）。標準Global Rulesも管理します。Nerf設定は**Antigravity Autocode**で管理し、旧Nerfスラッシュコマンドは廃止しました。共通CLI Toolsは**設定 > CLI Tools**にあります。
 > [!NOTE]
 > Poverello MCP サーバーは、各 `plan()` ツールの呼び出し時に現在の設定を動的に読み込みます。GUI でプロバイダーやモデル設定を変更した場合でも、MCP サーバーや Antigravity を再起動する必要はありません。
 

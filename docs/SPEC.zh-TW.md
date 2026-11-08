@@ -5,6 +5,7 @@
 > **v0.26.0：** 新增 Codex Autocode、Codex Skills & Rules 與共用 CLI Tools。Gemini 預設關閉；在 Settings > CLI Tools 啟用不會自動選取或啟動審查。安裝與驗證狀態分開。偵測 Node.js/npm，但不會自動安裝。Auto-Converge 仍隱藏，Production dispatch 已停用，Stage 2 隔離未驗證。
 > **v0.26.1：** 非互動式 CLI 與 Node.js/npm 狀態檢查不會開啟主控台視窗，並在切換分頁時重用短效快取結果。Windows 程序初始化錯誤（包含 `0xC0000142`）會明確回報；使用者主動啟動的登入仍使用互動式終端機。
 > **v0.26.2：** Codex Autocode 區分 Codex 在目前工作階段中的工作與外部審查器。優先審查器僅裁決有效判定之間的分歧。DeepSeek Harness 的 headless 設定與工具限制無法證明 Windows 作業系統層級的檔案系統或網路隔離。新增診斷記錄與歷史 Skill 範本的安全更新。
+> **v0.27.0：** 新增依儲存庫選取 Active Plan、依介面指派 Planner / Reviser，以及在恢復前嚴格檢查身分與未解決問題的檢查點機制。新增 OpenRouter Tencent Hy4 模型與價格中繼資料；Antigravity Nerf 設定集中於 GUI，並停用舊斜線指令。尚未啟用應用程式自動更新。
 
 ## 概述
 
@@ -101,7 +102,7 @@
 - **Orchestrator 正規化用量與成本引擎**：支援時會將 `input_tokens`、`output_tokens`、`raw_total_tokens`、`cache_read_tokens`、`cache_write_tokens` 寫入 RunJournal 與稽核記錄；缺少或無效的值維持未知，快取建立量序列化為 `cacheWriteTokens`。目前僅估算符合條件且快取桶明確為零的 Anthropic Direct Opus 5.5/Sonnet 5.5 Planner–Reviewer dispatch；其他情況為未定價，不代表零成本。金額以整數奈美元（`amount_nanos: u64`）計算並序列化為十進位字串，禁止浮點運算。嚴格核對費率表 ID、提供者、模型與幣別；未知或不符時 fail-closed 並標示未定價。`RunCostSummary` 狀態為 `Complete`、`Partial` 或 `Unavailable`；`list_journals()` 每次讀取都會依不可變 dispatch 紀錄重新彙總。
 ### GUI 管理工具
 
-Tauri v2 + React 19 + TypeScript。頂層導覽包含 Gateway（儀表板）、MCP、Antigravity Autocode 與 Settings。Antigravity Autocode 包含 External Review 與 Customize Coding Settings。Settings 包含 General、Claude Desktop、Antigravity MCP 以及 Antigravity Skills & Rules（Workflow Commands、Task Presets、Global Rules 與 Nerf Skills）。Orchestrator 和 Auto-Converge 在一般導覽中維持隱藏；內部狀態與路由予以保留。 Codex Autocode 用來設定 Codex Workflow Skills 的審查器。Settings 也新增 CLI Tools 與 Codex Skills & Rules，用來管理三個 Codex Skill 及 CODEX_HOME/AGENTS.md 中由 Poverello 管理的區域。
+Tauri v2 + React 19 + TypeScript。頂層導覽包含 Gateway（儀表板）、MCP、Antigravity Autocode、Codex Autocode 與 Settings。Antigravity Autocode 包含 External Review 與 Nerf 編碼設定；Codex Autocode 用來設定 Codex Workflow Skills 的審查器。Settings 包含 General、CLI Tools、Claude Desktop、Antigravity MCP、Antigravity Skills & Rules 與 Codex Skills & Rules。Antigravity Skills & Rules 管理 Workflow Skills 與 Global Rules；舊指令 `/pov-nerf-balanced` 和 `/pov-nerf-lightweight` 已停用。Codex Skills & Rules 管理三個 Codex Workflow Skills 及 CODEX_HOME/AGENTS.md 中由 Poverello 管理的區域。Orchestrator 和 Auto-Converge 在一般導覽中維持隱藏；正式環境 dispatch 已停用，Stage 2 隔離尚未驗證。
 
 ```
 +------------------------------------------+
@@ -131,6 +132,19 @@ Tauri v2 + React 19 + TypeScript。頂層導覽包含 Gateway（儀表板）、M
   | config.json 編輯器（進階）             |
   +---------------------------------------+
 ```
+
+### Active Plan 與工作流程角色管理
+
+- 每個儲存庫選擇一個 Active Plan 檔案，供 Codex Autocode 與 Antigravity Autocode 共用。Planner 與 Reviser 依 Autocode 介面分別儲存；審查器選擇仍使用既有審查策略設定。
+- Workflow Skills 會讀取各介面的角色指派。必要角色缺漏、不受支援或無法使用時，工作流程會停止，不會暗中切換角色。角色指派本身不會啟動代理，也不會繞過審查安全閘門。
+- 檢查點儲存在 Active Plan 中，記錄工作流程狀態、已完成工作、修改檔案、驗證結果、審查狀態與下一步操作。恢復前會驗證儲存庫身分、Active Plan 路徑、計畫 revision 與檔案身分、未解決問題及修改檔案狀態；任何不一致都會安全停止。
+- 計畫候選寫入、稽核追加與檢查點儲存皆使用預期檔案身分與 SHA-256 雙重 CAS。相關 IPC 指令包括 `apply_plan_candidate`、`append_plan_audit_trail`、`save_plan_checkpoint`、`get_plan_checkpoint` 與 `verify_plan_resumption`。
+
+### Tencent Hy4 與 Antigravity Nerf 設定
+
+- OpenRouter 精選目錄新增 `tencent/hy4`，支援 1,048,576-token context、圖片 URL/base64 輸入及 Thinking / High 推理設定。內建 `OpenRouter: Tencent` 設定檔預設將 Opus 路由至 Hy4；General 價格表顯示基準日為 2026-11-08 的參考快照。
+- Nerf 設定在 Antigravity Autocode 管理。舊 `/pov-nerf-balanced` 與 `/pov-nerf-lightweight` 指令已停用。
+- v0.27.0 未設定應用程式自動更新，也不含簽章更新產物或正式環境簽章金鑰。
 
 ### Tauri 指令
 

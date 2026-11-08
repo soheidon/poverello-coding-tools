@@ -8,22 +8,26 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:updater": "node --test scripts/generate-updater-manifest.node-test.mjs scripts/verify-updater-signature.node-test.mjs scripts/verify-updater-manifest.node-test.mjs",
     "tauri": "cross-env ANTHRO_BRIDGE_CHANNEL=dev tauri",
     "tauri:dev": "cross-env ANTHRO_BRIDGE_CHANNEL=dev tauri dev",
     "tauri:build:dev": "cross-env ANTHRO_BRIDGE_CHANNEL=dev tauri build --config src-tauri/tauri.dev.conf.json",
-    "tauri:build:stable:raw": "cross-env ANTHRO_BRIDGE_CHANNEL=stable tauri build",
-    "tauri:build:stable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-nsis.ps1"
+    "tauri:build:stable:raw": "cross-env ANTHRO_BRIDGE_CHANNEL=stable PCT_UPDATER_BUILD_MODE=stable tauri build",
+    "tauri:build:staging:raw": "cross-env ANTHRO_BRIDGE_CHANNEL=dev PCT_UPDATER_BUILD_MODE=staging tauri build",
+    "tauri:build:stable": "cross-env ANTHRO_BRIDGE_CHANNEL=stable PCT_UPDATER_BUILD_MODE=stable powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-nsis.ps1 -BuildMode Stable -RequireUpdaterSigning",
+    "tauri:build:staging": "cross-env ANTHRO_BRIDGE_CHANNEL=dev PCT_UPDATER_BUILD_MODE=staging powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-nsis.ps1 -BuildMode Staging -RequireUpdaterSigning"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-updater": "^2.14.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
+    "@tauri-apps/cli": "^2.12.4",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

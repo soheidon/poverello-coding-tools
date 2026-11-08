@@ -309,19 +309,16 @@ export default function CodexAutocodePanel({ onNavigateToCliTools: _unused }: Co
       reviserRole,
       planReviewers,
     }: {
-      plannerRole?: string;
-      reviserRole?: string;
+      plannerRole?: string | null;
+      reviserRole?: string | null;
       planReviewers?: string[] | null;
     }) => {
       if (!reviewSettings) return;
-      const normalizedPlanner = plannerRole !== undefined ? (plannerRole || "codex_session") : (reviewSettings.planner_role || "codex_session");
-      const normalizedReviser = reviserRole !== undefined ? (reviserRole || "codex_session") : (reviewSettings.reviser_role || "codex_session");
+      if (plannerRole !== undefined || reviserRole !== undefined) return;
       const nextPlanReviewers = planReviewers !== undefined ? planReviewers : (reviewSettings.plan_reviewers ?? null);
 
       const updated: CodexReviewSettings = {
         ...reviewSettings,
-        planner_role: normalizedPlanner,
-        reviser_role: normalizedReviser,
         plan_reviewers: nextPlanReviewers,
       };
       queueSaveReviewSettings(updated);
@@ -337,8 +334,6 @@ export default function CodexAutocodePanel({ onNavigateToCliTools: _unused }: Co
           embedded
           surface="codex"
           activePlanPath={reviewSettings?.active_plan_path}
-          plannerRole={reviewSettings?.planner_role}
-          reviserRole={reviewSettings?.reviser_role}
           planReviewers={reviewSettings?.plan_reviewers}
           onActivePlanChanged={handleActivePlanChanged}
           onRolesChanged={handleRolesChanged}

@@ -9,7 +9,7 @@ Poverello Coding Tools（应用内显示名称为 **Poverello**）是一款面�
 1. **面向 Claude Code / Claude Desktop 的第三方推理网关** — 保留 Claude 的代码仓库探索、工具调用、文件编辑和测试执行能力，同时将推理请求路由至第三方提供商。
 2. **Claude Code 专用本地 LLM（Ollama）** — 使用本地模型离线运行 Claude Code，零 API 成本。
 3. **面向 Google Antigravity 的 MCP 规划器与审查器** — 通过 `poverello/plan`、`poverello/revise` 和 `poverello/review` MCP 工具，将实现规划、计划修订和实现后审查委托给外部模型。
-4. **Antigravity Autocode 与 Skills & Rules** — 在 Antigravity Autocode 标签页配置外部审查和编码行为；在 Settings > Antigravity Skills & Rules 中管理 Antigravity Workflow Skills、Task Presets、Global Rules 和 Nerf Skills。共享 CLI Tools 在 Settings > CLI Tools 中单独管理。
+4. **Antigravity Autocode 与 Skills & Rules** — 在 Antigravity Autocode 中配置外部审查、编码行为和 Nerf 设置；在 Settings > Antigravity Skills & Rules 中管理 Workflow Skills 与 Global Rules。
 5. **Codex Autocode 与 Skills & Rules** — 在 Codex Autocode 中配置 Codex Workflow Skills 的审查器；在 Settings > Codex Skills & Rules 中管理三个原生 Codex Skill 和由 Poverello 管理的 AGENTS.md 区域。共享 CLI Tools 在 Settings 中单独管理。
 
 > [!TIP]
@@ -90,18 +90,17 @@ Antigravity 的规范命令为 `/pov-mcp-plan`、`/pov-mcp-revise` 和 `/pov-mcp
 ```text
 Antigravity Autocode tab
   • External Review policy / reviewer configuration
-  • Customize Coding Settings / Direct Coding
+  • Antigravity Nerf Settings / Direct Coding
 
 Settings > Antigravity Skills & Rules
   • Workflow Commands / repair
-  • Task Presets
-  • Global Rules / Nerf skills
+  • Global Rules
 
 Settings > CLI Tools
   • Shared Node.js / npm and CLI management
 ```
 
-- External Review 和 Customize Coding Settings 在 Antigravity Autocode 中配置。Settings > Antigravity Skills & Rules 管理 Antigravity Workflow Skills、Task Presets、Global Rules 和 Nerf Skills；共享 CLI Tools 有独立的 Settings 页面。
+- External Review 和 Nerf 设置在 Antigravity Autocode 中配置。Settings > Antigravity Skills & Rules 管理 Workflow Skills 与 Global Rules；共享 CLI Tools 在 Settings > CLI Tools 中管理。
 ### 5. Codex Autocode 与 Skills & Rules
 
 在 Settings > Codex Skills & Rules 中管理 Codex Workflow Skills（/pov-plan-only、/pov-build-review、/pov-full-cycle），并在 Codex Autocode 中选择审查器和优先审查器。Poverello 只修改 CODEX_HOME/AGENTS.md 中带标记的管理区域，并保留其他用户指令。
@@ -160,15 +159,24 @@ Windows 安装程序支持 8 种语言。Poverello 保留现有应用标识，�
 4. 请参阅完整的 [Antigravity MCP 配置指南](ANTIGRAVITY_MCP.zh-CN.md)。
 
 ### 工作流 4：Antigravity Autocode 与 Skills & Rules
-1. 在 **Antigravity Autocode** 中配置 External Review 和 Customize Coding Settings。所选策略控制工作流 Skill 是否调用审查器。
-2. 在 **Settings > Antigravity Skills & Rules** 中管理 Antigravity Workflow Skills、Task Presets、Global Rules 和 Nerf Skills。修复 Skill 需要确认并保留备份。共享 CLI Tools 在 **Settings > CLI Tools** 中管理。
+1. 在 **Antigravity Autocode** 中配置 External Review 和 Antigravity Nerf Settings。所选策略控制工作流 Skill 是否调用审查器。
+2. 在 **Settings > Antigravity Skills & Rules** 中管理 Antigravity Workflow Skills 和 Global Rules。修复 Skill 需要确认并保留备份。Nerf 设置位于 Antigravity Autocode。共享 CLI Tools 在 **Settings > CLI Tools** 中管理。
 3. Auto-Converge 仍隐藏，生产 dispatch 禁用，Stage 2 隔离未验证。
 ### 工作流 5：Codex Autocode 与 Skills & Rules
 1. 在 Settings > CLI Tools 中检查 Node.js/npm 和 CLI 状态。Poverello 不会自动安装 Node.js。
 2. 在 Settings > Codex Skills & Rules 中管理 /pov-plan-only、/pov-build-review、/pov-full-cycle，以及 CODEX_HOME/AGENTS.md 中由 Poverello 管理的区域。
 3. 在 Codex Autocode 中选择审查器和优先审查器。只有在 Settings > CLI Tools 中启用 Gemini CLI 后，它才会显示；启用不会自动选择它。Windows 只读 sandbox 未验证时，Gemini 审查不可用。
 
+## v0.27.0 更新重点
+
+- **Active Plan 与角色分配：** 每个仓库可选择一个计划文件，并分别为 Codex Autocode 与 Antigravity Autocode 指定 Planner / Reviser。Workflow Skills 会读取这些分配；必要角色未设置或不受支持时会停止，不会静默改用其他角色。
+- **检查点恢复：** 工作流进度保存在 Active Plan 中。恢复前会检查仓库与计划文件身份、计划 revision、未解决的审查问题以及已修改文件状态。检查不通过时工作流会停止。
+- **Tencent Hy4：** OpenRouter 内置配置文件名称为 **OpenRouter: Tencent**，并加入支持图像输入和 Thinking 设置的 `tencent/hy4`。Settings > General 价格表显示带基准日期的参考价格；实际费用可能不同。
+- **Antigravity Nerf 设置：** Nerf 设置在 Antigravity Autocode 中管理。旧的 `/pov-nerf-balanced` 和 `/pov-nerf-lightweight` 斜杠命令已停用。
+- **应用更新：** 尚未启用自动更新。安装程序请从已发布的 Releases 页面获取。
 ## 文档
+- [供应商详情与推理控制](PROVIDERS.md)
+
 
 - [发行说明 (NEWS.md)](../NEWS.md) — 各版本功能与实现细节
 - [Claude Desktop / Cowork 第三方推理网关配置](THIRD_PARTY_INFERENCE.md)

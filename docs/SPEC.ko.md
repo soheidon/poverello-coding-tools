@@ -5,6 +5,7 @@
 > **v0.26.0:** Codex Autocode, Codex Skills & Rules 및 공용 CLI Tools를 추가했습니다. Gemini는 기본 비활성화된 선택 리뷰어이며 Settings > CLI Tools에서 활성화해도 선택되거나 실행되지 않습니다. 설치와 인증 상태는 분리됩니다. Node.js/npm은 감지하지만 자동 설치하지 않습니다. Auto-Converge는 숨김, production dispatch 비활성화, Stage 2 미검증 상태입니다.
 > **v0.26.1:** 비대화형 CLI 및 Node.js/npm 상태 확인은 콘솔 창을 열지 않으며 탭 전환 시 짧은 캐시 결과를 재사용합니다. `0xC0000142`를 포함한 Windows 프로세스 초기화 오류를 명시적으로 보고하고, 사용자가 요청한 로그인은 계속 대화형으로 실행합니다.
 > **v0.26.2:** Codex Autocode는 현재 세션에서 Codex가 수행하는 작업과 외부 리뷰어를 구분합니다. 우선 리뷰어는 유효한 판정이 서로 다를 때만 판정하며, DeepSeek Harness의 headless 설정과 도구 제한은 Windows OS 수준의 파일 시스템·네트워크 격리를 증명하지 않습니다. 진단 로그와 과거 Skill 템플릿의 안전한 업데이트를 제공합니다.
+> **v0.27.0:** 저장소별 Active Plan 선택, 화면별 Planner / Reviser 지정, 재개 전에 식별 정보와 미해결 문제를 fail-closed 방식으로 검사하는 체크포인트 기능을 추가합니다. OpenRouter Tencent Hy4 모델 및 가격 메타데이터를 추가하고 Antigravity Nerf 설정을 GUI로 통합하며 기존 슬래시 명령을 종료합니다. 앱 자동 업데이트는 활성화되어 있지 않습니다.
 
 ## 개요
 
@@ -101,7 +102,7 @@
 - **Orchestrator 정규화 사용량 및 비용 엔진**: 지원되는 사용량 필드(`input_tokens`, `output_tokens`, `raw_total_tokens`, `cache_read_tokens`, `cache_write_tokens`)를 RunJournal 및 감사 기록에 저장합니다. 누락되거나 잘못된 값은 미상으로 유지하고 캐시 생성량은 `cacheWriteTokens`로 직렬화합니다. 현재 비용 추정은 캐시 버킷이 명시적으로 0인 적격 Anthropic Direct Opus 5.5/Sonnet 5.5 Planner–Reviewer 디스패치에만 적용되며, 다른 경우는 무료가 아니라 미산정입니다. 금액은 정수 나노달러(`amount_nanos: u64`)로 계산해 10진 문자열로 직렬화하고 부동소수점 연산은 사용하지 않습니다. 요금표 ID・제공자・모델・통화를 정확히 검증하고, 불일치는 fail-closed로 미산정 처리합니다. `RunCostSummary`는 `Complete`/`Partial`/`Unavailable`이며 `list_journals()`는 읽을 때마다 불변 디스패치 기록에서 다시 집계합니다.
 ### GUI 관리 도구
 
-Tauri v2 + React 19 + TypeScript. 상단 탐색: Gateway (Dashboard), MCP, Antigravity Autocode, Settings. Antigravity Autocode에는 External Review와 Customize Coding Settings가 있습니다. Settings에는 General, Claude Desktop, Antigravity MCP, Antigravity Skills & Rules(Workflow Commands, Task Presets, Global Rules, Nerf Skills)가 있습니다. Orchestrator와 Auto-Converge는 일반 탐색에서 계속 숨겨져 있으며 내부 상태와 경로는 유지됩니다. Codex Autocode는 Codex Workflow Skills의 리뷰어를 설정합니다. Settings에는 CLI Tools와 Codex Skills & Rules도 추가되어 세 가지 Codex Skill과 CODEX_HOME/AGENTS.md의 Poverello 관리 영역을 관리합니다.
+Tauri v2 + React 19 + TypeScript. 상단 탐색: Gateway (Dashboard), MCP, Antigravity Autocode, Codex Autocode, Settings. Antigravity Autocode에는 External Review와 Nerf 코딩 설정이 있고, Codex Autocode는 Codex Workflow Skills의 리뷰어를 설정합니다. Settings에는 General, CLI Tools, Claude Desktop, Antigravity MCP, Antigravity Skills & Rules, Codex Skills & Rules가 있습니다. Antigravity Skills & Rules는 Workflow Skills와 Global Rules를 관리하며, 이전 `/pov-nerf-balanced` 및 `/pov-nerf-lightweight` 명령은 제거되었습니다. Codex Skills & Rules는 세 가지 Codex Workflow Skills와 CODEX_HOME/AGENTS.md의 Poverello 관리 영역을 관리합니다. Orchestrator와 Auto-Converge는 일반 탐색에서 숨겨져 있으며 내부 상태와 경로는 유지됩니다. 프로덕션 dispatch는 비활성화되어 있고 Stage 2 격리는 검증되지 않았습니다.
 
 ```
 +------------------------------------------+
@@ -131,6 +132,19 @@ Tauri v2 + React 19 + TypeScript. 상단 탐색: Gateway (Dashboard), MCP, Antig
   | config.json 편집기 (고급)             |
   +---------------------------------------+
 ```
+
+### Active Plan 및 워크플로 역할 관리
+
+- 저장소마다 Active Plan 파일 하나를 선택해 Codex Autocode와 Antigravity Autocode가 공유합니다. Planner와 Reviser는 Autocode 화면별로 따로 저장하며 리뷰어 선택은 기존 리뷰 정책 설정을 사용합니다.
+- Workflow Skills는 화면별 역할 지정을 읽습니다. 필요한 역할이 없거나 지원되지 않거나 사용할 수 없으면 다른 역할로 암묵적으로 대체하지 않고 중지합니다. 역할 지정만으로 에이전트를 시작하거나 리뷰 안전 게이트를 우회하지 않습니다.
+- 체크포인트는 Active Plan에 워크플로 상태, 완료 작업, 수정 파일, 검증 결과, 리뷰 상태 및 다음 작업을 기록합니다. 재개 전에 저장소 식별 정보, Active Plan 경로, 계획 revision과 파일 식별 정보, 미해결 지적 및 수정 파일 상태를 검증하며 불일치 시 fail-closed로 중지합니다.
+- 계획 후보 반영, 감사 기록 추가 및 체크포인트 저장은 예상 파일 식별 정보와 SHA-256을 모두 사용하는 CAS로 보호됩니다. 관련 IPC 명령은 `apply_plan_candidate`, `append_plan_audit_trail`, `save_plan_checkpoint`, `get_plan_checkpoint`, `verify_plan_resumption`입니다.
+
+### Tencent Hy4 및 Antigravity Nerf 설정
+
+- OpenRouter 선별 카탈로그에 `tencent/hy4`를 추가했습니다. 1,048,576-token 컨텍스트, 이미지 URL/base64 입력, Thinking / High 추론 설정을 지원합니다. 기본 `OpenRouter: Tencent` 프로필은 Opus 경로에 Hy4를 사용하며 General 가격표에는 2026-11-08 기준 참고 가격을 표시합니다.
+- Nerf 설정은 Antigravity Autocode에서 관리합니다. 기존 `/pov-nerf-balanced` 및 `/pov-nerf-lightweight` 명령은 종료되었습니다.
+- v0.27.0에는 앱 자동 업데이트가 구성되어 있지 않으며 서명 업데이트 산출물과 프로덕션 서명 키가 포함되지 않습니다.
 
 ### Tauri 명령
 

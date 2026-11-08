@@ -9,7 +9,7 @@ Poverello Coding Tools (que aparece en la aplicación como **Poverello**) es una
 1. **Gateway 3P para Claude Code / Claude Desktop** — Conserva la exploración de repositorios, el uso de herramientas, la edición de archivos y la ejecución de pruebas de Claude mientras enruta la inferencia a proveedores de terceros.
 2. **LLM local dedicado para Claude Code (Ollama)** — Ejecuta Claude Code sin conexión mediante modelos locales y sin costes de API.
 3. **Planificador y Revisor MCP para Google Antigravity** — Delega la planificación, revisión de planes y revisión de implementaciones a modelos externos mediante las herramientas MCP `poverello/plan`, `poverello/revise` y `poverello/review`.
-4. **Antigravity Autocode y Skills & Rules** — Configure la revisión externa y el comportamiento de codificación en Antigravity Autocode; administre Antigravity Workflow Skills, Task Presets, Global Rules y Nerf Skills en Settings. CLI Tools compartidas tienen una página Settings propia.
+4. **Antigravity Autocode y Skills & Rules** — Configure la revisión externa, el comportamiento de codificación y los ajustes Nerf en Antigravity Autocode; administre Workflow Skills y Global Rules en Settings > Antigravity Skills & Rules.
 5. **Codex Autocode y Skills & Rules** — Configure los revisores de Codex Workflow Skills en Codex Autocode; administre los tres Skills nativos de Codex y la sección de AGENTS.md gestionada por Poverello en Settings. Las CLI compartidas se administran por separado en Settings.
 
 > [!TIP]
@@ -90,18 +90,17 @@ Antigravity Workflow Skills: `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-re
 ```text
 Antigravity Autocode tab
   • External Review policy / reviewer configuration
-  • Customize Coding Settings / Direct Coding
+  • Antigravity Nerf Settings / Direct Coding
 
 Settings > Antigravity Skills & Rules
   • Workflow Commands / repair
-  • Task Presets
-  • Global Rules / Nerf skills
+  • Global Rules
 
 Settings > CLI Tools
   • Shared Node.js / npm and CLI management
 ```
 
-- External Review y Customize Coding Settings se configuran en Antigravity Autocode. Settings > Antigravity Skills & Rules administra Antigravity Workflow Skills, Task Presets, Global Rules y Nerf Skills; CLI Tools compartidas tienen una página propia.
+- External Review y los ajustes Nerf se configuran en Antigravity Autocode. Settings > Antigravity Skills & Rules administra Workflow Skills y Global Rules; las CLI compartidas se administran en Settings > CLI Tools.
 ### 5. Codex Autocode y Skills & Rules
 
 Administre los Codex Workflow Skills (/pov-plan-only, /pov-build-review, /pov-full-cycle) en Settings > Codex Skills & Rules y configure los revisores y el revisor prioritario en Codex Autocode. Poverello modifica solo su sección marcada en CODEX_HOME/AGENTS.md y conserva las instrucciones ajenas.
@@ -160,14 +159,21 @@ El instalador de Windows admite 8 idiomas. Poverello conserva la identidad de ap
 5. Sigue la [Guía Completa de Configuración de MCP para Antigravity](ANTIGRAVITY_MCP.es.md).
 
 ### Flujo de trabajo 4: Antigravity Autocode y Skills & Rules
-1. Configure External Review y Customize Coding Settings en **Antigravity Autocode**. La política seleccionada controla los revisores que invocan los Workflow Skills.
-2. En **Settings > Antigravity Skills & Rules**, administre Antigravity Workflow Skills, Task Presets, Global Rules y Nerf Skills. La reparación de Skills requiere confirmación y conserva una copia de seguridad. Administre las CLI compartidas en **Settings > CLI Tools**.
+1. Configure External Review y Antigravity Nerf Settings en **Antigravity Autocode**. La política seleccionada controla los revisores que invocan los Workflow Skills.
+2. En **Settings > Antigravity Skills & Rules**, administre Antigravity Workflow Skills y Global Rules. La reparación de Skills requiere confirmación y conserva una copia de seguridad. Los ajustes Nerf están en Antigravity Autocode. Administre las CLI compartidas en **Settings > CLI Tools**.
 3. Auto-Converge sigue oculto; el dispatch de producción está desactivado y el aislamiento de Stage 2 no está verificado.
 ### Flujo de trabajo 5: Codex Autocode y Skills & Rules
 1. Compruebe Node.js/npm y el estado de las CLI en Settings > CLI Tools. Poverello no instala Node.js automáticamente.
 2. Administre /pov-plan-only, /pov-build-review, /pov-full-cycle y la sección de Poverello en CODEX_HOME/AGENTS.md en Settings > Codex Skills & Rules.
 3. Elija revisores y revisor prioritario en Codex Autocode. Gemini CLI solo aparece tras habilitarlo en Settings > CLI Tools; habilitarlo no lo selecciona. Sin un sandbox de solo lectura verificado en Windows, Gemini Review no está disponible.
 
+## Novedades de v0.27.0
+
+- **Plan activo y roles:** selecciona un archivo de plan por repositorio y asigna Planner / Reviser por separado para Codex Autocode y Antigravity Autocode. Los Workflow Skills leen estas asignaciones y se detienen si falta un rol requerido o no es compatible; no cambian de rol silenciosamente.
+- **Reanudación con puntos de control:** el progreso del flujo se guarda en el plan activo. Antes de reanudar, Poverello verifica la identidad del repositorio y del plan, la revisión del plan, los hallazgos de revisión pendientes y el estado de los archivos modificados. Si una comprobación falla, el flujo se detiene.
+- **Tencent Hy4:** el perfil integrado de OpenRouter se llama **OpenRouter: Tencent** e incluye `tencent/hy4`, con compatibilidad con imágenes y controles Thinking. La tabla de precios de Settings > General muestra una referencia con fecha; el importe facturado puede variar.
+- **Ajustes Nerf de Antigravity:** los ajustes Nerf se gestionan en Antigravity Autocode. Se retiraron los comandos `/pov-nerf-balanced` y `/pov-nerf-lightweight`.
+- **Actualizaciones de la aplicación:** la actualización automática no está habilitada. Descarga los instaladores desde la página Releases publicada.
 ## Documentación
 
 - [Notas de la versión (NEWS.md)](../NEWS.md) — Funciones y detalles de implementación por versión

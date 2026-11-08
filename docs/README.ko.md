@@ -9,7 +9,7 @@ Poverello Coding Tools(앱 표시 이름 **Poverello**)는 AI 기반 소프트�
 1. **Claude Code / Claude Desktop용 3P 게이트웨이** — Claude의 저장소 탐색, 도구 사용, 파일 편집, 테스트 실행 기능을 유지하면서 추론을 서드파티 프로바이더로 라우팅합니다.
 2. **Claude Code 전용 로컬 LLM (Ollama)** — 로컬 모델을 사용해 API 비용 없이 완전한 오프라인으로 Claude Code를 실행할 수 있습니다.
 3. **Google Antigravity용 MCP 플래너 & 리뷰어** — `poverello/plan`, `poverello/revise`, `poverello/review` MCP 도구를 통해 구현 계획, 계획 수정 및 구현 후 리뷰를 외부 모델에 위임합니다.
-4. **Antigravity Autocode 및 Skills & Rules** — Antigravity Autocode 탭에서 외부 리뷰와 코딩 동작을 설정하고 Settings > Antigravity Skills & Rules에서 Antigravity Workflow Skills, Task Presets, Global Rules 및 Nerf Skills를 관리합니다. 공용 CLI Tools는 Settings > CLI Tools에서 별도로 관리합니다.
+4. **Antigravity Autocode 및 Skills & Rules** — Antigravity Autocode에서 외부 리뷰, 코딩 동작 및 Nerf 설정을 관리하고 Settings > Antigravity Skills & Rules에서 Workflow Skills와 Global Rules를 관리합니다.
 5. **Codex Autocode 및 Skills & Rules** — Codex Autocode에서 Codex Workflow Skills의 리뷰어를 설정하고, Settings > Codex Skills & Rules에서 세 가지 Codex Skill과 Poverello가 관리하는 AGENTS.md 영역을 관리합니다. 공용 CLI Tools는 Settings에서 별도로 관리합니다.
 
 > [!TIP]
@@ -90,18 +90,17 @@ Antigravity Workflow Skills: `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-re
 ```text
 Antigravity Autocode tab
   • External Review policy / reviewer configuration
-  • Customize Coding Settings / Direct Coding
+  • Antigravity Nerf Settings / Direct Coding
 
 Settings > Antigravity Skills & Rules
   • Workflow Commands / repair
-  • Task Presets
-  • Global Rules / Nerf skills
+  • Global Rules
 
 Settings > CLI Tools
   • Shared Node.js / npm and CLI management
 ```
 
-- External Review와 Customize Coding Settings는 Antigravity Autocode에서 구성합니다. Settings > Antigravity Skills & Rules에서 Antigravity Workflow Skills, Task Presets, Global Rules 및 Nerf Skills를 관리하며, 공용 CLI Tools는 별도 Settings 페이지에서 관리합니다.
+- External Review와 Nerf 설정은 Antigravity Autocode에서 구성합니다. Settings > Antigravity Skills & Rules에서는 Workflow Skills와 Global Rules를 관리하며, 공용 CLI Tools는 Settings > CLI Tools에서 관리합니다.
 ### 5. Codex Autocode 및 Skills & Rules
 
 Settings > Codex Skills & Rules에서 Codex Workflow Skills(/pov-plan-only, /pov-build-review, /pov-full-cycle)를 관리하고, Codex Autocode에서 리뷰어와 우선 리뷰어를 선택합니다. Poverello는 CODEX_HOME/AGENTS.md의 표시된 관리 영역만 수정하며 다른 사용자 지침은 보존합니다.
@@ -160,14 +159,21 @@ Windows 설치 프로그램은 8개 언어를 지원합니다. Poverello는 기�
 5. 전체 [Antigravity MCP 설정 가이드](ANTIGRAVITY_MCP.ko.md)를 참고하세요.
 
 ### 워크플로 4: Antigravity Autocode 및 Skills & Rules
-1. **Antigravity Autocode**에서 External Review와 Customize Coding Settings를 구성합니다. 선택한 정책이 Workflow Skill의 리뷰어 호출을 제어합니다.
-2. **Settings > Antigravity Skills & Rules**에서 Antigravity Workflow Skills, Task Presets, Global Rules 및 Nerf Skills를 관리합니다. Skill 복구에는 확인이 필요하며 백업이 보존됩니다. 공용 CLI Tools는 **Settings > CLI Tools**에서 관리합니다.
+1. **Antigravity Autocode**에서 External Review와 Antigravity Nerf Settings를 구성합니다. 선택한 정책이 Workflow Skill의 리뷰어 호출을 제어합니다.
+2. **Settings > Antigravity Skills & Rules**에서 Antigravity Workflow Skills와 Global Rules를 관리합니다. Skill 복구에는 확인이 필요하며 백업이 보존됩니다. Nerf 설정은 Antigravity Autocode에 있습니다. 공용 CLI Tools는 **Settings > CLI Tools**에서 관리합니다.
 3. Auto-Converge는 숨김, 프로덕션 디스패치는 비활성화, Stage 2 격리는 미검증 상태입니다.
 ### 워크플로 5: Codex Autocode 및 Skills & Rules
 1. Settings > CLI Tools에서 Node.js/npm 및 CLI 상태를 확인합니다. Poverello는 Node.js를 자동 설치하지 않습니다.
 2. Settings > Codex Skills & Rules에서 /pov-plan-only, /pov-build-review, /pov-full-cycle과 CODEX_HOME/AGENTS.md의 Poverello 관리 영역을 관리합니다.
 3. Codex Autocode에서 리뷰어와 우선 리뷰어를 선택합니다. Gemini CLI는 Settings > CLI Tools에서 활성화한 경우에만 표시되며, 활성화만으로 선택되지는 않습니다. Windows 읽기 전용 sandbox를 검증하지 못하면 Gemini 리뷰를 사용할 수 없습니다.
 
+## v0.27.0 주요 변경 사항
+
+- **Active Plan 및 역할 지정:** 저장소마다 계획 파일을 선택하고 Codex Autocode와 Antigravity Autocode별로 Planner / Reviser를 지정할 수 있습니다. Workflow Skills는 이 지정을 읽으며, 필요한 역할이 없거나 지원되지 않으면 다른 역할로 대체하지 않고 중지합니다.
+- **체크포인트 재개:** 워크플로 진행 상태를 Active Plan에 저장합니다. 재개 전에 저장소와 계획 파일의 식별 정보, 계획 revision, 미해결 리뷰 지적, 수정 파일 상태를 확인합니다. 검증에 실패하면 워크플로를 중지합니다.
+- **Tencent Hy4:** OpenRouter 기본 프로필 이름은 **OpenRouter: Tencent**이며 이미지 입력과 Thinking 설정을 지원하는 `tencent/hy4`가 포함됩니다. Settings > General 가격표는 기준일이 표시된 참고 가격이며 실제 청구액을 보장하지 않습니다.
+- **Antigravity Nerf 설정:** Nerf 설정은 Antigravity Autocode에서 관리합니다. 기존 `/pov-nerf-balanced` 및 `/pov-nerf-lightweight` 슬래시 명령은 종료되었습니다.
+- **앱 업데이트:** 자동 업데이트는 활성화되어 있지 않습니다. 설치 프로그램은 공개된 Releases 페이지에서 받으세요.
 ## 문서
 
 - [릴리스 노트 (NEWS.md)](../NEWS.md) — 버전별 기능 및 구현 세부 정보

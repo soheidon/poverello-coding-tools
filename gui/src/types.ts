@@ -439,6 +439,18 @@ export interface PlanFileDetails {
   plans: PlanFileEntry[];
 }
 
+export interface ActivePlanFileDetails {
+  rel_path: string;
+  abs_path: string;
+  file_name: string;
+  title: string;
+  status?: string | null;
+  content: string;
+  sha256_hash: string;
+  file_identity?: string | null;
+  last_modified_unix: number;
+}
+
 export interface PlanCreateRequest {
   name: string;
   folder?: string | null;

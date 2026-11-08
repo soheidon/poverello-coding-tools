@@ -119,7 +119,7 @@ Poverello clearly separates model selection from detailed parameter management:
    - Manage MCP server registration, target executable, and MCP Commands (`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`).
    - Click **Install All** (`antigravity.btnInstallAll`) to install exclusively the 3 MCP skills.
 2. **Top-level `Antigravity Autocode` tab**: Configure External Review policy and direct Codex CLI / DeepSeek Harness settings. Codex account identity, authentication method/status, and config profile are distinct; an unknown identity is not inferred.
-3. **Settings > Antigravity Skills & Rules**: Install or repair the three Poverello Antigravity Workflow Skills (repair requires confirmation and preserves a backup), manage Task Presets, install/remove Global Rules, and manage Nerf skills. Shared CLI Tools are under **Settings > CLI Tools**.
+3. **Settings > Antigravity Skills & Rules**: Install or repair the three Poverello Antigravity Workflow Skills (repair requires confirmation and preserves a backup), and install/remove Global Rules. Nerf settings are managed in **Antigravity Autocode**; the former Nerf slash-command skills are retired. Shared CLI Tools are under **Settings > CLI Tools**.
 > [!NOTE]
 > The Poverello MCP server reads current configuration dynamically on every `plan()` and `review()` tool invocation. You do **not** need to restart the MCP server or Antigravity when changing providers or model settings in the GUI.
 

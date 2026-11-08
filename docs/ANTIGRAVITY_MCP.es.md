@@ -113,7 +113,7 @@ Poverello separa claramente la selección del planificador de la gestión detall
    - Gestione el registro del servidor MCP, el ejecutable de destino y los comandos MCP (`/pov-mcp-plan`, `/pov-mcp-revise`, `/pov-mcp-review`).
    - Haga clic en **Instalar todos** (`antigravity.btnInstallAll`) para instalar exclusivamente las 3 habilidades MCP.
 2. **Pestaña superior `Antigravity Autocode`**: Configure la política External Review y los ajustes directos de Codex CLI / DeepSeek Harness. La identidad de la cuenta Codex, el método/estado de autenticación y el perfil se muestran por separado; no se infiere una identidad no disponible.
-3. **Settings > Antigravity Skills & Rules**: Instale o repare los tres Antigravity Workflow Skills de Poverello (la reparación requiere confirmación y conserva una copia de seguridad), administre Task Presets, Global Rules y Nerf Skills. Las CLI compartidas están en **Settings > CLI Tools**.
+3. **Settings > Antigravity Skills & Rules**: Instale o repare los tres Antigravity Workflow Skills de Poverello (la reparación requiere confirmación y conserva una copia de seguridad) y administre Global Rules. Los ajustes de Antigravity Nerf están en Antigravity Autocode; los antiguos comandos `/pov-nerf-balanced` y `/pov-nerf-lightweight` se retiraron. Las CLI compartidas están en **Settings > CLI Tools**.
 > [!NOTE]
 > El servidor MCP de Poverello lee dinámicamente la configuración actual en cada invocación de la herramienta `plan()`. **No** necesita reiniciar el servidor MCP ni Antigravity al cambiar de proveedor o parámetros en la GUI.
 
