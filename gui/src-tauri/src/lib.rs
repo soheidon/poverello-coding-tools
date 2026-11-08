@@ -29,6 +29,7 @@ pub mod codex_skills;
 pub mod codex_global_rules;
 pub mod codex_review_settings;
 pub mod reviewer_diagnostics;
+pub mod plan_manager;
 mod proxy;
 
 // ---------------------------------------------------------------------------
@@ -817,24 +818,60 @@ fn ensure_builtin_openrouter_profiles_at_path(
         changed = true;
     }
 
-    // Hy3: ensure exists + correct display_name + fix random UUID from old builds
+    // Tencent (formerly Hy3): ensure exists + correct display_name + fix random UUID from old builds
     let hy3_id = "b0e0f000-0000-4000-8000-000000000002";
-    let hy3_name = "OpenRouter: Hy3";
+    let hy3_name = "OpenRouter: Tencent";
     let mut has_hy3 = false;
     for p in profiles.iter_mut() {
-        let id_match = p.get("id").and_then(|v| v.as_str()) == Some(hy3_id);
-        let name_match = p
-            .get("display_name")
-            .and_then(|v| v.as_str())
-            .map_or(false, |n| n == "Hy3" || n == hy3_name);
-        if id_match || name_match {
+        let is_hy3_id = p.get("id").and_then(|v| v.as_str()) == Some(hy3_id);
+        let is_hy3_model = p
+            .get("model_map")
+            .and_then(|m| m.get("claude-opus-5"))
+            .and_then(|u| u.as_str())
+            .map_or(false, |u| u == "tencent/hy3" || u == "tencent/hy4" || u == "tencent/hy4-preview")
+            || p
+                .get("models")
+                .and_then(|m| m.get("claude-opus-5"))
+                .and_then(|e| e.get("upstream_model"))
+                .and_then(|u| u.as_str())
+                .map_or(false, |u| u == "tencent/hy3" || u == "tencent/hy4" || u == "tencent/hy4-preview");
+        if is_hy3_id || is_hy3_model {
             has_hy3 = true;
             if p.get("id").and_then(|v| v.as_str()) != Some(hy3_id) {
                 p["id"] = serde_json::Value::String(hy3_id.to_string());
                 changed = true;
             }
-            if p.get("display_name").and_then(|v| v.as_str()) != Some(hy3_name) {
+            let cur_name = p.get("display_name").and_then(|v| v.as_str()).unwrap_or("");
+            if cur_name == "Hy3"
+                || cur_name == "OpenRouter: Hy3"
+                || paths::parse_model_set_number(cur_name).is_some()
+                || cur_name == "OpenRouter モデル 1"
+            {
                 p["display_name"] = serde_json::Value::String(hy3_name.to_string());
+                changed = true;
+            }
+            // Upgrade legacy default Opus 5 (tencent/hy3) to tencent/hy4
+            let opus_is_legacy_default = p
+                .get("model_map")
+                .and_then(|m| m.get("claude-opus-5"))
+                .and_then(|u| u.as_str())
+                == Some("tencent/hy3")
+                && p
+                    .get("models")
+                    .and_then(|m| m.get("claude-opus-5"))
+                    .and_then(|e| e.get("upstream_model"))
+                    .and_then(|u| u.as_str())
+                    == Some("tencent/hy3");
+            if opus_is_legacy_default {
+                p["model_map"]["claude-opus-5"] =
+                    serde_json::Value::String("tencent/hy4".to_string());
+                if let Some(entry) = p.get_mut("models").and_then(|m| m.get_mut("claude-opus-5")) {
+                    entry["upstream_model"] = serde_json::Value::String("tencent/hy4".to_string());
+                    entry["thinking_mode"] = serde_json::Value::String("thinking".to_string());
+                    entry["reasoning_effort"] = serde_json::Value::String("high".to_string());
+                    entry["supports_image_url"] = serde_json::Value::Bool(true);
+                    entry["supports_image_base64"] = serde_json::Value::Bool(true);
+                }
                 changed = true;
             }
             break;
@@ -2721,7 +2758,7 @@ fn build_hy3_profile(name: &str) -> OpenRouterProfile {
 
     let opus_entry = model_entry(
         "claude-opus-5",
-        "tencent/hy3",
+        "tencent/hy4",
         Some("thinking"),
         Some("high"),
     );
@@ -2738,7 +2775,7 @@ fn build_hy3_profile(name: &str) -> OpenRouterProfile {
         None,
     );
 
-    model_map.insert("claude-opus-5".into(), "tencent/hy3".into());
+    model_map.insert("claude-opus-5".into(), "tencent/hy4".into());
     model_map.insert("claude-sonnet-5".into(), "tencent/hy3".into());
     model_map.insert("claude-haiku-4-5".into(), "tencent/hy3".into());
 
@@ -3269,7 +3306,7 @@ fn migrate_openrouter_to_profiles(
     let second_profile = if existing_uses_hy3 && !existing_uses_poolside {
         build_laguna_profile_json("OpenRouter: Laguna")
     } else {
-        build_hy3_profile_json("OpenRouter: Hy3")
+        build_hy3_profile_json("OpenRouter: Tencent")
     };
 
     // Deserialize first profile into typed struct for backfill
@@ -3323,7 +3360,7 @@ fn normalize_openrouter_profile_names(profiles: &mut Vec<serde_json::Value>) -> 
     /// Built-in profile display names that must never be renamed.
     const BUILTIN_NAMES: &[&str] = &[
         "OpenRouter: Laguna",
-        "OpenRouter: Hy3",
+        "OpenRouter: Tencent",
         "OpenRouter: InclusionAI",
         "OpenRouter: StepFun",
         GPT56_BALANCED_PROFILE_NAME,
@@ -3333,6 +3370,39 @@ fn normalize_openrouter_profile_names(profiles: &mut Vec<serde_json::Value>) -> 
     ];
 
     let mut changed = false;
+
+    // Built-in Tencent profile repair: if display_name is legacy "OpenRouter: Hy3", "Hy3",
+    // or mistakenly normalized to "Model N" / "OpenRouter モデル 1", migrate to "OpenRouter: Tencent"
+    for profile in profiles.iter_mut() {
+        let is_tencent_profile = profile
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map_or(false, |id| id == "b0e0f000-0000-4000-8000-000000000002")
+            || profile
+                .get("models")
+                .and_then(|m| m.get("claude-opus-5"))
+                .and_then(|e| e.get("upstream_model"))
+                .and_then(|u| u.as_str())
+                .map_or(false, |u| u == "tencent/hy3" || u == "tencent/hy4" || u == "tencent/hy4-preview")
+            || profile
+                .get("model_map")
+                .and_then(|m| m.get("claude-opus-5"))
+                .and_then(|u| u.as_str())
+                .map_or(false, |u| u == "tencent/hy3" || u == "tencent/hy4" || u == "tencent/hy4-preview");
+        if is_tencent_profile {
+            if let Some(name) = profile.get("display_name").and_then(|v| v.as_str()) {
+                if name == "OpenRouter: Hy3"
+                    || name == "Hy3"
+                    || paths::parse_model_set_number(name).is_some()
+                    || name == "OpenRouter モデル 1"
+                {
+                    profile["display_name"] =
+                        serde_json::Value::String("OpenRouter: Tencent".to_string());
+                    changed = true;
+                }
+            }
+        }
+    }
 
     // Built-in Anthropic profile repair: if mistakenly normalized to "Model N" or "OpenRouter モデル 1", restore it.
     for profile in profiles.iter_mut() {
@@ -3457,7 +3527,7 @@ fn normalize_config(cfg: &mut serde_json::Value) -> bool {
     if needs_profiles_repair {
         let laguna = serde_json::to_value(build_laguna_profile("OpenRouter: Laguna"))
             .expect("serialization must succeed");
-        let hy3 = serde_json::to_value(build_hy3_profile("OpenRouter: Hy3"))
+        let hy3 = serde_json::to_value(build_hy3_profile("OpenRouter: Tencent"))
             .expect("serialization must succeed");
         profiles_array.push(laguna);
         profiles_array.push(hy3);
@@ -6950,6 +7020,8 @@ where
 }
 
 pub fn get_antigravity_commands_info_at(skills_root: &Path) -> Result<AntigravityCommandsInfo, String> {
+    // Automatically retire managed nerf skills if present (§13)
+    let _ = pov_nerf::retire_managed_nerf_skills_at(skills_root);
     const CANONICAL: [&str; 6] = ["pov-mcp-plan", "pov-mcp-revise", "pov-mcp-review", "pov-full-cycle", "pov-plan-only", "pov-build-review"];
     let commands = CANONICAL.iter().map(|name| inspect_antigravity_command_status_at(skills_root, name)).collect::<Result<Vec<_>, _>>()?;
     let plan_command = commands[0].clone();
@@ -7192,6 +7264,11 @@ async fn update_cli_tool(name: String, check_id: String) -> Result<cli_tools::Cl
 }
 
 #[tauri::command]
+async fn recover_cli_tool_state(name: String) -> Result<cli_tools::CliToolInfo, String> {
+    cli_tools::recover_cli_tool_state(&name).await
+}
+
+#[tauri::command]
 async fn check_cli_tools_latest_version() -> Result<Vec<cli_tools::CliToolInfo>, String> {
     cli_tools::check_cli_tools_latest_version().await
 }
@@ -7302,6 +7379,122 @@ fn record_reviewer_diagnostic_event(event: reviewer_diagnostics::ReviewerDiagnos
 }
 
 #[tauri::command]
+fn list_available_plans(
+    repo_path: Option<String>,
+    folder_path: Option<String>,
+) -> Result<plan_manager::PlanOverview, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::get_plan_overview(&repo_root, folder_path.as_deref())
+}
+
+#[tauri::command]
+fn select_plan_folder_dialog(
+    repo_path: Option<String>,
+) -> Result<Option<String>, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    let canonical_repo = repo_root.canonicalize().map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        let starting_dir = if repo_root.join(plan_manager::PLAN_DIR_NAME).is_dir() {
+            repo_root.join(plan_manager::PLAN_DIR_NAME)
+        } else {
+            repo_root.clone()
+        };
+        let picked = rfd::FileDialog::new()
+            .set_title("Select Plan Folder")
+            .set_directory(&starting_dir)
+            .pick_folder();
+
+        if let Some(path) = picked {
+            let canonical_picked = path.canonicalize().map_err(|e| format!("Cannot canonicalize picked folder: {e}"))?;
+            if !canonical_picked.starts_with(&canonical_repo) {
+                return Err("Selected folder must be inside the repository root".to_string());
+            }
+            let rel = canonical_picked.strip_prefix(&canonical_repo).map_err(|e| e.to_string())?;
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            Ok(Some(if rel_str.is_empty() { ".".to_string() } else { rel_str }))
+        } else {
+            Ok(None)
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+fn get_active_plan(
+    repo_path: Option<String>,
+) -> Result<Option<plan_manager::PlanFileDetails>, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::get_active_plan(&repo_root)
+}
+
+#[tauri::command]
+fn set_active_plan(
+    relative_path: String,
+    repo_path: Option<String>,
+) -> Result<plan_manager::PlanOverview, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    let parent_folder = std::path::Path::new(&relative_path).parent().and_then(|p| p.to_str());
+    plan_manager::set_active_plan(&repo_root, &relative_path)?;
+    plan_manager::get_plan_overview(&repo_root, parent_folder)
+}
+
+#[tauri::command]
+fn create_plan_file(
+    request: plan_manager::CreatePlanRequest,
+    repo_path: Option<String>,
+) -> Result<plan_manager::PlanOverview, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    let folder = request.folder.clone();
+    plan_manager::create_plan_file(&repo_root, &request)?;
+    plan_manager::get_plan_overview(&repo_root, folder.as_deref())
+}
+
+#[tauri::command]
+fn append_plan_audit_trail(
+    relative_path: String,
+    event: plan_manager::AuditTrailEvent,
+    repo_path: Option<String>,
+) -> Result<plan_manager::PlanFileDetails, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::append_audit_trail_event(&repo_root, &relative_path, &event)
+}
+
+#[tauri::command]
+fn save_plan_checkpoint(
+    relative_path: String,
+    checkpoint: plan_manager::ExecutionCheckpoint,
+    expected_sha256: String,
+    repo_path: Option<String>,
+) -> Result<plan_manager::PlanFileDetails, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::save_execution_checkpoint(&repo_root, &relative_path, &checkpoint, &expected_sha256)
+}
+
+#[tauri::command]
+fn get_plan_checkpoint(
+    relative_path: String,
+    repo_path: Option<String>,
+) -> Result<Option<plan_manager::ExecutionCheckpoint>, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::get_execution_checkpoint(&repo_root, &relative_path)
+}
+
+#[tauri::command]
+fn verify_plan_resumption(
+    relative_path: String,
+    checkpoint: plan_manager::ExecutionCheckpoint,
+    repo_path: Option<String>,
+) -> Result<plan_manager::ResumptionPreflightResult, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::verify_resumption_preflight(&repo_root, &relative_path, &checkpoint)
+}
+
+#[tauri::command]
 async fn get_node_prerequisites_status(refresh: Option<bool>) -> Result<cli_tools::NodePrerequisiteStatus, String> {
     Ok(cli_tools::get_prerequisites_status_cached(refresh.unwrap_or(false)).await)
 }
@@ -7373,6 +7566,7 @@ fn get_workflow_skills_policy_status() -> Result<reviewer_policy::WorkflowSkills
 #[tauri::command]
 fn get_pov_nerf_commands_status() -> Result<pov_nerf::PovNerfCommandsInfo, String> {
     let skills_dir = paths::antigravity_global_skills_dir()?;
+    let _ = pov_nerf::retire_managed_nerf_skills_at(&skills_dir);
     Ok(pov_nerf::inspect_pov_nerf_commands_status_at(&skills_dir))
 }
 
@@ -7380,16 +7574,14 @@ fn get_pov_nerf_commands_status() -> Result<pov_nerf::PovNerfCommandsInfo, Strin
 fn install_pov_nerf_command(
     skill_id: pov_nerf::PovNerfSkillId,
 ) -> Result<pov_nerf::PovNerfOperationResult, String> {
-    let skills_dir = paths::antigravity_global_skills_dir()?;
-    pov_nerf::install_nerf_skill_at(&skills_dir, skill_id)
+    Ok(pov_nerf::refuse_nerf_mutation(skill_id))
 }
 
 #[tauri::command]
 fn update_pov_nerf_command(
     skill_id: pov_nerf::PovNerfSkillId,
 ) -> Result<pov_nerf::PovNerfOperationResult, String> {
-    let skills_dir = paths::antigravity_global_skills_dir()?;
-    pov_nerf::update_nerf_skill_at(&skills_dir, skill_id)
+    Ok(pov_nerf::refuse_nerf_mutation(skill_id))
 }
 
 #[tauri::command]
@@ -10272,6 +10464,7 @@ pub fn run() {
             get_codex_account_info,
             install_cli_tool,
             update_cli_tool,
+            recover_cli_tool_state,
             check_cli_tools_latest_version,
             get_codex_skills_status,
             get_codex_skill_template,
@@ -10290,6 +10483,15 @@ pub fn run() {
             get_reviewer_diagnostic_events,
             export_reviewer_diagnostics_report,
             record_reviewer_diagnostic_event,
+            list_available_plans,
+            select_plan_folder_dialog,
+            get_active_plan,
+            set_active_plan,
+            create_plan_file,
+            append_plan_audit_trail,
+            save_plan_checkpoint,
+            get_plan_checkpoint,
+            verify_plan_resumption,
             get_node_prerequisites_status,
             get_cli_auth_status,
             launch_cli_auth,
@@ -10409,7 +10611,7 @@ mod tests {
         let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
         assert_eq!(profiles.len(), 2);
         assert_eq!(profiles[0]["display_name"], "OpenRouter");
-        assert_eq!(profiles[1]["display_name"], "OpenRouter: Hy3");
+        assert_eq!(profiles[1]["display_name"], "OpenRouter: Tencent");
 
         // Legacy fields removed
         assert!(cfg["providers"]["openrouter"]["models"].as_object().map_or(true, |o| o.is_empty()));
@@ -12728,7 +12930,7 @@ mod tests {
     fn ensure_builtin_idempotent() {
         let dir = TempDir::new().unwrap();
         let laguna = build_laguna_profile_json("OpenRouter: Laguna");
-        let hy3 = build_hy3_profile_json("OpenRouter: Hy3");
+        let hy3 = build_hy3_profile_json("OpenRouter: Tencent");
         let inclusionai = build_inclusionai_profile_json("OpenRouter: InclusionAI");
         let stepfun = build_stepfun_profile_json("OpenRouter: StepFun");
         let gpt56 = build_gpt56_balanced_profile_json(GPT56_BALANCED_PROFILE_NAME);
@@ -12794,7 +12996,7 @@ mod tests {
         let cfg = make_openrouter_config_with_profiles(
             vec![
                 user_laguna.clone(),
-                build_hy3_profile_json("OpenRouter: Hy3"),
+                build_hy3_profile_json("OpenRouter: Tencent"),
                 build_inclusionai_profile_json("OpenRouter: InclusionAI"),
                 build_stepfun_profile_json("OpenRouter: StepFun"),
                 build_gpt56_balanced_profile_json(GPT56_BALANCED_PROFILE_NAME),
@@ -13840,7 +14042,7 @@ mod tests {
     fn ensure_builtin_noop_when_profiles_exist() {
         let dir = TempDir::new().unwrap();
         let laguna = build_laguna_profile_json("OpenRouter: Laguna");
-        let hy3 = build_hy3_profile_json("OpenRouter: Hy3");
+        let hy3 = build_hy3_profile_json("OpenRouter: Tencent");
         let inclusionai = build_inclusionai_profile_json("OpenRouter: InclusionAI");
         let stepfun = build_stepfun_profile_json("OpenRouter: StepFun");
         let gpt56 = build_gpt56_balanced_profile_json(GPT56_BALANCED_PROFILE_NAME);
@@ -13914,7 +14116,7 @@ mod tests {
         let gpt = profiles.iter().find(|p| p["id"] == GPT56_BALANCED_PROFILE_ID).unwrap();
         let ds = profiles.iter().find(|p| p["id"] == DEEPSEEK_OR_PROFILE_ID).unwrap();
         assert_eq!(lg["display_name"].as_str().unwrap(), "OpenRouter: Laguna");
-        assert_eq!(hy["display_name"].as_str().unwrap(), "OpenRouter: Hy3");
+        assert_eq!(hy["display_name"].as_str().unwrap(), "OpenRouter: Tencent");
         assert_eq!(ia["display_name"].as_str().unwrap(), "OpenRouter: InclusionAI");
         assert_eq!(sf["display_name"].as_str().unwrap(), "OpenRouter: StepFun");
         assert_eq!(gpt["display_name"].as_str().unwrap(), GPT56_BALANCED_PROFILE_NAME);
@@ -13926,7 +14128,7 @@ mod tests {
         use super::*;
         // All 8 built-in profiles now have fixed UUIDs
         let laguna = build_laguna_profile_json("OpenRouter: Laguna");
-        let hy3 = build_hy3_profile_json("OpenRouter: Hy3");
+        let hy3 = build_hy3_profile_json("OpenRouter: Tencent");
         let inclusionai = build_inclusionai_profile_json("OpenRouter: InclusionAI");
         let stepfun = build_stepfun_profile_json("OpenRouter: StepFun");
         let gpt56 = build_gpt56_balanced_profile_json(GPT56_BALANCED_PROFILE_NAME);
@@ -13955,7 +14157,7 @@ mod tests {
         assert!(changed); // custom_legacy renamed
         // Built-in names preserved
         assert_eq!(profiles[0]["display_name"].as_str().unwrap(), "OpenRouter: Laguna");
-        assert_eq!(profiles[1]["display_name"].as_str().unwrap(), "OpenRouter: Hy3");
+        assert_eq!(profiles[1]["display_name"].as_str().unwrap(), "OpenRouter: Tencent");
         assert_eq!(profiles[2]["display_name"].as_str().unwrap(), "OpenRouter: InclusionAI");
         assert_eq!(profiles[3]["display_name"].as_str().unwrap(), "OpenRouter: StepFun");
         assert_eq!(profiles[4]["display_name"].as_str().unwrap(), GPT56_BALANCED_PROFILE_NAME);
@@ -14310,7 +14512,7 @@ mod tests {
     fn ensure_builtin_gpt56_idempotent() {
         let dir = TempDir::new().unwrap();
         let laguna = build_laguna_profile_json("OpenRouter: Laguna");
-        let hy3 = build_hy3_profile_json("OpenRouter: Hy3");
+        let hy3 = build_hy3_profile_json("OpenRouter: Tencent");
         let inclusionai = build_inclusionai_profile_json("OpenRouter: InclusionAI");
         let stepfun = build_stepfun_profile_json("OpenRouter: StepFun");
         let cfg = make_openrouter_config_with_profiles(
@@ -14391,6 +14593,142 @@ mod tests {
             profiles[1]["display_name"].as_str().unwrap(),
             GPT56_BALANCED_PROFILE_NAME,
         );
+    }
+
+    #[test]
+    fn ensure_builtin_tencent_migrates_legacy_name_and_preserves_custom_name_and_routes() {
+        let dir = TempDir::new().unwrap();
+        // 1. Built-in profile with legacy name "OpenRouter: Hy3" and customized Opus model (hy4-preview)
+        let mut tencent_legacy = build_hy3_profile_json("OpenRouter: Hy3");
+        tencent_legacy["model_map"]["claude-opus-5"] =
+            serde_json::Value::String("tencent/hy4-preview".to_string());
+        tencent_legacy["models"]["claude-opus-5"]["upstream_model"] =
+            serde_json::Value::String("tencent/hy4-preview".to_string());
+        tencent_legacy["models"]["claude-opus-5"]["reasoning_effort"] =
+            serde_json::Value::String("high".to_string());
+
+        // 2. User profile with custom name and random UUID
+        let custom_profile = serde_json::json!({
+            "id": "custom-uuid-tencent-test",
+            "display_name": "My Custom Tencent Setup",
+            "model_map": { "claude-sonnet-5": "tencent/hy3" },
+            "visible_models": ["claude-sonnet-5"],
+            "models": {
+                "claude-sonnet-5": {
+                    "upstream_model": "tencent/hy3",
+                    "visible": true
+                }
+            }
+        });
+
+        let cfg = make_openrouter_config_with_profiles(vec![tencent_legacy, custom_profile], None);
+        write_config(dir.path(), &cfg);
+
+        let path = dir.path().join("config.json");
+        // Run ensure_builtin
+        ensure_builtin_openrouter_profiles_at_path(&path).unwrap();
+
+        let result = read_config(dir.path());
+        let profiles = result["providers"]["openrouter"]["profiles"].as_array().unwrap();
+
+        let tencent = find_profile(profiles, "b0e0f000-0000-4000-8000-000000000002");
+        // Display name migrated to OpenRouter: Tencent
+        assert_eq!(tencent["display_name"], "OpenRouter: Tencent");
+        // User's route and thinking customization strictly preserved
+        assert_eq!(
+            tencent["models"]["claude-opus-5"]["upstream_model"],
+            "tencent/hy4-preview"
+        );
+        assert_eq!(
+            tencent["models"]["claude-opus-5"]["reasoning_effort"],
+            "high"
+        );
+        // Verify all other models (Sonnet, Haiku) and entire model_map are preserved
+        assert_eq!(
+            tencent["models"]["claude-sonnet-5"]["upstream_model"],
+            "tencent/hy3"
+        );
+        assert_eq!(
+            tencent["models"]["claude-haiku-4-5"]["upstream_model"],
+            "tencent/hy3"
+        );
+        assert_eq!(
+            tencent["model_map"]["claude-opus-5"],
+            "tencent/hy4-preview"
+        );
+        assert_eq!(
+            tencent["model_map"]["claude-sonnet-5"],
+            "tencent/hy3"
+        );
+        assert_eq!(
+            tencent["model_map"]["claude-haiku-4-5"],
+            "tencent/hy3"
+        );
+        assert_eq!(
+            tencent["visible_models"].as_array().unwrap().len(),
+            3
+        );
+
+        // Custom profile's name and UUID are untouched
+        let custom = profiles.iter().find(|p| p["id"] == "custom-uuid-tencent-test").unwrap();
+        assert_eq!(custom["display_name"], "My Custom Tencent Setup");
+
+        // Second pass is idempotent and does not create duplicates or rename
+        let before_second = read_config(dir.path());
+        ensure_builtin_openrouter_profiles_at_path(&path).unwrap();
+        let after_second = read_config(dir.path());
+        assert_eq!(before_second, after_second);
+    }
+
+    #[test]
+    fn ensure_builtin_tencent_migrates_model_1_to_tencent() {
+        let dir = TempDir::new().unwrap();
+        let tencent_model_1 = build_hy3_profile_json("Model 1");
+        let cfg = make_openrouter_config_with_profiles(vec![tencent_model_1], None);
+        write_config(dir.path(), &cfg);
+
+        let path = dir.path().join("config.json");
+        ensure_builtin_openrouter_profiles_at_path(&path).unwrap();
+
+        let result = read_config(dir.path());
+        let profiles = result["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let tencent = find_profile(profiles, "b0e0f000-0000-4000-8000-000000000002");
+        assert_eq!(tencent["display_name"], "OpenRouter: Tencent");
+    }
+
+    #[test]
+    fn normalize_migrates_legacy_tencent_profile_and_preserves_user_custom_name() {
+        // Built-in Tencent profile with legacy name
+        let legacy_tencent = build_hy3_profile_json("OpenRouter: Hy3");
+        // Built-in Tencent profile where user customized display name
+        let custom_tencent = build_hy3_profile_json("Tencent Special");
+        // Built-in Tencent profile mistakenly normalized to "Model 1"
+        let normalized_tencent = build_hy3_profile_json("Model 1");
+        // Custom profile that was manually named "Hy3 Custom" with custom UUID
+        let custom_unrelated = serde_json::json!({
+            "id": "unrelated-custom-uuid",
+            "display_name": "Hy3 Custom",
+            "model_map": {},
+            "visible_models": [],
+            "models": {}
+        });
+
+        let mut profiles = vec![legacy_tencent, custom_tencent, normalized_tencent, custom_unrelated];
+        let changed = normalize_openrouter_profile_names(&mut profiles);
+        assert!(changed);
+
+        // Legacy name migrated to OpenRouter: Tencent
+        assert_eq!(profiles[0]["display_name"].as_str().unwrap(), "OpenRouter: Tencent");
+        // Custom name preserved on built-in ID
+        assert_eq!(profiles[1]["display_name"].as_str().unwrap(), "Tencent Special");
+        // Mistakenly normalized "Model 1" restored to OpenRouter: Tencent
+        assert_eq!(profiles[2]["display_name"].as_str().unwrap(), "OpenRouter: Tencent");
+        // Custom unrelated profile preserved
+        assert_eq!(profiles[3]["display_name"].as_str().unwrap(), "Hy3 Custom");
+
+        // Subsequent pass is a no-op
+        let changed_again = normalize_openrouter_profile_names(&mut profiles);
+        assert!(!changed_again);
     }
 
     // ── apply_set_openrouter_profile_hidden ──────────────────────────

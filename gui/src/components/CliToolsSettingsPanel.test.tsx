@@ -18,6 +18,7 @@ const dummyPrereqReady: NodePrerequisiteStatus = {
   npm_installed: true,
   npm_version: "10.7.0",
   npm_path: "C:\\Program Files\\nodejs\\npm.cmd",
+  npm_global_prefix: "C:\\Users\\Sohei\\AppData\\Roaming\\npm",
   node_npm_ready: true,
   gemini_node_ready: true,
   message: null,
@@ -31,6 +32,7 @@ const dummyPrereqOutdated: NodePrerequisiteStatus = {
   npm_installed: true,
   npm_version: "10.2.0",
   npm_path: "C:\\Program Files\\nodejs\\npm.cmd",
+  npm_global_prefix: "C:\\Users\\Sohei\\AppData\\Roaming\\npm",
   node_npm_ready: true,
   gemini_node_ready: false,
   message: "Node.js v18.19.0 found. Gemini CLI requires Node.js >= 20.",
@@ -128,6 +130,7 @@ describe("CliToolsSettingsPanel Component", () => {
     // Node & npm version badges
     expect(screen.getByTestId("node-version-badge")).toHaveTextContent("v22.2.0");
     expect(screen.getByTestId("npm-version-badge")).toHaveTextContent("v10.7.0");
+    expect(screen.getByTestId("npm-global-prefix")).toHaveTextContent("C:\\Users\\Sohei\\AppData\\Roaming\\npm");
     expect(screen.queryByTestId("gemini-node-min-warning")).toBeNull();
   });
 

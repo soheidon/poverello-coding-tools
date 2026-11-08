@@ -169,6 +169,11 @@ export function NodePrerequisitesCard() {
               {status.npm_path}
             </div>
           )}
+          {status?.npm_global_prefix && (
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "#57606a", wordBreak: "break-all" }} data-testid="npm-global-prefix">
+              Prefix: {status.npm_global_prefix}
+            </div>
+          )}
         </div>
       </div>
 

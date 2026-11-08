@@ -56,8 +56,22 @@ describe("ModelPricingAccordion", () => {
     expect(screen.getAllByText("$3.750")).toHaveLength(2);
     expect(screen.getAllByText("$7.500")).toHaveLength(2);
 
-    // Sol (3x2) + Laguna S 2.1 (3x1) + Gemini 3.7 (3x1) + Gemini 3.8 (3x1) + Step 3.7 (2x1) = 17 strikethrough elements
-    expect(document.querySelectorAll("s")).toHaveLength(17);
+    // Sol (3x2) + Laguna S 2.1 (3x1) + Gemini 3.7 (3x1) + Gemini 3.8 (3x1) + Step 3.7 (2x1) + Hy4 (3x1) = 20 strikethrough elements
+    expect(document.querySelectorAll("s")).toHaveLength(20);
+  });
+
+  it("renders Tencent Hy4 row with promotional and regular prices", () => {
+    openPricing();
+
+    const hy4Row = screen.getByText("tencent/hy4").closest("tr");
+    expect(hy4Row).not.toBeNull();
+    expect(within(hy4Row!).getByText("$0.417")).toBeInTheDocument();
+    expect(within(hy4Row!).getByText("$0.834")).toBeInTheDocument();
+    expect(within(hy4Row!).getByText("$1.251")).toBeInTheDocument();
+    expect(within(hy4Row!).getByText("$2.501")).toBeInTheDocument();
+    expect(within(hy4Row!).getByText("$0.0210")).toBeInTheDocument();
+    expect(within(hy4Row!).getByText("$0.0420")).toBeInTheDocument();
+    expect(hy4Row!.querySelectorAll("s")).toHaveLength(3);
   });
 
   it("renders all three regular prices in the Sol Pro row", () => {
@@ -289,7 +303,7 @@ describe("ModelPricingAccordion", () => {
           }
           if (key === "modelPricing.header") return "モデル料金";
           if (key === "modelPricing.usdLabel") return "（USD / 1M tokens）";
-          if (key === "modelPricing.pricingDate") return "2026年10月13日時点の価格";
+          if (key === "modelPricing.pricingDate") return "2026年11月8日時点の価格";
           if (key === "modelPricing.colProvider") return "プロバイダ";
           if (key === "modelPricing.colModel") return "モデル";
           if (key === "modelPricing.colInput") return "入力/1M";

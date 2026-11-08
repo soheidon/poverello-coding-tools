@@ -862,6 +862,7 @@ mod tests {
         assert_eq!(parse_model_set_number("Custom"), None);
         assert_eq!(parse_model_set_number("OpenRouter"), None);
         assert_eq!(parse_model_set_number("OpenRouter: Hy3"), None);
+        assert_eq!(parse_model_set_number("OpenRouter: Tencent"), None);
     }
 
     #[test]

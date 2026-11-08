@@ -66,6 +66,22 @@ pub fn set_test_runner_override(enabled: bool, mock_versions: Option<HashMap<Str
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CliToolStatus {
+    #[serde(rename = "not_installed")]
+    NotInstalled,
+    #[serde(rename = "installed")]
+    Installed,
+    #[serde(rename = "execution_error")]
+    ExecutionError,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+pub fn default_cli_tool_status() -> CliToolStatus {
+    CliToolStatus::NotInstalled
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CliToolInfo {
     pub name: String,
     pub display_name: String,
@@ -79,6 +95,14 @@ pub struct CliToolInfo {
     pub is_preview: bool,
     pub update_available: bool,
     pub prerequisite_error: Option<String>,
+    #[serde(default)]
+    pub execution_error: Option<String>,
+    #[serde(default)]
+    pub latest_check_error: Option<String>,
+    #[serde(default)]
+    pub outcome_unknown: Option<String>,
+    #[serde(default = "default_cli_tool_status")]
+    pub status: CliToolStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -108,6 +132,8 @@ pub struct NodePrerequisiteStatus {
     pub node_npm_ready: bool,
     pub gemini_node_ready: bool,
     pub message: Option<String>,
+    #[serde(default)]
+    pub npm_global_prefix: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -143,6 +169,7 @@ struct EphemeralLatestCache {
     checked_at: Instant,
     checked_at_rfc3339: String,
     versions: HashMap<String, String>,
+    errors: HashMap<String, String>,
     node_path: Option<String>,
     node_version: Option<String>,
     npm_path: Option<String>,
@@ -172,8 +199,44 @@ pub fn get_cli_tools_env_allowlist() -> Vec<(std::ffi::OsString, std::ffi::OsStr
     vars
 }
 
+static STATE_FILE_OVERRIDE: StdMutex<Option<PathBuf>> = StdMutex::new(None);
+static PREFIX_OVERRIDE: StdMutex<Option<PathBuf>> = StdMutex::new(None);
+static PREREQS_OVERRIDE: StdMutex<Option<NodePrerequisiteStatus>> = StdMutex::new(None);
+
 pub fn cli_tools_state_path() -> PathBuf {
+    if let Ok(guard) = STATE_FILE_OVERRIDE.lock() {
+        if let Some(ref path) = *guard {
+            return path.clone();
+        }
+    }
     paths::user_data_dir().join("cli_tools_state.json")
+}
+
+#[cfg(test)]
+pub fn set_state_file_override(path: Option<PathBuf>) {
+    let mut guard = STATE_FILE_OVERRIDE.lock().unwrap();
+    *guard = path;
+}
+
+#[cfg(test)]
+pub fn set_prefix_override(path: Option<PathBuf>) {
+    let mut guard = PREFIX_OVERRIDE.lock().unwrap();
+    *guard = path;
+}
+
+#[cfg(test)]
+pub fn set_prereqs_override(status: Option<NodePrerequisiteStatus>) {
+    let mut guard = PREREQS_OVERRIDE.lock().unwrap();
+    *guard = status;
+}
+
+pub fn get_effective_npm_prefix(prereq_prefix: Option<&str>) -> Option<PathBuf> {
+    if let Ok(guard) = PREFIX_OVERRIDE.lock() {
+        if let Some(ref path) = *guard {
+            return Some(path.clone());
+        }
+    }
+    prereq_prefix.map(PathBuf::from)
 }
 
 pub fn read_cli_tools_state() -> CliToolsState {
@@ -199,8 +262,46 @@ pub fn write_cli_tools_state(state: &CliToolsState) -> Result<(), String> {
     std::fs::write(&p, data).map_err(|e| e.to_string())
 }
 
-pub fn resolve_cli_path(name: &str) -> Option<PathBuf> {
-    // 1. Check npm global directory on Windows
+pub fn resolve_cli_path_with_prefix(name: &str, npm_prefix: Option<&Path>) -> Option<PathBuf> {
+    // 1. Check custom npm_prefix first (if provided)
+    if let Some(prefix) = npm_prefix {
+        #[cfg(windows)]
+        {
+            let cmd_path = prefix.join(format!("{name}.cmd"));
+            if cmd_path.is_file() {
+                return Some(cmd_path);
+            }
+            let exe_path = prefix.join(format!("{name}.exe"));
+            if exe_path.is_file() {
+                return Some(exe_path);
+            }
+            let bat_path = prefix.join(format!("{name}.bat"));
+            if bat_path.is_file() {
+                return Some(bat_path);
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let bin_path = prefix.join("bin").join(name);
+            if bin_path.is_file() {
+                return Some(bin_path);
+            }
+            let direct = prefix.join(name);
+            if direct.is_file() {
+                return Some(direct);
+            }
+        }
+        // If an explicit test prefix override is active, do not leak host PATH / APPDATA
+        let is_test_override = {
+            let guard = PREFIX_OVERRIDE.lock().unwrap();
+            guard.is_some()
+        };
+        if is_test_override {
+            return None;
+        }
+    }
+
+    // 2. Check npm global directory on Windows
     #[cfg(windows)]
     {
         if let Ok(appdata) = std::env::var("APPDATA") {
@@ -213,10 +314,14 @@ pub fn resolve_cli_path(name: &str) -> Option<PathBuf> {
             if exe_path.is_file() {
                 return Some(exe_path);
             }
+            let bat_path = npm_dir.join(format!("{name}.bat"));
+            if bat_path.is_file() {
+                return Some(bat_path);
+            }
         }
     }
 
-    // 2. Scan PATH
+    // 3. Scan PATH
     if let Some(path_var) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path_var) {
             #[cfg(windows)]
@@ -245,6 +350,16 @@ pub fn resolve_cli_path(name: &str) -> Option<PathBuf> {
     }
 
     None
+}
+
+pub fn resolve_cli_path(name: &str) -> Option<PathBuf> {
+    let prefix = {
+        let guard = NODE_PREREQS_CACHE.lock().unwrap();
+        guard
+            .as_ref()
+            .and_then(|(_, p)| p.npm_global_prefix.as_deref().map(PathBuf::from))
+    };
+    resolve_cli_path_with_prefix(name, prefix.as_deref())
 }
 
 pub fn resolve_node_path() -> Result<PathBuf, String> {
@@ -360,11 +475,47 @@ pub async fn query_npm_version(path: &Path) -> Result<String, String> {
     }
 }
 
+pub async fn query_npm_global_prefix(npm_path: &Path) -> Option<PathBuf> {
+    let runner = ProcessRunner::new();
+    let env_allowlist = get_cli_tools_env_allowlist();
+    let res = runner
+        .run_with_stdin_in_environment(
+            &npm_path.to_string_lossy(),
+            &["prefix".to_string(), "-g".to_string()],
+            None,
+            None,
+            Duration::from_secs(5),
+            None,
+            &env_allowlist,
+        )
+        .await
+        .ok()?;
+
+    if res.exit_code == Some(0) {
+        let p_str = res.stdout.text.trim();
+        if !p_str.is_empty() {
+            let p = PathBuf::from(p_str);
+            if p.is_dir() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
 pub async fn get_prerequisites_status() -> NodePrerequisiteStatus {
     get_prerequisites_status_cached(false).await
 }
 
 pub async fn get_prerequisites_status_cached(force_refresh: bool) -> NodePrerequisiteStatus {
+    {
+        if let Ok(guard) = PREREQS_OVERRIDE.lock() {
+            if let Some(ref override_status) = *guard {
+                return override_status.clone();
+            }
+        }
+    }
+
     if !force_refresh {
         let guard = NODE_PREREQS_CACHE.lock().unwrap();
         if let Some((instant, ref status)) = *guard {
@@ -416,12 +567,16 @@ pub async fn get_prerequisites_status_uncached() -> NodePrerequisiteStatus {
     let mut npm_installed = false;
     let mut npm_version = None;
     let mut npm_path = None;
+    let mut npm_global_prefix = None;
 
     if let Ok(np) = npm_path_res {
         npm_path = Some(np.to_string_lossy().to_string());
         if let Ok(ver) = query_npm_version(&np).await {
             npm_installed = true;
             npm_version = Some(ver);
+            if let Some(prefix) = query_npm_global_prefix(&np).await {
+                npm_global_prefix = Some(prefix.to_string_lossy().to_string());
+            }
         }
     }
 
@@ -452,6 +607,7 @@ pub async fn get_prerequisites_status_uncached() -> NodePrerequisiteStatus {
         node_npm_ready,
         gemini_node_ready,
         message,
+        npm_global_prefix,
     }
 }
 
@@ -541,9 +697,13 @@ pub async fn get_cli_tools_status_uncached() -> Result<Vec<CliToolInfo>, String>
     ];
 
     let prereqs = get_prerequisites_status_cached(false).await;
+    let npm_prefix_buf = get_effective_npm_prefix(prereqs.npm_global_prefix.as_deref());
+    let npm_prefix_path = npm_prefix_buf.as_deref();
+
+    let state = read_cli_tools_state();
 
     // Check cached latest versions (valid for 10 min)
-    let cached_data: Option<(String, String, HashMap<String, String>)> = {
+    let cached_data: Option<(String, String, HashMap<String, String>, HashMap<String, String>)> = {
         let guard = LATEST_CACHE.lock().unwrap();
         guard.as_ref().and_then(|c| {
             if c.checked_at.elapsed() < Duration::from_secs(600)
@@ -554,6 +714,7 @@ pub async fn get_cli_tools_status_uncached() -> Result<Vec<CliToolInfo>, String>
                     c.checked_at_rfc3339.clone(),
                     c.check_id.clone(),
                     c.versions.clone(),
+                    c.errors.clone(),
                 ))
             } else {
                 None
@@ -564,14 +725,23 @@ pub async fn get_cli_tools_status_uncached() -> Result<Vec<CliToolInfo>, String>
     let mut result = Vec::new();
 
     for (name, display_name, pkg, is_preview) in tools {
-        let path_opt = resolve_cli_path(name);
-        let installed = path_opt.is_some();
+        let path_opt = resolve_cli_path_with_prefix(name, npm_prefix_path);
         let path_str = path_opt.as_ref().map(|p| p.to_string_lossy().to_string());
 
+        let mut installed = false;
         let mut installed_version = None;
-        if let Some(p) = &path_opt {
-            if let Ok(ver) = query_cli_version(p).await {
-                installed_version = Some(ver);
+        let mut execution_error = None;
+
+        if let Some(ref p) = path_opt {
+            match query_cli_version(p).await {
+                Ok(ver) => {
+                    installed = true;
+                    installed_version = Some(ver);
+                }
+                Err(e) => {
+                    installed = false;
+                    execution_error = Some(e);
+                }
             }
         }
 
@@ -586,11 +756,12 @@ pub async fn get_cli_tools_status_uncached() -> Result<Vec<CliToolInfo>, String>
         }
 
         let mut latest_version = None;
+        let mut latest_check_error = None;
         let mut latest_checked_at = None;
         let mut check_id = None;
         let mut update_available = false;
 
-        if let Some((ref checked_at_rfc, ref chk_id, ref versions_map)) = cached_data {
+        if let Some((ref checked_at_rfc, ref chk_id, ref versions_map, ref errors_map)) = cached_data {
             if let Some(lat) = versions_map.get(name) {
                 latest_version = Some(lat.clone());
                 latest_checked_at = Some(checked_at_rfc.clone());
@@ -598,8 +769,32 @@ pub async fn get_cli_tools_status_uncached() -> Result<Vec<CliToolInfo>, String>
                 if let Some(inst) = &installed_version {
                     update_available = compare_semver_update(inst, lat);
                 }
+            } else if let Some(err) = errors_map.get(name) {
+                latest_check_error = Some(err.clone());
+                latest_checked_at = Some(checked_at_rfc.clone());
+                check_id = Some(chk_id.clone());
             }
         }
+
+        let outcome_unknown = if let Some(ref unk) = state.outcome_unknown {
+            if unk.tool_name == name {
+                Some(unk.message.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let status = if outcome_unknown.is_some() {
+            CliToolStatus::Unknown
+        } else if execution_error.is_some() {
+            CliToolStatus::ExecutionError
+        } else if installed {
+            CliToolStatus::Installed
+        } else {
+            CliToolStatus::NotInstalled
+        };
 
         result.push(CliToolInfo {
             name: name.to_string(),
@@ -614,6 +809,10 @@ pub async fn get_cli_tools_status_uncached() -> Result<Vec<CliToolInfo>, String>
             is_preview,
             update_available,
             prerequisite_error,
+            execution_error,
+            latest_check_error,
+            outcome_unknown,
+            status,
         });
     }
 
@@ -640,15 +839,17 @@ pub async fn check_cli_tools_latest_version() -> Result<Vec<CliToolInfo>, String
         ("gemini", "@google/gemini-cli"),
     ];
 
+    let npm_prefix_path = prereqs.npm_global_prefix.as_deref().map(Path::new);
     let mut current_cli_paths = HashMap::new();
     for (name, _) in tools {
         current_cli_paths.insert(
             name.to_string(),
-            resolve_cli_path(name).map(|p| p.to_string_lossy().to_string()),
+            resolve_cli_path_with_prefix(name, npm_prefix_path).map(|p| p.to_string_lossy().to_string()),
         );
     }
 
     let mut latest_results = HashMap::new();
+    let mut latest_errors = HashMap::new();
 
     // Check if test override is active
     if TEST_RUNNER_OVERRIDE_ENABLED.load(Ordering::SeqCst) {
@@ -657,6 +858,8 @@ pub async fn check_cli_tools_latest_version() -> Result<Vec<CliToolInfo>, String
             for (name, _) in tools {
                 if let Some(ver) = mocks.get(name) {
                     latest_results.insert(name.to_string(), ver.clone());
+                } else {
+                    latest_errors.insert(name.to_string(), "Mock update check failure".to_string());
                 }
             }
         }
@@ -707,21 +910,44 @@ pub async fn check_cli_tools_latest_version() -> Result<Vec<CliToolInfo>, String
             // Cleanup temp dir
             let _ = std::fs::remove_dir_all(&temp_dir);
 
-            if let Ok(res) = proc_res {
-                if res.exit_code == Some(0) {
-                    let raw = res.stdout.text.trim();
-                    let ver = if let Ok(val) = serde_json::from_str::<serde_json::Value>(raw) {
-                        if let Some(s) = val.as_str() {
-                            s.to_string()
+            match proc_res {
+                Ok(res) => {
+                    if res.exit_code == Some(0) {
+                        let raw = res.stdout.text.trim();
+                        let ver = if let Ok(val) = serde_json::from_str::<serde_json::Value>(raw) {
+                            if let Some(s) = val.as_str() {
+                                s.to_string()
+                            } else {
+                                raw.replace('"', "").trim().to_string()
+                            }
                         } else {
                             raw.replace('"', "").trim().to_string()
+                        };
+                        if !ver.is_empty() {
+                            latest_results.insert(name.to_string(), ver);
+                        } else {
+                            latest_errors.insert(
+                                name.to_string(),
+                                "Empty version response from npm registry.".to_string(),
+                            );
                         }
                     } else {
-                        raw.replace('"', "").trim().to_string()
-                    };
-                    if !ver.is_empty() {
-                        latest_results.insert(name.to_string(), ver);
+                        let diag = crate::orchestrator::process_runner::format_exit_code_diagnostic(
+                            res.exit_code,
+                        );
+                        let msg = if !res.stderr.text.trim().is_empty() {
+                            res.stderr.text.trim().to_string()
+                        } else {
+                            format!("npm view failed with {diag}")
+                        };
+                        latest_errors.insert(name.to_string(), msg);
                     }
+                }
+                Err(e) => {
+                    latest_errors.insert(
+                        name.to_string(),
+                        format!("Failed to spawn npm view: {e}"),
+                    );
                 }
             }
         }
@@ -736,6 +962,7 @@ pub async fn check_cli_tools_latest_version() -> Result<Vec<CliToolInfo>, String
             checked_at: Instant::now(),
             checked_at_rfc3339: now_rfc,
             versions: latest_results,
+            errors: latest_errors,
             node_path: prereqs.node_path.clone(),
             node_version: prereqs.node_version.clone(),
             npm_path: prereqs.npm_path.clone(),
@@ -751,11 +978,16 @@ pub async fn check_cli_tools_latest_version() -> Result<Vec<CliToolInfo>, String
 pub async fn run_cli_install(tool_name: &str) -> Result<CliToolInfo, String> {
     let _lock = CLI_MUTEX.lock().await;
 
-    // Check if already installed
-    if resolve_cli_path(tool_name).is_some() {
-        return Err(format!(
-            "CLI tool '{tool_name}' is already installed. Use update instead."
-        ));
+    let prereqs = get_prerequisites_status().await;
+    let npm_prefix_path = prereqs.npm_global_prefix.as_deref().map(Path::new);
+
+    // Check if already installed and functional
+    if let Some(p) = resolve_cli_path_with_prefix(tool_name, npm_prefix_path) {
+        if query_cli_version(&p).await.is_ok() {
+            return Err(format!(
+                "CLI tool '{tool_name}' is already installed. Use update instead."
+            ));
+        }
     }
 
     // Check if an outcome_unknown state is currently recorded
@@ -769,7 +1001,6 @@ pub async fn run_cli_install(tool_name: &str) -> Result<CliToolInfo, String> {
         }
     }
 
-    let prereqs = get_prerequisites_status().await;
     if !prereqs.node_npm_ready {
         return Err("Cannot install: Node.js and npm are required.".to_string());
     }
@@ -834,15 +1065,32 @@ pub async fn run_cli_install(tool_name: &str) -> Result<CliToolInfo, String> {
                 ));
             }
 
-            // Post-install verification
-            let path_opt = resolve_cli_path(tool_name);
+            // Post-install verification (§8.2: npm package status + prefix consistency + --version check)
+            if !check_npm_package_installed(npm_prefix_path, tool_name) {
+                return Err(format!(
+                    "Installation completed with exit code 0, but package '{pkg}' was not found in npm global prefix."
+                ));
+            }
+
+            let path_opt = resolve_cli_path_with_prefix(tool_name, npm_prefix_path);
             let Some(path) = path_opt else {
                 return Err(format!(
-                    "Installation completed, but executable for '{tool_name}' was not found on PATH."
+                    "Installation completed, but executable for '{tool_name}' was not found on PATH or npm global prefix."
                 ));
             };
 
-            let version = query_cli_version(&path).await.ok();
+            let version = query_cli_version(&path).await.map_err(|e| {
+                format!("Installation completed, but executable for '{tool_name}' failed '--version' check: {e}")
+            })?;
+
+            // Clear outcome_unknown if it was recorded
+            let mut current_state = read_cli_tools_state();
+            if let Some(ref unk) = current_state.outcome_unknown {
+                if unk.tool_name == tool_name {
+                    current_state.outcome_unknown = None;
+                    let _ = write_cli_tools_state(&current_state);
+                }
+            }
 
             invalidate_all_cli_caches();
 
@@ -851,7 +1099,7 @@ pub async fn run_cli_install(tool_name: &str) -> Result<CliToolInfo, String> {
                 display_name: display_name.to_string(),
                 installed: true,
                 path: Some(path.to_string_lossy().to_string()),
-                installed_version: version,
+                installed_version: Some(version),
                 latest_version: None,
                 latest_checked_at: None,
                 check_id: None,
@@ -859,6 +1107,10 @@ pub async fn run_cli_install(tool_name: &str) -> Result<CliToolInfo, String> {
                 is_preview,
                 update_available: false,
                 prerequisite_error: None,
+                execution_error: None,
+                latest_check_error: None,
+                outcome_unknown: None,
+                status: CliToolStatus::Installed,
             })
         }
         Err(e) => Err(format!("Process spawn error: {e}")),
@@ -913,7 +1165,10 @@ pub async fn run_cli_update(tool_name: &str, check_id: &str) -> Result<CliToolIn
         }
     }
 
-    let existing_path = resolve_cli_path(tool_name)
+    let prereqs = get_prerequisites_status().await;
+    let npm_prefix_path = prereqs.npm_global_prefix.as_deref().map(Path::new);
+
+    let existing_path = resolve_cli_path_with_prefix(tool_name, npm_prefix_path)
         .ok_or_else(|| format!("CLI tool '{tool_name}' is not installed. Use install instead."))?;
 
     let existing_version = query_cli_version(&existing_path)
@@ -929,7 +1184,6 @@ pub async fn run_cli_update(tool_name: &str, check_id: &str) -> Result<CliToolIn
     }
 
     // Validate identity binding: Node, npm, and CLI paths must match check time
-    let prereqs = get_prerequisites_status().await;
     if !prereqs.node_npm_ready {
         return Err("Cannot update: Node.js and npm are required.".to_string());
     }
@@ -1002,15 +1256,32 @@ pub async fn run_cli_update(tool_name: &str, check_id: &str) -> Result<CliToolIn
                 ));
             }
 
-            // Post-install verification
-            let path_opt = resolve_cli_path(tool_name);
+            // Post-install verification (§8.2: npm package status + prefix consistency + --version check)
+            if !check_npm_package_installed(npm_prefix_path, tool_name) {
+                return Err(format!(
+                    "Installation completed with exit code 0, but package '{pkg}' was not found in npm global prefix."
+                ));
+            }
+
+            let path_opt = resolve_cli_path_with_prefix(tool_name, npm_prefix_path);
             let Some(path) = path_opt else {
                 return Err(format!(
-                    "Update completed, but executable for '{tool_name}' was not found on PATH."
+                    "Update completed, but executable for '{tool_name}' was not found on PATH or npm global prefix."
                 ));
             };
 
-            let version = query_cli_version(&path).await.ok();
+            let version = query_cli_version(&path).await.map_err(|e| {
+                format!("Update completed, but executable for '{tool_name}' failed '--version' check: {e}")
+            })?;
+
+            // Clear outcome_unknown if it was recorded
+            let mut current_state = read_cli_tools_state();
+            if let Some(ref unk) = current_state.outcome_unknown {
+                if unk.tool_name == tool_name {
+                    current_state.outcome_unknown = None;
+                    let _ = write_cli_tools_state(&current_state);
+                }
+            }
 
             invalidate_all_cli_caches();
 
@@ -1019,7 +1290,7 @@ pub async fn run_cli_update(tool_name: &str, check_id: &str) -> Result<CliToolIn
                 display_name: display_name.to_string(),
                 installed: true,
                 path: Some(path.to_string_lossy().to_string()),
-                installed_version: version,
+                installed_version: Some(version),
                 latest_version: Some(exact_version),
                 latest_checked_at: Some(chrono::Utc::now().to_rfc3339()),
                 check_id: Some(check_id.to_string()),
@@ -1027,10 +1298,95 @@ pub async fn run_cli_update(tool_name: &str, check_id: &str) -> Result<CliToolIn
                 is_preview,
                 update_available: false,
                 prerequisite_error: None,
+                execution_error: None,
+                latest_check_error: None,
+                outcome_unknown: None,
+                status: CliToolStatus::Installed,
             })
         }
         Err(e) => Err(format!("Process spawn error: {e}")),
     }
+}
+
+fn tool_name_to_package_name(tool_name: &str) -> Option<&'static str> {
+    match tool_name {
+        "codex" => Some("@openai/codex"),
+        "dsh" => Some("@deepseek-ai/dsh"),
+        "gemini" => Some("@google/gemini-cli"),
+        _ => None,
+    }
+}
+
+fn check_npm_package_dir_exists(prefix: &Path, pkg: &str) -> bool {
+    let p1 = prefix.join("node_modules").join(pkg);
+    let p2 = prefix.join("lib").join("node_modules").join(pkg);
+    p1.is_dir() || p2.is_dir()
+}
+
+pub fn check_npm_package_installed(npm_prefix: Option<&Path>, tool_name: &str) -> bool {
+    let Some(pkg) = tool_name_to_package_name(tool_name) else {
+        return false;
+    };
+    if let Some(prefix) = npm_prefix {
+        return check_npm_package_dir_exists(prefix, pkg);
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let win_prefix = PathBuf::from(appdata).join("npm");
+            if check_npm_package_dir_exists(&win_prefix, pkg) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+pub async fn recover_cli_tool_state(tool_name: &str) -> Result<CliToolInfo, String> {
+    // 1. Acquire mutex to guarantee no active install/update process runner task in Poverello
+    let _lock = CLI_MUTEX.lock().await;
+
+    let state = read_cli_tools_state();
+    if let Some(ref unknown) = state.outcome_unknown {
+        if unknown.tool_name == tool_name {
+            // 2. Debounce/drain check: Ensure valid RFC3339 timestamp and that at least 5 seconds
+            // have elapsed since recorded_at so any background process has completely terminated
+            match chrono::DateTime::parse_from_rfc3339(&unknown.recorded_at) {
+                Ok(dt) => {
+                    let elapsed = chrono::Utc::now().signed_duration_since(dt);
+                    if elapsed.num_seconds() < 5 {
+                        return Err("Process termination drain in progress. Please wait a few seconds before rechecking.".to_string());
+                    }
+                }
+                Err(_) => {
+                    return Err("Cannot verify recorded timestamp for unknown outcome state; OUTCOME_UNKNOWN retained.".to_string());
+                }
+            }
+
+            // 3. Query fresh prerequisites and prefix to ensure state confirmation is possible
+            let prereqs = get_prerequisites_status_cached(true).await;
+            if !prereqs.node_npm_ready {
+                return Err("Cannot recover CLI tool state: Node.js and npm are required to verify tool state. OUTCOME_UNKNOWN retained. Please verify that Node.js and npm are installed and on PATH, then retry recovery.".to_string());
+            }
+
+            // 4. Safe recovery (§8.2):
+            // Prior process has terminated (drain period elapsed) and environment check succeeded.
+            // Clear OUTCOME_UNKNOWN and persist state so the user is unblocked to retry
+            // if the tool is absent/broken, or to use the tool if it is verified installed.
+            let mut new_state = state;
+            new_state.outcome_unknown = None;
+            write_cli_tools_state(&new_state).map_err(|e| {
+                format!("Failed to persist recovered state: {e}. OUTCOME_UNKNOWN retained.")
+            })?;
+        }
+    }
+
+    invalidate_all_cli_caches();
+    let tools = get_cli_tools_status_cached(true).await?;
+    tools
+        .into_iter()
+        .find(|t| t.name == tool_name)
+        .ok_or_else(|| format!("CLI tool '{tool_name}' not found."))
 }
 
 /// Pure response parsing for 'codex login status'.
@@ -1655,8 +2011,11 @@ mod tests {
         assert_eq!(tools[2].2, "@google/gemini-cli");
     }
 
+    pub static TEST_OVERRIDE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[tokio::test]
     async fn test_unsupported_cli_tool_fails_fast() {
+        let _test_lock = TEST_OVERRIDE_LOCK.lock().unwrap();
         let res = run_cli_install("unsupported_tool").await;
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("Unsupported CLI tool"));
@@ -1664,6 +2023,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_cli_tools_latest_version_with_mock() {
+        let _test_lock = TEST_OVERRIDE_LOCK.lock().unwrap();
         let mut mocks = HashMap::new();
         mocks.insert("codex".to_string(), "0.164.0".to_string());
         mocks.insert("dsh".to_string(), "0.3.0".to_string());
@@ -1685,6 +2045,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_update_requires_check_and_valid_id() {
+        let _test_lock = TEST_OVERRIDE_LOCK.lock().unwrap();
         // Clear cache
         {
             let mut guard = LATEST_CACHE.lock().unwrap();
@@ -1711,6 +2072,7 @@ mod tests {
                 checked_at: Instant::now(),
                 checked_at_rfc3339: chrono::Utc::now().to_rfc3339(),
                 versions,
+                errors: HashMap::new(),
                 node_path: resolve_node_path()
                     .ok()
                     .map(|p| p.to_string_lossy().to_string()),
@@ -1762,6 +2124,7 @@ mod tests {
 
     #[test]
     fn test_cli_auth_env_allowlist_preserves_codex_home_and_excludes_credentials() {
+        let _test_lock = TEST_OVERRIDE_LOCK.lock().unwrap();
         std::env::set_var("CODEX_HOME", "C:\\mock\\codex\\home");
         std::env::set_var("OPENAI_API_KEY", "sk-secret-12345");
         std::env::set_var("CODEX_API_KEY", "secret-token-67890");
@@ -1801,6 +2164,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_auth_status_returns_unknown_for_gemini_and_dsh() {
+        let _test_lock = TEST_OVERRIDE_LOCK.lock().unwrap();
         let auth_list = get_cli_auth_status().await.unwrap();
         assert_eq!(auth_list.len(), 3);
 
@@ -1938,6 +2302,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_tools_cache_bounded_freshness_and_invalidation() {
+        let _test_lock = TEST_OVERRIDE_LOCK.lock().unwrap();
         invalidate_all_cli_caches();
 
         // 1. Manually seed CLI tools cache
@@ -1954,6 +2319,10 @@ mod tests {
             is_preview: false,
             update_available: false,
             prerequisite_error: None,
+            execution_error: None,
+            latest_check_error: None,
+            outcome_unknown: None,
+            status: CliToolStatus::Installed,
         }];
 
         {
@@ -2010,6 +2379,7 @@ mod tests {
             node_npm_ready: true,
             gemini_node_ready: true,
             message: None,
+            npm_global_prefix: Some("C:\\fake\\npm_global".to_string()),
         };
 
         {
@@ -2025,5 +2395,323 @@ mod tests {
             let guard = NODE_PREREQS_CACHE.lock().unwrap();
             assert!(guard.is_none());
         }
+
+        invalidate_all_cli_caches();
+    }
+
+    #[test]
+    fn test_resolve_cli_path_with_prefix_custom_dir() {
+        let temp = std::env::temp_dir().join(format!("pct-test-prefix-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::create_dir_all(&temp);
+
+        #[cfg(windows)]
+        let target_file = temp.join("mocktool.cmd");
+        #[cfg(not(windows))]
+        let target_file = temp.join("mocktool");
+
+        let _ = std::fs::write(&target_file, "echo hello");
+
+        let resolved = resolve_cli_path_with_prefix("mocktool", Some(&temp));
+        assert!(resolved.is_some());
+        assert_eq!(resolved.unwrap(), target_file);
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn test_cli_tool_info_serde_defaults() {
+        let json = r#"{
+            "name": "testtool",
+            "display_name": "Test Tool",
+            "installed": true,
+            "path": "/bin/testtool",
+            "installed_version": "1.0.0",
+            "latest_version": null,
+            "latest_checked_at": null,
+            "check_id": null,
+            "package_name": "@test/testtool",
+            "is_preview": false,
+            "update_available": false,
+            "prerequisite_error": null
+        }"#;
+
+        let parsed: CliToolInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.name, "testtool");
+        assert_eq!(parsed.execution_error, None);
+        assert_eq!(parsed.latest_check_error, None);
+        assert_eq!(parsed.outcome_unknown, None);
+        assert_eq!(parsed.status, CliToolStatus::NotInstalled);
+    }
+
+    #[test]
+    fn test_cli_tool_status_serde_representation() {
+        assert_eq!(serde_json::to_string(&CliToolStatus::NotInstalled).unwrap(), "\"not_installed\"");
+        assert_eq!(serde_json::to_string(&CliToolStatus::Installed).unwrap(), "\"installed\"");
+        assert_eq!(serde_json::to_string(&CliToolStatus::ExecutionError).unwrap(), "\"execution_error\"");
+        assert_eq!(serde_json::to_string(&CliToolStatus::Unknown).unwrap(), "\"unknown\"");
+
+        assert_eq!(serde_json::from_str::<CliToolStatus>("\"not_installed\"").unwrap(), CliToolStatus::NotInstalled);
+        assert_eq!(serde_json::from_str::<CliToolStatus>("\"installed\"").unwrap(), CliToolStatus::Installed);
+        assert_eq!(serde_json::from_str::<CliToolStatus>("\"execution_error\"").unwrap(), CliToolStatus::ExecutionError);
+        assert_eq!(serde_json::from_str::<CliToolStatus>("\"unknown\"").unwrap(), CliToolStatus::Unknown);
+    }
+
+    #[tokio::test]
+    async fn test_recover_cli_tool_state_timestamp_validation() {
+        let _test_lock = TEST_OVERRIDE_LOCK.lock().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let isolated_state_path = temp_dir.path().join("cli_tools_state.json");
+        set_state_file_override(Some(isolated_state_path));
+
+        let ready_prereqs = NodePrerequisiteStatus {
+            node_installed: true,
+            node_version: Some("v20.10.0".to_string()),
+            node_major_version: Some(20),
+            node_path: Some("C:\\fake\\node.exe".to_string()),
+            npm_installed: true,
+            npm_version: Some("10.2.0".to_string()),
+            npm_path: Some("C:\\fake\\npm.cmd".to_string()),
+            npm_global_prefix: Some("C:\\fake\\prefix".to_string()),
+            node_npm_ready: true,
+            gemini_node_ready: true,
+            message: None,
+        };
+        set_prereqs_override(Some(ready_prereqs.clone()));
+
+        struct CleanupGuard;
+        impl Drop for CleanupGuard {
+            fn drop(&mut self) {
+                set_state_file_override(None);
+                set_prereqs_override(None);
+            }
+        }
+        let _guard = CleanupGuard;
+
+        // 1. Invalid timestamp must be rejected and OUTCOME_UNKNOWN retained
+        let invalid_state = CliToolsState {
+            outcome_unknown: Some(CliToolOutcomeUnknown {
+                tool_name: "codex".to_string(),
+                message: "timeout".to_string(),
+                recorded_at: "not-an-rfc3339-timestamp".to_string(),
+            }),
+        };
+        let _ = write_cli_tools_state(&invalid_state);
+
+        let err = recover_cli_tool_state("codex").await.unwrap_err();
+        assert!(err.contains("Cannot verify recorded timestamp"));
+        let state_after = read_cli_tools_state();
+        assert!(state_after.outcome_unknown.is_some());
+
+        // 2. Fresh timestamp (< 5s) must be rejected for debounce
+        let fresh_state = CliToolsState {
+            outcome_unknown: Some(CliToolOutcomeUnknown {
+                tool_name: "codex".to_string(),
+                message: "timeout".to_string(),
+                recorded_at: chrono::Utc::now().to_rfc3339(),
+            }),
+        };
+        let _ = write_cli_tools_state(&fresh_state);
+
+        let debounce_err = recover_cli_tool_state("codex").await.unwrap_err();
+        assert!(debounce_err.contains("Process termination drain in progress"));
+        let state_after_debounce = read_cli_tools_state();
+        assert!(state_after_debounce.outcome_unknown.is_some());
+
+        let past_time = (chrono::Utc::now() - chrono::Duration::seconds(10)).to_rfc3339();
+
+        // 2b. Missing or broken Node.js/npm prerequisites (§8.2: 状態確認に失敗する場合はブロックを維持し、理由を表示)
+        // When Node.js and npm are unavailable, tool state cannot be established; OUTCOME_UNKNOWN must be retained.
+        set_prereqs_override(Some(NodePrerequisiteStatus {
+            node_installed: false,
+            node_version: None,
+            node_major_version: None,
+            node_path: None,
+            npm_installed: false,
+            npm_version: None,
+            npm_path: None,
+            npm_global_prefix: None,
+            node_npm_ready: false,
+            gemini_node_ready: false,
+            message: Some("Node.js is not installed".to_string()),
+        }));
+
+        let unready_state = CliToolsState {
+            outcome_unknown: Some(CliToolOutcomeUnknown {
+                tool_name: "codex".to_string(),
+                message: "timeout".to_string(),
+                recorded_at: past_time.clone(),
+            }),
+        };
+        let _ = write_cli_tools_state(&unready_state);
+
+        let prereq_err = recover_cli_tool_state("codex").await.unwrap_err();
+        assert!(prereq_err.contains("Node.js and npm are required to verify tool state"));
+        assert!(prereq_err.contains("OUTCOME_UNKNOWN retained"));
+        let state_after_unready = read_cli_tools_state();
+        assert!(
+            state_after_unready.outcome_unknown.is_some(),
+            "OUTCOME_UNKNOWN must be retained when environment check cannot establish status due to missing Node/npm"
+        );
+
+        // Restore ready prerequisites for verified absent, broken, and installed recovery cases
+        set_prereqs_override(Some(ready_prereqs.clone()));
+
+        // 3. Elapsed timestamp (> 5s) on absent tool in isolated empty prefix
+        // §8.2: Prior process ended, tool is absent -> clear OUTCOME_UNKNOWN and allow retry (status = NotInstalled)
+        let empty_prefix_dir = tempfile::tempdir().unwrap();
+        set_prefix_override(Some(empty_prefix_dir.path().to_path_buf()));
+        struct EmptyPrefixCleanup;
+        impl Drop for EmptyPrefixCleanup {
+            fn drop(&mut self) {
+                set_prefix_override(None);
+            }
+        }
+        let _empty_prefix_guard = EmptyPrefixCleanup;
+
+        let past_time = (chrono::Utc::now() - chrono::Duration::seconds(10)).to_rfc3339();
+        let past_missing_state = CliToolsState {
+            outcome_unknown: Some(CliToolOutcomeUnknown {
+                tool_name: "gemini".to_string(),
+                message: "timeout".to_string(),
+                recorded_at: past_time.clone(),
+            }),
+        };
+        let _ = write_cli_tools_state(&past_missing_state);
+
+        let recovered_missing = recover_cli_tool_state("gemini").await.expect("Recovery must clear unknown state on absent tool");
+        assert_eq!(recovered_missing.status, CliToolStatus::NotInstalled);
+        assert_eq!(recovered_missing.outcome_unknown, None);
+        let state_after_missing = read_cli_tools_state();
+        assert_eq!(
+            state_after_missing.outcome_unknown, None,
+            "OUTCOME_UNKNOWN must be cleared to allow retry when prior process ended and tool is absent"
+        );
+        drop(_empty_prefix_guard);
+
+        // 4. Elapsed timestamp (> 5s) on broken/corrupted tool in prefix
+        // §8.2: Prior process ended, tool is broken -> clear OUTCOME_UNKNOWN and allow retry (status = ExecutionError)
+        let broken_prefix_dir = tempfile::tempdir().unwrap();
+        #[cfg(windows)]
+        {
+            let broken_batch = broken_prefix_dir.path().join("dsh.cmd");
+            std::fs::write(&broken_batch, "@exit /b 1\r\n").unwrap();
+        }
+        #[cfg(not(windows))]
+        {
+            let broken_script = broken_prefix_dir.path().join("dsh");
+            std::fs::write(&broken_script, "#!/bin/sh\nexit 1\n").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = std::fs::metadata(&broken_script).unwrap().permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(&broken_script, perms).unwrap();
+            }
+        }
+        set_prefix_override(Some(broken_prefix_dir.path().to_path_buf()));
+        struct BrokenPrefixCleanup;
+        impl Drop for BrokenPrefixCleanup {
+            fn drop(&mut self) {
+                set_prefix_override(None);
+            }
+        }
+        let _broken_prefix_guard = BrokenPrefixCleanup;
+
+        let past_broken_state = CliToolsState {
+            outcome_unknown: Some(CliToolOutcomeUnknown {
+                tool_name: "dsh".to_string(),
+                message: "timeout".to_string(),
+                recorded_at: past_time.clone(),
+            }),
+        };
+        let _ = write_cli_tools_state(&past_broken_state);
+
+        let recovered_broken = recover_cli_tool_state("dsh").await.expect("Recovery must clear unknown state on broken tool");
+        assert_eq!(recovered_broken.status, CliToolStatus::ExecutionError);
+        assert_eq!(recovered_broken.outcome_unknown, None);
+        let state_after_recover = read_cli_tools_state();
+        assert_eq!(
+            state_after_recover.outcome_unknown, None,
+            "OUTCOME_UNKNOWN must be cleared to allow retry when prior process ended and tool is broken"
+        );
+        drop(_broken_prefix_guard);
+
+        // 5. Deterministic hermetic verified success using PREFIX_OVERRIDE
+        let prefix_dir = tempfile::tempdir().unwrap();
+        let prefix = prefix_dir.path();
+        let codex_pkg = prefix.join("node_modules").join("@openai").join("codex");
+        std::fs::create_dir_all(&codex_pkg).unwrap();
+
+        #[cfg(windows)]
+        {
+            let batch = prefix.join("codex.cmd");
+            std::fs::write(&batch, "@echo 0.166.0\r\n").unwrap();
+        }
+        #[cfg(not(windows))]
+        {
+            let script = prefix.join("codex");
+            std::fs::write(&script, "#!/bin/sh\necho 0.166.0\n").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = std::fs::metadata(&script).unwrap().permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(&script, perms).unwrap();
+            }
+        }
+
+        set_prefix_override(Some(prefix.to_path_buf()));
+        struct PrefixCleanup;
+        impl Drop for PrefixCleanup {
+            fn drop(&mut self) {
+                set_prefix_override(None);
+            }
+        }
+        let _prefix_guard = PrefixCleanup;
+
+        let past_codex_state = CliToolsState {
+            outcome_unknown: Some(CliToolOutcomeUnknown {
+                tool_name: "codex".to_string(),
+                message: "timeout".to_string(),
+                recorded_at: past_time,
+            }),
+        };
+        write_cli_tools_state(&past_codex_state).unwrap();
+
+        let tool = recover_cli_tool_state("codex").await.expect("Deterministic recovery must succeed");
+        assert_eq!(tool.status, CliToolStatus::Installed);
+        assert_eq!(tool.outcome_unknown, None);
+        assert!(tool.installed_version.is_some());
+        let state_after_codex = read_cli_tools_state();
+        assert_eq!(state_after_codex.outcome_unknown, None);
+    }
+
+    #[test]
+    fn test_check_npm_package_installed_matrix() {
+        let temp_dir1 = tempfile::tempdir().unwrap();
+        let prefix1 = temp_dir1.path();
+
+        let temp_dir2 = tempfile::tempdir().unwrap();
+        let prefix2 = temp_dir2.path();
+
+        // 1. Missing package in empty prefixes
+        assert!(!check_npm_package_installed(Some(prefix1), "codex"));
+        assert!(!check_npm_package_installed(Some(prefix2), "codex"));
+
+        // 2. Package present in prefix1 node_modules/@openai/codex
+        let pkg_dir = prefix1.join("node_modules").join("@openai").join("codex");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        assert!(check_npm_package_installed(Some(prefix1), "codex"));
+        assert!(!check_npm_package_installed(Some(prefix1), "dsh"));
+
+        // 3. Prefix isolation: prefix2 must NOT see package installed in prefix1
+        assert!(!check_npm_package_installed(Some(prefix2), "codex"));
+
+        // 4. Package present in prefix2 lib/node_modules/@deepseek-ai/dsh
+        let dsh_pkg_dir = prefix2.join("lib").join("node_modules").join("@deepseek-ai").join("dsh");
+        std::fs::create_dir_all(&dsh_pkg_dir).unwrap();
+        assert!(check_npm_package_installed(Some(prefix2), "dsh"));
+        // Prefix isolation: prefix1 must NOT see package installed in prefix2
+        assert!(!check_npm_package_installed(Some(prefix1), "dsh"));
     }
 }

@@ -817,11 +817,44 @@ fn spawn_win32_child(
     }
 
     // 3. Build a Windows CRT-compatible argv command line.
-    let mut cmd_line_str = quote_windows_arg(executable);
-    for arg in args {
-        cmd_line_str.push(' ');
-        cmd_line_str.push_str(&quote_windows_arg(arg));
-    }
+    // If the executable is a Windows batch file (.cmd / .bat), launch via cmd.exe /D /S /C
+    // to prevent Win32 error 193 (ERROR_BAD_EXE_FORMAT) while maintaining argument quoting and isolation.
+    let is_batch = {
+        let p = std::path::Path::new(executable);
+        p.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
+            .unwrap_or(false)
+    };
+
+    let cmd_line_str = if is_batch {
+        let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| {
+            let sysroot = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+            format!("{}\\System32\\cmd.exe", sysroot)
+        });
+        // cmd.exe /D /S /C strips the outermost leading and trailing quote character from the /C argument:
+        // /C ""executable" "arg1" "arg2"" -> "executable" "arg1" "arg2"
+        // Therefore, executable MUST always be wrapped in its own quotes, and inner_cmd wrapped in outer quotes.
+        let safe_exe = quote_windows_batch_arg(executable)?;
+        let quoted_exe = if safe_exe.starts_with('"') && safe_exe.ends_with('"') {
+            safe_exe
+        } else {
+            format!("\"{}\"", safe_exe)
+        };
+        let mut inner_cmd = quoted_exe;
+        for arg in args {
+            inner_cmd.push(' ');
+            inner_cmd.push_str(&quote_windows_batch_arg(arg)?);
+        }
+        format!("{} /D /S /C \"{}\"", quote_windows_arg(&comspec), inner_cmd)
+    } else {
+        let mut cmd_line = quote_windows_arg(executable);
+        for arg in args {
+            cmd_line.push(' ');
+            cmd_line.push_str(&quote_windows_arg(arg));
+        }
+        cmd_line
+    };
 
     let mut cmd_line_w: Vec<u16> = OsStr::new(&cmd_line_str)
         .encode_wide()
@@ -1025,6 +1058,46 @@ fn windows_directory() -> Result<std::ffi::OsString, String> {
         );
     }
     Ok(std::ffi::OsString::from_wide(&buffer[..length as usize]))
+}
+
+/// Encodes one argument for Windows batch file execution via cmd.exe.
+/// Rejects injection characters (newlines, nulls, quotes) and safely quotes arguments
+/// containing cmd metacharacters or whitespace to prevent command injection (BatBadBut / CVE-2024-24576).
+pub(crate) fn quote_windows_batch_arg(arg: &str) -> Result<String, String> {
+    if arg.contains('\0') || arg.contains('\r') || arg.contains('\n') {
+        return Err("Argument contains invalid control characters (null or newline)".to_string());
+    }
+    // Reject double quotes to prevent cmd.exe quote-escaping breakouts
+    if arg.contains('"') {
+        return Err("Arguments to Windows batch files cannot contain double quotes".to_string());
+    }
+    // Reject '%' and '!' because cmd.exe expands percent variables and delayed-expansion
+    // exclamation marks even within quotes, making safe batch escaping impossible (BatBadBut / CVE-2024-24576).
+    if arg.contains('%') || arg.contains('!') {
+        return Err("Arguments to Windows batch files cannot contain '%' or '!' (BatBadBut / CVE-2024-24576)".to_string());
+    }
+    if arg.is_empty() {
+        return Ok("\"\"".to_string());
+    }
+    let needs_quotes = arg.chars().any(|c| {
+        c == ' '
+            || c == '\t'
+            || c == '&'
+            || c == '|'
+            || c == '<'
+            || c == '>'
+            || c == '^'
+            || c == '('
+            || c == ')'
+            || c == ';'
+            || c == ','
+            || c == '='
+    });
+    if needs_quotes {
+        Ok(format!("\"{arg}\""))
+    } else {
+        Ok(arg.to_string())
+    }
 }
 
 /// Encodes one argument using the quoting rules used by the Windows C runtime.
@@ -1643,5 +1716,165 @@ mod tests {
 
         let none_diag = format_exit_code_diagnostic(None);
         assert!(none_diag.contains("no exit code"));
+    }
+
+    #[test]
+    fn test_quote_windows_batch_arg_safety() {
+        // Plain alphanumeric
+        assert_eq!(quote_windows_batch_arg("simple").unwrap(), "simple");
+
+        // Spaces and metacharacters quoted
+        assert_eq!(quote_windows_batch_arg("with space").unwrap(), "\"with space\"");
+        assert_eq!(quote_windows_batch_arg("foo&bar").unwrap(), "\"foo&bar\"");
+        assert_eq!(quote_windows_batch_arg("foo|bar").unwrap(), "\"foo|bar\"");
+        assert_eq!(quote_windows_batch_arg("foo^bar").unwrap(), "\"foo^bar\"");
+        assert_eq!(quote_windows_batch_arg("foo(bar)").unwrap(), "\"foo(bar)\"");
+        assert_eq!(quote_windows_batch_arg("foo;bar").unwrap(), "\"foo;bar\"");
+
+        // Trailing backslash properly preserved without duplication when quoted
+        assert_eq!(quote_windows_batch_arg("path with space\\").unwrap(), "\"path with space\\\"");
+
+        // Injections with quotes, newlines, percent, or exclamation must be rejected (BatBadBut)
+        assert!(quote_windows_batch_arg("foo%bar").is_err());
+        assert!(quote_windows_batch_arg("foo!bar").is_err());
+        assert!(quote_windows_batch_arg("foo\"bar").is_err());
+        assert!(quote_windows_batch_arg("foo\nbar").is_err());
+        assert!(quote_windows_batch_arg("foo\rbar").is_err());
+        assert!(quote_windows_batch_arg("foo\0bar").is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_win32_cmd_batch_execution() {
+        let temp_dir = std::env::temp_dir().join(format!("pct-test-cmd-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let cmd_file = temp_dir.join("test_script.cmd");
+        std::fs::write(&cmd_file, "@echo off\r\necho ARG1=\"%~1\"\r\necho ARG2=\"%~2\"\r\nexit /b 0\r\n").unwrap();
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        rt.block_on(async {
+            let runner = ProcessRunner::new();
+            // 1. Valid execution with metacharacters & whitespace safely received
+            let res = runner
+                .run(
+                    &cmd_file.to_string_lossy(),
+                    &["hello&world".to_string(), "spaces and |^;()".to_string()],
+                    None,
+                    Duration::from_secs(5),
+                    None,
+                )
+                .await;
+
+            assert!(res.is_ok(), "Expected batch script to execute successfully: {:?}", res.err());
+            let out = res.unwrap();
+            assert_eq!(out.exit_code, Some(0));
+            assert!(
+                out.stdout.text.contains("ARG1=\"hello&world\""),
+                "Unexpected ARG1: {}",
+                out.stdout.text
+            );
+            assert!(
+                out.stdout.text.contains("ARG2=\"spaces and |^;()\""),
+                "Unexpected ARG2: {}",
+                out.stdout.text
+            );
+
+            // 2. BatBadBut injection rejection: % and ! must fail before launch
+            // Uses a separate inert script without any % or ! expansions to isolate argument rejection
+            let inert_cmd_file = temp_dir.join("inert_script.cmd");
+            std::fs::write(&inert_cmd_file, "@exit /b 0\r\n").unwrap();
+
+            let percent_res = runner
+                .run(
+                    &inert_cmd_file.to_string_lossy(),
+                    &["%PATH%".to_string()],
+                    None,
+                    Duration::from_secs(5),
+                    None,
+                )
+                .await;
+            assert!(percent_res.is_err());
+            assert!(percent_res.unwrap_err().contains("BatBadBut"));
+
+            let excl_res = runner
+                .run(
+                    &inert_cmd_file.to_string_lossy(),
+                    &["!VAR!".to_string()],
+                    None,
+                    Duration::from_secs(5),
+                    None,
+                )
+                .await;
+            assert!(excl_res.is_err());
+            assert!(excl_res.unwrap_err().contains("BatBadBut"));
+
+            // 3. Execution of batch script in path containing spaces (verifies cmd.exe /D /S /C ""path with spaces" ...")
+            let spaced_dir = temp_dir.join("folder with spaces");
+            std::fs::create_dir_all(&spaced_dir).unwrap();
+            let spaced_cmd_file = spaced_dir.join("spaced script.cmd");
+            std::fs::write(
+                &spaced_cmd_file,
+                "@echo off\r\necho SPICED_OUTPUT=\"%~1\"\r\nexit /b 0\r\n",
+            )
+            .unwrap();
+
+            let spaced_res = runner
+                .run(
+                    &spaced_cmd_file.to_string_lossy(),
+                    &["argument with spaces & metachars".to_string()],
+                    None,
+                    Duration::from_secs(5),
+                    None,
+                )
+                .await;
+            assert!(
+                spaced_res.is_ok(),
+                "Expected batch script in path with spaces to succeed: {:?}",
+                spaced_res.err()
+            );
+            let spaced_out = spaced_res.unwrap();
+            assert_eq!(spaced_out.exit_code, Some(0));
+            assert!(
+                spaced_out
+                    .stdout
+                    .text
+                    .contains("SPICED_OUTPUT=\"argument with spaces & metachars\""),
+                "Unexpected spaced output: {}",
+                spaced_out.stdout.text
+            );
+
+            // 4. Quoted argument ending in trailing backslash (verifies trailing backslash is not duplicated or stripped)
+            let slash_arg = "C:\\path with spaces\\";
+            let slash_res = runner
+                .run(
+                    &spaced_cmd_file.to_string_lossy(),
+                    &[slash_arg.to_string()],
+                    None,
+                    Duration::from_secs(5),
+                    None,
+                )
+                .await;
+            assert!(
+                slash_res.is_ok(),
+                "Expected batch execution with trailing slash to succeed: {:?}",
+                slash_res.err()
+            );
+            let slash_out = slash_res.unwrap();
+            assert_eq!(slash_out.exit_code, Some(0));
+            assert!(
+                slash_out
+                    .stdout
+                    .text
+                    .contains("SPICED_OUTPUT=\"C:\\path with spaces\\\""),
+                "Expected exact argument preserved with trailing slash, got: {}",
+                slash_out.stdout.text
+            );
+
+            let _ = std::fs::remove_dir_all(&temp_dir);
+        });
     }
 }

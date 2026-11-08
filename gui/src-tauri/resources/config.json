@@ -811,10 +811,10 @@
         },
         {
           "id": "b0e0f000-0000-4000-8000-000000000002",
-          "display_name": "OpenRouter: Hy3",
+          "display_name": "OpenRouter: Tencent",
           "claude_code": { "auto_compact": { "mode": "auto" } },
           "model_map": {
-            "claude-opus-5": "tencent/hy3",
+            "claude-opus-5": "tencent/hy4",
             "claude-sonnet-5": "tencent/hy3",
             "claude-haiku-4-5": "tencent/hy3"
           },
@@ -825,7 +825,7 @@
           ],
           "models": {
             "claude-opus-5": {
-              "upstream_model": "tencent/hy3",
+              "upstream_model": "tencent/hy4",
               "canonical": null,
               "thinking": null,
               "supports_vision": null,
@@ -833,8 +833,8 @@
               "visible": true,
               "force_thinking": false,
               "supports_non_thinking": null,
-              "supports_image_url": false,
-              "supports_image_base64": false,
+              "supports_image_url": true,
+              "supports_image_base64": true,
               "supports_video_url": false,
               "supports_video_base64": false,
               "thinking_mode": "thinking",

@@ -1,12 +1,13 @@
 {
   "name": "anthro-bridge",
   "private": true,
-  "version": "0.26.2",
+  "version": "0.27.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "tauri": "cross-env ANTHRO_BRIDGE_CHANNEL=dev tauri",
     "tauri:dev": "cross-env ANTHRO_BRIDGE_CHANNEL=dev tauri dev",
     "tauri:build:dev": "cross-env ANTHRO_BRIDGE_CHANNEL=dev tauri build --config src-tauri/tauri.dev.conf.json",

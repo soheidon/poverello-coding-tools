@@ -5,24 +5,86 @@ description: 承認済み計画に基づく実装・テスト、独立実装レ�
 
 # POV Build Review
 
-## 役割
+## 役割と権能分離 (Separation of Powers)
 
-- Codex：作業主体として承認済み計画に基づく実装、テスト実行、セッション内自己レビュー、および必要な是正実装を行う。自己レビューは本セッション内で直接実施し、追加の `codex exec` による自己レビューは起動しない。
-- 外部独立レビューが必要な場合は、外部Reviewer（DeepSeek Harness、オプション有効時かつ選択時のみ Gemini CLI）が担当する。
+- **正本計画書（Active Plan File）**: 作業開始前に必ず確認する。GUIでアクティブプランファイルが指定されていない場合、即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED` を出力して停止する。
+- **実装主体 (Implementer)**: 承認済み正本計画書（`.plan/<name>.md` 等）の範囲内でコード変更およびテストを実施し、実装履歴を計画書に記録する。
+- **Reviewer (検査担当)**: 実装差分および計画書を完全な読み取り専用（Read-Only）として検査し、合否判定（`APPROVED` / `REQUEST_CHANGES`）と具体的根拠付き指摘のみを返す。**Reviewer 自身によるコード・計画書の直接変更は禁止される**。
+- **Reviser (是正担当)**: 指摘事項に基づき最小限の是正実装を行い、回帰テストを実施する。
 - レビュー完了後、commit、push、tag、release等は行わずに停止する。
 
 ## 共通契約
 
+- **正本計画書への全ライフサイクル記録 (Audit Trail)**: 実装内容、変更ファイル一覧、テスト結果、レビュー判定、是正履歴を正本計画書末尾の「Execution History & Audit Trail」セクションへ時系列で漏れなく記録する。
 - 実装前に承認済み正本計画書を確認し、その範囲内のみを変更する。
 - テスト未実行・実行不能・結果不明の項目をPASSとみなさない。
 - 実装レビューで指摘されたblocking findingに対して最小限の是正を行い、回帰テストを実施する。
 - レビュー承認はcommit、push、tag、release、deployの許可ではない。
 
+## 実行効率最適化ルール
+
+既存のPlan→Review→Implement→Review→Correctiveの工程、Reviewer構成、承認条件、安全制約を維持した上で、以下の実行効率ルールを適用する。
+
+- **コマンド実行**:
+  - 短時間で完了すると見込まれるコマンドは、可能な範囲で同期的に結果を受け取る。
+  - 長時間処理は非同期実行してよいが、短い間隔で繰り返し状態確認しない。
+  - 完了通知を利用できる場合は通知を優先する。
+  - 実行中であることを知らせるだけの応答やツール操作を繰り返さない。
+- **ファイル操作**:
+  - 編集前に必要なファイル範囲をまとめて読み込む。
+  - 変更されていないファイルの同一範囲を繰り返し読み込まない。
+  - 編集失敗時は対象箇所だけ再確認する。
+  - ファイルの同一性や更新有無を確認する必要がある場合は、既存の整合性検証を省略しない。
+- **テスト**:
+  - 実装途中は変更対象に直接関連するテストを優先する。
+  - レビュー前には必要なビルド・検証を完了させる。
+  - 最終承認ゲートでは既存計画が要求するテスト一式を実行する。
+  - 全件テストを再実行するのは、変更の影響範囲が拡大した場合や検証上必要な場合とする。
+- **レビュー・是正**:
+  - Reviewerが指摘したFindingを一覧化する。
+  - 同じレビューで得られた指摘を可能な限り一括修正する。
+  - 関連テストを通過してから再レビューを依頼する。
+  - 既存契約で必要なレビューは省略しない。
+  - 承認済みの変更を再度全面レビューする必要がある場合は、その理由を明確にする。
+- **ログ・監査**:
+  - コマンドの正常終了時は要約結果を確認し、長大なログ全文を毎回コンテキストに取り込まない。
+  - 失敗時には詳細ログを参照できるようにする。
+  - 監査記録は欠落させず、許可された範囲で工程・サイクル単位に集約する。
+  - 監査上必要な時刻・判定・Finding・実行結果は維持する。
+
+## チェックポイント保存と作業再開ルール
+
+Active Plan File（`.plan/<name>.md`）を作業状態の永続的正本（Ground Truth）とし、会話履歴に依存しない作業再開およびコンテキスト最適化を行う。
+
+- **チェックポイントの保存領域**:
+  正本計画書の `## 5. Execution History & Audit Trail`（または該当監査セクション）直前に、専用のマーカー付き領域 `## Poverello Execution Checkpoint`（`<!-- POVERELLO-CHECKPOINT:START -->` ... `<!-- POVERELLO-CHECKPOINT:END -->`）を設けて記録する。人間が記述した計画本文や既存の監査ログを一切削除・要約・破壊しない。
+- **保存タイミング**:
+  ツール操作ごとではなく、以下の主要な工程境界（Stage Transitions）でのみ保存する：
+  1. 実装開始前確認完了時
+  2. 実装完了時（局所テスト通過後）
+  3. 実装レビュー判定確定時
+  4. 是正実装・検証完了時
+  5. 完了（COMPLETED）または安全停止（HALTED）時
+- **記録内容**:
+  `Checkpoint Version: 1`、`Workflow: pov-build-review`、`Status`、`Last Completed`、`Next Action`、`Execution Identity`（リポジトリ、計画ファイルパス、SHA-256、Run ID）、`Completed Work`、`Modified Files`、`Validation`、`Review State`、`Pending Work`。
+- **作業再開手順 (Resumption)**:
+  実装開始時、Active Plan Fileのチェックポイントを確認する：
+  1. リポジトリ同一性・計画ファイルパス・ハッシュ整合性を確認する。
+  2. 保存されたReviewer構成、未解決Finding、変更ファイル状態を照合する。
+  3. 直前完了工程（`Last Completed`）に基づき、完了済みの実装や検証をスキップし、`Next Action`（例: レビューまたは是正）から安全に再開する。
+  4. リポジトリ不一致、計画の外部変更、チェックポイント破損、状態不明、未解決Blocking Finding残存時は推測でやり直さず安全に停止する。
+- **コンテキスト読込削減 (Context Optimization)**:
+  1. 過去の会話履歴全文や長大な監査ログを毎回再読込しない。
+  2. Active Plan Fileのチェックポイントおよび現在の工程に必要なセクションのみを取得して作業を進める。
+  3. 正常終了したコマンドは終了コードと要約を確認し、長大な標準出力全文をコンテキストに取り込まない。
+
 ## レビュー方式と並列レビュー契約
 
 1. **レビュー方式（review_mode）の解決**:
-   - レビュー実行前に `CODEX_HOME/pov-review-settings.json`（`schema_version: 4`）を読み込む。ファイル不在時は既定値（`review_mode: codex_self_only`, priority: codex, gemini_cli_enabled: false）とし、設定破損・未知schema時は fail-closed で停止する。
-   - `review_mode` の4区分に従ってレビュー工程を実行する：
+   - 作業開始前にリポジトリ内 `.plan/.active-plan.json` または `CODEX_HOME/pov-review-settings.json` を読み込む。
+   - `active_plan_path` が未設定、または指定されたファイルが存在しない場合、**即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED: Poverello GUI の Autocode 画面から作業対象のプランファイルを指定または新規作成してください。` と出力して停止する**。
+   - 計画書ファイルを読み込み、そのSHA-256ダイジェストを記録する。以降のすべてのフェーズ（実装、テスト結果、レビュー判定、是正）の更新は、直前フェーズのSHA-256ダイジェストを `expected_sha256` として指定した `append_plan_audit_trail` による CAS（Compare-And-Swap）更新を用いて、正本計画書の `## 5. Execution History & Audit Trail` へ順次追記する。
+   - 実装レビュー担当Reviewerは `build_reviewers`（または `review_mode`）に基づいて解決し、4区分に従ってレビュー工程を実行する：
      - `codex_self_only`: Codexの同一セッション内で自己レビューを実施する。外部Reviewerは起動せず、「外部独立レビュー: SKIPPED (review_mode: codex_self_only)」と記録する。追加の `codex exec` は起動しない。
      - `external_only`: Codex自己レビューをスキップし、設定された外部Reviewer（DeepSeek / Gemini）による独立レビューのみをディスパッチャー経由で実施する。
      - `codex_plus_external`: Codexの同一セッション内自己レビューと、選択された外部Reviewer（DeepSeek / Gemini）による独立レビューの両方を実施する。実行順序は設定上の優先Reviewer（priority_reviewer）から独立させ、一方がREQUEST_CHANGESであっても他方を省略しない。自己レビューは本セッション内で直接実施し、追加の `codex exec` は起動しない。両方の結果を別々に記録し、全Reviewer完了後に判定を統合・裁定する。

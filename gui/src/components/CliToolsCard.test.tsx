@@ -294,4 +294,145 @@ describe("CliToolsCard Component", () => {
       expect(mockInvoke).toHaveBeenCalledWith("get_cli_auth_status");
     });
   });
+
+  it("renders execution error badge and diagnostic message when tool has execution_error", async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === "get_cli_tools_status") {
+        return [
+          {
+            name: "codex",
+            display_name: "Codex CLI",
+            installed: false,
+            path: "C:\\broken\\codex.cmd",
+            installed_version: null,
+            latest_version: null,
+            latest_checked_at: null,
+            package_name: "@openai/codex",
+            is_preview: false,
+            update_available: false,
+            check_id: null,
+            prerequisite_error: null,
+            execution_error: "Process exited with 0xC0000142 STATUS_DLL_INIT_FAILED",
+          },
+        ];
+      }
+      if (command === "get_cli_auth_status") return [];
+      return null;
+    });
+
+    render(
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+        <CliToolsCard />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("install-status-codex")).toHaveTextContent("cliTools.executionErrorBadge");
+      expect(screen.getByTestId("execution-error-codex")).toHaveTextContent("STATUS_DLL_INIT_FAILED");
+    });
+  });
+
+  it("renders latest_check_error when registry update check fails for a tool", async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === "get_cli_tools_status") {
+        return dummyCliTools;
+      }
+      if (command === "get_cli_auth_status") return [];
+      if (command === "check_cli_tools_latest_version") {
+        return [
+          dummyCliTools[0],
+          {
+            ...dummyCliTools[1],
+            latest_check_error: "EAI_AGAIN registry.npmjs.org network unreachable",
+          },
+          dummyCliTools[2],
+        ];
+      }
+      return null;
+    });
+
+    const user = userEvent.setup();
+    render(
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+        <CliToolsCard />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("btn-check-latest")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("btn-check-latest"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("latest-check-error-dsh")).toHaveTextContent("network unreachable");
+      expect(screen.getByTestId("cli-tools-error")).toHaveTextContent("cliTools.latestCheckFailed");
+    });
+  });
+
+  it("renders outcome_unknown warning and calls recover_cli_tool_state on safe recheck", async () => {
+    mockInvoke.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === "get_cli_tools_status") {
+        return [
+          {
+            ...dummyCliTools[0],
+            outcome_unknown: "Installation process timed out after 120 seconds",
+          },
+        ];
+      }
+      if (command === "get_cli_auth_status") return [];
+      if (command === "recover_cli_tool_state") {
+        return {
+          ...dummyCliTools[0],
+          outcome_unknown: null,
+        };
+      }
+      return null;
+    });
+
+    const user = userEvent.setup();
+    render(
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+        <CliToolsCard />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("outcome-unknown-box-codex")).toBeInTheDocument();
+      expect(screen.getByTestId("outcome-unknown-box-codex")).toHaveTextContent("timed out after 120 seconds");
+      expect(screen.getByTestId("btn-recover-outcome-unknown-codex")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("btn-recover-outcome-unknown-codex"));
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("recover_cli_tool_state", { name: "codex" });
+    });
+  });
+
+  it("renders distinct badges for installed, execution_error, unknown, and not_installed statuses", async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === "get_cli_tools_status") {
+        return [
+          { ...dummyCliTools[0], status: "installed" },
+          { ...dummyCliTools[1], status: "execution_error", execution_error: "spawn error" },
+          { ...dummyCliTools[2], status: "unknown", outcome_unknown: "timeout" },
+        ];
+      }
+      if (command === "get_cli_auth_status") return [];
+      return null;
+    });
+
+    render(
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+        <CliToolsCard />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("install-status-codex")).toHaveTextContent("antigravity.cliToolInstalled");
+      expect(screen.getByTestId("install-status-dsh")).toHaveTextContent("cliTools.executionErrorBadge");
+      expect(screen.getByTestId("install-status-gemini")).toHaveTextContent("cliTools.statusUnknownBadge");
+    });
+  });
 });

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-pub const CURRENT_REVIEWER_POLICY_SCHEMA_VERSION: u32 = 4;
+pub const CURRENT_REVIEWER_POLICY_SCHEMA_VERSION: u32 = 6;
 
 static MODEL_CATALOG_JSON: &str = include_str!("../../src/shared/model_catalog.json");
 
@@ -10,8 +10,38 @@ static MODEL_CATALOG_JSON: &str = include_str!("../../src/shared/model_catalog.j
 #[serde(rename_all = "snake_case")]
 pub enum ReviewerPolicy {
     None,
+    Antigravity,
     CodexOnly,
+    DeepseekOnly,
     CodexPlusDeepseek,
+}
+
+pub fn reviewers_to_policy(reviewers: &[String]) -> ReviewerPolicy {
+    let has_codex = reviewers.iter().any(|r| r == "codex");
+    let has_deepseek = reviewers.iter().any(|r| r == "deepseek");
+    let has_antigravity = reviewers.iter().any(|r| r == "antigravity");
+
+    if has_codex && has_deepseek {
+        ReviewerPolicy::CodexPlusDeepseek
+    } else if has_codex {
+        ReviewerPolicy::CodexOnly
+    } else if has_deepseek {
+        ReviewerPolicy::DeepseekOnly
+    } else if has_antigravity {
+        ReviewerPolicy::Antigravity
+    } else {
+        ReviewerPolicy::None
+    }
+}
+
+pub fn policy_to_reviewers(policy: ReviewerPolicy) -> Vec<String> {
+    match policy {
+        ReviewerPolicy::None => vec![],
+        ReviewerPolicy::Antigravity => vec!["antigravity".to_string()],
+        ReviewerPolicy::CodexOnly => vec!["codex".to_string()],
+        ReviewerPolicy::DeepseekOnly => vec!["deepseek".to_string()],
+        ReviewerPolicy::CodexPlusDeepseek => vec!["codex".to_string(), "deepseek".to_string()],
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -49,6 +79,18 @@ pub struct ReviewerPolicyConfig {
     pub schema_version: u32,
     pub policy: ReviewerPolicy,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_review_policy: Option<ReviewerPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_priority_reviewer: Option<AntigravityPriorityReviewer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_reviewers: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_review_policy: Option<ReviewerPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_priority_reviewer: Option<AntigravityPriorityReviewer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_reviewers: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<ReviewerPreset>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex: Option<CodexReviewerConfig>,
@@ -59,6 +101,12 @@ pub struct ReviewerPolicyConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unconfirmed_migration: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_plan_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planner_role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviser_role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_hash: Option<String>,
 }
 
@@ -67,11 +115,20 @@ impl Default for ReviewerPolicyConfig {
         Self {
             schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
             policy: ReviewerPolicy::None,
+            plan_review_policy: Some(ReviewerPolicy::None),
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: Some(ReviewerPolicy::None),
+            build_priority_reviewer: None,
+            build_reviewers: Some(vec![]),
             preset: None,
             codex: None,
             deepseek: None,
             priority_reviewer: None,
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         }
     }
@@ -168,10 +225,93 @@ pub fn validate_reviewer_policy_config(config: &ReviewerPolicyConfig) -> Result<
 
     let catalog = load_reviewer_catalog()?;
 
-    match config.policy {
-        ReviewerPolicy::None => {
+    if let Some(reviewers) = &config.build_reviewers {
+        for r in reviewers {
+            if r != "antigravity" && r != "codex" && r != "deepseek" {
+                return Err(format!(
+                    "Unknown reviewer in build_reviewers: '{r}'. Allowed: 'antigravity', 'codex', 'deepseek'"
+                ));
+            }
+        }
+        let has_codex = reviewers.iter().any(|r| r == "codex");
+        let has_deepseek = reviewers.iter().any(|r| r == "deepseek");
+        if has_codex {
+            let codex = config
+                .codex
+                .as_ref()
+                .ok_or_else(|| "codex configuration is required when codex is in build_reviewers".to_string())?;
+            validate_codex_config(codex, &catalog)?;
+        }
+        if has_deepseek {
+            let deepseek = config
+                .deepseek
+                .as_ref()
+                .ok_or_else(|| "deepseek configuration is required when deepseek is in build_reviewers".to_string())?;
+            validate_deepseek_config(deepseek, &catalog)?;
+        }
+        if has_codex && has_deepseek {
+            let priority = config.build_priority_reviewer.or(config.priority_reviewer);
+            match priority {
+                Some(AntigravityPriorityReviewer::CodexCli) | Some(AntigravityPriorityReviewer::Deepseek) => {}
+                None => {
+                    return Err(
+                        "priority_reviewer is required when both codex and deepseek are selected in build_reviewers".to_string(),
+                    );
+                }
+            }
+        }
+    }
+
+    if let Some(reviewers) = &config.plan_reviewers {
+        for r in reviewers {
+            if r != "antigravity" && r != "codex" && r != "deepseek" {
+                return Err(format!(
+                    "Unknown reviewer in plan_reviewers: '{r}'. Allowed: 'antigravity', 'codex', 'deepseek'"
+                ));
+            }
+        }
+        let has_codex = reviewers.iter().any(|r| r == "codex");
+        let has_deepseek = reviewers.iter().any(|r| r == "deepseek");
+        if has_codex {
+            let codex = config
+                .codex
+                .as_ref()
+                .ok_or_else(|| "codex configuration is required when codex is in plan_reviewers".to_string())?;
+            validate_codex_config(codex, &catalog)?;
+        }
+        if has_deepseek {
+            let deepseek = config
+                .deepseek
+                .as_ref()
+                .ok_or_else(|| "deepseek configuration is required when deepseek is in plan_reviewers".to_string())?;
+            validate_deepseek_config(deepseek, &catalog)?;
+        }
+        if has_codex && has_deepseek {
+            let priority = config.plan_priority_reviewer.or(config.priority_reviewer);
+            match priority {
+                Some(AntigravityPriorityReviewer::CodexCli) | Some(AntigravityPriorityReviewer::Deepseek) => {}
+                None => {
+                    return Err(
+                        "priority_reviewer is required when both codex and deepseek are selected in plan_reviewers".to_string(),
+                    );
+                }
+            }
+        }
+    }
+
+    let effective_policy = if let Some(ref revs) = config.build_reviewers {
+        reviewers_to_policy(revs)
+    } else {
+        config.policy
+    };
+
+    match effective_policy {
+        ReviewerPolicy::None | ReviewerPolicy::Antigravity => {
             if config.priority_reviewer.is_some() {
-                return Err("priority_reviewer must be null when policy is none".to_string());
+                return Err(format!(
+                    "priority_reviewer must be null when policy is {:?}",
+                    config.policy
+                ));
             }
             if let Some(codex) = &config.codex {
                 validate_codex_config(codex, &catalog)?;
@@ -191,6 +331,19 @@ pub fn validate_reviewer_policy_config(config: &ReviewerPolicyConfig) -> Result<
             validate_codex_config(codex, &catalog)?;
             if let Some(deepseek) = &config.deepseek {
                 validate_deepseek_config(deepseek, &catalog)?;
+            }
+        }
+        ReviewerPolicy::DeepseekOnly => {
+            if config.priority_reviewer.is_some() {
+                return Err("priority_reviewer must be null when policy is deepseek_only".to_string());
+            }
+            let deepseek = config
+                .deepseek
+                .as_ref()
+                .ok_or_else(|| "deepseek configuration is required when policy is deepseek_only".to_string())?;
+            validate_deepseek_config(deepseek, &catalog)?;
+            if let Some(codex) = &config.codex {
+                validate_codex_config(codex, &catalog)?;
             }
         }
         ReviewerPolicy::CodexPlusDeepseek => {
@@ -215,6 +368,47 @@ pub fn validate_reviewer_policy_config(config: &ReviewerPolicyConfig) -> Result<
                 .as_ref()
                 .ok_or_else(|| "deepseek configuration is required when policy is codex_plus_deepseek".to_string())?;
             validate_deepseek_config(deepseek, &catalog)?;
+        }
+    }
+
+    if let Some(plan_policy) = config.plan_review_policy {
+        match plan_policy {
+            ReviewerPolicy::None | ReviewerPolicy::Antigravity => {}
+            ReviewerPolicy::CodexOnly => {
+                let codex = config
+                    .codex
+                    .as_ref()
+                    .ok_or_else(|| "codex configuration is required when plan_review_policy is codex_only".to_string())?;
+                validate_codex_config(codex, &catalog)?;
+            }
+            ReviewerPolicy::DeepseekOnly => {
+                let deepseek = config
+                    .deepseek
+                    .as_ref()
+                    .ok_or_else(|| "deepseek configuration is required when plan_review_policy is deepseek_only".to_string())?;
+                validate_deepseek_config(deepseek, &catalog)?;
+            }
+            ReviewerPolicy::CodexPlusDeepseek => {
+                let priority = config.plan_priority_reviewer.or(config.priority_reviewer);
+                match priority {
+                    Some(AntigravityPriorityReviewer::CodexCli) | Some(AntigravityPriorityReviewer::Deepseek) => {}
+                    None => {
+                        return Err(
+                            "priority_reviewer is required when plan_review_policy is codex_plus_deepseek".to_string(),
+                        );
+                    }
+                }
+                let codex = config
+                    .codex
+                    .as_ref()
+                    .ok_or_else(|| "codex configuration is required when plan_review_policy is codex_plus_deepseek".to_string())?;
+                validate_codex_config(codex, &catalog)?;
+                let deepseek = config
+                    .deepseek
+                    .as_ref()
+                    .ok_or_else(|| "deepseek configuration is required when plan_review_policy is codex_plus_deepseek".to_string())?;
+                validate_deepseek_config(deepseek, &catalog)?;
+            }
         }
     }
 
@@ -308,19 +502,34 @@ pub fn inspect_workflow_skills_policy_compliance(
 
 fn build_v2_migrated_config(old_policy: ReviewerPolicy) -> ReviewerPolicyConfig {
     match old_policy {
-        ReviewerPolicy::None => ReviewerPolicyConfig {
+        ReviewerPolicy::None | ReviewerPolicy::Antigravity => ReviewerPolicyConfig {
             schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
-            policy: ReviewerPolicy::None,
+            policy: old_policy,
+            plan_review_policy: Some(old_policy),
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: Some(old_policy),
+            build_priority_reviewer: None,
+            build_reviewers: Some(policy_to_reviewers(old_policy)),
             preset: None,
             codex: None,
             deepseek: None,
             priority_reviewer: None,
             unconfirmed_migration: Some(true),
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         },
         ReviewerPolicy::CodexOnly => ReviewerPolicyConfig {
             schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
             policy: ReviewerPolicy::CodexOnly,
+            plan_review_policy: Some(ReviewerPolicy::CodexOnly),
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: Some(ReviewerPolicy::CodexOnly),
+            build_priority_reviewer: None,
+            build_reviewers: Some(policy_to_reviewers(ReviewerPolicy::CodexOnly)),
             preset: None,
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6.1-terra".to_string(),
@@ -329,11 +538,42 @@ fn build_v2_migrated_config(old_policy: ReviewerPolicy) -> ReviewerPolicyConfig 
             deepseek: None,
             priority_reviewer: None,
             unconfirmed_migration: Some(true),
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            content_hash: None,
+        },
+        ReviewerPolicy::DeepseekOnly => ReviewerPolicyConfig {
+            schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
+            policy: ReviewerPolicy::DeepseekOnly,
+            plan_review_policy: Some(ReviewerPolicy::DeepseekOnly),
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: Some(ReviewerPolicy::DeepseekOnly),
+            build_priority_reviewer: None,
+            build_reviewers: Some(policy_to_reviewers(ReviewerPolicy::DeepseekOnly)),
+            preset: None,
+            codex: None,
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            priority_reviewer: None,
+            unconfirmed_migration: Some(true),
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         },
         ReviewerPolicy::CodexPlusDeepseek => ReviewerPolicyConfig {
             schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
             policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: Some(ReviewerPolicy::CodexPlusDeepseek),
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: Some(ReviewerPolicy::CodexPlusDeepseek),
+            build_priority_reviewer: None,
+            build_reviewers: Some(policy_to_reviewers(ReviewerPolicy::CodexPlusDeepseek)),
             preset: None,
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6.1-terra".to_string(),
@@ -345,6 +585,9 @@ fn build_v2_migrated_config(old_policy: ReviewerPolicy) -> ReviewerPolicyConfig 
             }),
             priority_reviewer: None,
             unconfirmed_migration: Some(true),
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         },
     }
@@ -401,11 +644,20 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
         return Ok(ReviewerPolicyConfig {
             schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
             policy: ReviewerPolicy::None,
+            plan_review_policy: Some(ReviewerPolicy::None),
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: Some(ReviewerPolicy::None),
+            build_priority_reviewer: None,
+            build_reviewers: Some(vec![]),
             preset: None,
             codex: None,
             deepseek: None,
             priority_reviewer: None,
             unconfirmed_migration: Some(true),
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: Some(hash),
         });
     }
@@ -414,6 +666,7 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
         let old_policy_str = parsed.get("policy").and_then(|v| v.as_str()).unwrap_or("none");
         let old_policy = match old_policy_str {
             "codex_only" => ReviewerPolicy::CodexOnly,
+            "deepseek_only" => ReviewerPolicy::DeepseekOnly,
             "codex_plus_deepseek" => ReviewerPolicy::CodexPlusDeepseek,
             _ => ReviewerPolicy::None,
         };
@@ -426,6 +679,7 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
         let old_policy_str = parsed.get("policy").and_then(|v| v.as_str()).unwrap_or("none");
         let old_policy = match old_policy_str {
             "codex_only" => ReviewerPolicy::CodexOnly,
+            "deepseek_only" => ReviewerPolicy::DeepseekOnly,
             "codex_plus_deepseek" => ReviewerPolicy::CodexPlusDeepseek,
             _ => ReviewerPolicy::None,
         };
@@ -439,11 +693,104 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
         return Ok(ReviewerPolicyConfig {
             schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
             policy: old_policy,
+            plan_review_policy: Some(old_policy),
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: Some(old_policy),
+            build_priority_reviewer: None,
+            build_reviewers: Some(policy_to_reviewers(old_policy)),
             preset: None,
             codex,
             deepseek,
             priority_reviewer: None,
             unconfirmed_migration: Some(true),
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            content_hash: Some(hash),
+        });
+    }
+
+    if version == 4 {
+        let old_policy_str = parsed.get("policy").and_then(|v| v.as_str()).unwrap_or("none");
+        let old_policy = match old_policy_str {
+            "codex_only" => ReviewerPolicy::CodexOnly,
+            "deepseek_only" => ReviewerPolicy::DeepseekOnly,
+            "codex_plus_deepseek" => ReviewerPolicy::CodexPlusDeepseek,
+            _ => ReviewerPolicy::None,
+        };
+        let codex: Option<CodexReviewerConfig> = parsed
+            .get("codex")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        let deepseek: Option<DeepSeekReviewerConfig> = parsed
+            .get("deepseek")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        let priority_reviewer: Option<AntigravityPriorityReviewer> = parsed
+            .get("priority_reviewer")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        let unconfirmed = parsed.get("unconfirmed_migration").and_then(|v| v.as_bool());
+
+        return Ok(ReviewerPolicyConfig {
+            schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
+            policy: old_policy,
+            plan_review_policy: Some(old_policy),
+            plan_priority_reviewer: priority_reviewer,
+            plan_reviewers: None,
+            build_review_policy: Some(old_policy),
+            build_priority_reviewer: priority_reviewer,
+            build_reviewers: Some(policy_to_reviewers(old_policy)),
+            preset: None,
+            codex,
+            deepseek,
+            priority_reviewer,
+            unconfirmed_migration: unconfirmed,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            content_hash: Some(hash),
+        });
+    }
+
+    if version == 5 {
+        let old_policy_str = parsed.get("policy").and_then(|v| v.as_str()).unwrap_or("none");
+        let old_policy = match old_policy_str {
+            "antigravity" => ReviewerPolicy::Antigravity,
+            "codex_only" => ReviewerPolicy::CodexOnly,
+            "deepseek_only" => ReviewerPolicy::DeepseekOnly,
+            "codex_plus_deepseek" => ReviewerPolicy::CodexPlusDeepseek,
+            _ => ReviewerPolicy::None,
+        };
+        let codex: Option<CodexReviewerConfig> = parsed
+            .get("codex")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        let deepseek: Option<DeepSeekReviewerConfig> = parsed
+            .get("deepseek")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        let priority_reviewer: Option<AntigravityPriorityReviewer> = parsed
+            .get("priority_reviewer")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        let unconfirmed = parsed.get("unconfirmed_migration").and_then(|v| v.as_bool());
+        let active_plan_path = parsed.get("active_plan_path").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let planner_role = parsed.get("planner_role").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let reviser_role = parsed.get("reviser_role").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+        return Ok(ReviewerPolicyConfig {
+            schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
+            policy: old_policy,
+            plan_review_policy: Some(old_policy),
+            plan_priority_reviewer: priority_reviewer,
+            plan_reviewers: None,
+            build_review_policy: Some(old_policy),
+            build_priority_reviewer: priority_reviewer,
+            build_reviewers: Some(policy_to_reviewers(old_policy)),
+            preset: None,
+            codex,
+            deepseek,
+            priority_reviewer,
+            unconfirmed_migration: unconfirmed,
+            active_plan_path,
+            planner_role,
+            reviser_role,
             content_hash: Some(hash),
         });
     }
@@ -459,21 +806,34 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
     let mut config: ReviewerPolicyConfig = match serde_json::from_value(parsed) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Warning: Failed to deserialize schema v4 reviewer policy at {}: {e}. Falling back to default none.", policy_path.display());
+            eprintln!("Warning: Failed to deserialize schema v6 reviewer policy at {}: {e}. Falling back to default none.", policy_path.display());
             return Ok(ReviewerPolicyConfig::default());
         }
     };
+
+    if config.build_reviewers.is_none() {
+        config.build_reviewers = Some(policy_to_reviewers(config.build_review_policy.unwrap_or(config.policy)));
+    }
 
     if let Err(e) = validate_reviewer_policy_config(&config) {
         eprintln!("Warning: Invalid reviewer policy configuration at {}: {e}.", policy_path.display());
         return Ok(ReviewerPolicyConfig {
             schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
             policy: config.policy,
+            plan_review_policy: config.plan_review_policy,
+            plan_priority_reviewer: config.plan_priority_reviewer,
+            plan_reviewers: config.plan_reviewers,
+            build_review_policy: config.build_review_policy,
+            build_priority_reviewer: config.build_priority_reviewer,
+            build_reviewers: Some(policy_to_reviewers(config.build_review_policy.unwrap_or(config.policy))),
             preset: None,
             codex: config.codex,
             deepseek: config.deepseek,
             priority_reviewer: None,
             unconfirmed_migration: Some(true),
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: Some(hash),
         });
     }
@@ -554,6 +914,23 @@ where
     config_to_write.content_hash = None;
     config_to_write.preset = None; // per R2-C01: do not write preset on save
     config_to_write.unconfirmed_migration = None;
+    if let Some(ref revs) = config_to_write.build_reviewers {
+        let derived_policy = reviewers_to_policy(revs);
+        config_to_write.build_review_policy = Some(derived_policy);
+        config_to_write.policy = derived_policy;
+    } else {
+        if config_to_write.build_review_policy.is_none() {
+            config_to_write.build_review_policy = Some(config_to_write.policy);
+        }
+        config_to_write.policy = config_to_write.build_review_policy.unwrap_or(config_to_write.policy);
+        config_to_write.build_reviewers = Some(policy_to_reviewers(config_to_write.policy));
+    }
+    if let Some(ref revs) = config_to_write.plan_reviewers {
+        let derived_plan_policy = reviewers_to_policy(revs);
+        config_to_write.plan_review_policy = Some(derived_plan_policy);
+    } else if config_to_write.plan_review_policy.is_none() {
+        config_to_write.plan_review_policy = Some(config_to_write.policy);
+    }
 
     let serialized = serde_json::to_vec_pretty(&config_to_write)
         .map_err(|e| format!("Failed to serialize reviewer policy: {e}"))?;
@@ -955,13 +1332,16 @@ mod tests {
         let path = temp.path().join("pov-reviewer-policy.json");
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
         assert_eq!(loaded, ReviewerPolicyConfig::default());
-        assert_eq!(loaded.schema_version, 4);
+        assert_eq!(loaded.schema_version, 6);
         assert_eq!(loaded.policy, ReviewerPolicy::None);
         assert_eq!(loaded.preset, None);
         assert_eq!(loaded.codex, None);
         assert_eq!(loaded.deepseek, None);
         assert_eq!(loaded.priority_reviewer, None);
         assert_eq!(loaded.unconfirmed_migration, None);
+        assert_eq!(loaded.active_plan_path, None);
+        assert_eq!(loaded.planner_role, None);
+        assert_eq!(loaded.reviser_role, None);
         assert_eq!(loaded.content_hash, None);
     }
 
@@ -970,7 +1350,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pov-reviewer-policy.json");
         let content = r#"{
-            "schema_version": 4,
+            "schema_version": 6,
             "policy": "codex_plus_deepseek",
             "preset": "standard",
             "codex": {
@@ -986,7 +1366,7 @@ mod tests {
         std::fs::write(&path, content).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 4);
+        assert_eq!(loaded.schema_version, 6);
         assert_eq!(loaded.policy, ReviewerPolicy::CodexPlusDeepseek);
         assert_eq!(loaded.preset, None);
         assert_eq!(
@@ -1008,6 +1388,9 @@ mod tests {
             Some(AntigravityPriorityReviewer::CodexCli)
         );
         assert_eq!(loaded.unconfirmed_migration, None);
+        assert_eq!(loaded.planner_role, None);
+        assert_eq!(loaded.reviser_role, None);
+        assert_eq!(loaded.active_plan_path, None);
         assert!(loaded.content_hash.is_some());
     }
 
@@ -1018,7 +1401,7 @@ mod tests {
         std::fs::write(&path, r#"{"schema_version":1,"policy":"codex_only"}"#).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 4);
+        assert_eq!(loaded.schema_version, 6);
         assert_eq!(loaded.policy, ReviewerPolicy::None);
         assert_eq!(loaded.unconfirmed_migration, Some(true));
         assert!(loaded.content_hash.is_some());
@@ -1035,7 +1418,7 @@ mod tests {
         std::fs::write(&path, r#"{"schema_version":2,"policy":"codex_plus_deepseek"}"#).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 4);
+        assert_eq!(loaded.schema_version, 6);
         assert_eq!(loaded.policy, ReviewerPolicy::CodexPlusDeepseek);
         assert_eq!(loaded.preset, None);
         assert_eq!(
@@ -1073,7 +1456,7 @@ mod tests {
         std::fs::write(&path, v3_json).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 4);
+        assert_eq!(loaded.schema_version, 6);
         assert_eq!(loaded.policy, ReviewerPolicy::CodexPlusDeepseek);
         assert_eq!(
             loaded.codex,
@@ -1098,13 +1481,39 @@ mod tests {
     }
 
     #[test]
+    fn v4_policy_migrates_in_memory_without_overwriting_disk() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("pov-reviewer-policy.json");
+        let v4_json = r#"{
+            "schema_version": 4,
+            "policy": "codex_plus_deepseek",
+            "codex": { "model": "gpt-6.1-sol", "reasoning_effort": "high" },
+            "deepseek": { "model": "deepseek-v4-pro", "reasoning_effort": "max" },
+            "priority_reviewer": "codex_cli"
+        }"#;
+        std::fs::write(&path, v4_json).unwrap();
+
+        let loaded = inspect_reviewer_policy_at(&path).unwrap();
+        assert_eq!(loaded.schema_version, 6);
+        assert_eq!(loaded.policy, ReviewerPolicy::CodexPlusDeepseek);
+        assert_eq!(loaded.priority_reviewer, Some(AntigravityPriorityReviewer::CodexCli));
+        assert_eq!(loaded.planner_role, None);
+        assert_eq!(loaded.reviser_role, None);
+        assert_eq!(loaded.active_plan_path, None);
+        assert!(loaded.content_hash.is_some());
+
+        let on_disk_str = std::fs::read_to_string(&path).unwrap();
+        assert!(on_disk_str.contains(r#""schema_version": 4"#));
+    }
+
+    #[test]
     fn malformed_json_fails_safe_to_none() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pov-reviewer-policy.json");
         std::fs::write(&path, "{not-json}").unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 4);
+        assert_eq!(loaded.schema_version, 6);
         assert_eq!(loaded.policy, ReviewerPolicy::None);
         assert_eq!(loaded.content_hash, None);
     }
@@ -1116,7 +1525,7 @@ mod tests {
         std::fs::write(&path, r#"{"schema_version":99,"policy":"codex_only"}"#).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 4);
+        assert_eq!(loaded.schema_version, 6);
         assert_eq!(loaded.policy, ReviewerPolicy::None);
     }
 
@@ -1124,10 +1533,10 @@ mod tests {
     fn missing_policy_field_fails_safe_to_none() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pov-reviewer-policy.json");
-        std::fs::write(&path, r#"{"schema_version":4}"#).unwrap();
+        std::fs::write(&path, r#"{"schema_version":6}"#).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 4);
+        assert_eq!(loaded.schema_version, 6);
         assert_eq!(loaded.policy, ReviewerPolicy::None);
     }
 
@@ -1135,18 +1544,24 @@ mod tests {
     fn unknown_policy_value_fails_safe_to_none() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pov-reviewer-policy.json");
-        std::fs::write(&path, r#"{"schema_version":4,"policy":"claude_super"}"#).unwrap();
+        std::fs::write(&path, r#"{"schema_version":6,"policy":"claude_super"}"#).unwrap();
 
         let loaded = inspect_reviewer_policy_at(&path).unwrap();
-        assert_eq!(loaded.schema_version, 4);
+        assert_eq!(loaded.schema_version, 6);
         assert_eq!(loaded.policy, ReviewerPolicy::None);
     }
 
     #[test]
     fn validation_rejects_ineligible_codex_model() {
         let config = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexOnly,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: None,
             codex: Some(CodexReviewerConfig {
                 model: "unknown-codex-model".to_string(),
@@ -1155,6 +1570,9 @@ mod tests {
             deepseek: None,
             priority_reviewer: None,
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
         let err = validate_reviewer_policy_config(&config).unwrap_err();
@@ -1164,8 +1582,14 @@ mod tests {
     #[test]
     fn validation_rejects_unsupported_codex_effort() {
         let config = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexOnly,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: None,
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6.1-sol".to_string(),
@@ -1174,6 +1598,9 @@ mod tests {
             deepseek: None,
             priority_reviewer: None,
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
         let err = validate_reviewer_policy_config(&config).unwrap_err();
@@ -1183,8 +1610,14 @@ mod tests {
     #[test]
     fn validation_rejects_ineligible_deepseek_model() {
         let config = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: None,
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6-luna".to_string(),
@@ -1196,6 +1629,9 @@ mod tests {
             }),
             priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
         let err = validate_reviewer_policy_config(&config).unwrap_err();
@@ -1205,8 +1641,14 @@ mod tests {
     #[test]
     fn validation_rejects_unsupported_deepseek_effort() {
         let config = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: None,
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6-luna".to_string(),
@@ -1218,6 +1660,9 @@ mod tests {
             }),
             priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
         let err = validate_reviewer_policy_config(&config).unwrap_err();
@@ -1227,8 +1672,14 @@ mod tests {
     #[test]
     fn validation_rejects_missing_priority_for_codex_plus_deepseek() {
         let config = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: None,
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6.1-terra".to_string(),
@@ -1240,6 +1691,9 @@ mod tests {
             }),
             priority_reviewer: None,
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
         let err = validate_reviewer_policy_config(&config).unwrap_err();
@@ -1249,21 +1703,36 @@ mod tests {
     #[test]
     fn validation_rejects_priority_for_none_and_codex_only() {
         let none_config = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::None,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: None,
             codex: None,
             deepseek: None,
             priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
         let err1 = validate_reviewer_policy_config(&none_config).unwrap_err();
         assert!(err1.contains("priority_reviewer must be null"));
 
         let codex_config = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexOnly,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: None,
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6-luna".to_string(),
@@ -1272,18 +1741,52 @@ mod tests {
             deepseek: None,
             priority_reviewer: Some(AntigravityPriorityReviewer::Deepseek),
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
         let err2 = validate_reviewer_policy_config(&codex_config).unwrap_err();
         assert!(err2.contains("priority_reviewer must be null"));
+
+        let deepseek_config = ReviewerPolicyConfig {
+            schema_version: 6,
+            policy: ReviewerPolicy::DeepseekOnly,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
+            preset: None,
+            codex: None,
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
+            unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            content_hash: None,
+        };
+        let err3 = validate_reviewer_policy_config(&deepseek_config).unwrap_err();
+        assert!(err3.contains("priority_reviewer must be null"));
     }
 
     #[test]
     fn validation_accepts_valid_presets() {
         // Fast
         let fast = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: Some(ReviewerPreset::Fast),
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6-luna".to_string(),
@@ -1295,14 +1798,23 @@ mod tests {
             }),
             priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
         assert!(validate_reviewer_policy_config(&fast).is_ok());
 
         // Standard
         let standard = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: Some(ReviewerPreset::Standard),
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6.1-terra".to_string(),
@@ -1314,14 +1826,23 @@ mod tests {
             }),
             priority_reviewer: Some(AntigravityPriorityReviewer::Deepseek),
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
         assert!(validate_reviewer_policy_config(&standard).is_ok());
 
         // Strict
         let strict = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: Some(ReviewerPreset::Strict),
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6.1-sol".to_string(),
@@ -1333,6 +1854,9 @@ mod tests {
             }),
             priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
         assert!(validate_reviewer_policy_config(&strict).is_ok());
@@ -1345,8 +1869,14 @@ mod tests {
         let policy_path = temp_ide.path().join("pov-reviewer-policy.json");
 
         let config = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexOnly,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: None,
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6-luna".to_string(),
@@ -1355,6 +1885,9 @@ mod tests {
             deepseek: None,
             priority_reviewer: None,
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
 
@@ -1378,7 +1911,7 @@ mod tests {
         let saved = save_reviewer_policy_at(&policy_path, &none_config, temp_skills.path(), None)
             .unwrap();
         assert_eq!(saved.policy, ReviewerPolicy::None);
-        assert_eq!(saved.schema_version, 4);
+        assert_eq!(saved.schema_version, 6);
         assert_eq!(saved.priority_reviewer, None);
         assert!(saved.content_hash.is_some());
 
@@ -1386,8 +1919,14 @@ mod tests {
         assert_eq!(reloaded, saved);
 
         let codex_config = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexOnly,
+            plan_review_policy: Some(ReviewerPolicy::CodexOnly),
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: Some(ReviewerPolicy::CodexOnly),
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: Some(ReviewerPreset::Fast),
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6-luna".to_string(),
@@ -1396,6 +1935,9 @@ mod tests {
             deepseek: None,
             priority_reviewer: None,
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
 
@@ -1407,14 +1949,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(saved_codex.policy, ReviewerPolicy::CodexOnly);
-        assert_eq!(saved_codex.schema_version, 4);
+        assert_eq!(saved_codex.schema_version, 6);
         assert_eq!(saved_codex.codex, codex_config.codex);
         assert_eq!(saved_codex.priority_reviewer, None);
 
         // Also test saving CodexPlusDeepseek with priority_reviewer
         let codex_plus = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: Some(ReviewerPolicy::CodexPlusDeepseek),
+            plan_priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
+            plan_reviewers: None,
+            build_review_policy: Some(ReviewerPolicy::CodexPlusDeepseek),
+            build_priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
+            build_reviewers: None,
             preset: None,
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6.1-terra".to_string(),
@@ -1426,6 +1974,9 @@ mod tests {
             }),
             priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
 
@@ -1437,7 +1988,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(saved_plus.policy, ReviewerPolicy::CodexPlusDeepseek);
-        assert_eq!(saved_plus.schema_version, 4);
+        assert_eq!(saved_plus.schema_version, 6);
         assert_eq!(
             saved_plus.priority_reviewer,
             Some(AntigravityPriorityReviewer::CodexCli)
@@ -1446,6 +1997,46 @@ mod tests {
 
         let reloaded_plus = inspect_reviewer_policy_at(&policy_path).unwrap();
         assert_eq!(reloaded_plus, saved_plus);
+
+        // Also test saving DeepseekOnly
+        let deepseek_only_config = ReviewerPolicyConfig {
+            schema_version: 6,
+            policy: ReviewerPolicy::DeepseekOnly,
+            plan_review_policy: Some(ReviewerPolicy::DeepseekOnly),
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: Some(ReviewerPolicy::DeepseekOnly),
+            build_priority_reviewer: None,
+            build_reviewers: None,
+            preset: None,
+            codex: None,
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            priority_reviewer: None,
+            unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            content_hash: None,
+        };
+
+        let saved_ds_only = save_reviewer_policy_at(
+            &policy_path,
+            &deepseek_only_config,
+            temp_skills.path(),
+            saved_plus.content_hash.as_deref(),
+        )
+        .unwrap();
+        assert_eq!(saved_ds_only.policy, ReviewerPolicy::DeepseekOnly);
+        assert_eq!(saved_ds_only.schema_version, 6);
+        assert_eq!(saved_ds_only.codex, None);
+        assert_eq!(saved_ds_only.deepseek, deepseek_only_config.deepseek);
+        assert_eq!(saved_ds_only.priority_reviewer, None);
+
+        let reloaded_ds_only = inspect_reviewer_policy_at(&policy_path).unwrap();
+        assert_eq!(reloaded_ds_only, saved_ds_only);
     }
 
     #[test]
@@ -1464,8 +2055,14 @@ mod tests {
         let hash1 = initial.content_hash.expect("must have content hash");
 
         let codex_plus = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: Some(ReviewerPreset::Fast),
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6-luna".to_string(),
@@ -1477,6 +2074,9 @@ mod tests {
             }),
             priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
 
@@ -1491,8 +2091,14 @@ mod tests {
         assert_ne!(hash1, hash2);
 
         let codex_only = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexOnly,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: Some(ReviewerPreset::Fast),
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6-luna".to_string(),
@@ -1501,6 +2107,9 @@ mod tests {
             deepseek: None,
             priority_reviewer: None,
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
 
@@ -1548,11 +2157,17 @@ mod tests {
             .unwrap();
         let initial_hash = initial.content_hash.unwrap();
 
-        let intervening_content = r#"{"schema_version":4,"policy":"none","tampered":true}"#;
+        let intervening_content = r#"{"schema_version":6,"policy":"none","tampered":true}"#;
 
         let codex_plus = ReviewerPolicyConfig {
-            schema_version: 4,
+            schema_version: 6,
             policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: None,
             preset: Some(ReviewerPreset::Fast),
             codex: Some(CodexReviewerConfig {
                 model: "gpt-6-luna".to_string(),
@@ -1564,6 +2179,9 @@ mod tests {
             }),
             priority_reviewer: Some(AntigravityPriorityReviewer::Deepseek),
             unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
             content_hash: None,
         };
 
@@ -1593,7 +2211,7 @@ mod tests {
             crate::install_antigravity_command_at(temp_skills.path(), name).unwrap();
         }
 
-        let created_concurrently = r#"{"schema_version":4,"policy":"none","created":true}"#;
+        let created_concurrently = r#"{"schema_version":5,"policy":"none","created":true}"#;
 
         let none_config = ReviewerPolicyConfig::default();
         let err = save_reviewer_policy_internal(
@@ -1655,5 +2273,394 @@ mod tests {
         assert!(!saved_disk_content.contains(r#""preset""#));
         assert!(saved_disk_content.contains(r#""policy": "codex_only""#));
         assert!(saved_disk_content.contains(r#""model": "gpt-6.1-terra""#));
+    }
+
+    #[test]
+    fn schema_v5_migrates_to_v6_preserving_none_without_converting_to_antigravity() {
+        let temp_ide = tempfile::tempdir().unwrap();
+        let policy_path = temp_ide.path().join("pov-reviewer-policy.json");
+
+        let v5_json = r#"{
+  "schema_version": 5,
+  "policy": "none",
+  "active_plan_path": ".plan/V0.26.3.md",
+  "planner_role": "antigravity",
+  "reviser_role": "codex"
+}"#;
+        std::fs::write(&policy_path, v5_json).unwrap();
+
+        let loaded = inspect_reviewer_policy_at(&policy_path).unwrap();
+        assert_eq!(loaded.schema_version, 6);
+        assert_eq!(loaded.policy, ReviewerPolicy::None);
+        assert_eq!(loaded.plan_review_policy, Some(ReviewerPolicy::None));
+        assert_eq!(loaded.build_review_policy, Some(ReviewerPolicy::None));
+        assert_eq!(loaded.planner_role, Some("antigravity".to_string()));
+        assert_eq!(loaded.reviser_role, Some("codex".to_string()));
+        assert_eq!(loaded.active_plan_path, Some(".plan/V0.26.3.md".to_string()));
+    }
+
+    #[test]
+    fn antigravity_policy_validates_and_round_trips() {
+        let temp_ide = tempfile::tempdir().unwrap();
+        let temp_skills = tempfile::tempdir().unwrap();
+        let policy_path = temp_ide.path().join("pov-reviewer-policy.json");
+
+        for name in ["pov-plan-only", "pov-build-review", "pov-full-cycle"] {
+            crate::install_antigravity_command_at(temp_skills.path(), name).unwrap();
+        }
+
+        let config = ReviewerPolicyConfig {
+            schema_version: 6,
+            policy: ReviewerPolicy::Antigravity,
+            plan_review_policy: Some(ReviewerPolicy::Antigravity),
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: Some(ReviewerPolicy::Antigravity),
+            build_priority_reviewer: None,
+            build_reviewers: None,
+            preset: None,
+            codex: None,
+            deepseek: None,
+            priority_reviewer: None,
+            unconfirmed_migration: None,
+            active_plan_path: Some(".plan/V0.26.3.md".to_string()),
+            planner_role: Some("antigravity".to_string()),
+            reviser_role: Some("antigravity".to_string()),
+            content_hash: None,
+        };
+
+        assert!(validate_reviewer_policy_config(&config).is_ok());
+
+        let saved = save_reviewer_policy_at(&policy_path, &config, temp_skills.path(), None).unwrap();
+        assert_eq!(saved.policy, ReviewerPolicy::Antigravity);
+        assert_eq!(saved.plan_review_policy, Some(ReviewerPolicy::Antigravity));
+        assert_eq!(saved.build_review_policy, Some(ReviewerPolicy::Antigravity));
+
+        let reloaded = inspect_reviewer_policy_at(&policy_path).unwrap();
+        assert_eq!(reloaded.policy, ReviewerPolicy::Antigravity);
+        assert_eq!(reloaded.plan_review_policy, Some(ReviewerPolicy::Antigravity));
+        assert_eq!(reloaded.build_review_policy, Some(ReviewerPolicy::Antigravity));
+    }
+
+    #[test]
+    fn independent_plan_and_build_review_policies_round_trip() {
+        let temp_ide = tempfile::tempdir().unwrap();
+        let temp_skills = tempfile::tempdir().unwrap();
+        let policy_path = temp_ide.path().join("pov-reviewer-policy.json");
+
+        for name in ["pov-plan-only", "pov-build-review", "pov-full-cycle"] {
+            crate::install_antigravity_command_at(temp_skills.path(), name).unwrap();
+        }
+
+        let config = ReviewerPolicyConfig {
+            schema_version: 6,
+            policy: ReviewerPolicy::CodexOnly,
+            plan_review_policy: Some(ReviewerPolicy::Antigravity),
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: Some(ReviewerPolicy::CodexOnly),
+            build_priority_reviewer: None,
+            build_reviewers: None,
+            preset: None,
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6-luna".to_string(),
+                reasoning_effort: "medium".to_string(),
+            }),
+            deepseek: None,
+            priority_reviewer: None,
+            unconfirmed_migration: None,
+            active_plan_path: Some(".plan/V0.26.3.md".to_string()),
+            planner_role: Some("antigravity".to_string()),
+            reviser_role: Some("antigravity".to_string()),
+            content_hash: None,
+        };
+
+        assert!(validate_reviewer_policy_config(&config).is_ok());
+
+        let saved = save_reviewer_policy_at(&policy_path, &config, temp_skills.path(), None).unwrap();
+        assert_eq!(saved.plan_review_policy, Some(ReviewerPolicy::Antigravity));
+        assert_eq!(saved.build_review_policy, Some(ReviewerPolicy::CodexOnly));
+
+        let reloaded = inspect_reviewer_policy_at(&policy_path).unwrap();
+        assert_eq!(reloaded.plan_review_policy, Some(ReviewerPolicy::Antigravity));
+        assert_eq!(reloaded.build_review_policy, Some(ReviewerPolicy::CodexOnly));
+    }
+
+    #[test]
+    fn multi_select_reviewers_lifecycle_and_arbitration() {
+        let temp_ide = tempfile::tempdir().unwrap();
+        let temp_skills = tempfile::tempdir().unwrap();
+        let policy_path = temp_ide.path().join("pov-reviewer-policy.json");
+
+        for name in ["pov-plan-only", "pov-build-review", "pov-full-cycle"] {
+            crate::install_antigravity_command_at(temp_skills.path(), name).unwrap();
+        }
+
+        // 1. Single selection: Antigravity only
+        let config_antigravity = ReviewerPolicyConfig {
+            schema_version: 6,
+            policy: ReviewerPolicy::Antigravity,
+            plan_review_policy: Some(ReviewerPolicy::Antigravity),
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: Some(ReviewerPolicy::Antigravity),
+            build_priority_reviewer: None,
+            build_reviewers: Some(vec!["antigravity".to_string()]),
+            preset: None,
+            codex: None,
+            deepseek: None,
+            priority_reviewer: None,
+            unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            content_hash: None,
+        };
+        assert!(validate_reviewer_policy_config(&config_antigravity).is_ok());
+        let saved_ag = save_reviewer_policy_at(&policy_path, &config_antigravity, temp_skills.path(), None).unwrap();
+        assert_eq!(saved_ag.build_reviewers, Some(vec!["antigravity".to_string()]));
+        assert_eq!(saved_ag.policy, ReviewerPolicy::Antigravity);
+
+        // 2. Multi selection: Codex CLI + DeepSeek Harness (requires priority reviewer)
+        let config_multi_external_missing_priority = ReviewerPolicyConfig {
+            schema_version: 6,
+            policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: Some(vec!["codex".to_string(), "deepseek".to_string()]),
+            preset: None,
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6.1-terra".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            priority_reviewer: None,
+            unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            content_hash: None,
+        };
+        assert!(validate_reviewer_policy_config(&config_multi_external_missing_priority).is_err());
+
+        // Multi selection with valid priority reviewer
+        let mut config_multi_external = config_multi_external_missing_priority.clone();
+        config_multi_external.priority_reviewer = Some(AntigravityPriorityReviewer::CodexCli);
+        config_multi_external.build_priority_reviewer = Some(AntigravityPriorityReviewer::CodexCli);
+        assert!(validate_reviewer_policy_config(&config_multi_external).is_ok());
+        let saved_multi = save_reviewer_policy_at(
+            &policy_path,
+            &config_multi_external,
+            temp_skills.path(),
+            saved_ag.content_hash.as_deref(),
+        )
+        .unwrap();
+        assert_eq!(saved_multi.build_reviewers, Some(vec!["codex".to_string(), "deepseek".to_string()]));
+        assert_eq!(saved_multi.policy, ReviewerPolicy::CodexPlusDeepseek);
+
+        // 3. Multi selection including Antigravity (Antigravity + Codex + DeepSeek)
+        let config_all_three = ReviewerPolicyConfig {
+            schema_version: 6,
+            policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: Some(AntigravityPriorityReviewer::Deepseek),
+            build_reviewers: Some(vec![
+                "antigravity".to_string(),
+                "codex".to_string(),
+                "deepseek".to_string(),
+            ]),
+            preset: None,
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6.1-terra".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            priority_reviewer: Some(AntigravityPriorityReviewer::Deepseek),
+            unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            content_hash: None,
+        };
+        assert!(validate_reviewer_policy_config(&config_all_three).is_ok());
+        let saved_all = save_reviewer_policy_at(
+            &policy_path,
+            &config_all_three,
+            temp_skills.path(),
+            saved_multi.content_hash.as_deref(),
+        )
+        .unwrap();
+        assert_eq!(
+            saved_all.build_reviewers,
+            Some(vec![
+                "antigravity".to_string(),
+                "codex".to_string(),
+                "deepseek".to_string(),
+            ])
+        );
+
+        // 4. Total unselect (全解除: build_reviewers is empty)
+        let config_none = ReviewerPolicyConfig {
+            schema_version: 6,
+            policy: ReviewerPolicy::None,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: None,
+            build_priority_reviewer: None,
+            build_reviewers: Some(vec![]),
+            preset: None,
+            codex: None,
+            deepseek: None,
+            priority_reviewer: None,
+            unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            content_hash: None,
+        };
+        assert!(validate_reviewer_policy_config(&config_none).is_ok());
+        let saved_none = save_reviewer_policy_at(
+            &policy_path,
+            &config_none,
+            temp_skills.path(),
+            saved_all.content_hash.as_deref(),
+        )
+        .unwrap();
+        assert_eq!(saved_none.build_reviewers, Some(vec![]));
+        assert_eq!(saved_none.policy, ReviewerPolicy::None);
+
+        // Reload from disk and verify empty list is preserved without converting to antigravity
+        let reloaded_none = inspect_reviewer_policy_at(&policy_path).unwrap();
+        assert_eq!(reloaded_none.build_reviewers, Some(vec![]));
+        assert_eq!(reloaded_none.policy, ReviewerPolicy::None);
+
+        // 5. Test legacy migration from v5 with codex_plus_deepseek
+        let v5_multi_json = r#"{
+  "schema_version": 5,
+  "policy": "codex_plus_deepseek",
+  "priority_reviewer": "codex_cli",
+  "codex": { "model": "gpt-6.1-terra", "reasoning_effort": "high" },
+  "deepseek": { "model": "deepseek-flash", "reasoning_effort": "high" }
+}"#;
+        let v5_path = temp_ide.path().join("v5-policy.json");
+        std::fs::write(&v5_path, v5_multi_json).unwrap();
+        let loaded_v5 = inspect_reviewer_policy_at(&v5_path).unwrap();
+        assert_eq!(loaded_v5.build_reviewers, Some(vec!["codex".to_string(), "deepseek".to_string()]));
+        assert_eq!(loaded_v5.policy, ReviewerPolicy::CodexPlusDeepseek);
+
+        // 6. Test legacy migration from v5 with none
+        let v5_none_json = r#"{
+  "schema_version": 5,
+  "policy": "none"
+}"#;
+        let v5_none_path = temp_ide.path().join("v5-none-policy.json");
+        std::fs::write(&v5_none_path, v5_none_json).unwrap();
+        let loaded_v5_none = inspect_reviewer_policy_at(&v5_none_path).unwrap();
+        assert_eq!(loaded_v5_none.build_reviewers, Some(vec![]));
+        assert_eq!(loaded_v5_none.policy, ReviewerPolicy::None);
+    }
+
+    #[test]
+    fn plan_reviewers_multi_select_and_build_reviewers_inheritance() {
+        let temp_ide = tempfile::tempdir().unwrap();
+        let temp_skills = tempfile::tempdir().unwrap();
+        let policy_path = temp_ide.path().join("pov-reviewer-policy.json");
+
+        for name in ["pov-plan-only", "pov-build-review", "pov-full-cycle"] {
+            crate::install_antigravity_command_at(temp_skills.path(), name).unwrap();
+        }
+
+        // 1. Inherit mode: plan_reviewers is None -> inherits from build_reviewers
+        let config_inherit = ReviewerPolicyConfig {
+            schema_version: 6,
+            policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: None,
+            build_review_policy: Some(ReviewerPolicy::CodexPlusDeepseek),
+            build_priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
+            build_reviewers: Some(vec!["codex".to_string(), "deepseek".to_string()]),
+            preset: None,
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6.1-terra".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
+            unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            content_hash: None,
+        };
+
+        assert!(validate_reviewer_policy_config(&config_inherit).is_ok());
+        let saved_inherit = save_reviewer_policy_at(&policy_path, &config_inherit, temp_skills.path(), None).unwrap();
+        assert_eq!(saved_inherit.plan_reviewers, None);
+        assert_eq!(saved_inherit.plan_review_policy, Some(ReviewerPolicy::CodexPlusDeepseek));
+
+        let reloaded_inherit = inspect_reviewer_policy_at(&policy_path).unwrap();
+        assert_eq!(reloaded_inherit.plan_reviewers, None);
+        assert_eq!(reloaded_inherit.plan_review_policy, Some(ReviewerPolicy::CodexPlusDeepseek));
+
+        // 2. Individual mode: plan_reviewers set to antigravity only while build_reviewers is codex+deepseek
+        let config_individual = ReviewerPolicyConfig {
+            schema_version: 6,
+            policy: ReviewerPolicy::CodexPlusDeepseek,
+            plan_review_policy: None,
+            plan_priority_reviewer: None,
+            plan_reviewers: Some(vec!["antigravity".to_string()]),
+            build_review_policy: Some(ReviewerPolicy::CodexPlusDeepseek),
+            build_priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
+            build_reviewers: Some(vec!["codex".to_string(), "deepseek".to_string()]),
+            preset: None,
+            codex: Some(CodexReviewerConfig {
+                model: "gpt-6.1-terra".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            deepseek: Some(DeepSeekReviewerConfig {
+                model: "deepseek-flash".to_string(),
+                reasoning_effort: "high".to_string(),
+            }),
+            priority_reviewer: Some(AntigravityPriorityReviewer::CodexCli),
+            unconfirmed_migration: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            content_hash: None,
+        };
+
+        assert!(validate_reviewer_policy_config(&config_individual).is_ok());
+        let saved_indiv = save_reviewer_policy_at(
+            &policy_path,
+            &config_individual,
+            temp_skills.path(),
+            saved_inherit.content_hash.as_deref(),
+        )
+        .unwrap();
+        assert_eq!(saved_indiv.plan_reviewers, Some(vec!["antigravity".to_string()]));
+        assert_eq!(saved_indiv.plan_review_policy, Some(ReviewerPolicy::Antigravity));
+        assert_eq!(saved_indiv.build_review_policy, Some(ReviewerPolicy::CodexPlusDeepseek));
+
+        let reloaded_indiv = inspect_reviewer_policy_at(&policy_path).unwrap();
+        assert_eq!(reloaded_indiv.plan_reviewers, Some(vec!["antigravity".to_string()]));
+        assert_eq!(reloaded_indiv.plan_review_policy, Some(ReviewerPolicy::Antigravity));
+        assert_eq!(reloaded_indiv.build_review_policy, Some(ReviewerPolicy::CodexPlusDeepseek));
     }
 }

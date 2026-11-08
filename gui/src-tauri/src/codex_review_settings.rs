@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use crate::codex_global_rules::{check_ancestors_symlink_or_reparse, resolve_codex_home};
@@ -107,6 +108,18 @@ pub struct CodexReviewSettings {
     pub deepseek: Option<ExternalReviewerConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gemini: Option<ExternalReviewerConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_plan_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planner_role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviser_role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex: Option<ExternalReviewerConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_reviewers: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_reviewers: Option<Vec<String>>,
     #[serde(default)]
     pub unconfirmed_migration: bool,
 }
@@ -114,11 +127,15 @@ pub struct CodexReviewSettings {
 impl Default for CodexReviewSettings {
     fn default() -> Self {
         Self {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::CodexSelfOnly,
             reviewers: ReviewersSelection::default(),
             priority_reviewer: Some("codex".to_string()),
             gemini_cli_enabled: false,
+            codex: Some(ExternalReviewerConfig {
+                model: Some("gpt-6-luna".to_string()),
+                reasoning_effort: Some("medium".to_string()),
+            }),
             deepseek: Some(ExternalReviewerConfig {
                 model: Some("deepseek-flash".to_string()),
                 reasoning_effort: Some("high".to_string()),
@@ -127,6 +144,11 @@ impl Default for CodexReviewSettings {
                 model: None,
                 reasoning_effort: None,
             }),
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            plan_reviewers: None,
+            build_reviewers: Some(vec!["codex".to_string()]),
             unconfirmed_migration: false,
         }
     }
@@ -175,6 +197,22 @@ struct CodexReviewSettingsV3 {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct CodexReviewSettingsV4 {
+    schema_version: u32,
+    #[serde(default)]
+    review_mode: ReviewMode,
+    reviewers: ReviewersSelection,
+    priority_reviewer: Option<String>,
+    gemini_cli_enabled: bool,
+    #[serde(default)]
+    deepseek: Option<ExternalReviewerConfig>,
+    #[serde(default)]
+    gemini: Option<ExternalReviewerConfig>,
+    #[serde(default)]
+    unconfirmed_migration: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct SchemaVersionProbe {
     schema_version: u32,
 }
@@ -215,9 +253,9 @@ const ALLOWED_DEEPSEEK_MODELS: &[&str] = &["deepseek-flash", "deepseek-v4-pro"];
 const ALLOWED_DEEPSEEK_EFFORTS: &[&str] = &["low", "high", "max"];
 
 pub fn validate_codex_review_settings(settings: &mut CodexReviewSettings) -> Result<(), String> {
-    if settings.schema_version != 4 {
+    if settings.schema_version != 5 {
         return Err(format!(
-            "Unsupported schema_version {} (expected 4)",
+            "Unsupported schema_version {} (expected 5)",
             settings.schema_version
         ));
     }
@@ -265,6 +303,76 @@ pub fn validate_codex_review_settings(settings: &mut CodexReviewSettings) -> Res
                 ));
             }
         }
+    }
+
+    if let Some(brs) = &settings.build_reviewers {
+        let has_codex = brs.iter().any(|r| r == "codex");
+        let has_deepseek = brs.iter().any(|r| r == "deepseek");
+        let has_gemini = settings.gemini_cli_enabled && brs.iter().any(|r| r == "gemini");
+
+        settings.reviewers.codex = false;
+        settings.reviewers.deepseek = has_deepseek;
+        settings.reviewers.gemini = has_gemini;
+
+        if has_codex && (has_deepseek || has_gemini) {
+            settings.review_mode = ReviewMode::CodexPlusExternal;
+            let current_pri = settings.priority_reviewer.as_deref().unwrap_or("");
+            let valid = current_pri == "codex"
+                || (has_deepseek && current_pri == "deepseek")
+                || (has_gemini && current_pri == "gemini");
+            if !valid {
+                settings.priority_reviewer = Some("codex".to_string());
+            }
+        } else if has_codex {
+            settings.review_mode = ReviewMode::CodexSelfOnly;
+            settings.priority_reviewer = Some("codex".to_string());
+        } else if has_deepseek || has_gemini {
+            settings.review_mode = ReviewMode::ExternalOnly;
+            if has_deepseek && has_gemini {
+                let current_pri = settings.priority_reviewer.as_deref().unwrap_or("");
+                let valid = current_pri == "deepseek" || current_pri == "gemini";
+                if !valid {
+                    settings.priority_reviewer = Some("deepseek".to_string());
+                }
+            } else if has_deepseek {
+                settings.priority_reviewer = Some("deepseek".to_string());
+            } else {
+                settings.priority_reviewer = Some("gemini".to_string());
+            }
+        } else {
+            settings.review_mode = ReviewMode::None;
+            settings.priority_reviewer = None;
+        }
+    } else {
+        let mut brs = Vec::new();
+        match settings.review_mode {
+            ReviewMode::CodexSelfOnly => {
+                brs.push("codex".to_string());
+            }
+            ReviewMode::ExternalOnly => {
+                if settings.reviewers.deepseek {
+                    brs.push("deepseek".to_string());
+                }
+                if settings.gemini_cli_enabled && settings.reviewers.gemini {
+                    brs.push("gemini".to_string());
+                }
+            }
+            ReviewMode::CodexPlusExternal => {
+                brs.push("codex".to_string());
+                if settings.reviewers.deepseek {
+                    brs.push("deepseek".to_string());
+                }
+                if settings.gemini_cli_enabled && settings.reviewers.gemini {
+                    brs.push("gemini".to_string());
+                }
+            }
+            ReviewMode::None => {}
+        }
+        settings.build_reviewers = Some(brs);
+    }
+
+    if let Some(prs) = &mut settings.plan_reviewers {
+        prs.retain(|r| r == "codex" || r == "deepseek" || (settings.gemini_cli_enabled && r == "gemini"));
     }
 
     let count = (if settings.gemini_cli_enabled && settings.reviewers.gemini { 1 } else { 0 })
@@ -353,7 +461,7 @@ pub fn can_launch_external_reviews(settings: &CodexReviewSettings) -> Result<(),
     if settings.unconfirmed_migration {
         return Err("External review cannot be launched: review configuration was migrated from an older version and has unconfirmed changes. Please review and save in GUI before dispatching.".to_string());
     }
-    if settings.schema_version != 4 {
+    if settings.schema_version != 5 {
         return Err(format!("Unsupported review settings schema version {}", settings.schema_version));
     }
     if !settings.review_mode.allows_external_review() {
@@ -459,7 +567,7 @@ pub fn get_codex_review_settings_at(codex_home: &Path) -> Result<CodexReviewSett
             };
 
             CodexReviewSettings {
-                schema_version: 4,
+                schema_version: 5,
                 review_mode,
                 reviewers,
                 priority_reviewer: priority,
@@ -472,6 +580,12 @@ pub fn get_codex_review_settings_at(codex_home: &Path) -> Result<CodexReviewSett
                     model: None,
                     reasoning_effort: None,
                 }),
+                active_plan_path: None,
+                planner_role: None,
+                reviser_role: None,
+                codex: None,
+                plan_reviewers: None,
+                build_reviewers: None,
                 unconfirmed_migration,
             }
         }
@@ -520,7 +634,7 @@ pub fn get_codex_review_settings_at(codex_home: &Path) -> Result<CodexReviewSett
             };
 
             CodexReviewSettings {
-                schema_version: 4,
+                schema_version: 5,
                 review_mode,
                 reviewers,
                 priority_reviewer: priority,
@@ -533,6 +647,12 @@ pub fn get_codex_review_settings_at(codex_home: &Path) -> Result<CodexReviewSett
                     model: None,
                     reasoning_effort: None,
                 }),
+                active_plan_path: None,
+                planner_role: None,
+                reviser_role: None,
+                codex: None,
+                plan_reviewers: None,
+                build_reviewers: None,
                 unconfirmed_migration,
             }
         }
@@ -576,7 +696,7 @@ pub fn get_codex_review_settings_at(codex_home: &Path) -> Result<CodexReviewSett
             };
 
             CodexReviewSettings {
-                schema_version: 4,
+                schema_version: 5,
                 review_mode,
                 reviewers,
                 priority_reviewer: priority,
@@ -593,16 +713,42 @@ pub fn get_codex_review_settings_at(codex_home: &Path) -> Result<CodexReviewSett
                         reasoning_effort: None,
                     })
                 }),
+                active_plan_path: None,
+                planner_role: None,
+                reviser_role: None,
+                codex: None,
+                plan_reviewers: None,
+                build_reviewers: None,
                 unconfirmed_migration,
             }
         }
         4 => {
+            let v4: CodexReviewSettingsV4 = serde_json::from_str(&raw)
+                .map_err(|e| format!("Invalid schema_version 4 JSON in {}: {e}", settings_path.display()))?;
+            CodexReviewSettings {
+                schema_version: 5,
+                review_mode: v4.review_mode,
+                reviewers: v4.reviewers,
+                priority_reviewer: v4.priority_reviewer,
+                gemini_cli_enabled: v4.gemini_cli_enabled,
+                deepseek: v4.deepseek,
+                gemini: v4.gemini,
+                active_plan_path: None,
+                planner_role: None,
+                reviser_role: None,
+                codex: None,
+                plan_reviewers: None,
+                build_reviewers: None,
+                unconfirmed_migration: v4.unconfirmed_migration,
+            }
+        }
+        5 => {
             serde_json::from_str::<CodexReviewSettings>(&raw)
-                .map_err(|e| format!("Invalid schema_version 4 JSON in {}: {e}", settings_path.display()))?
+                .map_err(|e| format!("Invalid schema_version 5 JSON in {}: {e}", settings_path.display()))?
         }
         other => {
             return Err(format!(
-                "Unsupported schema_version {} in {} (expected 1, 2, 3, or 4)",
+                "Unsupported schema_version {} in {} (expected 1, 2, 3, 4, or 5)",
                 other,
                 settings_path.display()
             ));
@@ -634,6 +780,8 @@ pub fn get_codex_review_settings_at(codex_home: &Path) -> Result<CodexReviewSett
     Ok(settings)
 }
 
+static CODEX_SAVE_LOCK: Mutex<()> = Mutex::new(());
+
 pub fn save_codex_review_settings(mut settings: CodexReviewSettings) -> Result<CodexReviewSettings, String> {
     let codex_home = resolve_codex_home()?;
     save_codex_review_settings_at(&codex_home, &mut settings)?;
@@ -644,9 +792,14 @@ pub fn save_codex_review_settings_at(
     codex_home: &Path,
     settings: &mut CodexReviewSettings,
 ) -> Result<(), String> {
-    settings.schema_version = 4;
+    let _guard = CODEX_SAVE_LOCK
+        .lock()
+        .map_err(|e| format!("Failed to acquire codex review settings lock: {e}"))?;
+
+    settings.schema_version = 5;
     settings.reviewers.codex = false;
-    settings.unconfirmed_migration = false;
+    // Note: settings.unconfirmed_migration is preserved as passed by the caller
+    // rather than being unconditionally cleared during normal auto-saves.
 
     if let Some(ds) = &mut settings.deepseek {
         if ds.model.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
@@ -753,7 +906,7 @@ mod tests {
     #[test]
     fn test_default_review_settings() {
         let def = CodexReviewSettings::default();
-        assert_eq!(def.schema_version, 4);
+        assert_eq!(def.schema_version, 5);
         assert_eq!(def.review_mode, ReviewMode::CodexSelfOnly);
         assert!(!def.reviewers.codex);
         assert!(!def.reviewers.gemini);
@@ -761,6 +914,9 @@ mod tests {
         assert_eq!(def.priority_reviewer.as_deref(), Some("codex"));
         assert!(!def.gemini_cli_enabled);
         assert!(!def.unconfirmed_migration);
+        assert_eq!(def.planner_role, None);
+        assert_eq!(def.reviser_role, None);
+        assert_eq!(def.active_plan_path, None);
         assert_eq!(def.deepseek.as_ref().unwrap().model.as_deref(), Some("deepseek-flash"));
         assert_eq!(def.gemini.as_ref().unwrap().model, None);
     }
@@ -769,7 +925,7 @@ mod tests {
     fn test_validation_rules() {
         // 0 reviewers with codex_self_only -> priority is automatically Some("codex"), codex forced to false
         let mut s0 = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::CodexSelfOnly,
             reviewers: ReviewersSelection {
                 codex: true,
@@ -780,15 +936,23 @@ mod tests {
             gemini_cli_enabled: false,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(validate_codex_review_settings(&mut s0).is_ok());
         assert!(!s0.reviewers.codex);
         assert_eq!(s0.priority_reviewer.as_deref(), Some("codex"));
+        assert_eq!(s0.planner_role, None);
+        assert_eq!(s0.reviser_role, None);
 
         // Codex as priority reviewer in external_only is rejected
         let mut s_codex_pri_ext = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::ExternalOnly,
             reviewers: ReviewersSelection {
                 codex: false,
@@ -799,13 +963,19 @@ mod tests {
             gemini_cli_enabled: false,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(validate_codex_review_settings(&mut s_codex_pri_ext).is_err());
 
         // Codex as priority reviewer in codex_plus_external is valid
         let mut s_codex_pri_plus = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::CodexPlusExternal,
             reviewers: ReviewersSelection {
                 codex: false,
@@ -816,6 +986,12 @@ mod tests {
             gemini_cli_enabled: false,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(validate_codex_review_settings(&mut s_codex_pri_plus).is_ok());
@@ -823,20 +999,26 @@ mod tests {
 
         // external_only mode with 0 external reviewers is rejected
         let mut s_ext_zero = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::ExternalOnly,
             reviewers: ReviewersSelection::default(),
             priority_reviewer: None,
             gemini_cli_enabled: false,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(validate_codex_review_settings(&mut s_ext_zero).is_err());
 
         // 1 reviewer (deepseek) with external_only -> priority automatically assigned to deepseek
         let mut s1 = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::ExternalOnly,
             reviewers: ReviewersSelection {
                 codex: false,
@@ -847,6 +1029,12 @@ mod tests {
             gemini_cli_enabled: false,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(validate_codex_review_settings(&mut s1).is_ok());
@@ -854,7 +1042,7 @@ mod tests {
 
         // 2 reviewers with valid priority
         let mut s2 = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::CodexPlusExternal,
             reviewers: ReviewersSelection {
                 codex: false,
@@ -865,6 +1053,12 @@ mod tests {
             gemini_cli_enabled: true,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(validate_codex_review_settings(&mut s2).is_ok());
@@ -872,7 +1066,7 @@ mod tests {
 
         // Deprecated Gemini model (gemini-2.0-flash) is rejected
         let mut s_dep_gem = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::ExternalOnly,
             reviewers: ReviewersSelection {
                 codex: false,
@@ -886,13 +1080,19 @@ mod tests {
                 model: Some("gemini-2.0-flash".to_string()),
                 reasoning_effort: None,
             }),
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(validate_codex_review_settings(&mut s_dep_gem).is_err());
 
         // Valid Gemini model (gemini-2.5-pro) is accepted
         let mut s_ok_gem = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::ExternalOnly,
             reviewers: ReviewersSelection {
                 codex: false,
@@ -906,6 +1106,12 @@ mod tests {
                 model: Some("gemini-2.5-pro".to_string()),
                 reasoning_effort: None,
             }),
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(validate_codex_review_settings(&mut s_ok_gem).is_ok());
@@ -927,7 +1133,7 @@ mod tests {
         std::fs::write(&path, raw).unwrap();
 
         let s = get_codex_review_settings_at(dir.path()).unwrap();
-        assert_eq!(s.schema_version, 4);
+        assert_eq!(s.schema_version, 5);
         assert_eq!(s.review_mode, ReviewMode::CodexPlusExternal);
         assert!(!s.reviewers.codex);
         assert!(s.reviewers.gemini);
@@ -955,7 +1161,7 @@ mod tests {
         std::fs::write(&path, raw).unwrap();
 
         let s = get_codex_review_settings_at(dir.path()).unwrap();
-        assert_eq!(s.schema_version, 4);
+        assert_eq!(s.schema_version, 5);
         // Condition 2: Must NOT migrate implicitly to none; must default to codex_self_only with unconfirmed_migration = true
         assert_eq!(s.review_mode, ReviewMode::CodexSelfOnly);
         assert!(s.unconfirmed_migration);
@@ -980,9 +1186,38 @@ mod tests {
         std::fs::write(&path, raw).unwrap();
 
         let s = get_codex_review_settings_at(dir.path()).unwrap();
-        assert_eq!(s.schema_version, 4);
+        assert_eq!(s.schema_version, 5);
         assert_eq!(s.review_mode, ReviewMode::CodexPlusExternal);
         assert_eq!(s.priority_reviewer.as_deref(), Some("deepseek"));
+    }
+
+    #[test]
+    fn test_v4_migration_to_v5() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join(REVIEW_SETTINGS_FILE_NAME);
+        let raw = r#"{
+            "schema_version": 4,
+            "review_mode": "codex_plus_external",
+            "reviewers": {
+                "codex": false,
+                "gemini": false,
+                "deepseek": true
+            },
+            "priority_reviewer": "deepseek",
+            "gemini_cli_enabled": false,
+            "deepseek": { "model": "deepseek-flash", "reasoning_effort": "high" },
+            "gemini": null,
+            "unconfirmed_migration": false
+        }"#;
+        std::fs::write(&path, raw).unwrap();
+
+        let s = get_codex_review_settings_at(dir.path()).unwrap();
+        assert_eq!(s.schema_version, 5);
+        assert_eq!(s.review_mode, ReviewMode::CodexPlusExternal);
+        assert_eq!(s.priority_reviewer.as_deref(), Some("deepseek"));
+        assert_eq!(s.planner_role, None);
+        assert_eq!(s.reviser_role, None);
+        assert_eq!(s.active_plan_path, None);
     }
 
     #[test]
@@ -1004,104 +1239,155 @@ mod tests {
     }
 
     #[test]
-    fn test_save_clears_unconfirmed_migration_and_writes_v4() {
+    fn test_save_preserves_unconfirmed_migration_until_explicitly_cleared_and_writes_v5() {
         let dir = tempdir().unwrap();
         let mut s = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::CodexSelfOnly,
             reviewers: ReviewersSelection::default(),
             priority_reviewer: None,
             gemini_cli_enabled: false,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: true,
         };
+        // 1. Auto-save preserves unconfirmed_migration = true
         save_codex_review_settings_at(dir.path(), &mut s).unwrap();
-        assert!(!s.unconfirmed_migration);
-        assert_eq!(s.schema_version, 4);
+        assert!(s.unconfirmed_migration);
+        assert_eq!(s.schema_version, 5);
 
         let read_back = get_codex_review_settings_at(dir.path()).unwrap();
-        assert_eq!(read_back.schema_version, 4);
-        assert!(!read_back.unconfirmed_migration);
+        assert_eq!(read_back.schema_version, 5);
+        assert!(read_back.unconfirmed_migration);
         assert_eq!(read_back.review_mode, ReviewMode::CodexSelfOnly);
+
+        // 2. Explicit confirmation saves unconfirmed_migration = false
+        s.unconfirmed_migration = false;
+        save_codex_review_settings_at(dir.path(), &mut s).unwrap();
+        assert!(!s.unconfirmed_migration);
+
+        let read_back_cleared = get_codex_review_settings_at(dir.path()).unwrap();
+        assert!(!read_back_cleared.unconfirmed_migration);
     }
 
     #[test]
     fn test_can_launch_external_reviews_gate() {
         // codex_self_only -> cannot launch external review
         let s_self = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::CodexSelfOnly,
             reviewers: ReviewersSelection { codex: false, gemini: false, deepseek: true },
             priority_reviewer: Some("deepseek".to_string()),
             gemini_cli_enabled: false,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(can_launch_external_reviews(&s_self).is_err());
 
         // none -> cannot launch external review
         let s_none = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::None,
             reviewers: ReviewersSelection { codex: false, gemini: false, deepseek: true },
             priority_reviewer: Some("deepseek".to_string()),
             gemini_cli_enabled: false,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(can_launch_external_reviews(&s_none).is_err());
 
         // unconfirmed_migration -> cannot launch
         let s_unconf = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::ExternalOnly,
             reviewers: ReviewersSelection { codex: false, gemini: false, deepseek: true },
             priority_reviewer: Some("deepseek".to_string()),
             gemini_cli_enabled: false,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: true,
         };
         assert!(can_launch_external_reviews(&s_unconf).is_err());
 
         // valid external_only with 1 active reviewer -> can launch
         let s_valid = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::ExternalOnly,
             reviewers: ReviewersSelection { codex: false, gemini: false, deepseek: true },
             priority_reviewer: Some("deepseek".to_string()),
             gemini_cli_enabled: false,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(can_launch_external_reviews(&s_valid).is_ok());
 
         // valid codex_plus_external with codex priority -> can launch
         let s_valid_plus_codex = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::CodexPlusExternal,
             reviewers: ReviewersSelection { codex: false, gemini: false, deepseek: true },
             priority_reviewer: Some("codex".to_string()),
             gemini_cli_enabled: false,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(can_launch_external_reviews(&s_valid_plus_codex).is_ok());
 
         // valid codex_plus_external with deepseek priority -> can launch
         let s_valid_plus_dsh = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::CodexPlusExternal,
             reviewers: ReviewersSelection { codex: false, gemini: false, deepseek: true },
             priority_reviewer: Some("deepseek".to_string()),
             gemini_cli_enabled: false,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(can_launch_external_reviews(&s_valid_plus_dsh).is_ok());
@@ -1113,19 +1399,25 @@ mod tests {
 
         // 1. Save with Codex self-review as priority
         let mut s_codex = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::CodexPlusExternal,
             reviewers: ReviewersSelection { codex: false, gemini: false, deepseek: true },
             priority_reviewer: Some("codex".to_string()),
             gemini_cli_enabled: false,
             deepseek: None,
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         save_codex_review_settings_at(dir.path(), &mut s_codex).unwrap();
 
         let read1 = get_codex_review_settings_at(dir.path()).unwrap();
-        assert_eq!(read1.schema_version, 4);
+        assert_eq!(read1.schema_version, 5);
         assert_eq!(read1.review_mode, ReviewMode::CodexPlusExternal);
         assert_eq!(read1.priority_reviewer, Some("codex".to_string()));
         assert!(!read1.unconfirmed_migration);
@@ -1136,7 +1428,7 @@ mod tests {
         save_codex_review_settings_at(dir.path(), &mut s_dsh).unwrap();
 
         let read2 = get_codex_review_settings_at(dir.path()).unwrap();
-        assert_eq!(read2.schema_version, 4);
+        assert_eq!(read2.schema_version, 5);
         assert_eq!(read2.review_mode, ReviewMode::CodexPlusExternal);
         assert_eq!(read2.priority_reviewer, Some("deepseek".to_string()));
         assert!(!read2.unconfirmed_migration);
@@ -1145,7 +1437,7 @@ mod tests {
     #[test]
     fn test_deepseek_model_and_effort_validation() {
         let mut s = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::CodexPlusExternal,
             reviewers: ReviewersSelection { codex: false, gemini: false, deepseek: true },
             priority_reviewer: Some("deepseek".to_string()),
@@ -1155,6 +1447,12 @@ mod tests {
                 reasoning_effort: Some("max".to_string()),
             }),
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         assert!(validate_codex_review_settings(&mut s).is_ok());
@@ -1181,7 +1479,7 @@ mod tests {
         let dir = tempdir().unwrap();
 
         let mut s = CodexReviewSettings {
-            schema_version: 4,
+            schema_version: 5,
             review_mode: ReviewMode::CodexPlusExternal,
             reviewers: ReviewersSelection { codex: false, gemini: false, deepseek: true },
             priority_reviewer: Some("deepseek".to_string()),
@@ -1191,6 +1489,12 @@ mod tests {
                 reasoning_effort: Some("max".to_string()),
             }),
             gemini: None,
+            active_plan_path: None,
+            planner_role: None,
+            reviser_role: None,
+            codex: None,
+            plan_reviewers: None,
+            build_reviewers: None,
             unconfirmed_migration: false,
         };
         save_codex_review_settings_at(dir.path(), &mut s).unwrap();
@@ -1209,5 +1513,53 @@ mod tests {
         let read2 = get_codex_review_settings_at(dir.path()).unwrap();
         assert_eq!(read2.deepseek.as_ref().unwrap().model.as_deref(), Some("deepseek-flash"));
         assert_eq!(read2.deepseek.as_ref().unwrap().reasoning_effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn test_four_state_build_reviewers_and_independent_plan_reviewers() {
+        let dir = tempdir().unwrap();
+
+        // State 1: Both OFF -> none, review_mode is None
+        let mut s_none = CodexReviewSettings::default();
+        s_none.build_reviewers = Some(vec![]);
+        s_none.plan_reviewers = Some(vec!["deepseek".to_string()]); // independent plan reviewer
+        save_codex_review_settings_at(dir.path(), &mut s_none).unwrap();
+        let r_none = get_codex_review_settings_at(dir.path()).unwrap();
+        assert_eq!(r_none.review_mode, ReviewMode::None);
+        assert_eq!(r_none.build_reviewers, Some(vec![]));
+        assert_eq!(r_none.plan_reviewers, Some(vec!["deepseek".to_string()]));
+        assert_eq!(r_none.priority_reviewer, None);
+
+        // State 2: Codex only -> codex_self_only
+        let mut s_codex = r_none;
+        s_codex.build_reviewers = Some(vec!["codex".to_string()]);
+        s_codex.plan_reviewers = None; // inherit
+        save_codex_review_settings_at(dir.path(), &mut s_codex).unwrap();
+        let r_codex = get_codex_review_settings_at(dir.path()).unwrap();
+        assert_eq!(r_codex.review_mode, ReviewMode::CodexSelfOnly);
+        assert_eq!(r_codex.build_reviewers, Some(vec!["codex".to_string()]));
+        assert_eq!(r_codex.plan_reviewers, None);
+        assert_eq!(r_codex.priority_reviewer, Some("codex".to_string()));
+
+        // State 3: DeepSeek only -> external_only
+        let mut s_ds = r_codex;
+        s_ds.build_reviewers = Some(vec!["deepseek".to_string()]);
+        save_codex_review_settings_at(dir.path(), &mut s_ds).unwrap();
+        let r_ds = get_codex_review_settings_at(dir.path()).unwrap();
+        assert_eq!(r_ds.review_mode, ReviewMode::ExternalOnly);
+        assert_eq!(r_ds.build_reviewers, Some(vec!["deepseek".to_string()]));
+        assert_eq!(r_ds.priority_reviewer, Some("deepseek".to_string()));
+
+        // State 4: Both ON -> codex_plus_external
+        let mut s_both = r_ds;
+        s_both.build_reviewers = Some(vec!["codex".to_string(), "deepseek".to_string()]);
+        s_both.priority_reviewer = Some("deepseek".to_string());
+        s_both.plan_reviewers = Some(vec!["codex".to_string()]);
+        save_codex_review_settings_at(dir.path(), &mut s_both).unwrap();
+        let r_both = get_codex_review_settings_at(dir.path()).unwrap();
+        assert_eq!(r_both.review_mode, ReviewMode::CodexPlusExternal);
+        assert_eq!(r_both.build_reviewers, Some(vec!["codex".to_string(), "deepseek".to_string()]));
+        assert_eq!(r_both.priority_reviewer, Some("deepseek".to_string()));
+        assert_eq!(r_both.plan_reviewers, Some(vec!["codex".to_string()]));
     }
 }

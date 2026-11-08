@@ -9,7 +9,7 @@ Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companio
 1. **3P Gateway for Claude Code / Claude Desktop** — Keep Claude's repository exploration, tool use, file editing, and test execution while routing inference to third-party cloud providers.
 2. **Dedicated Local LLMs for Claude Code (Ollama)** — Run Claude Code completely offline with zero API costs using local Ollama models.
 3. **MCP Planner & Reviewer for Google Antigravity** — Delegate implementation planning and post-implementation review to external models via the canonical `poverello/plan`, `poverello/revise`, and `poverello/review` MCP tools (with `anthro-bridge/*` maintained for backward compatibility).
-4. **Antigravity Autocode and Skills & Rules** — Configure external review and coding behavior in the Antigravity Autocode tab; manage Antigravity Workflow Skills, Task Presets, Global Rules, and Nerf skills under Settings. Shared CLI Tools have their own Settings page.
+4. **Antigravity Autocode and Skills & Rules** — Configure external review and coding behavior in the Antigravity Autocode tab; manage Antigravity Workflow Skills and Global Rules under Settings, with Antigravity Nerf Settings managed directly in the GUI. Shared CLI Tools have their own Settings page.
 5. **Codex Autocode and Skills & Rules** — Configure reviewers for Codex Workflow Skills in the Codex Autocode tab; manage the three native Codex Skills and Poverello-managed `AGENTS.md` rules under Settings. Shared CLI Tools are managed separately under Settings.
 
 > [!TIP]
@@ -89,18 +89,17 @@ Antigravity Workflow Skills: `/pov-full-cycle`, `/pov-plan-only`, `/pov-build-re
 ```text
 Antigravity Autocode tab
   • External Review policy / reviewer configuration
-  • Customize Coding Settings / Direct Coding
+  • Antigravity Nerf Settings / Direct Coding
 
 Settings > Antigravity Skills & Rules
   • Workflow Commands / repair
-  • Task Presets
-  • Global Rules / Nerf skills
+  • Global Rules
 
 Settings > CLI Tools
   • Shared Node.js / npm and CLI management
 ```
 
-- External Review and Customize Coding Settings are configured in Antigravity Autocode. Settings > Antigravity Skills & Rules manages Antigravity Workflow Skills, Task Presets, Global Rules, and Nerf skills; shared CLI Tools have a separate Settings page.
+- External Review and Antigravity Nerf Settings are configured in Antigravity Autocode. Settings > Antigravity Skills & Rules manages Antigravity Workflow Skills and Global Rules (nerf settings are managed in the GUI; obsolete nerf slash commands are decommissioned); shared CLI Tools have a separate Settings page.
 
 ### 5. Codex Autocode and Skills & Rules
 
@@ -158,8 +157,8 @@ The Windows installer supports 8 languages. Poverello keeps the existing applica
 5. Follow the complete [Antigravity MCP Setup Guide](docs/ANTIGRAVITY_MCP.md).
 
 ### Workflow 4: Antigravity Autocode and Skills & Rules
-1. Configure External Review and Customize Coding Settings in **Antigravity Autocode**. The selected policy controls reviewer use by Workflow Skills.
-2. Under **Settings > Antigravity Skills & Rules**, manage Antigravity Workflow Skills, Task Presets, Global Rules, and Nerf skills. Skill repair requires confirmation and preserves a backup. Manage shared CLI Tools under **Settings > CLI Tools**.
+1. Configure External Review and Antigravity Nerf Settings in **Antigravity Autocode**. The selected policy controls reviewer use by Workflow Skills.
+2. Under **Settings > Antigravity Skills & Rules**, manage Antigravity Workflow Skills and Global Rules. Skill repair requires confirmation and preserves a backup. Manage shared CLI Tools under **Settings > CLI Tools**.
 3. Auto-Converge remains hidden; production dispatch is disabled and Stage 2 isolation is unverified.
 
 ### Workflow 5: Codex Autocode and Skills & Rules

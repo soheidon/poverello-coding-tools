@@ -7,7 +7,6 @@ import { LanguageContext } from "../i18n";
 import type {
   AntigravityCommandsInfo,
   GlobalRuleItemInfo,
-  PovNerfCommandsInfo,
 } from "../types";
 
 const invokeMock = invoke as unknown as ReturnType<typeof vi.fn>;
@@ -73,31 +72,6 @@ const dummyGlobalRules: GlobalRuleItemInfo[] = [
   },
 ];
 
-const dummyNerfStatus: PovNerfCommandsInfo = {
-  skills_dir: "C:\\Users\\User\\.gemini\\config\\skills",
-  skills: [
-    {
-      skill_id: "balanced",
-      slash_command: "/pov-nerf-balanced",
-      skill_name: "pov-nerf-balanced",
-      state: "installed",
-      target_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-nerf-balanced\\SKILL.md",
-      permitted_actions: ["remove"],
-      diagnostic_reason: null,
-    },
-    {
-      skill_id: "lightweight",
-      slash_command: "/pov-nerf-lightweight",
-      skill_name: "pov-nerf-lightweight",
-      state: "not_installed",
-      target_path: "C:\\Users\\User\\.gemini\\config\\skills\\pov-nerf-lightweight\\SKILL.md",
-      permitted_actions: ["install"],
-      diagnostic_reason: null,
-    },
-  ],
-  legacy_single_skill: null,
-};
-
 describe("AntigravitySkillsRulesPanel Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -108,12 +82,11 @@ describe("AntigravitySkillsRulesPanel Component", () => {
       if (command === "remove_antigravity_command") return dummyCommandsInfo;
       if (command === "get_cli_tools_status") return [];
       if (command === "get_antigravity_global_rules_status") return dummyGlobalRules;
-      if (command === "get_pov_nerf_commands_status") return dummyNerfStatus;
       return null;
     });
   });
 
-  it("renders 3 distribution cards and excludes external review & direct coding", async () => {
+  it("renders 2 distribution cards (Workflow Skills & Global Rules) and excludes nerf slash commands, external review & direct coding", async () => {
     render(
       <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
         <AntigravitySkillsRulesPanel />
@@ -131,10 +104,10 @@ describe("AntigravitySkillsRulesPanel Component", () => {
     // 2. CLI Tools Card must NOT be in Antigravity Skills & Rules panel (relocated to dedicated CLI Tools panel)
     expect(screen.queryByTestId("cli-tools-card")).not.toBeInTheDocument();
 
-    // 2. Task Presets Card (Nerf)
-    expect(screen.getByText("antigravity.taskPresetsHeader")).toBeInTheDocument();
-    expect(screen.getByText("/pov-nerf-balanced")).toBeInTheDocument();
-    expect(screen.getByText("/pov-nerf-lightweight")).toBeInTheDocument();
+    // 3. Task Presets Card (Nerf) must NOT be in panel (decommissioned)
+    expect(screen.queryByText("antigravity.taskPresetsHeader")).not.toBeInTheDocument();
+    expect(screen.queryByText("/pov-nerf-balanced")).not.toBeInTheDocument();
+    expect(screen.queryByText("/pov-nerf-lightweight")).not.toBeInTheDocument();
 
     // 4. Global Rules Card
     expect(screen.getByText("antigravity.globalRulesFixedHeader")).toBeInTheDocument();
@@ -209,7 +182,6 @@ describe("AntigravitySkillsRulesPanel Component", () => {
           },
         ];
       }
-      if (cmd === "get_pov_nerf_commands_status") return dummyNerfStatus;
       return null;
     });
 

@@ -5,9 +5,6 @@ import type {
   AntigravityCommandsInfo,
   AntigravityCommandItemInfo,
   GlobalRuleItemInfo,
-  PovNerfCommandsInfo,
-  PovNerfSkillId,
-  PovNerfOperationResult,
 } from "../types";
 
 const WORKFLOW_COMMAND_NAMES = ["pov-plan-only", "pov-build-review", "pov-full-cycle"];
@@ -22,14 +19,7 @@ export default function AntigravitySkillsRulesPanel() {
   const [commandsSavedMessage, setCommandsSavedMessage] = useState(false);
   const [confirmRepairSkill, setConfirmRepairSkill] = useState<string | null>(null);
 
-  // ── 2. Task Presets (Nerf) State ──
-  const [nerfInfo, setNerfInfo] = useState<PovNerfCommandsInfo | null>(null);
-  const [nerfStatusLoading, setNerfStatusLoading] = useState(false);
-  const [nerfLoadingSkill, setNerfLoadingSkill] = useState<PovNerfSkillId | null>(null);
-  const [nerfOpError, setNerfOpError] = useState<string | null>(null);
-  const [nerfStatusError, setNerfStatusError] = useState<string | null>(null);
-
-  // ── 4. Global Rules State ──
+  // ── 2. Global Rules State ──
   const [globalRules, setGlobalRules] = useState<GlobalRuleItemInfo[]>([]);
   const [globalRulesLoading, setGlobalRulesLoading] = useState(false);
   const [globalRulesError, setGlobalRulesError] = useState<string | null>(null);
@@ -49,19 +39,6 @@ export default function AntigravitySkillsRulesPanel() {
     }
   }, []);
 
-  const fetchNerfStatus = useCallback(async () => {
-    try {
-      setNerfStatusLoading(true);
-      setNerfStatusError(null);
-      const res = await invoke<PovNerfCommandsInfo>("get_pov_nerf_commands_status");
-      setNerfInfo(res);
-    } catch (e: unknown) {
-      setNerfStatusError(String(e));
-    } finally {
-      setNerfStatusLoading(false);
-    }
-  }, []);
-
   const fetchGlobalRules = useCallback(async () => {
     try {
       setGlobalRulesLoading(true);
@@ -77,9 +54,8 @@ export default function AntigravitySkillsRulesPanel() {
 
   useEffect(() => {
     void fetchCommands();
-    void fetchNerfStatus();
     void fetchGlobalRules();
-  }, [fetchCommands, fetchNerfStatus, fetchGlobalRules]);
+  }, [fetchCommands, fetchGlobalRules]);
 
   // ── Workflow Commands Handlers ──
   const handleOpenSkillsFolder = async () => {
@@ -158,26 +134,6 @@ export default function AntigravitySkillsRulesPanel() {
       setCommandsError(String(e));
     } finally {
       setCommandsLoading(false);
-    }
-  };
-
-  // ── Nerf Handlers ──
-  const handleNerfAction = async (skillId: PovNerfSkillId, action: "install" | "update" | "remove") => {
-    try {
-      setNerfLoadingSkill(skillId);
-      setNerfOpError(null);
-      const cmd =
-        action === "install"
-          ? "install_pov_nerf_command"
-          : action === "update"
-          ? "update_pov_nerf_command"
-          : "remove_pov_nerf_command";
-      await invoke<PovNerfOperationResult>(cmd, { skillId });
-      await fetchNerfStatus();
-    } catch (e: unknown) {
-      setNerfOpError(String(e));
-    } finally {
-      setNerfLoadingSkill(null);
     }
   };
 
@@ -366,133 +322,7 @@ export default function AntigravitySkillsRulesPanel() {
         </div>
       </div>
 
-      {/* ── CARD 2: Task Presets (Nerf) ── */}
-      <div className="settings-tile">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
-              {t("antigravity.taskPresetsHeader")}
-            </h3>
-            {(nerfLoadingSkill !== null || nerfStatusLoading) && <span style={{ fontSize: 11, color: "#656d76" }}>...</span>}
-          </div>
-        </div>
-
-        <p style={{ margin: "0 0 12px 0", fontSize: 12, color: "#656d76" }}>
-          {t("antigravity.nerfDesc")}
-        </p>
-
-        {nerfInfo?.legacy_single_skill?.present && (
-          <div style={{ margin: "0 0 12px 0", padding: "8px 12px", backgroundColor: "#fff8c5", color: "#6e4a00", borderRadius: 6, fontSize: 12, border: "1px solid #d4a72c" }}>
-            <div>⚠ {nerfInfo.legacy_single_skill.message}</div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, marginTop: 4, color: "#57606a" }}>
-              {nerfInfo.legacy_single_skill.path}
-            </div>
-          </div>
-        )}
-
-        {nerfOpError && (
-          <div style={{ margin: "0 0 12px 0", padding: "8px 12px", background: "#ffebe9", border: "1px solid #ff8182", borderRadius: 6, fontSize: 12, color: "#cf222e" }}>
-            {nerfOpError}
-          </div>
-        )}
-        {nerfStatusError && (
-          <div style={{ margin: "0 0 12px 0", padding: "8px 12px", background: "#ffebe9", border: "1px solid #ff8182", borderRadius: 6, fontSize: 12, color: "#cf222e" }}>
-            {nerfStatusError}
-          </div>
-        )}
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {(nerfInfo?.skills ?? []).map((skill) => {
-            const isLoading = nerfLoadingSkill === skill.skill_id;
-            return (
-              <div
-                key={skill.skill_id}
-                style={{
-                  background: "#fff",
-                  border: "1px solid #e1e4e8",
-                  borderRadius: 6,
-                  padding: "8px 12px",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                  gap: 8,
-                }}
-              >
-                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 700, color: "#1f2937" }}>
-                      {skill.slash_command}
-                    </span>
-                    <div>
-                      {skill.state === "installed" ? (
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: "#1a7f37", fontWeight: 600 }}>
-                          <span>✓</span> {t("antigravity.commandStatusInstalled")}
-                        </span>
-                      ) : skill.state === "outdated" ? (
-                        <span style={{ fontSize: 11, color: "#9a6700", fontWeight: 600 }}>
-                          ⚠ {t("antigravity.commandStatusOutdated")}
-                        </span>
-                      ) : skill.state === "modified" || skill.state === "invalid" ? (
-                        <span style={{ fontSize: 11, color: "#cf222e", fontWeight: 600 }}>
-                          ⚠ {t("antigravity.nerfStatusModified")}
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: 11, color: "#656d76", fontWeight: 500 }}>
-                          {t("antigravity.commandStatusNotInstalled")}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 11, color: "#57606a" }}>
-                    {skill.skill_id === "balanced"
-                      ? t("antigravity.nerfBalancedDesc")
-                      : t("antigravity.nerfLightweightDesc")}
-                  </div>
-                  {skill.diagnostic_reason && (
-                    <div style={{ fontSize: 11, color: "#cf222e" }}>{skill.diagnostic_reason}</div>
-                  )}
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  {skill.permitted_actions?.includes("install") && (
-                    <button
-                      className="btn btn-primary"
-                      style={{ fontSize: 11, padding: "4px 10px" }}
-                      onClick={() => void handleNerfAction(skill.skill_id, "install")}
-                      disabled={isLoading || nerfStatusLoading}
-                    >
-                      {t("antigravity.commandBtnInstall")}
-                    </button>
-                  )}
-                  {skill.permitted_actions?.includes("update") && (
-                    <button
-                      className="btn btn-primary"
-                      style={{ fontSize: 11, padding: "4px 10px" }}
-                      onClick={() => void handleNerfAction(skill.skill_id, "update")}
-                      disabled={isLoading || nerfStatusLoading}
-                    >
-                      {t("antigravity.commandBtnUpdate")}
-                    </button>
-                  )}
-                  {skill.permitted_actions?.includes("remove") && (
-                    <button
-                      className="btn btn-danger"
-                      style={{ fontSize: 11, padding: "4px 10px" }}
-                      onClick={() => void handleNerfAction(skill.skill_id, "remove")}
-                      disabled={isLoading || nerfStatusLoading}
-                    >
-                      {t("antigravity.commandBtnRemove")}
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ── CARD 5: Global Rules (Fixed Templates) ── */}
+      {/* ── CARD 2: Global Rules (Fixed Templates) ── */}
       <div className="settings-tile">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

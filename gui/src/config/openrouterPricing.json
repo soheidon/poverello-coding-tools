@@ -135,6 +135,18 @@
   "poolside/laguna-xs-2.1:free": {
     "pricingUpdatedAt": "2026-07-25"
   },
+  "tencent/hy4": {
+    "pricingNoteKey": "modelPricing.notes.openrouterPricing",
+    "pricingUpdatedAt": "2026-11-08",
+    "pricing": {
+      "inputPerMillionUsd": 0.417,
+      "outputPerMillionUsd": 1.251,
+      "cacheReadPerMillionUsd": 0.021,
+      "regularInputPerMillionUsd": 0.834,
+      "regularOutputPerMillionUsd": 2.501,
+      "regularCacheReadPerMillionUsd": 0.042
+    }
+  },
   "tencent/hy4-preview": {
     "pricingNoteKey": "modelPricing.notes.openrouterPricing",
     "pricingUpdatedAt": "2026-10-13"

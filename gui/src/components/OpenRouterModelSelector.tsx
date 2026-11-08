@@ -72,6 +72,7 @@ const ANTHROPIC_PREFERRED_ORDER = [
 ];
 
 const TENCENT_PREFERRED_ORDER = [
+  "tencent/hy4",
   "tencent/hy4-preview",
   "tencent/hy3",
 ];
@@ -170,9 +171,10 @@ const PRIMARY_POOLSIDE_MODEL_IDS = new Set(POOLSIDE_VENDOR.models.map((m) => m.i
 
 const PRIMARY_POOLSIDE_MODEL_ORDER = POOLSIDE_VENDOR.models.map((m) => m.id);
 
-const TENCENT_HY4_MODEL_IDS = new Set(["tencent/hy4-preview"]);
+const TENCENT_HY4_MODEL_IDS = new Set(["tencent/hy4", "tencent/hy4-preview"]);
 const TENCENT_HY3_MODEL_IDS = new Set(["tencent/hy3", "tencent/hy3:free"]);
 const TENCENT_CURATED_MODEL_IDS = new Set([
+  "tencent/hy4",
   "tencent/hy4-preview",
   "tencent/hy3",
 ]);

@@ -62,7 +62,7 @@ describe("AntigravityRulesPanel Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Customize Coding Settings")).toBeInTheDocument();
+      expect(screen.getByText("Antigravity Nerf Settings")).toBeInTheDocument();
       expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
       expect(screen.getByText("Preset")).toBeInTheDocument();
       expect(screen.queryByText("Operation Mode")).not.toBeInTheDocument();
@@ -105,7 +105,7 @@ describe("AntigravityRulesPanel Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Customize Coding Settings")).toBeInTheDocument();
+      expect(screen.getByText("Antigravity Nerf Settings")).toBeInTheDocument();
       expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
       expect(screen.getByText("Preset")).toBeInTheDocument();
       expect(screen.queryByText("Operation Mode")).not.toBeInTheDocument();
@@ -135,7 +135,7 @@ describe("AntigravityRulesPanel Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Customize Coding Settings")).toBeInTheDocument();
+      expect(screen.getByText("Antigravity Nerf Settings")).toBeInTheDocument();
       expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
       expect(screen.getByText("Preset")).toBeInTheDocument();
       expect(screen.queryByText("Operation Mode")).not.toBeInTheDocument();
@@ -171,7 +171,7 @@ describe("AntigravityRulesPanel Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Customize Coding Settings")).toBeInTheDocument();
+      expect(screen.getByText("Antigravity Nerf Settings")).toBeInTheDocument();
       expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
       expect(screen.getByText("Preset")).toBeInTheDocument();
       expect(screen.queryByText("Operation Mode")).not.toBeInTheDocument();
@@ -204,7 +204,7 @@ describe("AntigravityRulesPanel Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Customize Coding Settings")).toBeInTheDocument();
+      expect(screen.getByText("Antigravity Nerf Settings")).toBeInTheDocument();
       expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
       expect(screen.getByText("Preset")).toBeInTheDocument();
       expect(screen.queryByText("Operation Mode")).not.toBeInTheDocument();
@@ -238,13 +238,13 @@ describe("AntigravityRulesPanel Component", () => {
     render(<AntigravityRulesPanel />);
 
     await waitFor(() => {
-      expect(screen.getByText("コーディング設定のカスタマイズ")).toBeInTheDocument();
+      expect(screen.getByText("Antigravityナーフ設定")).toBeInTheDocument();
       expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
       expect(screen.getByText("プリセット")).toBeInTheDocument();
       expect(screen.queryByText("動作モード")).not.toBeInTheDocument();
     });
 
-    expect(screen.getByText("Antigravityの実装作業を軽量化する条件付きルール")).toBeInTheDocument();
+    expect(screen.getByText("Antigravityの過剰な探索・検証を抑え、コーディング作業を効率化します。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "適用 / 同期" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ルールフォルダを開く" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "デフォルトに戻す" })).toBeInTheDocument();
@@ -274,13 +274,13 @@ describe("AntigravityRulesPanel Component", () => {
     render(<AntigravityRulesPanel />);
 
     await waitFor(() => {
-      expect(screen.getByText("Customize Coding Settings")).toBeInTheDocument();
+      expect(screen.getByText("Antigravity Nerf Settings")).toBeInTheDocument();
       expect(screen.queryByText("Poverello Direct Coding")).not.toBeInTheDocument();
       expect(screen.getByText("Preset")).toBeInTheDocument();
       expect(screen.queryByText("Operation Mode")).not.toBeInTheDocument();
     });
 
-    expect(screen.getByText("Conditional rules for lightweight Antigravity software implementation")).toBeInTheDocument();
+    expect(screen.getByText("Reduce excessive exploration and verification in Antigravity to streamline coding tasks.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save & Apply" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open Rules Folder" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reset to Defaults" })).toBeInTheDocument();

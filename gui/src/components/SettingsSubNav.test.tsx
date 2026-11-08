@@ -233,9 +233,9 @@ describe("Settings Sub-Navigation Integration", () => {
     expect(skillsRulesNav).toHaveClass("active");
     expect(antigravityMcpNav).not.toHaveClass("active");
     expect(await screen.findByText("antigravity.workflowCommandsSectionHeader")).toBeInTheDocument();
-    expect(screen.getByText("antigravity.taskPresetsHeader")).toBeInTheDocument();
+    expect(screen.queryByText("antigravity.taskPresetsHeader")).not.toBeInTheDocument();
     expect(screen.getByText("antigravity.globalRulesFixedHeader")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /Customize Coding Settings|Poverello Direct Coding/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Customize Coding Settings|Antigravity Nerf Settings|Poverello Direct Coding/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/External Review Configuration|外部レビュー設定/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/claudeConfig\.header/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/apiKeyPanel\.header/i)).not.toBeInTheDocument();

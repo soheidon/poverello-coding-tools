@@ -5751,13 +5751,24 @@ mod tests {
     #[test]
     fn tencent_hy4_thinking_high_sends_effort_high() {
         let route = make_route_with_effort(
-            "openrouter", "tencent/hy4-preview", Some("thinking"), Some("high"),
+            "openrouter", "tencent/hy4", Some("thinking"), Some("high"),
         );
         let mut body = json!({"thinking": {"type": "enabled"}});
         apply_tencent_reasoning(&route, &mut body);
         assert_eq!(body.get("thinking"), None);
         assert_eq!(
             body.get("reasoning"),
+            Some(&json!({"effort": "high"}))
+        );
+
+        let route_preview = make_route_with_effort(
+            "openrouter", "tencent/hy4-preview", Some("thinking"), Some("high"),
+        );
+        let mut body_preview = json!({"thinking": {"type": "enabled"}});
+        apply_tencent_reasoning(&route_preview, &mut body_preview);
+        assert_eq!(body_preview.get("thinking"), None);
+        assert_eq!(
+            body_preview.get("reasoning"),
             Some(&json!({"effort": "high"}))
         );
     }

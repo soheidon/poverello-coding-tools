@@ -403,3 +403,28 @@ describe("v0.25.4 GPT-6.1 Terra and Terra Pro additions", () => {
     }
   });
 });
+
+describe("Tencent Hy4 OpenRouter pricing", () => {
+  it("defines 50% promotional and regular pricing for tencent/hy4", () => {
+    const hy4 = MODEL_PRICING["tencent/hy4"];
+    expect(hy4).toBeDefined();
+    expect(hy4.inputPerMillionUsd).toBe(0.417);
+    expect(hy4.outputPerMillionUsd).toBe(1.251);
+    expect(hy4.cachedInputPerMillionUsd).toBe(0.021);
+    expect(hy4.regularInputPerMillionUsd).toBe(0.834);
+    expect(hy4.regularOutputPerMillionUsd).toBe(2.501);
+    expect(hy4.regularCachedInputPerMillionUsd).toBe(0.042);
+    expect(hy4.verifiedAt).toBe("2026-11-08");
+
+    const builtinEntry = BUILTIN_OPENROUTER_MODELS["tencent/hy4"];
+    expect(builtinEntry).toBeDefined();
+    expect(builtinEntry.pricing).toMatchObject({
+      inputPerMillionUsd: 0.417,
+      outputPerMillionUsd: 1.251,
+      cacheReadPerMillionUsd: 0.021,
+      regularInputPerMillionUsd: 0.834,
+      regularOutputPerMillionUsd: 2.501,
+      regularCacheReadPerMillionUsd: 0.042,
+    });
+  });
+});

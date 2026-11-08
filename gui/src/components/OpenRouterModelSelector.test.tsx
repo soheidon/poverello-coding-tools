@@ -2097,10 +2097,47 @@ describe("OpenRouterModelSelector — regression tests", () => {
         .filter(Boolean);
 
       expect(optionValues).toEqual([
+        "tencent/hy4",
         "tencent/hy4-preview",
         "tencent/hy3",
       ]);
       expect(modelSelect.value).toBe("tencent/hy4-preview");
+    });
+
+    it("hy4_thinking_options_are_normal_and_reasoning_high_only", async () => {
+      invokeMock.mockImplementation(async (cmd: string) => {
+        if (cmd === "openrouter_get_models") return stableModelsResult();
+        if (cmd === "set_model_upstream") return saveOkResponse(false);
+        return null;
+      });
+
+      render(
+        <OpenRouterModelSelector
+          {...DEFAULT_PROPS}
+          currentUpstream="tencent/hy4"
+          currentThinkingMode="thinking"
+          currentReasoningEffort="high"
+        />,
+      );
+      await waitForReady();
+
+      const thinkingSelect = screen.getByRole("combobox", {
+        name: "Thinking",
+      }) as HTMLSelectElement;
+
+      const options = Array.from(thinkingSelect.options).map((opt) => ({
+        value: opt.value,
+        text: opt.text,
+      }));
+
+      expect(options).toEqual([
+        { value: "off", text: "Normal" },
+        { value: "high", text: "Reasoning: High" },
+      ]);
+      expect(thinkingSelect.value).toBe("high");
+      expect(options.some((o) => o.value === "low")).toBe(false);
+      expect(options.some((o) => o.value === "medium")).toBe(false);
+      expect(options.some((o) => o.value === "max")).toBe(false);
     });
 
     it("hy4_preview_thinking_options_are_normal_and_reasoning_high_only", async () => {

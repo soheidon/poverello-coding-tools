@@ -5,25 +5,51 @@ description: 計画作成と独立計画レビュー専用のCodex Skill。承�
 
 # POV Plan Only
 
-## 役割
+## 役割と権能分離 (Separation of Powers)
 
-- Codex：作業主体として計画作成、内部自己レビュー、および独立計画レビューの進行・管理を行う。自己レビューは本セッション内で直接実施し、追加の `codex exec` による自己レビューは起動しない。
-- 外部独立レビューが必要な場合は、外部Reviewer（DeepSeek Harness、オプション有効時かつ選択時のみ Gemini CLI）が担当する。
+- **正本計画書（Active Plan File）**: 作業開始前に必ず確認する。GUIでアクティブプランファイルが指定されていない場合、即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED` を出力して停止する。
+- **Planner (計画作成担当)**: 指定された正本計画書（`.plan/<name>.md` 等）に初期計画を作成する。
+- **Reviewer (検査担当)**: 計画書を完全な読み取り専用（Read-Only）として検査し、合否判定（`APPROVED` / `REQUEST_CHANGES`）と具体的根拠付き指摘（P0/P1/P2）のみを返す。**Reviewer 自身が正本計画書を直接編集・修正・承認改ざんすることは厳格に禁止される**。
+- **Reviser (計画修正担当)**: Reviewer の指摘を受けて計画書を修正する担当。修正は必ず Reviser（Codex作業セッション等）が行い、修正完了後に正本計画書を固定して再度 Reviewer の検査を仰ぐ。
 - 承認判定（`APPROVED` / `APPROVED_WITH_NON_BLOCKING_FINDINGS`）が得られた場合でも、実装へ進まず計画記録のみで停止する。
 - コード、テスト、設定は変更しない。
 
 ## 共通契約
 
+- **正本計画書への全ライフサイクル記録 (Audit Trail)**: 計画、自己レビュー結果、外部レビュー結果、是正履歴、最終判定を正本計画書末尾の「Execution History & Audit Trail」セクションへ時系列で漏れなく記録する。
 - 同一案件では正本計画書を1件だけ作成・更新し、別版や依頼書を作らない。
-- 計画、自己レビュー結果、外部レビュー結果、修正内容、最終判定を正本計画書へ簡潔に記録する。
 - Blocking finding（P0/P1）は、(1) 反する要件・契約、(2) 具体的失敗条件、(3) 必要な最小修正、(4) 判定可能なテスト/証拠の4点を満たすものに限る。
 - Approved判定は実装、commit、push、tag、release、deployの許可ではない。
+
+## チェックポイント保存と作業再開ルール
+
+Active Plan File（`.plan/<name>.md`）を作業状態の永続的正本（Ground Truth）とし、会話履歴に依存しない作業再開およびコンテキスト最適化を行う。
+
+- **チェックポイントの保存領域**:
+  正本計画書の `## 5. Execution History & Audit Trail`（または該当監査セクション）直前に、専用のマーカー付き領域 `## Poverello Execution Checkpoint`（`<!-- POVERELLO-CHECKPOINT:START -->` ... `<!-- POVERELLO-CHECKPOINT:END -->`）を設けて記録する。人間が記述した計画本文や既存の監査ログを一切削除・要約・破壊しない。
+- **保存タイミング**:
+  1. 計画作成完了時
+  2. 計画レビュー判定確定時
+  3. 計画修正完了時
+  4. 完了（COMPLETED）または停止時
+- **記録内容**:
+  `Checkpoint Version: 1`、`Workflow: pov-plan-only`、`Status`、`Last Completed`、`Next Action`、`Execution Identity`（リポジトリ、計画ファイルパス、SHA-256、Run ID）、`Completed Work`、`Validation`、`Review State`、`Pending Work`。
+- **作業再開手順 (Resumption)**:
+  計画作成・レビュー開始時、Active Plan Fileのチェックポイントを確認する：
+  1. リポジトリ同一性・計画ファイルパス・ハッシュ整合性を確認する。
+  2. 直前完了工程（`Last Completed`）に基づき、確定済みの計画と未解決Findingを活用して `Next Action` から安全に再開する。
+  3. 不一致や外部変更検出時は推測でやり直さず安全に停止する。
+- **コンテキスト読込削減 (Context Optimization)**:
+  1. 過去の会話履歴全文や長大な監査ログを毎回再読込しない。
+  2. Active Plan Fileのチェックポイントおよび現在の工程に必要なセクションのみを取得して作業を進める。
 
 ## レビュー方式と並列レビュー契約
 
 1. **レビュー方式（review_mode）の解決**:
-   - レビュー実行前に `CODEX_HOME/pov-review-settings.json`（`schema_version: 4`）を読み込む。ファイル不在時は既定値（`review_mode: codex_self_only`, priority: codex, gemini_cli_enabled: false）とし、設定破損・未知schema時は fail-closed で停止する。
-   - `review_mode` の4区分に従ってレビュー工程を実行する：
+   - 作業開始前にリポジトリ内 `.plan/.active-plan.json` または `CODEX_HOME/pov-review-settings.json` を読み込む。
+   - `active_plan_path` が未設定、または指定されたファイルが存在しない場合、**即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED: Poverello GUI の Autocode 画面から作業対象のプランファイルを指定または新規作成してください。` と出力して停止する**。
+   - 計画書ファイルを読み込み、そのSHA-256ダイジェストを記録する。以降のすべてのフェーズ（計画作成、レビュー判定、是正）の更新は、直前フェーズのSHA-256ダイジェストを `expected_sha256` として指定した `append_plan_audit_trail` による CAS（Compare-And-Swap）更新を用いて、正本計画書の `## 5. Execution History & Audit Trail` へ順次追記する。
+   - 計画レビュー担当Reviewerは `plan_reviewers`（未設定時は `build_reviewers` または `review_mode` を継承）に基づいて解決し、4区分に従ってレビュー工程を実行する：
      - `codex_self_only`: Codexの同一セッション内で自己レビューを実施する。外部Reviewerは起動せず、「外部独立レビュー: SKIPPED (review_mode: codex_self_only)」と記録する。追加の `codex exec` は起動しない。
      - `external_only`: Codex自己レビューをスキップし、設定された外部Reviewer（DeepSeek / Gemini）による独立レビューのみをディスパッチャー経由で実施する。
      - `codex_plus_external`: Codexの同一セッション内自己レビューと、選択された外部Reviewer（DeepSeek / Gemini）による独立レビューの両方を実施する。実行順序は設定上の優先Reviewer（priority_reviewer）から独立させ、一方がREQUEST_CHANGESであっても他方を省略しない。自己レビューは本セッション内で直接実施し、追加の `codex exec` は起動しない。両方の結果を別々に記録し、全Reviewer完了後に判定を統合・裁定する。

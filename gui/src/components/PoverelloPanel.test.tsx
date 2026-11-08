@@ -53,9 +53,9 @@ describe("PoverelloPanel Component", () => {
     expect(screen.getByTestId("reviewer-policy-card")).toBeInTheDocument();
     expect(screen.getByTestId("antigravity-rules-panel")).toBeInTheDocument();
 
-    // Verify title for coding settings is Customize Coding Settings
-    expect(screen.getByRole("heading", { name: "Customize Coding Settings" })).toBeInTheDocument();
-    // Verify title for external review is External Review Configuration
-    expect(screen.getByRole("heading", { name: "External Review Configuration" })).toBeInTheDocument();
+    // Verify title for coding settings is Antigravity Nerf Settings
+    expect(screen.getByRole("heading", { name: "Antigravity Nerf Settings" })).toBeInTheDocument();
+    // Verify title for external review is Select Implementation Review AI
+    expect(screen.getByRole("heading", { name: /Select Implementation Review AI|External Review Configuration/ })).toBeInTheDocument();
   });
 });

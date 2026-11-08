@@ -250,7 +250,7 @@ export interface GlobalRuleItemInfo {
   error?: string | null;
 }
 
-export type ReviewerPolicy = "none" | "codex_only" | "codex_plus_deepseek";
+export type ReviewerPolicy = "none" | "antigravity" | "codex_only" | "deepseek_only" | "codex_plus_deepseek";
 export type ReviewerPreset = "fast" | "standard" | "strict" | "custom";
 export type AntigravityPriorityReviewer = "codex_cli" | "deepseek";
 
@@ -267,18 +267,29 @@ export interface DeepSeekReviewerConfig {
 export interface ReviewerPolicyConfig {
   schema_version: number;
   policy: ReviewerPolicy;
+  plan_review_policy?: ReviewerPolicy | null;
+  plan_priority_reviewer?: AntigravityPriorityReviewer | null;
+  plan_reviewers?: string[] | null;
+  build_review_policy?: ReviewerPolicy | null;
+  build_priority_reviewer?: AntigravityPriorityReviewer | null;
+  build_reviewers?: string[] | null;
   preset?: ReviewerPreset | null;
   codex?: CodexReviewerConfig | null;
   deepseek?: DeepSeekReviewerConfig | null;
   priority_reviewer?: AntigravityPriorityReviewer | null;
   unconfirmed_migration?: boolean;
   content_hash?: string | null;
+  active_plan_path?: string | null;
+  planner_role?: string | null;
+  reviser_role?: string | null;
 }
 
 export interface WorkflowSkillsPolicyStatus {
   compliant: boolean;
   details: AntigravityCommandItemInfo[];
 }
+
+export type CliToolStatusType = "not_installed" | "installed" | "execution_error" | "unknown";
 
 export interface CliToolInfo {
   name: string;
@@ -293,6 +304,10 @@ export interface CliToolInfo {
   update_available: boolean;
   check_id: string | null;
   prerequisite_error: string | null;
+  execution_error?: string | null;
+  latest_check_error?: string | null;
+  outcome_unknown?: string | null;
+  status?: CliToolStatusType;
 }
 
 export interface NodePrerequisiteStatus {
@@ -306,6 +321,7 @@ export interface NodePrerequisiteStatus {
   node_npm_ready: boolean;
   gemini_node_ready: boolean;
   message: string | null;
+  npm_global_prefix?: string | null;
 }
 
 export type CliAuthStatusType = "authenticated" | "not_authenticated" | "unknown";
@@ -395,8 +411,47 @@ export interface CodexReviewSettings {
   priority_reviewer: string | null;
   gemini_cli_enabled: boolean;
   unconfirmed_migration?: boolean;
+  codex?: ExternalReviewerConfig;
   deepseek?: ExternalReviewerConfig;
   gemini?: ExternalReviewerConfig;
+  active_plan_path?: string | null;
+  planner_role?: string | null;
+  reviser_role?: string | null;
+  plan_reviewers?: string[] | null;
+  build_reviewers?: string[] | null;
+}
+
+export interface PlanFileEntry {
+  path: string;
+  relative_path: string;
+  title?: string | null;
+  status?: string | null;
+  last_modified_ms: number;
+  is_active: boolean;
+}
+
+export interface PlanFileDetails {
+  repo_root: string;
+  plans_dir: string;
+  selected_folder?: string | null;
+  active_plan_path?: string | null;
+  active_plan_relative_path?: string | null;
+  plans: PlanFileEntry[];
+}
+
+export interface PlanCreateRequest {
+  name: string;
+  folder?: string | null;
+  title?: string | null;
+  set_as_active?: boolean;
+}
+
+export interface AuditTrailEvent {
+  phase: string;
+  role_actor: string;
+  result: string;
+  notes: string;
+  expected_sha256: string;
 }
 
 export interface CodexAccountInfo {
@@ -619,4 +674,33 @@ export interface ReviewerDiagnosticEvent {
   error_category: string | null;
   external_dispatch_occurred: boolean;
   duration_ms: number;
+}
+
+export interface ExecutionCheckpoint {
+  checkpoint_version: number;
+  workflow: string;
+  status: string;
+  last_completed: string;
+  next_action: string;
+  repository: string;
+  active_plan: string;
+  plan_revision: string;
+  workflow_run_id: string;
+  completed_work: string[];
+  modified_files: string[];
+  validation: string[];
+  reviewer: string;
+  review_result: string;
+  unresolved_findings: string[];
+  pending_work: string[];
+  timestamp: string;
+}
+
+export interface ResumptionPreflightResult {
+  is_resumable: boolean;
+  next_action: string;
+  active_plan: string;
+  workflow: string;
+  status: string;
+  reasons: string[];
 }

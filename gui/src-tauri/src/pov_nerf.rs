@@ -1250,6 +1250,49 @@ pub fn remove_nerf_skill_at(
     })
 }
 
+/// Refuses installation or update of nerf slash commands with zero filesystem writes (§13).
+pub fn refuse_nerf_mutation(skill_id: PovNerfSkillId) -> PovNerfOperationResult {
+    PovNerfOperationResult {
+        outcome: PovNerfMutationOutcome::Refused,
+        skill: PovNerfSkillEntry {
+            skill_id,
+            skill_name: skill_id.skill_name().to_string(),
+            slash_command: skill_id.slash_command().to_string(),
+            target_path: String::new(),
+            state: PovNerfSkillState::NotInstalled,
+            permitted_actions: vec![],
+            diagnostic_reason: Some(
+                "Antigravity nerf slash commands are obsolete and decommissioned in favor of GUI Antigravity Nerf Settings"
+                    .to_string(),
+            ),
+        },
+        message: Some(
+            "Installation or update of nerf slash commands is decommissioned. Please use Antigravity Nerf Settings in the GUI."
+                .to_string(),
+        ),
+    }
+}
+
+/// Automatically retires Poverello-managed canonical nerf skills on sync/info retrieval (§13).
+/// Preserves any user-modified, unmanaged, or unsafe files.
+pub fn retire_managed_nerf_skills_at(skills_root: &Path) -> Vec<PovNerfOperationResult> {
+    let mut results = Vec::new();
+    for skill_id in [PovNerfSkillId::Balanced, PovNerfSkillId::Lightweight] {
+        let skill_folder = skills_root.join(skill_id.skill_name());
+        let target_file = skill_folder.join("SKILL.md");
+        let status = inspect_skill_status_at(skill_id, &target_file);
+        if status.state == PovNerfSkillState::Installed {
+            if let Ok(res) = remove_nerf_skill_at(skills_root, skill_id) {
+                if res.outcome == PovNerfMutationOutcome::Success {
+                    let _ = std::fs::remove_dir(&skill_folder);
+                }
+                results.push(res);
+            }
+        }
+    }
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2008,5 +2051,49 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&skill_file).unwrap(), content);
 
         test_seams::reset_all();
+    }
+
+    #[test]
+    fn test_refuse_nerf_mutation_zero_writes() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let skill_id = PovNerfSkillId::Balanced;
+        let skill_dir = root.join(skill_id.skill_name());
+
+        let res = refuse_nerf_mutation(skill_id);
+        assert_eq!(res.outcome, PovNerfMutationOutcome::Refused);
+        assert!(res.skill.diagnostic_reason.unwrap().contains("decommissioned"));
+        assert!(!skill_dir.exists(), "No directory or file should be written");
+    }
+
+    #[test]
+    fn test_retire_managed_nerf_skills_at_safely_removes_canonical_and_preserves_modified() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        // 1. Install canonical balanced skill
+        let balanced_dir = root.join(PovNerfSkillId::Balanced.skill_name());
+        std::fs::create_dir_all(&balanced_dir).unwrap();
+        let balanced_file = balanced_dir.join("SKILL.md");
+        std::fs::write(&balanced_file, PovNerfSkillId::Balanced.render_full_file()).unwrap();
+
+        // 2. Install user-modified lightweight skill
+        let lw_dir = root.join(PovNerfSkillId::Lightweight.skill_name());
+        std::fs::create_dir_all(&lw_dir).unwrap();
+        let lw_file = lw_dir.join("SKILL.md");
+        std::fs::write(&lw_file, "custom user-modified content").unwrap();
+
+        // 3. Run retire_managed_nerf_skills_at
+        let results = retire_managed_nerf_skills_at(root);
+        assert_eq!(results.len(), 1, "Only canonical managed skill should be retired");
+        assert_eq!(results[0].outcome, PovNerfMutationOutcome::Success);
+        assert_eq!(results[0].skill.skill_id, PovNerfSkillId::Balanced);
+
+        // Canonical balanced skill directory and file are cleanly removed
+        assert!(!balanced_dir.exists(), "Canonical balanced directory should be cleaned up");
+
+        // User-modified lightweight skill is strictly preserved
+        assert!(lw_file.exists(), "User-modified skill must be preserved");
+        assert_eq!(std::fs::read_to_string(&lw_file).unwrap(), "custom user-modified content");
     }
 }

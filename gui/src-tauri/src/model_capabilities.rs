@@ -329,9 +329,9 @@ pub fn is_tencent_hy3(model: &str) -> bool {
     is_hy3_model(model)
 }
 
-/// Check if an OpenRouter upstream model is the Tencent Hy4 Preview.
+/// Check if an OpenRouter upstream model is the Tencent Hy4 family.
 pub fn is_tencent_hy4(model: &str) -> bool {
-    matches!(model, "tencent/hy4-preview")
+    matches!(model, "tencent/hy4" | "tencent/hy4-preview")
 }
 
 /// Check if an OpenRouter upstream model is any Tencent model.
@@ -506,6 +506,7 @@ mod tests {
 
     #[test]
     fn is_tencent_hy4_known_variants() {
+        assert!(is_tencent_hy4("tencent/hy4"));
         assert!(is_tencent_hy4("tencent/hy4-preview"));
         assert!(!is_tencent_hy4("tencent/hy3"));
         assert!(!is_tencent_hy4("tencent/hy4-preview:free"));
@@ -516,9 +517,18 @@ mod tests {
     fn is_tencent_model_matches_all_tencent() {
         assert!(is_tencent_model("tencent/hy3"));
         assert!(is_tencent_model("tencent/hy3:free"));
+        assert!(is_tencent_model("tencent/hy4"));
         assert!(is_tencent_model("tencent/hy4-preview"));
         assert!(!is_tencent_model("poolside/laguna-s-2.1"));
         assert!(!is_tencent_model("deepseek/deepseek-v4.1-flash"));
+    }
+
+    #[test]
+    fn static_caps_hy4_has_vision_and_no_forced_thinking() {
+        let caps = resolve_static_model_capabilities("tencent/hy4");
+        assert!(!caps.force_thinking);
+        assert!(caps.supports_image_url);
+        assert!(caps.supports_image_base64);
     }
 
     // ── Effective capability tests (3-state cache) ───────────────────

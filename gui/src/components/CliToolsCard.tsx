@@ -58,12 +58,34 @@ export default function CliToolsCard() {
       setError(null);
       const res = await invoke<CliToolInfo[]>("check_cli_tools_latest_version");
       setTools(res ?? []);
-      setSuccessMessage(t("antigravity.cliToolsCheckedSuccess") || "Latest versions checked successfully");
-      setTimeout(() => setSuccessMessage(null), 3500);
+      const failedChecks = (res ?? []).filter((t) => t.latest_check_error);
+      if (failedChecks.length > 0) {
+        setError(
+          `${failedChecks.map((t) => t.display_name).join(", ")}: ${t("cliTools.latestCheckFailed") || "最新版の確認に失敗しました"}`
+        );
+      } else {
+        setSuccessMessage(t("antigravity.cliToolsCheckedSuccess") || "Latest versions checked successfully");
+        setTimeout(() => setSuccessMessage(null), 3500);
+      }
     } catch (e: unknown) {
       setError(String(e));
     } finally {
       setCheckingUpdates(false);
+    }
+  };
+
+  const handleRecoverOutcomeUnknown = async (name: string) => {
+    try {
+      setActionLoadingTool(name);
+      setError(null);
+      const updated = await invoke<CliToolInfo>("recover_cli_tool_state", { name });
+      await fetchTools();
+      setSuccessMessage(`${updated.display_name}: 状態を再確認しました`);
+      setTimeout(() => setSuccessMessage(null), 3500);
+    } catch (e: unknown) {
+      setError(String(e));
+    } finally {
+      setActionLoadingTool(null);
     }
   };
 
@@ -213,8 +235,9 @@ export default function CliToolsCard() {
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {(tools ?? []).map((tool) => {
           const isBusy = actionLoadingTool === tool.name || launchingAuth === tool.name;
-          const isDisabled = isBusy || actionLoadingTool !== null || loading || checkingUpdates || !!tool.prerequisite_error;
+          const isDisabled = isBusy || actionLoadingTool !== null || loading || checkingUpdates || !!tool.prerequisite_error || !!tool.outcome_unknown;
           const auth = authStatus.find((a) => a.name === tool.name);
+          const toolStatus = tool.status ?? (tool.outcome_unknown ? "unknown" : tool.execution_error ? "execution_error" : tool.installed ? "installed" : "not_installed");
 
           return (
             <div
@@ -254,7 +277,7 @@ export default function CliToolsCard() {
                     </span>
                   )}
                   <div>
-                    {tool.installed ? (
+                    {toolStatus === "installed" ? (
                       <span
                         style={{
                           display: "inline-flex",
@@ -267,6 +290,34 @@ export default function CliToolsCard() {
                         data-testid={`install-status-${tool.name}`}
                       >
                         <span>✓</span> {t("antigravity.cliToolInstalled")} ({tool.installed_version ?? (t("cliTools.authUnknown") || "version unknown")})
+                      </span>
+                    ) : toolStatus === "execution_error" ? (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 3,
+                          fontSize: 11,
+                          color: "#cf222e",
+                          fontWeight: 600,
+                        }}
+                        data-testid={`install-status-${tool.name}`}
+                      >
+                        <span>✗</span> {t("cliTools.executionErrorBadge") || "実行エラー"}
+                      </span>
+                    ) : toolStatus === "unknown" ? (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 3,
+                          fontSize: 11,
+                          color: "#9a6700",
+                          fontWeight: 600,
+                        }}
+                        data-testid={`install-status-${tool.name}`}
+                      >
+                        <span>?</span> {t("cliTools.statusUnknownBadge") || "状態不明"}
                       </span>
                     ) : (
                       <span style={{ fontSize: 11, color: "#656d76", fontWeight: 500 }} data-testid={`install-status-${tool.name}`}>
@@ -303,6 +354,22 @@ export default function CliToolsCard() {
                         </span>
                       ) : null}
                     </div>
+                  )}
+                  {tool.latest_check_error && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 500,
+                        background: "#fff8c5",
+                        color: "#9a6700",
+                        padding: "1px 6px",
+                        borderRadius: 4,
+                        border: "1px solid #d4a72c",
+                      }}
+                      data-testid={`latest-check-error-${tool.name}`}
+                    >
+                      ⚠ {t("cliTools.latestCheckFailed") || "最新版の確認に失敗"}: {tool.latest_check_error}
+                    </span>
                   )}
                 </div>
 
@@ -423,6 +490,58 @@ export default function CliToolsCard() {
                     data-testid={`prereq-error-${tool.name}`}
                   >
                     ⚠ {tool.prerequisite_error}
+                  </div>
+                )}
+
+                {tool.execution_error && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "#cf222e",
+                      background: "#ffebe9",
+                      border: "1px solid #ff8182",
+                      borderRadius: 4,
+                      padding: "4px 8px",
+                      marginTop: 2,
+                    }}
+                    data-testid={`execution-error-${tool.name}`}
+                  >
+                    ⚠ {t("cliTools.executionError") || "実行エラー"}: {tool.execution_error}
+                  </div>
+                )}
+
+                {tool.outcome_unknown && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "#cf222e",
+                      background: "#ffebe9",
+                      border: "1px solid #ff8182",
+                      borderRadius: 4,
+                      padding: "6px 10px",
+                      marginTop: 4,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 8,
+                      flexWrap: "wrap",
+                    }}
+                    data-testid={`outcome-unknown-box-${tool.name}`}
+                  >
+                    <div>
+                      <strong>⚠ {t("cliTools.outcomeUnknownTitle") || "未確定状態 (OUTCOME_UNKNOWN)"}:</strong>{" "}
+                      {tool.outcome_unknown}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ fontSize: 10, padding: "2px 8px" }}
+                      onClick={() => handleRecoverOutcomeUnknown(tool.name)}
+                      disabled={loading || actionLoadingTool !== null}
+                      data-testid={`btn-recover-outcome-unknown-${tool.name}`}
+                    >
+                      {t("cliTools.btnSafeRecheck") || "安全に再確認"}
+                    </button>
                   </div>
                 )}
 

@@ -11,8 +11,10 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 const dummyExternalReviewSettings: CodexReviewSettings = {
-  schema_version: 4,
+  schema_version: 5,
   review_mode: "external_only",
+  build_reviewers: ["deepseek"],
+  plan_reviewers: null,
   reviewers: {
     codex: false,
     gemini: false,
@@ -20,18 +22,14 @@ const dummyExternalReviewSettings: CodexReviewSettings = {
   },
   priority_reviewer: "deepseek",
   gemini_cli_enabled: false,
-};
-
-const dummySelfReviewSettings: CodexReviewSettings = {
-  schema_version: 4,
-  review_mode: "codex_self_only",
-  reviewers: {
-    codex: false,
-    gemini: false,
-    deepseek: false,
+  codex: {
+    model: "gpt-6-luna",
+    reasoning_effort: "medium",
   },
-  priority_reviewer: null,
-  gemini_cli_enabled: false,
+  deepseek: {
+    model: "deepseek-flash",
+    reasoning_effort: "high",
+  },
 };
 
 const dummyCliTools: CliToolInfo[] = [
@@ -63,23 +61,9 @@ const dummyCliTools: CliToolInfo[] = [
     check_id: null,
     prerequisite_error: null,
   },
-  {
-    name: "gemini",
-    display_name: "Gemini CLI",
-    installed: false,
-    path: null,
-    installed_version: null,
-    update_available: false,
-    latest_version: null,
-    latest_checked_at: null,
-    package_name: "@google/gemini-cli",
-    is_preview: false,
-    check_id: null,
-    prerequisite_error: null,
-  },
 ];
 
-describe("CodexAutocodePanel Component (v0.26.2)", () => {
+describe("CodexAutocodePanel Component (v0.26.2 Unified Layout)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockInvoke.mockImplementation(async (command: string, args?: unknown) => {
@@ -94,215 +78,152 @@ describe("CodexAutocodePanel Component (v0.26.2)", () => {
         return dummyCliTools;
       }
       if (command === "get_cli_auth_status") {
-        return [
-          { name: "codex", status: "authenticated", auth_type: "ChatGPT Plus", message: null, can_launch_login: true },
-          { name: "gemini", status: "unknown", auth_type: null, message: "Interactive login only", can_launch_login: true },
-          { name: "dsh", status: "unknown", auth_type: null, message: "Local Web UI config only", can_launch_login: true },
-        ];
+        return [];
+      }
+      if (command === "list_available_plans") {
+        return {
+          repo_root: "C:\\mock\\repo",
+          plans_dir: "C:\\mock\\repo\\.plan",
+          selected_folder: ".plan",
+          active_plan_path: "C:\\mock\\repo\\.plan\\V0.26.4.md",
+          active_plan_relative_path: ".plan/V0.26.4.md",
+          plans: [],
+        };
       }
       return undefined;
     });
   });
 
-  it("renders 4 review modes and initializes to external_only when set", async () => {
+  it("renders independent toggles for Codex (Session) and DeepSeek Harness matching Antigravity layout and header", async () => {
     render(
-      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
         <CodexAutocodePanel />
       </LanguageContext.Provider>
     );
 
     await waitFor(() => {
       expect(screen.getByTestId("codex-review-settings-card")).toBeInTheDocument();
-      expect(screen.getByTestId("radio-review-mode-codex_self_only")).toBeInTheDocument();
-      expect(screen.getByTestId("radio-review-mode-external_only")).toBeInTheDocument();
-      expect(screen.getByTestId("radio-review-mode-codex_plus_external")).toBeInTheDocument();
-      expect(screen.getByTestId("radio-review-mode-none")).toBeInTheDocument();
+      expect(screen.getByTestId("reviewer-toggle-codex")).toBeInTheDocument();
+      expect(screen.getByTestId("reviewer-toggle-deepseek")).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId("radio-review-mode-external_only")).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByTestId("working-agent-item")).toHaveTextContent("Codex");
-    expect(screen.queryByTestId("checkbox-reviewer-codex")).toBeNull();
-    expect(screen.queryByTestId("radio-priority-codex")).toBeNull();
-    expect(screen.getByTestId("checkbox-reviewer-deepseek")).toBeInTheDocument();
-    expect(screen.getByTestId("radio-priority-deepseek")).toBeInTheDocument();
+    // Check heading and unified layout
+    expect(screen.getByText(/Select Implementation Review AI|実装レビューAIの選択/)).toBeInTheDocument();
+    expect(screen.getByText(/Multi-select supported|複数選択可能/)).toBeInTheDocument();
+
+    // Verify deprecated review modes and redundant status boxes are NOT rendered
+    expect(screen.queryByTestId("radio-review-mode-codex_self_only")).toBeNull();
+    expect(screen.queryByTestId("radio-review-mode-external_only")).toBeNull();
+    expect(screen.queryByTestId("working-agent-item")).toBeNull();
+    expect(screen.queryByTestId("reviewer-status-row")).toBeNull();
+
+    // DeepSeek is initially active
+    expect(screen.getByTestId("reviewer-policy-deepseek-only")).toBeChecked();
+    expect(screen.getByTestId("reviewer-policy-codex-only")).not.toBeChecked();
+    expect(screen.getByTestId("deepseek-model-settings")).toBeInTheDocument();
   });
 
-  it("switches to codex_self_only mode, disables external reviewer buttons, and saves schema v4 cleanly", async () => {
+  it("supports toggling Codex (Session) and DeepSeek independently across all 4 combinations and saves schema_version 5", async () => {
+    let currentSettings = { ...dummyExternalReviewSettings };
+    mockInvoke.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === "get_codex_review_settings") return currentSettings;
+      if (command === "save_codex_review_settings") {
+        const payload = args as { settings: CodexReviewSettings };
+        currentSettings = { ...payload.settings };
+        return payload.settings;
+      }
+      if (command === "list_available_plans") {
+        return {
+          repo_root: "C:\\mock\\repo",
+          plans_dir: "C:\\mock\\repo\\.plan",
+          selected_folder: ".plan",
+          active_plan_path: null,
+          active_plan_relative_path: null,
+          plans: [],
+        };
+      }
+      return undefined;
+    });
+
     const user = userEvent.setup();
     render(
-      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
         <CodexAutocodePanel />
       </LanguageContext.Provider>
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("radio-review-mode-codex_self_only")).toBeInTheDocument();
+      expect(screen.getByTestId("reviewer-toggle-codex")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByTestId("radio-review-mode-codex_self_only"));
-    expect(screen.getByTestId("radio-review-mode-codex_self_only")).toHaveAttribute("aria-checked", "true");
+    // 1. Initial state: DeepSeek only (OFF/ON)
+    expect(screen.getByTestId("reviewer-policy-deepseek-only")).toBeChecked();
+    expect(screen.getByTestId("reviewer-policy-codex-only")).not.toBeChecked();
 
-    // In codex_self_only mode, external reviewer toggle is disabled
-    expect(screen.getByTestId("checkbox-reviewer-deepseek")).toBeDisabled();
-
-    // Save button is enabled
-    const saveBtn = screen.getByTestId("btn-save-review-settings");
-    expect(saveBtn).not.toBeDisabled();
-    await user.click(saveBtn);
-
+    // 2. Uncheck DeepSeek -> 0 reviewers (OFF/OFF) -> none
+    await user.click(screen.getByTestId("reviewer-toggle-deepseek"));
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
         settings: expect.objectContaining({
-          schema_version: 4,
+          schema_version: 5,
+          review_mode: "none",
+          build_reviewers: [],
+          priority_reviewer: null,
+        }),
+      });
+    });
+    expect(screen.getByTestId("reviewer-policy-deepseek-only")).not.toBeChecked();
+    expect(screen.getByTestId("reviewer-policy-codex-only")).not.toBeChecked();
+
+    // 3. Check Codex -> Codex only (ON/OFF) -> codex_self_only
+    await user.click(screen.getByTestId("reviewer-toggle-codex"));
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
+        settings: expect.objectContaining({
+          schema_version: 5,
           review_mode: "codex_self_only",
-          unconfirmed_migration: false,
+          build_reviewers: ["codex"],
+          priority_reviewer: "codex",
         }),
       });
     });
-  });
+    expect(screen.getByTestId("reviewer-policy-codex-only")).toBeChecked();
+    expect(screen.getByTestId("codex-model-badge")).toBeInTheDocument();
 
-  it("toggles accessible info popovers for Review Settings and Priority Reviewer", async () => {
-    const user = userEvent.setup();
-    render(
-      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
-        <CodexAutocodePanel />
-      </LanguageContext.Provider>
-    );
-
+    // 4. Check DeepSeek -> Both ON (ON/ON) -> codex_plus_external
+    await user.click(screen.getByTestId("reviewer-toggle-deepseek"));
     await waitFor(() => {
-      expect(screen.getByTestId("btn-info-review-settings")).toBeInTheDocument();
-      expect(screen.getByTestId("btn-info-priority")).toBeInTheDocument();
+      expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
+        settings: expect.objectContaining({
+          schema_version: 5,
+          review_mode: "codex_plus_external",
+          build_reviewers: ["codex", "deepseek"],
+          priority_reviewer: "codex",
+        }),
+      });
     });
+    expect(screen.getByTestId("reviewer-policy-codex-only")).toBeChecked();
+    expect(screen.getByTestId("reviewer-policy-deepseek-only")).toBeChecked();
 
-    // Initially closed
-    expect(screen.queryByTestId("btn-info-review-settings-popover")).toBeNull();
-    expect(screen.queryByTestId("btn-info-priority-popover")).toBeNull();
-
-    // Click Review Settings info icon
-    await user.click(screen.getByTestId("btn-info-review-settings"));
-    expect(screen.getByTestId("btn-info-review-settings-popover")).toBeInTheDocument();
-
-    // Click Priority info icon
-    await user.click(screen.getByTestId("btn-info-priority"));
-    expect(screen.getByTestId("btn-info-priority-popover")).toBeInTheDocument();
-
-    // Press Escape to close all popovers
-    await user.keyboard("{Escape}");
-    expect(screen.queryByTestId("btn-info-review-settings-popover")).toBeNull();
-    expect(screen.queryByTestId("btn-info-priority-popover")).toBeNull();
+    // Priority Reviewer section appears when both are active
+    expect(screen.getByTestId("priority-selection-section")).toBeInTheDocument();
   });
 
-  it("displays unconfirmed migration banner when unconfirmed_migration is true and clears on save", async () => {
+  it("renders DeepSeek model settings only when DeepSeek is active and updates model/effort", async () => {
+    let currentSettings = { ...dummyExternalReviewSettings };
     mockInvoke.mockImplementation(async (command: string, args?: unknown) => {
-      if (command === "get_codex_review_settings") {
-        return {
-          schema_version: 4,
-          review_mode: "external_only",
-          reviewers: { codex: false, gemini: false, deepseek: true },
-          priority_reviewer: "deepseek",
-          gemini_cli_enabled: false,
-          unconfirmed_migration: true,
-        };
-      }
+      if (command === "get_codex_review_settings") return currentSettings;
       if (command === "save_codex_review_settings") {
         const payload = args as { settings: CodexReviewSettings };
+        currentSettings = { ...payload.settings };
         return payload.settings;
       }
-      if (command === "get_cli_tools_status") return dummyCliTools;
-      if (command === "get_cli_auth_status") return [];
       return undefined;
     });
 
     const user = userEvent.setup();
     render(
-      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
-        <CodexAutocodePanel />
-      </LanguageContext.Provider>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId("unconfirmed-migration-banner")).toBeInTheDocument();
-    });
-
-    // Click save
-    await user.click(screen.getByTestId("btn-save-review-settings"));
-
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
-        settings: expect.objectContaining({
-          unconfirmed_migration: false,
-          schema_version: 4,
-        }),
-      });
-    });
-  });
-
-  it("renders Gemini with restricted modern models (2.5-pro and 2.5-flash only) when gemini_cli_enabled is true", async () => {
-    mockInvoke.mockImplementation(async (command: string, args?: unknown) => {
-      if (command === "get_codex_review_settings") {
-        return {
-          schema_version: 4,
-          review_mode: "external_only",
-          reviewers: { codex: false, gemini: false, deepseek: true },
-          priority_reviewer: "deepseek",
-          gemini_cli_enabled: true,
-        };
-      }
-      if (command === "save_codex_review_settings") {
-        const payload = args as { settings: CodexReviewSettings };
-        return payload.settings;
-      }
-      if (command === "get_cli_tools_status") return dummyCliTools;
-      if (command === "get_cli_auth_status") return [];
-      return undefined;
-    });
-
-    const user = userEvent.setup();
-    render(
-      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
-        <CodexAutocodePanel />
-      </LanguageContext.Provider>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId("checkbox-reviewer-gemini")).toBeInTheDocument();
-    });
-
-    // Check Gemini
-    await user.click(screen.getByTestId("checkbox-reviewer-gemini"));
-
-    // Gemini model settings appear
-    expect(screen.getByTestId("gemini-model-settings")).toBeInTheDocument();
-    expect(screen.getByTestId("gemini-model-gemini-2.5-pro")).toHaveClass("active");
-    expect(screen.getByTestId("gemini-model-gemini-2.5-flash")).not.toHaveClass("active");
-
-    // Verify deprecated models are NOT present
-    expect(screen.queryByTestId("gemini-model-gemini-2.0-flash")).toBeNull();
-    expect(screen.queryByTestId("gemini-model-gemini-2.0-flash-thinking-exp")).toBeNull();
-
-    // Select Gemini as priority and flash model
-    await user.click(screen.getByTestId("radio-priority-gemini"));
-    await user.click(screen.getByTestId("gemini-model-gemini-2.5-flash"));
-    expect(screen.getByTestId("gemini-model-gemini-2.5-flash")).toHaveClass("active");
-
-    // Save
-    await user.click(screen.getByTestId("btn-save-review-settings"));
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
-        settings: expect.objectContaining({
-          schema_version: 4,
-          review_mode: "external_only",
-          reviewers: { codex: false, deepseek: true, gemini: true },
-          priority_reviewer: "gemini",
-          gemini: { model: "gemini-2.5-flash" },
-        }),
-      });
-    });
-  });
-
-  it("renders DeepSeek Harness without unsupported effort buttons and without headless notice", async () => {
-    render(
-      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
         <CodexAutocodePanel />
       </LanguageContext.Provider>
     );
@@ -311,42 +232,225 @@ describe("CodexAutocodePanel Component (v0.26.2)", () => {
       expect(screen.getByTestId("deepseek-model-settings")).toBeInTheDocument();
     });
 
-    // Unsupported effort buttons must NOT be present
-    expect(screen.queryByTestId("deepseek-effort-high")).toBeNull();
-    expect(screen.queryByTestId("deepseek-effort-max")).toBeNull();
-    expect(screen.queryByTestId("deepseek-model-select")).toBeNull();
+    expect(screen.getByTestId("codex-deepseek-model-deepseek-flash")).toHaveClass("active");
+    expect(screen.getByTestId("codex-deepseek-effort-high")).toHaveClass("active");
 
-    // Headless profile notice is NOT present
-    expect(screen.getByTestId("deepseek-model-settings")).not.toHaveTextContent("dshFixedProfileNotice");
+    // Click max effort
+    await user.click(screen.getByTestId("codex-deepseek-effort-max"));
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
+        settings: expect.objectContaining({
+          deepseek: expect.objectContaining({
+            reasoning_effort: "max",
+          }),
+        }),
+      });
+    });
+
+    // Switch to deepseek-v4-pro
+    await user.click(screen.getByTestId("codex-deepseek-model-deepseek-v4-pro"));
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
+        settings: expect.objectContaining({
+          deepseek: expect.objectContaining({
+            model: "deepseek-v4-pro",
+          }),
+        }),
+      });
+    });
   });
 
-  it("disables save button when 0 reviewers are selected in external_only mode", async () => {
+  it("renders Priority Reviewer only when both Codex and DeepSeek are active and allows selecting priority", async () => {
+    let currentSettings: CodexReviewSettings = {
+      ...dummyExternalReviewSettings,
+      review_mode: "codex_plus_external",
+      build_reviewers: ["codex", "deepseek"],
+      priority_reviewer: "codex",
+    };
+    mockInvoke.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === "get_codex_review_settings") return currentSettings;
+      if (command === "save_codex_review_settings") {
+        const payload = args as { settings: CodexReviewSettings };
+        currentSettings = { ...payload.settings };
+        return payload.settings;
+      }
+      return undefined;
+    });
+
     const user = userEvent.setup();
     render(
-      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
         <CodexAutocodePanel />
       </LanguageContext.Provider>
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("checkbox-reviewer-deepseek")).toBeInTheDocument();
+      expect(screen.getByTestId("priority-selection-section")).toBeInTheDocument();
+      expect(screen.getByTestId("radio-priority-codex")).toBeInTheDocument();
+      expect(screen.getByTestId("radio-priority-deepseek")).toBeInTheDocument();
     });
 
-    // Uncheck deepseek (all 0 unchecked in external_only mode)
-    await user.click(screen.getByTestId("checkbox-reviewer-deepseek"));
+    expect(screen.getByTestId("radio-priority-codex")).toHaveClass("active");
 
-    // Warning is visible
-    expect(screen.getByTestId("zero-external-reviewers-warning")).toBeInTheDocument();
+    // Click DeepSeek as priority
+    await user.click(screen.getByTestId("radio-priority-deepseek"));
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
+        settings: expect.objectContaining({
+          priority_reviewer: "deepseek",
+        }),
+      });
+    });
+  });
 
-    // Save button must be disabled
-    const saveBtn = screen.getByTestId("btn-save-review-settings");
-    expect(saveBtn).toBeDisabled();
+  it("does not render regular save button and automatically saves", async () => {
+    render(
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+        <CodexAutocodePanel />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("codex-review-settings-card")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId("btn-save-review-settings")).not.toBeInTheDocument();
+  });
+
+  it("displays unconfirmed migration banner and clears on confirm migration button click", async () => {
+    let currentSettings: CodexReviewSettings = {
+      ...dummyExternalReviewSettings,
+      unconfirmed_migration: true,
+    };
+
+    mockInvoke.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === "get_codex_review_settings") {
+        return currentSettings;
+      }
+      if (command === "save_codex_review_settings") {
+        const payload = args as { settings: CodexReviewSettings };
+        currentSettings = { ...payload.settings };
+        return currentSettings;
+      }
+      return undefined;
+    });
+
+    const user = userEvent.setup();
+    render(
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+        <CodexAutocodePanel />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("unconfirmed-migration-banner")).toBeInTheDocument();
+      expect(screen.getByTestId("btn-confirm-migration")).toBeInTheDocument();
+    });
+
+    // 1. Changing reviewer does NOT clear unconfirmed_migration
+    await user.click(screen.getByTestId("reviewer-toggle-codex"));
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
+        settings: expect.objectContaining({
+          unconfirmed_migration: true,
+        }),
+      });
+      expect(screen.getByTestId("unconfirmed-migration-banner")).toBeInTheDocument();
+    });
+
+    // 2. Explicitly confirming migration clears unconfirmed_migration
+    await user.click(screen.getByTestId("btn-confirm-migration"));
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
+        settings: expect.objectContaining({
+          unconfirmed_migration: false,
+        }),
+      });
+      expect(screen.queryByTestId("unconfirmed-migration-banner")).not.toBeInTheDocument();
+    });
+  });
+
+  it("displays save error and reloads persisted settings on save failure", async () => {
+    let saveFailedOnce = true;
+    mockInvoke.mockImplementation(async (command: string, _args?: unknown) => {
+      if (command === "get_codex_review_settings") {
+        return dummyExternalReviewSettings;
+      }
+      if (command === "save_codex_review_settings") {
+        if (saveFailedOnce) {
+          saveFailedOnce = false;
+          throw new Error("Disk full or permission denied");
+        }
+        return dummyExternalReviewSettings;
+      }
+      return undefined;
+    });
+
+    const user = userEvent.setup();
+    render(
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+        <CodexAutocodePanel />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("reviewer-toggle-codex")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("reviewer-toggle-codex"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("review-settings-error")).toBeInTheDocument();
+      expect(screen.getByTestId("review-settings-error").textContent).toContain("Disk full or permission denied");
+    });
+
+    // It reloaded the settings to reconcile GUI with disk
+    expect(mockInvoke).toHaveBeenCalledWith("get_codex_review_settings");
+  });
+
+  it("handles consecutive rapid changes by serializing and saving the latest state", async () => {
+    const savedStates: CodexReviewSettings[] = [];
+    mockInvoke.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === "get_codex_review_settings") {
+        return dummyExternalReviewSettings;
+      }
+      if (command === "save_codex_review_settings") {
+        const payload = args as { settings: CodexReviewSettings };
+        savedStates.push(payload.settings);
+        // Introduce small artificial latency to exercise concurrency
+        await new Promise((r) => setTimeout(r, 20));
+        return payload.settings;
+      }
+      return undefined;
+    });
+
+    const user = userEvent.setup();
+    render(
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+        <CodexAutocodePanel />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("codex-deepseek-model-deepseek-flash")).toBeInTheDocument();
+      expect(screen.getByTestId("codex-deepseek-model-deepseek-v4-pro")).toBeInTheDocument();
+    });
+
+    // Rapidly click two different models
+    await user.click(screen.getByTestId("codex-deepseek-model-deepseek-v4-pro"));
+    await user.click(screen.getByTestId("codex-deepseek-model-deepseek-flash"));
+
+    await waitFor(() => {
+      expect(savedStates.length).toBeGreaterThanOrEqual(1);
+      const lastSaved = savedStates[savedStates.length - 1];
+      expect(lastSaved.deepseek?.model).toBe("deepseek-flash");
+    });
   });
 
   it("reloads review settings on reload button click", async () => {
     const user = userEvent.setup();
     render(
-      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
         <CodexAutocodePanel />
       </LanguageContext.Provider>
     );
@@ -357,183 +461,5 @@ describe("CodexAutocodePanel Component (v0.26.2)", () => {
 
     await user.click(screen.getByTestId("btn-reload-review-settings"));
     expect(mockInvoke).toHaveBeenCalledWith("get_codex_review_settings");
-  });
-
-  it("supports Codex Self-Review as Priority Reviewer in codex_plus_external mode with dynamic order caption", async () => {
-    mockInvoke.mockImplementation(async (command: string, args?: unknown) => {
-      if (command === "get_codex_review_settings") {
-        return {
-          schema_version: 4,
-          review_mode: "codex_plus_external",
-          reviewers: { codex: false, gemini: false, deepseek: true },
-          priority_reviewer: "codex",
-          gemini_cli_enabled: false,
-        };
-      }
-      if (command === "save_codex_review_settings") {
-        const payload = args as { settings: CodexReviewSettings };
-        return payload.settings;
-      }
-      if (command === "get_cli_tools_status") return dummyCliTools;
-      if (command === "get_cli_auth_status") return [];
-      return undefined;
-    });
-
-    const user = userEvent.setup();
-    render(
-      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
-        <CodexAutocodePanel />
-      </LanguageContext.Provider>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId("radio-priority-codex")).toBeInTheDocument();
-      expect(screen.getByTestId("radio-priority-deepseek")).toBeInTheDocument();
-    });
-
-    // Codex is initially the priority reviewer
-    expect(screen.getByTestId("radio-priority-codex")).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByTestId("radio-priority-deepseek")).toHaveAttribute("aria-checked", "false");
-
-    // Caption explains arbitration rule
-    const desc = screen.getByTestId("priority-order-description");
-    expect(desc).toHaveTextContent(
-      "After all selected reviewers have returned verdicts, the priority reviewer determines the final outcome if verdicts disagree. Review failure, incomplete reviews, or unresolved blocking findings cannot be overridden by priority."
-    );
-
-    // Save with Codex priority
-    await user.click(screen.getByTestId("btn-save-review-settings"));
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
-        settings: expect.objectContaining({
-          schema_version: 4,
-          review_mode: "codex_plus_external",
-          priority_reviewer: "codex",
-        }),
-      });
-    });
-
-    // Reload with Codex priority maintained
-    await user.click(screen.getByTestId("btn-reload-review-settings"));
-    expect(screen.getByTestId("radio-priority-codex")).toHaveAttribute("aria-checked", "true");
-
-    // Click DeepSeek as priority reviewer
-    await user.click(screen.getByTestId("radio-priority-deepseek"));
-    expect(screen.getByTestId("radio-priority-deepseek")).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByTestId("radio-priority-codex")).toHaveAttribute("aria-checked", "false");
-
-    // Caption consistently explains arbitration rule without order/sequence wording
-    expect(desc).toHaveTextContent(
-      "After all selected reviewers have returned verdicts, the priority reviewer determines the final outcome if verdicts disagree. Review failure, incomplete reviews, or unresolved blocking findings cannot be overridden by priority."
-    );
-
-    // Click Save
-    await user.click(screen.getByTestId("btn-save-review-settings"));
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
-        settings: expect.objectContaining({
-          schema_version: 4,
-          review_mode: "codex_plus_external",
-          reviewers: { codex: false, gemini: false, deepseek: true },
-          priority_reviewer: "deepseek",
-        }),
-      });
-    });
-
-    // Update mock return to simulate persistence
-    mockInvoke.mockImplementation(async (command: string, args?: unknown) => {
-      if (command === "get_codex_review_settings") {
-        return {
-          schema_version: 4,
-          review_mode: "codex_plus_external",
-          reviewers: { codex: false, gemini: false, deepseek: true },
-          priority_reviewer: "deepseek",
-          gemini_cli_enabled: false,
-        };
-      }
-      return undefined;
-    });
-
-    // Reload and verify DeepSeek priority is maintained
-    await user.click(screen.getByTestId("btn-reload-review-settings"));
-    await waitFor(() => {
-      expect(screen.getByTestId("radio-priority-deepseek")).toHaveAttribute("aria-checked", "true");
-    });
-  });
-
-  it("renders DeepSeek model selector and reasoning effort buttons and persists them", async () => {
-    let savedSettings: CodexReviewSettings | null = null;
-    mockInvoke.mockImplementation(async (command: string, args?: unknown) => {
-      if (command === "get_codex_review_settings") {
-        return savedSettings || {
-          schema_version: 4,
-          review_mode: "codex_plus_external",
-          reviewers: { codex: false, gemini: false, deepseek: true },
-          priority_reviewer: "codex",
-          gemini_cli_enabled: false,
-          deepseek: {
-            model: "deepseek-flash",
-            reasoning_effort: "high",
-          },
-        };
-      }
-      if (command === "save_codex_review_settings") {
-        const payload = args as { settings: CodexReviewSettings };
-        savedSettings = payload.settings;
-        return payload.settings;
-      }
-      if (command === "get_cli_tools_status") return dummyCliTools;
-      if (command === "get_cli_auth_status") return [];
-      return undefined;
-    });
-
-    const user = userEvent.setup();
-    render(
-      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
-        <CodexAutocodePanel />
-      </LanguageContext.Provider>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId("deepseek-model-settings")).toBeInTheDocument();
-    });
-
-    expect(screen.getByTestId("codex-deepseek-model-deepseek-flash")).toHaveClass("active");
-    expect(screen.getByTestId("codex-deepseek-model-deepseek-v4-pro")).not.toHaveClass("active");
-
-    // Check effort buttons
-    expect(screen.getByTestId("codex-deepseek-effort-low")).toBeInTheDocument();
-    expect(screen.getByTestId("codex-deepseek-effort-high")).toHaveClass("active");
-    expect(screen.getByTestId("codex-deepseek-effort-max")).not.toHaveClass("active");
-
-    // Select deepseek-v4-pro
-    await user.click(screen.getByTestId("codex-deepseek-model-deepseek-v4-pro"));
-    expect(screen.getByTestId("codex-deepseek-model-deepseek-v4-pro")).toHaveClass("active");
-    expect(screen.getByTestId("codex-deepseek-model-deepseek-flash")).not.toHaveClass("active");
-
-    // Click max effort
-    await user.click(screen.getByTestId("codex-deepseek-effort-max"));
-    expect(screen.getByTestId("codex-deepseek-effort-max")).toHaveClass("active");
-
-    // Save
-    await user.click(screen.getByTestId("btn-save-review-settings"));
-
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("save_codex_review_settings", {
-        settings: expect.objectContaining({
-          deepseek: {
-            model: "deepseek-v4-pro",
-            reasoning_effort: "max",
-          },
-        }),
-      });
-    });
-
-    // Reload
-    await user.click(screen.getByTestId("btn-reload-review-settings"));
-    await waitFor(() => {
-      expect(screen.getByTestId("codex-deepseek-model-deepseek-v4-pro")).toHaveClass("active");
-      expect(screen.getByTestId("codex-deepseek-effort-max")).toHaveClass("active");
-    });
   });
 });

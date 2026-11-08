@@ -2394,7 +2394,8 @@ body {
   flex-wrap: wrap;
 }
 
-.poverello-panel {
+.poverello-panel,
+.codex-autocode-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;

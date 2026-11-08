@@ -81,6 +81,7 @@
         "deepseek/deepseek-v4-pro-0813",
         "poolside/laguna-s-2.1",
         "poolside/laguna-xs-2.1",
+        "tencent/hy4",
         "tencent/hy4-preview",
         "tencent/hy3",
         "z-ai/glm-5.3",
@@ -902,6 +903,30 @@
         "forcedThinkingOptions": [
           "on",
           "off"
+        ]
+      }
+    },
+    "tencent/hy4": {
+      "providerId": "openrouter",
+      "displayName": "Hy4",
+      "vendor": "Tencent",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": false,
+        "thinkingDefault": "high",
+        "thinkingPolicy": "toggleable",
+        "supportsReasoningEffort": true,
+        "reasoningEffortOptions": [
+          "high"
+        ],
+        "forcedThinkingOptions": [
+          "off",
+          "high"
         ]
       }
     },
@@ -2254,6 +2279,10 @@
     },
     "openrouter:poolside/laguna-xs-2.1:free": {
       "context_length": 262144,
+      "source": "builtin"
+    },
+    "openrouter:tencent/hy4": {
+      "context_length": 1048576,
       "source": "builtin"
     },
     "openrouter:tencent/hy4-preview": {

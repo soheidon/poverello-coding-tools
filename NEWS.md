@@ -1,5 +1,16 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.27.0 — 2026-11-08
+
+### Antigravity Nerf Settings and Slash Command Decommissioning
+- Renamed GUI section from "Customize Coding Settings" to "Antigravity Nerf Settings" ("Antigravityナーフ設定") across all 8 supported languages with unified explanatory subtitle.
+- Decommissioned slash commands `/pov-nerf-balanced` and `/pov-nerf-lightweight` in favor of centralized GUI management; backend safely retires managed canonical skills while strictly preserving user-modified or unmanaged files.
+- Refused install and update operations for nerf slash commands with zero filesystem writes.
+
+### Gateway OpenRouter Tencent Profile
+- Changed default OpenRouter profile display name from `OpenRouter: Hy3` to `OpenRouter: Tencent` to accurately represent multiple Tencent models.
+- Provided safe, non-destructive migration for existing canonical profile installations while strictly preserving user custom profiles, model assignments, thinking mode parameters, and API keys.
+
 ## v0.26.2 — 2026-11-02
 
 ### External Reviewers and Workflow Skills
