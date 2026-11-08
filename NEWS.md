@@ -2,9 +2,19 @@
 
 ## v0.27.1 — 2026-11-09
 
-### Application Updates
-- Verified in-app automatic updater operation against the official production endpoint.
-- Corrected release updater configuration for production channel delivery.
+### Application Updates & UI Improvements
+- Moved Application Updates section to the top of General settings with a structured, clean card layout (`updater-card`).
+- Replaced raw Markdown release notes display with safe, zero-dependency React AST formatting (headings, lists, paragraphs).
+- Formatted last checked timestamps in local time (`YYYY-MM-DD HH:mm`) with failsafe handling for missing or invalid dates.
+- Managed portal DOM attachment with a W3C standard `MutationObserver` on `document.body` for deterministic lifecycle and cleanup.
+
+### Dashboard & Review Settings Adjustments
+- Unified plan review inheritance toggle label to "実装レビュー設定" across ja dictionary and component fallbacks.
+- Removed unused diagnostic logs button and modal from both Autocode dashboards.
+- Removed checkmark (`✓ `) prefixes from reviewer selection buttons across both Autocode dashboards, relying on segment button active styling.
+
+### Important Notice for Existing v0.27.1 Installations
+- Because this release replaces the initial v0.27.1 build without incrementing the version number, existing v0.27.1 installations will not receive an automatic update prompt. Users already running v0.27.1 must manually download and run the revised installer to receive these UI improvements.
 
 ## v0.27.0 — 2026-11-08
 

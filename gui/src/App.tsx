@@ -338,10 +338,10 @@ function AppContent() {
           <main className="settings-content">
             {settingsTab === "general" && (
               <>
+                <div id="application-updates-slot" />
                 <LanguageSelector />
                 <TimezoneSettingPanel />
                 <ModelPricingAccordion />
-                <div id="application-updates-slot" />
               </>
             )}
             {settingsTab === "cliTools" && (

@@ -96,7 +96,7 @@ describe("ExternalReviewCard Component", () => {
     const modelBadge = screen.getByTestId("codex-model-badge");
     expect(modelBadge).toBeInTheDocument();
     expect(modelBadge.textContent).toContain("GPT-6.1 Terra");
-    expect(screen.getByTestId("btn-open-diagnostics-modal")).toBeInTheDocument();
+    expect(screen.queryByTestId("btn-open-diagnostics-modal")).not.toBeInTheDocument();
 
     // Codex and DeepSeek detailed settings in compact rows
     expect(screen.getByTestId("codex-model-settings")).toBeInTheDocument();

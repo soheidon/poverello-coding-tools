@@ -13,7 +13,6 @@ import {
   getDeepSeekReviewerModels,
 } from "../modelCapabilities";
 import PlanFileManagerCard from "./PlanFileManagerCard";
-import ReviewerDiagnosticsModal from "./ReviewerDiagnosticsModal";
 
 export function reviewersToPolicy(reviewers: string[]): ReviewerPolicy {
   const hasCodex = reviewers.includes("codex");
@@ -61,7 +60,6 @@ export default function ExternalReviewCard() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState(false);
-  const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
 
   const isSavingRef = useRef(false);
   const pendingConfigRef = useRef<ReviewerPolicyConfig | null>(null);
@@ -495,15 +493,6 @@ export default function ExternalReviewCard() {
                   ✓ {t("antigravity.reviewerSaveSuccess")}
                 </span>
               )}
-              <button
-                type="button"
-                className="btn"
-                style={{ fontSize: 11, padding: "4px 10px" }}
-                onClick={() => setShowDiagnosticsModal(true)}
-                data-testid="btn-open-diagnostics-modal"
-              >
-                {t("diagnostics.buttonLabel") || "Diagnostic Logs"}
-              </button>
             </div>
           </div>
 
@@ -559,7 +548,7 @@ export default function ExternalReviewCard() {
                   disabled={!policyStatus?.compliant || loading || saving}
                   onChange={() => handleToggleReviewer("antigravity")}
                 />
-                <span>{isAntigravityActive ? "✓ Antigravity" : "Antigravity"}</span>
+                <span>Antigravity</span>
               </label>
 
               <label
@@ -576,7 +565,7 @@ export default function ExternalReviewCard() {
                   disabled={!policyStatus?.compliant || loading || saving}
                   onChange={() => handleToggleReviewer("codex")}
                 />
-                <span>{isCodexActive ? "✓ Codex CLI" : "Codex CLI"}</span>
+                <span>Codex CLI</span>
               </label>
 
               <label
@@ -593,7 +582,7 @@ export default function ExternalReviewCard() {
                   disabled={!policyStatus?.compliant || loading || saving}
                   onChange={() => handleToggleReviewer("deepseek")}
                 />
-                <span>{isDeepseekActive ? "✓ DeepSeek Harness" : "DeepSeek Harness"}</span>
+                <span>DeepSeek Harness</span>
               </label>
             </div>
           </div>
@@ -782,11 +771,6 @@ export default function ExternalReviewCard() {
       )}
         </div>
       </div>
-
-      <ReviewerDiagnosticsModal
-        isOpen={showDiagnosticsModal}
-        onClose={() => setShowDiagnosticsModal(false)}
-      />
     </>
   );
 }

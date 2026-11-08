@@ -116,6 +116,7 @@ describe("CodexAutocodePanel Component (v0.26.2 Unified Layout)", () => {
     expect(screen.queryByTestId("radio-review-mode-external_only")).toBeNull();
     expect(screen.queryByTestId("working-agent-item")).toBeNull();
     expect(screen.queryByTestId("reviewer-status-row")).toBeNull();
+    expect(screen.queryByTestId("btn-open-diagnostics-modal")).not.toBeInTheDocument();
 
     // DeepSeek is initially active
     expect(screen.getByTestId("reviewer-policy-deepseek-only")).toBeChecked();

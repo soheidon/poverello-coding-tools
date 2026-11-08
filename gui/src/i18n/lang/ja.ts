@@ -1284,7 +1284,7 @@ export const translations: TranslationMap = {
   "planManager.roleCodexSession": "Codex (Session)",
   "planManager.plannerRoleLabel": "計画作成",
   "planManager.planReviewerRoleLabel": "計画レビュー",
-  "planManager.planReviewInherit": "実装レビュー設定を使用",
+  "planManager.planReviewInherit": "実装レビュー設定",
   "planManager.reviserRoleLabel": "計画修正",
   "planManager.reviewerReadOnlyTitle": "レビュー担当のAIは計画書を直接変更しません。",
   "planManager.reviewerReadOnlyDesc": "レビュー担当が見つけた問題は「計画を修正するAI」に渡されます。",

@@ -679,7 +679,7 @@ export default function PlanFileManagerCard({
                       onChange={() => handleSelectInherit()}
                       data-testid="plan-reviewer-inherit"
                     />
-                    <span>{isInheritActive ? "✓ " : ""}{t("planManager.planReviewInherit") || "実装レビュー設定を使用"}</span>
+                    <span>{t("planManager.planReviewInherit") || "実装レビュー設定"}</span>
                   </label>
 
                   {/* Antigravity (Antigravity surface only) */}
@@ -697,7 +697,7 @@ export default function PlanFileManagerCard({
                         onChange={() => handleTogglePlanReviewer("antigravity")}
                         data-testid="plan-reviewer-antigravity"
                       />
-                      <span>{isAntigravityActive ? "✓ " : ""}Antigravity</span>
+                      <span>Antigravity</span>
                     </label>
                   )}
 
@@ -715,7 +715,7 @@ export default function PlanFileManagerCard({
                       onChange={() => handleTogglePlanReviewer("codex")}
                       data-testid="plan-reviewer-codex-only"
                     />
-                    <span>{isCodexActive ? "✓ " : ""}{surface === "codex" ? (t("planManager.roleCodexSession") || "Codex (Session)") : "Codex CLI"}</span>
+                    <span>{surface === "codex" ? (t("planManager.roleCodexSession") || "Codex (Session)") : "Codex CLI"}</span>
                   </label>
 
                   {/* DeepSeek Harness */}
@@ -732,7 +732,7 @@ export default function PlanFileManagerCard({
                       onChange={() => handleTogglePlanReviewer("deepseek")}
                       data-testid="plan-reviewer-deepseek-only"
                     />
-                    <span>{isDeepseekActive ? "✓ " : ""}DeepSeek Harness</span>
+                    <span>DeepSeek Harness</span>
                   </label>
                 </div>
               </div>

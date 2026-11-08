@@ -383,6 +383,112 @@ body {
   cursor: pointer;
 }
 
+/* ===== Updater Card ===== */
+.updater-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.updater-info-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.updater-version {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.updater-status-success {
+  color: var(--accent-green, #107c10);
+  font-weight: 500;
+  margin: 0;
+}
+
+.updater-status-alert,
+.updater-alert {
+  color: #d13438;
+  font-weight: 500;
+  margin: 0;
+}
+
+.updater-status-msg {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.updater-available-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.updater-available-badge {
+  font-weight: 600;
+  color: var(--accent, #0078d4);
+  margin: 0;
+}
+
+.updater-release-notes {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.updater-notes-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.updater-notes-h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 8px 0 4px 0;
+  color: var(--text-primary);
+}
+
+.updater-notes-h4 {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 6px 0 2px 0;
+  color: var(--text-primary);
+}
+
+.updater-notes-list {
+  margin: 4px 0 6px 20px;
+  padding: 0;
+  list-style-type: disc;
+}
+
+.updater-notes-list li {
+  margin-bottom: 2px;
+  color: var(--text-primary);
+}
+
+.updater-notes-p {
+  margin: 4px 0;
+  color: var(--text-primary);
+}
+
+.updater-footer {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
 .settings-content {
   flex: 1;
   min-height: 0;

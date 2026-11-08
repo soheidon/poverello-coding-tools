@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n";
 import type { CodexReviewSettings, ReviewMode } from "../types";
 import { getCodexReviewerModels, getDeepSeekReviewerModels } from "../modelCapabilities";
-import ReviewerDiagnosticsModal from "./ReviewerDiagnosticsModal";
 import PlanFileManagerCard from "./PlanFileManagerCard";
 
 export interface CodexAutocodePanelProps {
@@ -93,7 +92,6 @@ export default function CodexAutocodePanel({ onNavigateToCliTools: _unused }: Co
   const pendingConfigRef = useRef<CodexReviewSettings | null>(null);
 
   const [showPriorityInfo, setShowPriorityInfo] = useState(false);
-  const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -391,15 +389,6 @@ export default function CodexAutocodePanel({ onNavigateToCliTools: _unused }: Co
                 type="button"
                 className="btn"
                 style={{ fontSize: 11, padding: "4px 10px" }}
-                onClick={() => setShowDiagnosticsModal(true)}
-                data-testid="btn-open-diagnostics-modal"
-              >
-                {t("diagnostics.buttonLabel") || "Diagnostic Logs"}
-              </button>
-              <button
-                type="button"
-                className="btn"
-                style={{ fontSize: 11, padding: "4px 10px" }}
                 onClick={() => {
                   void fetchReviewSettings();
                 }}
@@ -491,7 +480,7 @@ export default function CodexAutocodePanel({ onNavigateToCliTools: _unused }: Co
                   disabled={reviewLoading}
                   onChange={() => handleToggleReviewer("codex")}
                 />
-                <span>{isCodexActive ? `✓ ${t("planManager.roleCodexSession") || "Codex (Session)"}` : (t("planManager.roleCodexSession") || "Codex (Session)")}</span>
+                <span>{t("planManager.roleCodexSession") || "Codex (Session)"}</span>
               </label>
 
               <label
@@ -508,7 +497,7 @@ export default function CodexAutocodePanel({ onNavigateToCliTools: _unused }: Co
                   disabled={reviewLoading}
                   onChange={() => handleToggleReviewer("deepseek")}
                 />
-                <span>{isDeepseekActive ? "✓ DeepSeek Harness" : "DeepSeek Harness"}</span>
+                <span>DeepSeek Harness</span>
               </label>
             </div>
           </div>
@@ -644,11 +633,6 @@ export default function CodexAutocodePanel({ onNavigateToCliTools: _unused }: Co
           )}
         </div>
       </div>
-
-      <ReviewerDiagnosticsModal
-        isOpen={showDiagnosticsModal}
-        onClose={() => setShowDiagnosticsModal(false)}
-      />
     </div>
   );
 }
