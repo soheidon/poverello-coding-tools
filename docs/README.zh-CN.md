@@ -167,13 +167,6 @@ Windows 安装程序支持 8 种语言。Poverello 保留现有应用标识，�
 2. 在 Settings > Codex Skills & Rules 中管理 /pov-plan-only、/pov-build-review、/pov-full-cycle，以及 CODEX_HOME/AGENTS.md 中由 Poverello 管理的区域。
 3. 在 Codex Autocode 中选择审查器和优先审查器。只有在 Settings > CLI Tools 中启用 Gemini CLI 后，它才会显示；启用不会自动选择它。Windows 只读 sandbox 未验证时，Gemini 审查不可用。
 
-## v0.27.0 更新重点
-
-- **Active Plan 与角色分配：** 每个仓库可选择一个计划文件，并分别为 Codex Autocode 与 Antigravity Autocode 指定 Planner / Reviser。Workflow Skills 会读取这些分配；必要角色未设置或不受支持时会停止，不会静默改用其他角色。
-- **检查点恢复：** 工作流进度保存在 Active Plan 中。恢复前会检查仓库与计划文件身份、计划 revision、未解决的审查问题以及已修改文件状态。检查不通过时工作流会停止。
-- **Tencent Hy4：** OpenRouter 内置配置文件名称为 **OpenRouter: Tencent**，并加入支持图像输入和 Thinking 设置的 `tencent/hy4`。Settings > General 价格表显示带基准日期的参考价格；实际费用可能不同。
-- **Antigravity Nerf 设置：** Nerf 设置在 Antigravity Autocode 中管理。旧的 `/pov-nerf-balanced` 和 `/pov-nerf-lightweight` 斜杠命令已停用。
-- **应用更新：** 尚未启用自动更新。安装程序请从已发布的 Releases 页面获取。
 ## 文档
 - [供应商详情与推理控制](PROVIDERS.md)
 

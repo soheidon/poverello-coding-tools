@@ -167,13 +167,6 @@ Windows 설치 프로그램은 8개 언어를 지원합니다. Poverello는 기�
 2. Settings > Codex Skills & Rules에서 /pov-plan-only, /pov-build-review, /pov-full-cycle과 CODEX_HOME/AGENTS.md의 Poverello 관리 영역을 관리합니다.
 3. Codex Autocode에서 리뷰어와 우선 리뷰어를 선택합니다. Gemini CLI는 Settings > CLI Tools에서 활성화한 경우에만 표시되며, 활성화만으로 선택되지는 않습니다. Windows 읽기 전용 sandbox를 검증하지 못하면 Gemini 리뷰를 사용할 수 없습니다.
 
-## v0.27.0 주요 변경 사항
-
-- **Active Plan 및 역할 지정:** 저장소마다 계획 파일을 선택하고 Codex Autocode와 Antigravity Autocode별로 Planner / Reviser를 지정할 수 있습니다. Workflow Skills는 이 지정을 읽으며, 필요한 역할이 없거나 지원되지 않으면 다른 역할로 대체하지 않고 중지합니다.
-- **체크포인트 재개:** 워크플로 진행 상태를 Active Plan에 저장합니다. 재개 전에 저장소와 계획 파일의 식별 정보, 계획 revision, 미해결 리뷰 지적, 수정 파일 상태를 확인합니다. 검증에 실패하면 워크플로를 중지합니다.
-- **Tencent Hy4:** OpenRouter 기본 프로필 이름은 **OpenRouter: Tencent**이며 이미지 입력과 Thinking 설정을 지원하는 `tencent/hy4`가 포함됩니다. Settings > General 가격표는 기준일이 표시된 참고 가격이며 실제 청구액을 보장하지 않습니다.
-- **Antigravity Nerf 설정:** Nerf 설정은 Antigravity Autocode에서 관리합니다. 기존 `/pov-nerf-balanced` 및 `/pov-nerf-lightweight` 슬래시 명령은 종료되었습니다.
-- **앱 업데이트:** 자동 업데이트는 활성화되어 있지 않습니다. 설치 프로그램은 공개된 Releases 페이지에서 받으세요.
 ## 문서
 
 - [릴리스 노트 (NEWS.md)](../NEWS.md) — 버전별 기능 및 구현 세부 정보

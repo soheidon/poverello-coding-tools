@@ -167,13 +167,6 @@ El instalador de Windows admite 8 idiomas. Poverello conserva la identidad de ap
 2. Administre /pov-plan-only, /pov-build-review, /pov-full-cycle y la sección de Poverello en CODEX_HOME/AGENTS.md en Settings > Codex Skills & Rules.
 3. Elija revisores y revisor prioritario en Codex Autocode. Gemini CLI solo aparece tras habilitarlo en Settings > CLI Tools; habilitarlo no lo selecciona. Sin un sandbox de solo lectura verificado en Windows, Gemini Review no está disponible.
 
-## Novedades de v0.27.0
-
-- **Plan activo y roles:** selecciona un archivo de plan por repositorio y asigna Planner / Reviser por separado para Codex Autocode y Antigravity Autocode. Los Workflow Skills leen estas asignaciones y se detienen si falta un rol requerido o no es compatible; no cambian de rol silenciosamente.
-- **Reanudación con puntos de control:** el progreso del flujo se guarda en el plan activo. Antes de reanudar, Poverello verifica la identidad del repositorio y del plan, la revisión del plan, los hallazgos de revisión pendientes y el estado de los archivos modificados. Si una comprobación falla, el flujo se detiene.
-- **Tencent Hy4:** el perfil integrado de OpenRouter se llama **OpenRouter: Tencent** e incluye `tencent/hy4`, con compatibilidad con imágenes y controles Thinking. La tabla de precios de Settings > General muestra una referencia con fecha; el importe facturado puede variar.
-- **Ajustes Nerf de Antigravity:** los ajustes Nerf se gestionan en Antigravity Autocode. Se retiraron los comandos `/pov-nerf-balanced` y `/pov-nerf-lightweight`.
-- **Actualizaciones de la aplicación:** la actualización automática no está habilitada. Descarga los instaladores desde la página Releases publicada.
 ## Documentación
 
 - [Notas de la versión (NEWS.md)](../NEWS.md) — Funciones y detalles de implementación por versión

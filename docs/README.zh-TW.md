@@ -167,13 +167,6 @@ Windows 安裝程式支援 8 種語言。Poverello 保留既有應用程式識�
 2. 在 Settings > Codex Skills & Rules 管理 /pov-plan-only、/pov-build-review、/pov-full-cycle，以及 CODEX_HOME/AGENTS.md 中由 Poverello 管理的區域。
 3. 在 Codex Autocode 選擇審查器與優先審查器。只有在 Settings > CLI Tools 啟用 Gemini CLI 後才會顯示；啟用不會自動選取。Windows 唯讀 sandbox 未驗證時，Gemini 審查無法使用。
 
-## v0.27.0 更新重點
-
-- **Active Plan 與角色指派：** 每個儲存庫可選擇一個計畫檔，並分別為 Codex Autocode 與 Antigravity Autocode 指定 Planner / Reviser。Workflow Skills 會讀取這些指派；必要角色未設定或不受支援時會停止，不會靜默改用其他角色。
-- **檢查點恢復：** 工作流程進度儲存在 Active Plan 中。恢復前會檢查儲存庫與計畫檔身分、計畫 revision、未解決的審查問題以及已修改檔案狀態。檢查未通過時工作流程會停止。
-- **Tencent Hy4：** OpenRouter 內建設定檔名稱為 **OpenRouter: Tencent**，並加入支援影像輸入與 Thinking 設定的 `tencent/hy4`。Settings > General 價格表會顯示附基準日期的參考價格；實際費用可能不同。
-- **Antigravity Nerf 設定：** Nerf 設定在 Antigravity Autocode 中管理。舊的 `/pov-nerf-balanced` 與 `/pov-nerf-lightweight` 斜線指令已停用。
-- **應用程式更新：** 尚未啟用自動更新。安裝程式請從已發布的 Releases 頁面取得。
 ## 文件
 
 - [版本說明 (NEWS.md)](../NEWS.md) — 各版本功能與實作細節
