@@ -6,6 +6,7 @@
 > **v0.26.1:** 비대화형 CLI 및 Node.js/npm 상태 확인은 콘솔 창을 열지 않으며 탭 전환 시 짧은 캐시 결과를 재사용합니다. `0xC0000142`를 포함한 Windows 프로세스 초기화 오류를 명시적으로 보고하고, 사용자가 요청한 로그인은 계속 대화형으로 실행합니다.
 > **v0.26.2:** Codex Autocode는 현재 세션에서 Codex가 수행하는 작업과 외부 리뷰어를 구분합니다. 우선 리뷰어는 유효한 판정이 서로 다를 때만 판정하며, DeepSeek Harness의 headless 설정과 도구 제한은 Windows OS 수준의 파일 시스템·네트워크 격리를 증명하지 않습니다. 진단 로그와 과거 Skill 템플릿의 안전한 업데이트를 제공합니다.
 > **v0.27.0:** 저장소별 Active Plan 선택, 화면별 Planner / Reviser 지정, 재개 전에 식별 정보와 미해결 문제를 fail-closed 방식으로 검사하는 체크포인트 기능을 추가합니다. OpenRouter Tencent Hy4 모델 및 가격 메타데이터를 추가하고 Antigravity Nerf 설정을 GUI로 통합하며 기존 슬래시 명령을 종료합니다. 앱 자동 업데이트는 활성화되어 있지 않습니다.
+> **v0.27.2:** Antigravity Autocode와 Codex Autocode에 서로 독립적인 계획 폴더 위치 설정을 추가했습니다. 각 위치를 계획 작업 전반에서 일관되게 사용하며, 미설정 시 앱 작업 디렉터리로 암묵적으로 대체하지 않습니다.
 
 ## 개요
 
@@ -139,6 +140,8 @@ Tauri v2 + React 19 + TypeScript. 상단 탐색: Gateway (Dashboard), MCP, Antig
 - Workflow Skills는 화면별 역할 지정을 읽습니다. 필요한 역할이 없거나 지원되지 않거나 사용할 수 없으면 다른 역할로 암묵적으로 대체하지 않고 중지합니다. 역할 지정만으로 에이전트를 시작하거나 리뷰 안전 게이트를 우회하지 않습니다.
 - 체크포인트는 Active Plan에 워크플로 상태, 완료 작업, 수정 파일, 검증 결과, 리뷰 상태 및 다음 작업을 기록합니다. 재개 전에 저장소 식별 정보, Active Plan 경로, 계획 revision과 파일 식별 정보, 미해결 지적 및 수정 파일 상태를 검증하며 불일치 시 fail-closed로 중지합니다.
 - 계획 후보 반영, 감사 기록 추가 및 체크포인트 저장은 예상 파일 식별 정보와 SHA-256을 모두 사용하는 CAS로 보호됩니다. 관련 IPC 명령은 `apply_plan_candidate`, `append_plan_audit_trail`, `save_plan_checkpoint`, `get_plan_checkpoint`, `verify_plan_resumption`입니다.
+- Antigravity와 Codex는 각자의 Skills & Rules 설정에서 독립된 프로젝트 경로를 저장합니다. 각 Autocode 계획 관리자는 계획 목록, 선택, 생성 및 Active Plan/역할 지정에 해당 경로를 일관되게 사용합니다. 위치가 없거나 유효하지 않으면 명시적인 설정을 요구하고 앱 작업 디렉터리를 암묵적으로 사용하지 않습니다.
+- 경로를 직접 편집하거나 폴더 선택기로 지정하고 초기화할 수 있습니다. 저장소 루트 또는 `.plan` 폴더를 선택해도 프로젝트 루트를 동일하게 정규화합니다.
 
 ### Tencent Hy4 및 Antigravity Nerf 설정
 

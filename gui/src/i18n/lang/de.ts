@@ -1303,4 +1303,13 @@ export const translations: TranslationMap = {
   "planManager.btnConfirm": "Bestätigen",
   "planManager.confirming": "Wird verarbeitet...",
   "planManager.errorInvalidFileName": "Ungültiger Dateiname (Schrägstriche und Doppelpunkte sind nicht erlaubt)",
+  "planManager.noLocationWarning": "Der Speicherort des Plan-Ordners ist nicht konfiguriert. Bitte wählen Sie Ihr Projektverzeichnis in den Einstellungen oder über die Schaltfläche 'Plan-Ordner' aus.",
+  "planFolder.antigravityTitle": "Plan-Ordner-Speicherort (Antigravity Autocode)",
+  "planFolder.codexTitle": "Plan-Ordner-Speicherort (Codex Autocode)",
+  "planFolder.desc": "Legen Sie das Basis-Projektverzeichnis fest, das beim Klicken auf die Schaltfläche 'Plan-Ordner' geöffnet werden soll.",
+  "planFolder.btnSelectFolder": "Ordner auswählen",
+  "planFolder.btnReset": "Zurücksetzen",
+  "planFolder.currentPathLabel": "Aktueller Pfad:",
+  "planFolder.notConfigured": "Nicht konfiguriert (automatisch erkannt)",
+  "planFolder.inputPlaceholder": "Nicht konfiguriert (Projektpfad eingeben oder Ordner wählen)",
 };

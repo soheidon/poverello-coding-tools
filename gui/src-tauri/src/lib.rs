@@ -7483,10 +7483,349 @@ fn list_available_plans(
 }
 
 #[tauri::command]
+fn get_plan_manager_location(surface: String) -> Result<Option<String>, String> {
+    if !matches!(surface.as_str(), "codex" | "antigravity") {
+        return Err(format!("Unsupported surface: '{surface}'"));
+    }
+    match surface.as_str() {
+        "antigravity" => {
+            let policy_path = paths::antigravity_reviewer_policy_path()?;
+            if !policy_path.exists() {
+                return Ok(None);
+            }
+            let config = reviewer_policy::inspect_reviewer_policy_at(&policy_path)?;
+            Ok(config.plan_root_path)
+        }
+        "codex" => {
+            let codex_home = codex_global_rules::resolve_codex_home()?;
+            let settings_path = codex_home.join(codex_review_settings::REVIEW_SETTINGS_FILE_NAME);
+            if !settings_path.exists() {
+                return Ok(None);
+            }
+            let settings = codex_review_settings::get_codex_review_settings()?;
+            Ok(settings.plan_root_path)
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[cfg(windows)]
+fn replace_file_win(temp: &std::path::Path, target: &std::path::Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    unsafe extern "system" {
+        fn ReplaceFileW(
+            replaced: *const u16,
+            replacement: *const u16,
+            backup: *const u16,
+            flags: u32,
+            exclude: *mut std::ffi::c_void,
+            reserved: *mut std::ffi::c_void,
+        ) -> i32;
+    }
+    let target_w = target
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let temp_w = temp
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let ok = unsafe {
+        ReplaceFileW(
+            target_w.as_ptr(),
+            temp_w.as_ptr(),
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if ok == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn save_plan_manager_location_to_file(
+    target_file: &std::path::Path,
+    backups_subfolder: &str,
+    normalized_path: Option<&str>,
+) -> Result<(), String> {
+    save_plan_manager_location_to_file_with_hook(target_file, backups_subfolder, normalized_path, |_| Ok(()))
+}
+
+fn save_plan_manager_location_to_file_with_hook<F>(
+    target_file: &std::path::Path,
+    backups_subfolder: &str,
+    normalized_path: Option<&str>,
+    before_replace: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&std::path::Path) -> Result<(), String>,
+{
+    let parent = target_file
+        .parent()
+        .ok_or_else(|| format!("Target file has no parent directory: {}", target_file.display()))?;
+    ensure_no_link_or_reparse_components(parent)?;
+    ensure_no_link_or_reparse_components(target_file)?;
+
+    // Snapshot the source before any backup/staging work; verify this exact state again
+    // immediately before replacement to avoid overwriting concurrent edits.
+    let original_bytes = if target_file.exists() {
+        Some(std::fs::read(target_file)
+            .map_err(|e| format!("Failed to read target file {}: {e}", target_file.display()))?)
+    } else {
+        None
+    };
+
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("Failed to create parent directory for {}: {e}", target_file.display()))?;
+    ensure_no_link_or_reparse_components(parent)?;
+    ensure_no_link_or_reparse_components(target_file)?;
+
+    // Pre-save persistent backup if existing
+    if target_file.exists() {
+        let backups_root = parent.join(".poverello_backups");
+        ensure_no_link_or_reparse_components(&backups_root)?;
+        std::fs::create_dir_all(&backups_root)
+            .map_err(|e| format!("Failed to create backup root: {e}"))?;
+        ensure_no_link_or_reparse_components(&backups_root)?;
+        let backups_dir = backups_root.join(backups_subfolder);
+        std::fs::create_dir_all(&backups_dir)
+            .map_err(|e| format!("Failed to create backup dir: {e}"))?;
+        ensure_no_link_or_reparse_components(&backups_dir)?;
+        let file_name = target_file
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("config.json");
+        let backup_file = backups_dir.join(format!(
+            "{}.backup-{}",
+            file_name,
+            uuid::Uuid::new_v4()
+        ));
+        ensure_no_link_or_reparse_components(&backup_file)?;
+        std::fs::copy(target_file, &backup_file)
+            .map_err(|e| format!("Failed to create backup file: {e}"))?;
+    }
+
+    // Read existing JSON as Value to preserve all known and unknown fields.
+    // If the file exists but contains corrupted JSON, reject the save to preserve existing data!
+    let mut value: serde_json::Value = if let Some(content) = &original_bytes {
+        let content = std::str::from_utf8(content)
+            .map_err(|e| format!("Existing configuration is not valid UTF-8: {e}"))?;
+        serde_json::from_str(&content).map_err(|e| {
+            format!(
+                "Existing configuration file is corrupted ({e}) and cannot be safely updated without losing data. File preserved at {}",
+                target_file.display()
+            )
+        })?
+    } else {
+        serde_json::json!({})
+    };
+
+    if !value.is_object() {
+        return Err(format!(
+            "Configuration root is not a JSON object: {}",
+            target_file.display()
+        ));
+    }
+
+    if let Some(obj) = value.as_object_mut() {
+        match normalized_path {
+            Some(p) => {
+                obj.insert("plan_root_path".to_string(), serde_json::Value::String(p.to_string()));
+            }
+            None => {
+                obj.remove("plan_root_path");
+            }
+        }
+    }
+
+    let serialized = serde_json::to_string_pretty(&value)
+        .map_err(|e| format!("Failed to serialize configuration: {e}"))?
+        + "\n";
+
+    // Atomic staged write with safe replace and read-back verification
+    let file_stem = target_file
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("config");
+    let staged = parent.join(format!(
+        ".{}.staged-{}",
+        file_stem,
+        uuid::Uuid::new_v4()
+    ));
+    let mut staged_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staged)
+        .map_err(|e| format!("Failed to create staged settings safely: {e}"))?;
+    staged_file
+        .write_all(serialized.as_bytes())
+        .and_then(|()| staged_file.sync_all())
+        .map_err(|e| format!("Failed to write staged settings: {e}"))?;
+    drop(staged_file);
+
+    let staged_bytes = std::fs::read(&staged)
+        .map_err(|e| format!("Failed to read staged settings: {e}"))?;
+    if sha2::Sha256::digest(&staged_bytes) != sha2::Sha256::digest(serialized.as_bytes()) {
+        let _ = std::fs::remove_file(&staged);
+        return Err("Read-back verification failed for staged settings write.".to_string());
+    }
+
+    if let Err(error) = before_replace(&staged) {
+        let _ = std::fs::remove_file(&staged);
+        return Err(error);
+    }
+    // Recheck path components and the source bytes after staging, directly before replace.
+    if let Err(error) = ensure_no_link_or_reparse_components(parent)
+        .and_then(|()| ensure_no_link_or_reparse_components(target_file))
+        .and_then(|()| ensure_no_link_or_reparse_components(&staged))
+    {
+        let _ = std::fs::remove_file(&staged);
+        return Err(error);
+    }
+    let current_bytes = if target_file.exists() {
+        Some(std::fs::read(target_file)
+            .map_err(|e| format!("Failed to re-read target before replacement: {e}"))?)
+    } else {
+        None
+    };
+    if current_bytes != original_bytes {
+        let _ = std::fs::remove_file(&staged);
+        return Err("Concurrent modification conflict: settings changed before replacement; update aborted.".to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        if target_file.exists() {
+            replace_file_win(&staged, target_file)
+                .map_err(|e| format!("Failed to atomically replace target file: {e}"))?;
+        } else {
+            std::fs::rename(&staged, target_file)
+                .map_err(|e| format!("Failed to move staged file to destination: {e}"))?;
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::rename(&staged, target_file)
+            .map_err(|e| format!("Failed to move staged file to destination: {e}"))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn set_plan_manager_location(surface: String, path: Option<String>) -> Result<Option<String>, String> {
+    if !matches!(surface.as_str(), "codex" | "antigravity") {
+        return Err(format!("Unsupported surface: '{surface}'"));
+    }
+
+    let normalized_path: Option<String> = if let Some(raw_p) = path {
+        let trimmed = raw_p.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            let p = std::path::PathBuf::from(trimmed);
+            if !p.exists() {
+                return Err(format!("Specified path does not exist: '{trimmed}'"));
+            }
+            if !p.is_dir() {
+                return Err(format!("Specified path is not a directory: '{trimmed}'"));
+            }
+            let canonical = p.canonicalize().map_err(|e| format!("Cannot canonicalize path: {e}"))?;
+            // If the user selected the .plan folder directly, resolve its parent as repo_root
+            let effective = if canonical.file_name().and_then(|n| n.to_str()) == Some(plan_manager::PLAN_DIR_NAME) {
+                canonical.parent().unwrap_or(&canonical).to_path_buf()
+            } else {
+                canonical
+            };
+            Some(effective.to_string_lossy().to_string())
+        }
+    } else {
+        None
+    };
+
+    match surface.as_str() {
+        "antigravity" => {
+            let policy_path = paths::antigravity_reviewer_policy_path()?;
+            reviewer_policy::with_reviewer_policy_save_lock(|| {
+                save_plan_manager_location_to_file(
+                    &policy_path,
+                    "reviewer-policy",
+                    normalized_path.as_deref(),
+                )
+            })?;
+        }
+        "codex" => {
+            let codex_home = codex_global_rules::resolve_codex_home()?;
+            let settings_path = codex_home.join(codex_review_settings::REVIEW_SETTINGS_FILE_NAME);
+            codex_review_settings::with_codex_save_lock(|| {
+                save_plan_manager_location_to_file(
+                    &settings_path,
+                    "review-settings",
+                    normalized_path.as_deref(),
+                )
+            })?;
+        }
+        _ => unreachable!(),
+    }
+
+    Ok(normalized_path)
+}
+
+#[tauri::command]
+fn select_plan_root_dialog(surface: String) -> Result<Option<String>, String> {
+    if !matches!(surface.as_str(), "codex" | "antigravity") {
+        return Err(format!("Unsupported surface: '{surface}'"));
+    }
+
+    let existing = get_plan_manager_location(surface.clone())?;
+    let mut dialog = rfd::FileDialog::new().set_title(if surface == "antigravity" {
+        "Select Plan Folder Location (Antigravity Autocode)"
+    } else {
+        "Select Plan Folder Location (Codex Autocode)"
+    });
+
+    if let Some(ref current) = existing {
+        let p = std::path::PathBuf::from(current);
+        if p.is_dir() {
+            dialog = dialog.set_directory(&p);
+        }
+    }
+
+    if let Some(picked) = dialog.pick_folder() {
+        let picked_str = picked.to_string_lossy().to_string();
+        set_plan_manager_location(surface, Some(picked_str))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
 fn select_plan_folder_dialog(
     repo_path: Option<String>,
+    surface: Option<String>,
 ) -> Result<Option<String>, String> {
-    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    let target_repo = if let Some(p) = repo_path.filter(|p| !p.trim().is_empty()) {
+        Some(p)
+    } else if let Some(s) = surface {
+        get_plan_manager_location(s)?
+    } else {
+        None
+    };
+
+    let effective_target = match target_repo {
+        Some(p) => p,
+        None => {
+            return Err("Plan folder location is not configured. Please set the plan folder location in Skill & Rules settings first.".to_string());
+        }
+    };
+
+    let repo_root = plan_manager::resolve_repo_root(Some(&effective_target))?;
     let canonical_repo = repo_root.canonicalize().map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
 
     #[cfg(target_os = "windows")]
@@ -10622,6 +10961,9 @@ pub fn run() {
             export_reviewer_diagnostics_report,
             record_reviewer_diagnostic_event,
             list_available_plans,
+            get_plan_manager_location,
+            set_plan_manager_location,
+            select_plan_root_dialog,
             select_plan_folder_dialog,
             get_active_plan,
             set_active_plan,
@@ -20241,5 +20583,262 @@ mod tests {
         assert!(key.is_some(), "Expected ZAI_API_KEY to resolve via process or HKCU registry fallback");
         // Verify process env is populated
         assert!(std::env::var("ZAI_API_KEY").is_ok());
+    }
+
+    #[test]
+    fn test_plan_manager_location_surface_validation() {
+        assert!(get_plan_manager_location("invalid_surface".to_string()).is_err());
+        assert!(set_plan_manager_location("invalid_surface".to_string(), None).is_err());
+    }
+
+    #[test]
+    fn test_plan_manager_location_rejects_nonexistent_directory() {
+        let nonexistent = "C:/path/that/does/not/exist_123456789";
+        let res = set_plan_manager_location("codex".to_string(), Some(nonexistent.to_string()));
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("does not exist"));
+    }
+
+    #[test]
+    fn test_plan_manager_location_normalizes_dot_plan_to_parent() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let plan_dir = temp_dir.path().join(".plan");
+        std::fs::create_dir_all(&plan_dir).unwrap();
+
+        // Pass .plan folder directly
+        let res = set_plan_manager_location("codex".to_string(), Some(plan_dir.to_string_lossy().to_string())).unwrap();
+        let canonical_parent = temp_dir.path().canonicalize().unwrap().to_string_lossy().to_string();
+        assert_eq!(res, Some(canonical_parent));
+
+        // Reset
+        let reset_res = set_plan_manager_location("codex".to_string(), None).unwrap();
+        assert_eq!(reset_res, None);
+    }
+
+    #[test]
+    fn test_select_plan_folder_dialog_rejects_unconfigured_location_without_cwd_fallback() {
+        // Without repo_path and without configured surface, must fail closed without fallback to cwd
+        let res = select_plan_folder_dialog(None, None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("not configured"));
+
+        let empty_repo = Some("   ".to_string());
+        let res2 = select_plan_folder_dialog(empty_repo, None);
+        assert!(res2.is_err());
+        assert!(res2.unwrap_err().contains("not configured"));
+    }
+
+    #[test]
+    fn test_set_plan_manager_location_preserves_unknown_fields_and_creates_backup() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let target_dir = temp_dir.path().join("my-project");
+        std::fs::create_dir_all(&target_dir).unwrap();
+        let target_dir_str = target_dir.to_string_lossy().to_string();
+
+        let test_policy_path = temp_dir.path().join("policy").join("pov-reviewer-policy.json");
+        std::fs::create_dir_all(test_policy_path.parent().unwrap()).unwrap();
+
+        // 1. Initial creation with unknown fields
+        let initial_json = serde_json::json!({
+            "version": 6,
+            "custom_preserved_field_123": "preserved_value",
+            "existing_policy": "antigravity"
+        });
+        std::fs::write(&test_policy_path, serde_json::to_string_pretty(&initial_json).unwrap()).unwrap();
+
+        // Save location
+        let res = save_plan_manager_location_to_file(
+            &test_policy_path,
+            "reviewer-policy",
+            Some(&target_dir_str),
+        );
+        assert!(res.is_ok());
+
+        // 2. Verify persistent backup creation
+        let backups_dir = test_policy_path.parent().unwrap().join(".poverello_backups").join("reviewer-policy");
+        assert!(backups_dir.exists(), "Backup directory must exist");
+        let backup_entries = std::fs::read_dir(&backups_dir).unwrap().collect::<Vec<_>>();
+        assert_eq!(backup_entries.len(), 1, "Exactly one backup file should be created");
+
+        // Verify backup contents match original
+        let backup_content = std::fs::read_to_string(backup_entries[0].as_ref().unwrap().path()).unwrap();
+        assert!(backup_content.contains("preserved_value"));
+
+        // 3. Verify target file updated with plan_root_path while preserving unknown fields
+        let reloaded: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&test_policy_path).unwrap()).unwrap();
+        assert_eq!(reloaded["custom_preserved_field_123"], "preserved_value");
+        assert_eq!(reloaded["plan_root_path"], target_dir_str);
+        assert_eq!(reloaded["existing_policy"], "antigravity");
+
+        // 4. Verify that corrupted JSON is rejected and not overwritten
+        let corrupt_path = temp_dir.path().join("corrupt").join("settings.json");
+        std::fs::create_dir_all(corrupt_path.parent().unwrap()).unwrap();
+        let corrupted_content = "{ invalid json content: 123 ";
+        std::fs::write(&corrupt_path, corrupted_content).unwrap();
+
+        let corrupt_res = save_plan_manager_location_to_file(
+            &corrupt_path,
+            "review-settings",
+            Some(&target_dir_str),
+        );
+        assert!(corrupt_res.is_err(), "Must reject modifying a corrupted configuration");
+        assert!(corrupt_res.unwrap_err().contains("corrupted"));
+        // Original corrupted file must remain untouched
+        assert_eq!(std::fs::read_to_string(&corrupt_path).unwrap(), corrupted_content);
+    }
+
+    #[test]
+    fn test_plan_location_update_rejects_intervening_write() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let target = temp_dir.path().join("settings.json");
+        std::fs::write(&target, br#"{"keep":"original"}"#).unwrap();
+
+        let result = save_plan_manager_location_to_file_with_hook(
+            &target,
+            "review-settings",
+            Some("C:/project"),
+            |_| {
+                std::fs::write(&target, br#"{"keep":"concurrent"}"#)
+                    .map_err(|e| e.to_string())
+            },
+        );
+
+        assert!(result.unwrap_err().contains("Concurrent modification conflict"));
+        assert_eq!(std::fs::read(&target).unwrap(), br#"{"keep":"concurrent"}"#);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_plan_location_update_rejects_reparse_inserted_before_replace() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let target = temp_dir.path().join("settings.json");
+        let external = temp_dir.path().join("external.json");
+        std::fs::write(&target, br#"{"keep":"original"}"#).unwrap();
+        std::fs::write(&external, br#"{"keep":"external"}"#).unwrap();
+
+        let result = save_plan_manager_location_to_file_with_hook(
+            &target,
+            "review-settings",
+            Some("C:/project"),
+            |_| {
+                std::fs::remove_file(&target).map_err(|e| e.to_string())?;
+                symlink(&external, &target).map_err(|e| e.to_string())
+            },
+        );
+
+        assert!(result.unwrap_err().contains("symlink or reparse"));
+        assert_eq!(std::fs::read(&external).unwrap(), br#"{"keep":"external"}"#);
+        let _ = std::fs::remove_file(&target);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_plan_location_update_rejects_reparse_inserted_before_replace_windows() {
+        use std::os::windows::fs::symlink_file;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let target = temp_dir.path().join("settings.json");
+        let external = temp_dir.path().join("external.json");
+        std::fs::write(&target, br#"{"keep":"original"}"#).unwrap();
+        std::fs::write(&external, br#"{"keep":"external"}"#).unwrap();
+
+        let result = save_plan_manager_location_to_file_with_hook(
+            &target,
+            "review-settings",
+            Some("C:/project"),
+            |staged| {
+                std::fs::remove_file(&target).map_err(|e| e.to_string())?;
+                match symlink_file(&external, &target) {
+                    Ok(()) => Ok(()),
+                    // Windows without symbolic-link privilege cannot run this race fixture.
+                    Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => Ok(()),
+                    Err(error) => Err(error.to_string()),
+                }
+            },
+        );
+
+        if std::fs::symlink_metadata(&target)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            assert!(result.unwrap_err().contains("symlink or reparse"));
+            assert_eq!(std::fs::read(&external).unwrap(), br#"{"keep":"external"}"#);
+            let _ = std::fs::remove_file(&target);
+        } else {
+            // The platform denied symlink creation, so assert the save did not corrupt the outside file.
+            assert_eq!(std::fs::read(&external).unwrap(), br#"{"keep":"external"}"#);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_plan_location_update_rejects_staged_reparse_inserted_before_replace() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let target = temp_dir.path().join("settings.json");
+        let external = temp_dir.path().join("external.json");
+        std::fs::write(&target, br#"{"keep":"original"}"#).unwrap();
+        std::fs::write(&external, br#"{"keep":"external"}"#).unwrap();
+
+        let result = save_plan_manager_location_to_file_with_hook(
+            &target,
+            "review-settings",
+            Some("C:/project"),
+            |staged| {
+                std::fs::remove_file(staged).map_err(|e| e.to_string())?;
+                symlink(&external, staged).map_err(|e| e.to_string())
+            },
+        );
+
+        assert!(result.unwrap_err().contains("symlink or reparse"));
+        assert_eq!(std::fs::read(&external).unwrap(), br#"{"keep":"external"}"#);
+        assert_eq!(std::fs::read(&target).unwrap(), br#"{"keep":"original"}"#);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_plan_location_update_rejects_staged_reparse_inserted_before_replace_windows() {
+        use std::os::windows::fs::symlink_file;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let target = temp_dir.path().join("settings.json");
+        let external = temp_dir.path().join("external.json");
+        std::fs::write(&target, br#"{"keep":"original"}"#).unwrap();
+        std::fs::write(&external, br#"{"keep":"external"}"#).unwrap();
+
+        let result = save_plan_manager_location_to_file_with_hook(
+            &target,
+            "review-settings",
+            Some("C:/project"),
+            |staged| {
+                std::fs::remove_file(staged).map_err(|e| e.to_string())?;
+                match symlink_file(&external, staged) {
+                    Ok(()) => Ok(()),
+                    Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => Ok(()),
+                    Err(error) => Err(error.to_string()),
+                }
+            },
+        );
+
+        let staged_is_link = std::fs::read_dir(temp_dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry.file_name().to_string_lossy().contains(".staged-")
+                    && std::fs::symlink_metadata(entry.path())
+                        .map(|metadata| metadata.file_type().is_symlink())
+                        .unwrap_or(false)
+            });
+        if staged_is_link {
+            assert!(result.unwrap_err().contains("symlink or reparse"));
+            assert_eq!(std::fs::read(&external).unwrap(), br#"{"keep":"external"}"#);
+            assert_eq!(std::fs::read(&target).unwrap(), br#"{"keep":"original"}"#);
+        } else {
+            assert_eq!(std::fs::read(&external).unwrap(), br#"{"keep":"external"}"#);
+        }
     }
 }

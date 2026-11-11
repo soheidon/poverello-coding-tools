@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{BTreeSet, HashMap};
+#[cfg(test)]
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Condvar, Mutex};
@@ -1257,11 +1259,80 @@ impl Drop for RunStateLockGuard {
     }
 }
 
-// Test failure injection seams for run-state save (§304.3 #4, §306.3 #2)
-pub static INJECT_PRE_RENAME_SAVE_ERROR: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-pub static INJECT_POST_RENAME_SAVE_ERROR: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+// Test-only failure injection is scoped to a specific state path so parallel
+// tests cannot consume one another's injected save outcome.
+#[cfg(test)]
+static INJECT_PRE_RENAME_SAVE_ERROR_FOR: std::sync::LazyLock<Mutex<HashSet<PathBuf>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
+#[cfg(test)]
+static INJECT_POST_RENAME_SAVE_ERROR_FOR: std::sync::LazyLock<Mutex<HashSet<PathBuf>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+enum SaveErrorInjectionStage {
+    PreRename,
+    PostRename,
+}
+
+#[cfg(test)]
+pub struct RunStateSaveErrorInjectionGuard {
+    path: PathBuf,
+    stage: SaveErrorInjectionStage,
+}
+
+#[cfg(test)]
+impl Drop for RunStateSaveErrorInjectionGuard {
+    fn drop(&mut self) {
+        let injections = match self.stage {
+            SaveErrorInjectionStage::PreRename => &INJECT_PRE_RENAME_SAVE_ERROR_FOR,
+            SaveErrorInjectionStage::PostRename => &INJECT_POST_RENAME_SAVE_ERROR_FOR,
+        };
+        injections
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.path);
+    }
+}
+
+#[cfg(test)]
+pub fn inject_pre_rename_save_error_for(
+    state_path: &Path,
+) -> RunStateSaveErrorInjectionGuard {
+    INJECT_PRE_RENAME_SAVE_ERROR_FOR
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(state_path.to_path_buf());
+    RunStateSaveErrorInjectionGuard {
+        path: state_path.to_path_buf(),
+        stage: SaveErrorInjectionStage::PreRename,
+    }
+}
+
+#[cfg(test)]
+pub fn inject_post_rename_save_error_for(
+    state_path: &Path,
+) -> RunStateSaveErrorInjectionGuard {
+    INJECT_POST_RENAME_SAVE_ERROR_FOR
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(state_path.to_path_buf());
+    RunStateSaveErrorInjectionGuard {
+        path: state_path.to_path_buf(),
+        stage: SaveErrorInjectionStage::PostRename,
+    }
+}
+
+#[cfg(test)]
+fn consume_save_error_injection_for(
+    injections: &std::sync::LazyLock<Mutex<HashSet<PathBuf>>>,
+    state_path: &Path,
+) -> bool {
+    injections
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(state_path)
+}
 
 /// Derives a stable, canonical run-state lock key (§304.3 #5, §307.2 #4).
 /// Keys from the canonical existing parent directory plus the fixed state filename,
@@ -1388,7 +1459,8 @@ pub fn save_sealed_run_state(
             .map_err(|e| format!("Failed flushing temp run_state file: {e}"))?;
     }
 
-    if INJECT_PRE_RENAME_SAVE_ERROR.swap(false, std::sync::atomic::Ordering::SeqCst) {
+    #[cfg(test)]
+    if consume_save_error_injection_for(&INJECT_PRE_RENAME_SAVE_ERROR_FOR, state_path) {
         let _ = std::fs::remove_file(&tmp_path);
         return Err("Injected pre-rename save failure".to_string());
     }
@@ -1396,7 +1468,8 @@ pub fn save_sealed_run_state(
     std::fs::rename(&tmp_path, state_path)
         .map_err(|e| format!("Failed atomic rename of run_state.json: {e}"))?;
 
-    if INJECT_POST_RENAME_SAVE_ERROR.swap(false, std::sync::atomic::Ordering::SeqCst) {
+    #[cfg(test)]
+    if consume_save_error_injection_for(&INJECT_POST_RENAME_SAVE_ERROR_FOR, state_path) {
         return Err(
             "Injected post-rename reported error (simulated IO/network failure after rename)"
                 .to_string(),

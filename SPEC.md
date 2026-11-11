@@ -6,6 +6,7 @@
 > **v0.26.1:** Non-interactive CLI and Node.js/npm status probes run without opening console windows and reuse short-lived cached results across tab changes. Windows process initialization failures, including `0xC0000142`, are reported explicitly; user-requested login remains interactive.
 > **v0.26.2:** Codex Autocode separates Codex's in-session work from external reviewers and applies Priority Reviewer only to conflicting valid verdicts. Reviewer findings are retained, including blocking findings. DeepSeek uses a headless configuration overlay and selected tool restrictions; these do not establish Windows OS-level filesystem or network isolation. Diagnostic logs and safer historical Skill-template update handling are available.
 > **v0.27.0:** Adds repository-scoped Active Plan selection, per-surface Planner / Reviser assignments, and checkpoint-based workflow resumption with fail-closed identity and finding checks. Adds OpenRouter Tencent Hy4 catalog and pricing metadata, and moves Antigravity Nerf controls to the GUI while retiring the former Nerf slash commands. Automatic application updates are not enabled.
+> **v0.27.2:** Adds separate plan-folder root settings for Antigravity and Codex Autocode, applies each root consistently to plan operations, and removes the implicit current-directory fallback when no root is configured. The path can be edited, browsed, or reset from each surface's Skills & Rules settings.
 
 ## Overview
 
@@ -197,6 +198,8 @@ Settings (=):
 - One Active Plan file is selected per repository and shared by Codex Autocode and Antigravity Autocode. Planner and Reviser assignments are stored separately for each Autocode surface; reviewer selection remains in the existing reviewer-policy settings.
 - Workflow Skills read their surface's role assignments. A missing, unsupported, or unavailable required role stops the workflow; no implicit role fallback is used. Role assignment does not itself start an agent or bypass reviewer safety gates.
 - Checkpoints are stored in the Active Plan file and record workflow state, completed work, modified files, validation, review state, and next action. Resume preflight verifies repository identity, active-plan path, plan revision and file identity, unresolved findings, and modified-file state. Any mismatch fails closed.
+- Antigravity and Codex each have an independently persisted project-root setting in their Skills & Rules settings. The configured root is used consistently by the corresponding Autocode plan manager for listing, selecting, creating, and assigning active plans and workflow roles. An unset or invalid root is surfaced for configuration; it does not silently fall back to the application's current working directory.
+- The root path can be entered directly, selected with the folder picker, or reset. The selected project root is normalized consistently whether the user selects the repository root or its `.plan` folder.
 - Candidate plan changes, audit appends, and checkpoint saves use compare-and-swap checks over both the expected file identity and SHA-256. Successful writes return the new identity and hash for the next stage.
 
 ### Tencent Hy4 Model Support

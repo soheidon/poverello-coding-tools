@@ -7,7 +7,13 @@ import type { PlanFileDetails } from "../types";
 
 const mockInvoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (...args: unknown[]) => mockInvoke(...args),
+  invoke: async (cmd: string, args?: unknown) => {
+    const res = await mockInvoke(cmd, args);
+    if (cmd === "get_plan_manager_location" && res === undefined) {
+      return "C:\\mock\\repo";
+    }
+    return res;
+  },
 }));
 
 const mockPlanDetailsEmpty: PlanFileDetails = {
@@ -119,7 +125,7 @@ describe("PlanFileManagerCard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("plan-file-input")).toBeInTheDocument();
+      expect(screen.getByTestId("plan-file-input")).not.toBeDisabled();
     });
 
     const input = screen.getByTestId("plan-file-input");
@@ -133,7 +139,7 @@ describe("PlanFileManagerCard Component", () => {
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("set_active_plan", {
         relativePath: ".plan/feature-xyz.md",
-        repoPath: null,
+        repoPath: "C:\\mock\\repo",
       });
     });
   });
@@ -161,7 +167,7 @@ describe("PlanFileManagerCard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("plan-file-input")).toBeInTheDocument();
+      expect(screen.getByTestId("plan-file-input")).not.toBeDisabled();
     });
 
     const input = screen.getByTestId("plan-file-input");
@@ -178,7 +184,7 @@ describe("PlanFileManagerCard Component", () => {
           folder: ".plan",
           set_as_active: true,
         },
-        repoPath: null,
+        repoPath: "C:\\mock\\repo",
       });
     });
   });
@@ -232,7 +238,10 @@ describe("PlanFileManagerCard Component", () => {
     await user.click(screen.getByTestId("btn-select-folder"));
 
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("select_plan_folder_dialog", { repoPath: null });
+      expect(mockInvoke).toHaveBeenCalledWith("select_plan_folder_dialog", {
+        repoPath: "C:\\mock\\repo",
+        surface: "codex",
+      });
     });
   });
 
@@ -253,7 +262,7 @@ describe("PlanFileManagerCard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("plan-file-input")).toBeInTheDocument();
+      expect(screen.getByTestId("plan-file-input")).not.toBeDisabled();
     });
 
     const input = screen.getByTestId("plan-file-input");
@@ -632,7 +641,7 @@ describe("PlanFileManagerCard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("btn-refresh-plans")).toBeInTheDocument();
+      expect(screen.getByTestId("btn-refresh-plans")).not.toBeDisabled();
     });
 
     const refreshBtn = screen.getByTestId("btn-refresh-plans");
@@ -663,6 +672,60 @@ describe("PlanFileManagerCard Component", () => {
       expect(refreshPromiseResolved).toBe(true);
       expect(screen.getByTestId("btn-refresh-plans")).toHaveTextContent(/planManager\.refresh|再読込/i);
       expect(screen.getByTestId("btn-refresh-plans")).not.toBeDisabled();
+    });
+  });
+
+  it("displays noLocationWarning when both repoPath and configuredRoot are not set", async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_plan_manager_location") {
+        return Promise.resolve(null);
+      }
+      return Promise.resolve();
+    });
+
+    render(
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+        <PlanFileManagerCard surface="codex" repoPath={null} />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("no-location-warning")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("btn-refresh-plans")).toBeDisabled();
+    expect(mockInvoke).not.toHaveBeenCalledWith("list_available_plans", expect.anything());
+  });
+
+  it("clears selected folder and details when activeRepo changes", async () => {
+    let currentRepo = "C:\\mock\\repo1";
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "list_available_plans") {
+        return Promise.resolve(currentRepo === "C:\\mock\\repo1" ? mockPlanDetailsWithPlans : mockPlanDetailsEmpty);
+      }
+      return Promise.resolve();
+    });
+
+    const { rerender } = render(
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+        <PlanFileManagerCard surface="codex" repoPath="C:\\mock\\repo1" />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("active-plan-badge")).toBeInTheDocument();
+    });
+
+    // Re-render with new repoPath
+    currentRepo = "C:\\mock\\repo2";
+    rerender(
+      <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+        <PlanFileManagerCard surface="codex" repoPath="C:\\mock\\repo2" />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("active-plan-badge")).not.toBeInTheDocument();
+      expect(screen.getByTestId("no-active-plan-warning")).toBeInTheDocument();
     });
   });
 });

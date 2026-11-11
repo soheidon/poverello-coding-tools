@@ -1,6 +1,16 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+static REVIEWER_POLICY_SAVE_LOCK: Mutex<()> = Mutex::new(());
+
+pub(crate) fn with_reviewer_policy_save_lock<T>(operation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let _guard = REVIEWER_POLICY_SAVE_LOCK
+        .lock()
+        .map_err(|e| format!("Failed to acquire reviewer policy save lock: {e}"))?;
+    operation()
+}
 
 pub const CURRENT_REVIEWER_POLICY_SCHEMA_VERSION: u32 = 6;
 
@@ -108,6 +118,8 @@ pub struct ReviewerPolicyConfig {
     pub reviser_role: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_root_path: Option<String>,
 }
 
 impl Default for ReviewerPolicyConfig {
@@ -130,6 +142,7 @@ impl Default for ReviewerPolicyConfig {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         }
     }
 }
@@ -520,6 +533,7 @@ fn build_v2_migrated_config(old_policy: ReviewerPolicy) -> ReviewerPolicyConfig 
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         },
         ReviewerPolicy::CodexOnly => ReviewerPolicyConfig {
             schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
@@ -542,6 +556,7 @@ fn build_v2_migrated_config(old_policy: ReviewerPolicy) -> ReviewerPolicyConfig 
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         },
         ReviewerPolicy::DeepseekOnly => ReviewerPolicyConfig {
             schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
@@ -564,6 +579,7 @@ fn build_v2_migrated_config(old_policy: ReviewerPolicy) -> ReviewerPolicyConfig 
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         },
         ReviewerPolicy::CodexPlusDeepseek => ReviewerPolicyConfig {
             schema_version: CURRENT_REVIEWER_POLICY_SCHEMA_VERSION,
@@ -589,6 +605,7 @@ fn build_v2_migrated_config(old_policy: ReviewerPolicy) -> ReviewerPolicyConfig 
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         },
     }
 }
@@ -659,6 +676,7 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
             planner_role: None,
             reviser_role: None,
             content_hash: Some(hash),
+            plan_root_path: None,
         });
     }
 
@@ -708,6 +726,7 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
             planner_role: None,
             reviser_role: None,
             content_hash: Some(hash),
+            plan_root_path: None,
         });
     }
 
@@ -748,6 +767,7 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
             planner_role: None,
             reviser_role: None,
             content_hash: Some(hash),
+            plan_root_path: None,
         });
     }
 
@@ -792,6 +812,7 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
             planner_role,
             reviser_role,
             content_hash: Some(hash),
+            plan_root_path: None,
         });
     }
 
@@ -835,6 +856,7 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
             planner_role: None,
             reviser_role: None,
             content_hash: Some(hash),
+            plan_root_path: None,
         });
     }
 
@@ -863,6 +885,9 @@ pub(crate) fn save_reviewer_policy_internal<F>(
 where
     F: FnOnce() -> Result<(), String>,
 {
+    let _save_guard = REVIEWER_POLICY_SAVE_LOCK
+        .lock()
+        .map_err(|e| format!("Failed to acquire reviewer policy save lock: {e}"))?;
     validate_reviewer_policy_config(config)?;
 
     let compliance = inspect_workflow_skills_policy_compliance(skills_root)?;
@@ -1574,6 +1599,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         let err = validate_reviewer_policy_config(&config).unwrap_err();
         assert!(err.contains("not eligible for Codex reviewer"));
@@ -1602,6 +1628,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         let err = validate_reviewer_policy_config(&config).unwrap_err();
         assert!(err.contains("Reasoning effort 'ultra' is not supported"));
@@ -1633,6 +1660,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         let err = validate_reviewer_policy_config(&config).unwrap_err();
         assert!(err.contains("not eligible for DeepSeek reviewer"));
@@ -1664,6 +1692,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         let err = validate_reviewer_policy_config(&config).unwrap_err();
         assert!(err.contains("Reasoning effort 'medium' is not supported"));
@@ -1695,6 +1724,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         let err = validate_reviewer_policy_config(&config).unwrap_err();
         assert!(err.contains("priority_reviewer is required"));
@@ -1720,6 +1750,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         let err1 = validate_reviewer_policy_config(&none_config).unwrap_err();
         assert!(err1.contains("priority_reviewer must be null"));
@@ -1745,6 +1776,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         let err2 = validate_reviewer_policy_config(&codex_config).unwrap_err();
         assert!(err2.contains("priority_reviewer must be null"));
@@ -1770,6 +1802,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         let err3 = validate_reviewer_policy_config(&deepseek_config).unwrap_err();
         assert!(err3.contains("priority_reviewer must be null"));
@@ -1802,6 +1835,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         assert!(validate_reviewer_policy_config(&fast).is_ok());
 
@@ -1830,6 +1864,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         assert!(validate_reviewer_policy_config(&standard).is_ok());
 
@@ -1858,6 +1893,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         assert!(validate_reviewer_policy_config(&strict).is_ok());
     }
@@ -1889,6 +1925,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
 
         let err = save_reviewer_policy_at(&policy_path, &config, temp_skills.path(), None)
@@ -1939,6 +1976,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
 
         let saved_codex = save_reviewer_policy_at(
@@ -1978,6 +2016,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
 
         let saved_plus = save_reviewer_policy_at(
@@ -2020,6 +2059,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
 
         let saved_ds_only = save_reviewer_policy_at(
@@ -2078,6 +2118,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
 
         let updated = save_reviewer_policy_at(
@@ -2111,6 +2152,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
 
         let conflict_err = save_reviewer_policy_at(
@@ -2183,6 +2225,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
 
         let err = save_reviewer_policy_internal(
@@ -2327,6 +2370,7 @@ mod tests {
             planner_role: Some("antigravity".to_string()),
             reviser_role: Some("antigravity".to_string()),
             content_hash: None,
+            plan_root_path: None,
         };
 
         assert!(validate_reviewer_policy_config(&config).is_ok());
@@ -2373,6 +2417,7 @@ mod tests {
             planner_role: Some("antigravity".to_string()),
             reviser_role: Some("antigravity".to_string()),
             content_hash: None,
+            plan_root_path: None,
         };
 
         assert!(validate_reviewer_policy_config(&config).is_ok());
@@ -2415,6 +2460,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         assert!(validate_reviewer_policy_config(&config_antigravity).is_ok());
         let saved_ag = save_reviewer_policy_at(&policy_path, &config_antigravity, temp_skills.path(), None).unwrap();
@@ -2446,6 +2492,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         assert!(validate_reviewer_policy_config(&config_multi_external_missing_priority).is_err());
 
@@ -2493,6 +2540,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         assert!(validate_reviewer_policy_config(&config_all_three).is_ok());
         let saved_all = save_reviewer_policy_at(
@@ -2530,6 +2578,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
         assert!(validate_reviewer_policy_config(&config_none).is_ok());
         let saved_none = save_reviewer_policy_at(
@@ -2608,6 +2657,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
 
         assert!(validate_reviewer_policy_config(&config_inherit).is_ok());
@@ -2644,6 +2694,7 @@ mod tests {
             planner_role: None,
             reviser_role: None,
             content_hash: None,
+            plan_root_path: None,
         };
 
         assert!(validate_reviewer_policy_config(&config_individual).is_ok());

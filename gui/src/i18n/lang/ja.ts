@@ -1306,4 +1306,13 @@ export const translations: TranslationMap = {
   "planManager.btnConfirm": "確定",
   "planManager.confirming": "処理中...",
   "planManager.errorInvalidFileName": "無効なファイル名です（スラッシュやコロンは使用できません）",
+  "planManager.noLocationWarning": "プランフォルダの場所が未設定です。設定画面の「プランフォルダの場所」または「📁 プランフォルダ」からプロジェクトフォルダを選択してください。",
+  "planFolder.antigravityTitle": "プランフォルダの場所 (Antigravity Autocode)",
+  "planFolder.codexTitle": "プランフォルダの場所 (Codex Autocode)",
+  "planFolder.desc": "Autocode 画面の「プランフォルダ」ボタンを押したときに開く基準プロジェクトディレクトリを設定します。",
+  "planFolder.btnSelectFolder": "フォルダを選択",
+  "planFolder.btnReset": "リセット",
+  "planFolder.currentPathLabel": "現在の設定先:",
+  "planFolder.notConfigured": "未設定（自動検出されます）",
+  "planFolder.inputPlaceholder": "未設定（プロジェクトのパスを入力またはフォルダを選択）",
 };

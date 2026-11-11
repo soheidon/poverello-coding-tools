@@ -15271,11 +15271,10 @@ fn test_production_start_run_post_rename_reported_error_reconciliation() {
     let state_file = super::engine_run_state_path(&run_id).unwrap();
 
     // Inject post-rename reported error (§304.3 #4, §306.3 #2)
-    super::guards::INJECT_POST_RENAME_SAVE_ERROR.store(true, std::sync::atomic::Ordering::SeqCst);
+    let _save_error_injection =
+        super::guards::inject_post_rename_save_error_for(&state_file);
 
     let start_result = super::auto_converge_start_run(config);
-
-    super::guards::INJECT_POST_RENAME_SAVE_ERROR.store(false, std::sync::atomic::Ordering::SeqCst);
 
     // Production start run must succeed via CommittedAfterReportedError reconciliation
     assert!(
@@ -15341,11 +15340,10 @@ fn test_production_start_run_pre_rename_failure_not_committed() {
     let published_snapshot = auth_dir.join("recovery").join(&run_id);
 
     // Inject pre-rename failure
-    super::guards::INJECT_PRE_RENAME_SAVE_ERROR.store(true, std::sync::atomic::Ordering::SeqCst);
+    let _save_error_injection =
+        super::guards::inject_pre_rename_save_error_for(&state_file);
 
     let start_result = super::auto_converge_start_run(config);
-
-    super::guards::INJECT_PRE_RENAME_SAVE_ERROR.store(false, std::sync::atomic::Ordering::SeqCst);
 
     // Must return Err containing NotCommitted
     assert!(start_result.is_err());
@@ -15366,6 +15364,58 @@ fn test_production_start_run_pre_rename_failure_not_committed() {
         !published_snapshot.exists(),
         "Published snapshot must be cleaned up after NotCommitted"
     );
+}
+
+// T41C: failure injection is path-scoped and consumed only once for its target.
+#[test]
+fn test_run_state_save_failure_injection_is_path_scoped_and_one_shot() {
+    let dir = TempDir::new().unwrap();
+    let runner = MockCommandRunner::new();
+    let make_state = |run_id: &str| {
+        let mut config = default_test_config(standard_profile());
+        config.run_id = Some(run_id.to_string());
+        initialize_run(config, "head-1", vec![], &runner, FIXED_TIME).unwrap()
+    };
+
+    let mut state_a = make_state("save-failure-path-a");
+    let mut state_b = make_state("save-failure-path-b");
+    let path_a = dir.path().join("path-a").join("run_state.json");
+    let path_b = dir.path().join("path-b").join("run_state.json");
+
+    {
+        let _injection = super::guards::inject_pre_rename_save_error_for(&path_a);
+        save_run_state_authenticated(&path_b, &mut state_b).unwrap();
+        let error = save_run_state_authenticated(&path_a, &mut state_a).unwrap_err();
+        assert!(error.contains("Injected pre-rename save failure"));
+        assert!(!path_a.exists(), "Pre-rename failure must not commit path A");
+        save_run_state_authenticated(&path_a, &mut state_a)
+            .expect("the one-shot injection must be consumed only by path A");
+    }
+    load_and_verify_run_state_authenticated(&path_b, None)
+        .expect("path B remains valid after path A pre-rename injection");
+    load_and_verify_run_state_authenticated(&path_a, None)
+        .expect("path A retry succeeds after its one-shot pre-rename injection");
+
+    let mut state_a = make_state("save-failure-post-path-a");
+    let mut state_b = make_state("save-failure-post-path-b");
+    let path_a = dir.path().join("post-path-a").join("run_state.json");
+    let path_b = dir.path().join("post-path-b").join("run_state.json");
+
+    {
+        let _injection = super::guards::inject_post_rename_save_error_for(&path_a);
+        save_run_state_authenticated(&path_b, &mut state_b).unwrap();
+        let error = save_run_state_authenticated(&path_a, &mut state_a).unwrap_err();
+        assert!(error.contains("Injected post-rename reported error"));
+        assert!(path_a.exists(), "Post-rename failure must leave path A committed");
+        load_and_verify_run_state_authenticated(&path_a, None)
+            .expect("path A is committed and authenticated after post-rename error");
+        save_run_state_authenticated(&path_a, &mut state_a)
+            .expect("the one-shot injection must be consumed only by path A");
+    }
+    load_and_verify_run_state_authenticated(&path_b, None)
+        .expect("path B remains valid after path A post-rename injection");
+    load_and_verify_run_state_authenticated(&path_a, None)
+        .expect("path A retry remains authenticated after its one-shot post-rename injection");
 }
 
 // T41B: test_reconcile_run_state_save_error_outcomes_exhaustive

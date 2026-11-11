@@ -1,5 +1,12 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.27.2 — 2026-11-11
+
+### Plan Folder Location Settings
+- Added separate project-root settings for Antigravity Autocode and Codex Autocode in their respective Skills & Rules settings pages.
+- Added an editable path field with folder browsing and reset controls. Each configured root is used consistently for plan listing, selection, creation, and role/active-plan operations.
+- Removed the implicit current-working-directory fallback when a plan root is not configured, and added clear setup/error handling.
+
 ## v0.27.1 — 2026-11-09
 
 ### Application Updates & UI Improvements

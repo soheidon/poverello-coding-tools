@@ -15,6 +15,8 @@ Poverello Coding Tools (que aparece en la aplicación como **Poverello**) es una
 > [!TIP]
 > **Novedades:** Consulta [NEWS.md (Notas de la versión)](../NEWS.md) para ver las funciones, detalles de implementación y cambios de cada versión.
 
+La versión actual es **v0.27.2**. Antigravity Autocode y Codex Autocode tienen ubicaciones independientes para la carpeta de planes, configurables en sus respectivos ajustes de Skills & Rules. La ruta se puede editar, elegir con el selector de carpetas o restablecer; si no está configurada, no se recurre silenciosamente al directorio de trabajo de la aplicación.
+
 ---
 
 ## Cinco flujos de trabajo principales

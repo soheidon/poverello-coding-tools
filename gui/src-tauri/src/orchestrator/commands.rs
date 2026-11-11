@@ -231,7 +231,7 @@ fn build_run_engine<R: RunStartRuntime>(
     journal_manager: Option<Arc<super::recovery::JournalManager>>,
 ) -> OrchestratorEngine {
     #[cfg(test)]
-    AUDITED_ENGINE_BUILDS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    AUDITED_ENGINE_BUILDS.with(|count| count.set(count.get() + 1));
     runtime
         .create_engine()
         .with_direct_mcp_audit_callback(make_direct_mcp_audit_callback(
@@ -243,12 +243,13 @@ fn build_run_engine<R: RunStartRuntime>(
 /// Counts builds that went through `build_run_engine`, so tests can prove every
 /// production run-start path takes the audited route.
 #[cfg(test)]
-static AUDITED_ENGINE_BUILDS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
+thread_local! {
+    static AUDITED_ENGINE_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 #[cfg(test)]
 fn audited_engine_builds() -> usize {
-    AUDITED_ENGINE_BUILDS.load(std::sync::atomic::Ordering::SeqCst)
+    AUDITED_ENGINE_BUILDS.with(std::cell::Cell::get)
 }
 
 fn make_direct_mcp_audit_callback(

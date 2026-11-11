@@ -1303,4 +1303,13 @@ export const translations: TranslationMap = {
   "planManager.btnConfirm": "Confirmar",
   "planManager.confirming": "Procesando...",
   "planManager.errorInvalidFileName": "Nombre de archivo no válido (no se permiten barras ni dos puntos)",
+  "planManager.noLocationWarning": "La ubicación de la carpeta de planes no está configurada. Seleccione el directorio de su proyecto en el panel de configuración o mediante el botón 'Carpeta de planes'.",
+  "planFolder.antigravityTitle": "Ubicación de la carpeta del plan (Antigravity Autocode)",
+  "planFolder.codexTitle": "Ubicación de la carpeta del plan (Codex Autocode)",
+  "planFolder.desc": "Configure el directorio base del proyecto que se abrirá al hacer clic en el botón 'Carpeta de planes'.",
+  "planFolder.btnSelectFolder": "Seleccionar carpeta",
+  "planFolder.btnReset": "Restablecer",
+  "planFolder.currentPathLabel": "Ruta actual:",
+  "planFolder.notConfigured": "No configurado (detectado automáticamente)",
+  "planFolder.inputPlaceholder": "No configurado (ingrese la ruta del proyecto o seleccione carpeta)",
 };

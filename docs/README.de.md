@@ -15,6 +15,8 @@ Poverello Coding Tools (in der App als **Poverello** angezeigt) ist eine Windows
 > [!TIP]
 > **Neuigkeiten:** Versionsbezogene Funktionen, Implementierungsdetails und Änderungsprotokolle findest du in den [Release Notes (NEWS.md)](../NEWS.md).
 
+Die aktuelle Version ist **v0.27.2**. Antigravity Autocode und Codex Autocode haben jeweils einen eigenen Speicherort für den Planordner, der in den jeweiligen Skills-&-Rules-Einstellungen konfiguriert wird. Der Pfad kann bearbeitet, über den Ordnerdialog ausgewählt oder zurückgesetzt werden. Ist kein Speicherort konfiguriert, wird nicht stillschweigend das Arbeitsverzeichnis der App verwendet.
+
 ---
 
 ## Fünf Hauptarbeitsabläufe

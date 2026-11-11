@@ -6,6 +6,7 @@
 > **v0.26.1:** Nicht-interaktive CLI- und Node.js/npm-Statusprüfungen öffnen keine Konsolenfenster und verwenden beim Tabwechsel kurzlebige Cache-Ergebnisse erneut. Windows-Prozessinitialisierungsfehler wie `0xC0000142` werden ausdrücklich gemeldet; ein vom Benutzer gestarteter Login bleibt interaktiv.
 > **v0.26.2:** Codex Autocode trennt Codex' Arbeit in der aktuellen Sitzung von externen Reviewern. Der Prioritäts-Reviewer entscheidet nur bei widersprüchlichen gültigen Urteilen. Die Headless-Konfiguration und Tool-Beschränkungen des DeepSeek Harness belegen keine von Windows erzwungene Datei- oder Netzwerkisolation. Diagnoseprotokolle und sichere Updates historischer Skill-Vorlagen sind verfügbar.
 > **v0.27.0:** Ergänzt die repositorybezogene Auswahl eines Active Plans, separate Planner-/Reviser-Zuweisungen pro Oberfläche und eine Checkpoint-Fortsetzung mit strikter Identitäts- und Finding-Prüfung. Ergänzt Tencent-Hy4-Katalog- und Preismetadaten für OpenRouter; Antigravity-Nerf-Einstellungen werden in der GUI verwaltet und frühere Slash-Befehle eingestellt. Automatische App-Updates sind nicht aktiviert.
+> **v0.27.2:** Ergänzt separate Speicherorte für Planordner in Antigravity Autocode und Codex Autocode. Jede Oberfläche verwendet ihren Speicherort durchgängig für Planvorgänge und greift bei fehlender Konfiguration nicht stillschweigend auf das Arbeitsverzeichnis der App zurück.
 
 ## Überblick
 
@@ -139,6 +140,8 @@ Einstellungen (=):
 - Workflow Skills lesen die Rollenzuweisungen ihrer Oberfläche. Fehlt eine erforderliche Rolle, wird sie nicht unterstützt oder ist sie nicht verfügbar, stoppt der Workflow ohne stillen Rollenwechsel. Eine Rollenzuweisung startet keinen Agenten und umgeht keine Reviewer-Sicherheitsprüfungen.
 - Checkpoints im Active Plan speichern Workflow-Status, abgeschlossene Arbeiten, geänderte Dateien, Validierung, Review-Status und nächste Aktion. Vor dem Fortsetzen prüft Poverello Repository-Identität, Active-Plan-Pfad, Planrevision und Dateiidentität, ungelöste Findings sowie den Zustand geänderter Dateien. Bei Abweichungen wird die Fortsetzung blockiert.
 - Plan-Kandidaten, Audit-Ergänzungen und Checkpoint-Speicherungen verwenden CAS mit erwarteter Dateiidentität und SHA-256. Relevante IPC-Befehle sind `apply_plan_candidate`, `append_plan_audit_trail`, `save_plan_checkpoint`, `get_plan_checkpoint` und `verify_plan_resumption`.
+- Antigravity und Codex speichern jeweils einen unabhängigen Projektpfad in ihren Skills-&-Rules-Einstellungen. Der jeweilige Autocode-Planmanager verwendet ihn durchgängig zum Auflisten, Auswählen und Erstellen von Plänen sowie für Active Plan und Rollenzuweisungen. Ein fehlender oder ungültiger Pfad muss eingerichtet werden; das Arbeitsverzeichnis der App wird nicht stillschweigend verwendet.
+- Der Pfad kann direkt bearbeitet, über den Ordnerdialog ausgewählt oder zurückgesetzt werden. Bei Auswahl des Repository-Stammordners oder seines `.plan`-Ordners wird die Projektwurzel einheitlich normalisiert.
 
 ### Tencent Hy4 und Antigravity-Nerf-Einstellungen
 

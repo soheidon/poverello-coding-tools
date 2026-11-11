@@ -122,6 +122,8 @@ pub struct CodexReviewSettings {
     pub build_reviewers: Option<Vec<String>>,
     #[serde(default)]
     pub unconfirmed_migration: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_root_path: Option<String>,
 }
 
 impl Default for CodexReviewSettings {
@@ -150,6 +152,7 @@ impl Default for CodexReviewSettings {
             plan_reviewers: None,
             build_reviewers: Some(vec!["codex".to_string()]),
             unconfirmed_migration: false,
+            plan_root_path: None,
         }
     }
 }
@@ -587,6 +590,7 @@ pub fn get_codex_review_settings_at(codex_home: &Path) -> Result<CodexReviewSett
                 plan_reviewers: None,
                 build_reviewers: None,
                 unconfirmed_migration,
+                plan_root_path: None,
             }
         }
         2 => {
@@ -654,6 +658,7 @@ pub fn get_codex_review_settings_at(codex_home: &Path) -> Result<CodexReviewSett
                 plan_reviewers: None,
                 build_reviewers: None,
                 unconfirmed_migration,
+                plan_root_path: None,
             }
         }
         3 => {
@@ -720,6 +725,7 @@ pub fn get_codex_review_settings_at(codex_home: &Path) -> Result<CodexReviewSett
                 plan_reviewers: None,
                 build_reviewers: None,
                 unconfirmed_migration,
+                plan_root_path: None,
             }
         }
         4 => {
@@ -740,6 +746,7 @@ pub fn get_codex_review_settings_at(codex_home: &Path) -> Result<CodexReviewSett
                 plan_reviewers: None,
                 build_reviewers: None,
                 unconfirmed_migration: v4.unconfirmed_migration,
+                plan_root_path: None,
             }
         }
         5 => {
@@ -781,6 +788,13 @@ pub fn get_codex_review_settings_at(codex_home: &Path) -> Result<CodexReviewSett
 }
 
 static CODEX_SAVE_LOCK: Mutex<()> = Mutex::new(());
+
+pub(crate) fn with_codex_save_lock<T>(operation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let _guard = CODEX_SAVE_LOCK
+        .lock()
+        .map_err(|e| format!("Failed to acquire codex review settings lock: {e}"))?;
+    operation()
+}
 
 pub fn save_codex_review_settings(mut settings: CodexReviewSettings) -> Result<CodexReviewSettings, String> {
     let codex_home = resolve_codex_home()?;
@@ -943,6 +957,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(validate_codex_review_settings(&mut s0).is_ok());
         assert!(!s0.reviewers.codex);
@@ -970,6 +985,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(validate_codex_review_settings(&mut s_codex_pri_ext).is_err());
 
@@ -993,6 +1009,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(validate_codex_review_settings(&mut s_codex_pri_plus).is_ok());
         assert_eq!(s_codex_pri_plus.priority_reviewer.as_deref(), Some("codex"));
@@ -1013,6 +1030,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(validate_codex_review_settings(&mut s_ext_zero).is_err());
 
@@ -1036,6 +1054,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(validate_codex_review_settings(&mut s1).is_ok());
         assert_eq!(s1.priority_reviewer.as_deref(), Some("deepseek"));
@@ -1060,6 +1079,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(validate_codex_review_settings(&mut s2).is_ok());
         assert_eq!(s2.priority_reviewer.as_deref(), Some("gemini"));
@@ -1087,6 +1107,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(validate_codex_review_settings(&mut s_dep_gem).is_err());
 
@@ -1113,6 +1134,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(validate_codex_review_settings(&mut s_ok_gem).is_ok());
     }
@@ -1256,6 +1278,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: true,
+            plan_root_path: None,
         };
         // 1. Auto-save preserves unconfirmed_migration = true
         save_codex_review_settings_at(dir.path(), &mut s).unwrap();
@@ -1294,6 +1317,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(can_launch_external_reviews(&s_self).is_err());
 
@@ -1313,6 +1337,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(can_launch_external_reviews(&s_none).is_err());
 
@@ -1332,6 +1357,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: true,
+            plan_root_path: None,
         };
         assert!(can_launch_external_reviews(&s_unconf).is_err());
 
@@ -1351,6 +1377,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(can_launch_external_reviews(&s_valid).is_ok());
 
@@ -1370,6 +1397,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(can_launch_external_reviews(&s_valid_plus_codex).is_ok());
 
@@ -1389,6 +1417,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(can_launch_external_reviews(&s_valid_plus_dsh).is_ok());
     }
@@ -1413,6 +1442,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         save_codex_review_settings_at(dir.path(), &mut s_codex).unwrap();
 
@@ -1454,6 +1484,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         assert!(validate_codex_review_settings(&mut s).is_ok());
 
@@ -1496,6 +1527,7 @@ mod tests {
             plan_reviewers: None,
             build_reviewers: None,
             unconfirmed_migration: false,
+            plan_root_path: None,
         };
         save_codex_review_settings_at(dir.path(), &mut s).unwrap();
 

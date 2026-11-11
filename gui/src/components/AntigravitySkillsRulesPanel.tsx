@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n";
+import PlanFolderLocationCard from "./PlanFolderLocationCard";
 import type {
   AntigravityCommandsInfo,
   AntigravityCommandItemInfo,
@@ -182,6 +183,9 @@ export default function AntigravitySkillsRulesPanel() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* ── CARD 0: Plan Folder Location ── */}
+      <PlanFolderLocationCard surface="antigravity" />
+
       {/* ── CARD 1: Workflow Commands ── */}
       <div className="settings-tile">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>

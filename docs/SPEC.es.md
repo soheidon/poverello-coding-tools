@@ -6,6 +6,7 @@
 > **v0.26.1:** Las comprobaciones no interactivas del estado de las CLI y de Node.js/npm no abren ventanas de consola y reutilizan resultados de caché de corta duración al cambiar de pestaña. Los errores de inicialización de procesos de Windows, incluido `0xC0000142`, se notifican explícitamente; el inicio de sesión solicitado por el usuario sigue siendo interactivo.
 > **v0.26.2:** Codex Autocode separa el trabajo de Codex en su sesión actual de los revisores externos. El revisor prioritario solo decide entre veredictos válidos en conflicto. La configuración headless y las restricciones de herramientas de DeepSeek Harness no prueban el aislamiento de archivos o red impuesto por Windows. Se incluyen diagnósticos y actualizaciones seguras de plantillas históricas de Skills.
 > **v0.27.0:** Añade la selección de Active Plan por repositorio, asignaciones de Planner / Reviser por interfaz y reanudación mediante puntos de control con comprobaciones estrictas de identidad y hallazgos pendientes. Añade metadatos de catálogo y precios de Tencent Hy4 para OpenRouter; los ajustes Nerf de Antigravity se gestionan en la GUI y se retiran los antiguos comandos slash. La actualización automática de la aplicación no está habilitada.
+> **v0.27.2:** Añade ubicaciones independientes para la carpeta de planes de Antigravity Autocode y Codex Autocode. Cada ubicación se utiliza de forma coherente en las operaciones de planes y, si no está configurada, no se recurre silenciosamente al directorio de trabajo de la aplicación.
 
 ## Resumen
 
@@ -139,6 +140,8 @@ Configuración (=):
 - Los Workflow Skills leen las asignaciones de su interfaz. Si falta un rol requerido, no es compatible o no está disponible, el flujo se detiene sin cambiar silenciosamente a otro rol. La asignación no inicia agentes ni evita los controles de seguridad de revisión.
 - Los puntos de control del Active Plan guardan el estado del flujo, el trabajo completado, los archivos modificados, la validación, el estado de revisión y la siguiente acción. Antes de reanudar se verifican la identidad del repositorio, la ruta del Active Plan, la revisión e identidad del archivo, los hallazgos pendientes y el estado de los archivos modificados. Cualquier discrepancia bloquea la reanudación.
 - Los cambios de planes candidatos, las entradas de auditoría y los puntos de control utilizan CAS con la identidad de archivo y el SHA-256 esperados. Los comandos IPC relacionados incluyen `apply_plan_candidate`, `append_plan_audit_trail`, `save_plan_checkpoint`, `get_plan_checkpoint` y `verify_plan_resumption`.
+- Antigravity y Codex guardan ubicaciones de proyecto independientes en sus ajustes de Skills & Rules. El gestor de planes del Autocode correspondiente las usa para listar, seleccionar y crear planes, así como para Active Plan y las asignaciones de roles. Una ubicación ausente o no válida debe configurarse explícitamente; no se utiliza silenciosamente el directorio de trabajo de la aplicación.
+- La ruta se puede editar directamente, elegir con el selector de carpetas o restablecer. La raíz se normaliza tanto si se selecciona la raíz del repositorio como su carpeta `.plan`.
 
 ### Tencent Hy4 y ajustes Nerf de Antigravity
 

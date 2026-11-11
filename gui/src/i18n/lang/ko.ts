@@ -1302,4 +1302,13 @@ export const translations: TranslationMap = {
   "planManager.btnConfirm": "확정",
   "planManager.confirming": "처리 중...",
   "planManager.errorInvalidFileName": "잘못된 파일 이름입니다 (슬래시 및 콜론은 사용할 수 없습니다)",
+  "planManager.noLocationWarning": "플랜 폴더 위치가 설정되지 않았습니다. 설정 화면의 '플랜 폴더 위치' 또는 '플랜 폴더' 버튼에서 프로젝트 폴더를 선택해주세요.",
+  "planFolder.antigravityTitle": "플랜 폴더 위치 (Antigravity Autocode)",
+  "planFolder.codexTitle": "플랜 폴더 위치 (Codex Autocode)",
+  "planFolder.desc": "Autocode 화면에서 '플랜 폴더' 버튼을 클릭했을 때 열릴 기본 프로젝트 디렉터리를 설정합니다.",
+  "planFolder.btnSelectFolder": "폴더 선택",
+  "planFolder.btnReset": "초기화",
+  "planFolder.currentPathLabel": "현재 설정 경로:",
+  "planFolder.notConfigured": "미설정 (자동 감지됨)",
+  "planFolder.inputPlaceholder": "미설정 (프로젝트 경로 입력 또는 폴더 선택)",
 };

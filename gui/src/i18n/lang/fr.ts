@@ -1303,4 +1303,13 @@ export const translations: TranslationMap = {
   "planManager.btnConfirm": "Confirmer",
   "planManager.confirming": "Traitement...",
   "planManager.errorInvalidFileName": "Nom de fichier non valide (barres obliques et deux-points non autorisés)",
+  "planManager.noLocationWarning": "L'emplacement du dossier de plans n'est pas configuré. Veuillez sélectionner le répertoire de votre projet dans les paramètres ou via le bouton 'Dossier des plans'.",
+  "planFolder.antigravityTitle": "Emplacement du dossier de plans (Antigravity Autocode)",
+  "planFolder.codexTitle": "Emplacement du dossier de plans (Codex Autocode)",
+  "planFolder.desc": "Configurez le répertoire de base du projet à ouvrir lors du clic sur le bouton 'Dossier des plans'.",
+  "planFolder.btnSelectFolder": "Sélectionner un dossier",
+  "planFolder.btnReset": "Réinitialiser",
+  "planFolder.currentPathLabel": "Chemin actuel :",
+  "planFolder.notConfigured": "Non configuré (détection automatique)",
+  "planFolder.inputPlaceholder": "Non configuré (entrez le chemin du projet ou sélectionnez un dossier)",
 };

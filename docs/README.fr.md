@@ -15,6 +15,8 @@ Poverello Coding Tools (affiché dans l’application sous le nom **Poverello**)
 > [!TIP]
 > **Nouveautés :** Consultez [NEWS.md (notes de version)](../NEWS.md) pour les fonctionnalités, détails d'implémentation et changements de chaque version.
 
+La version actuelle est **v0.27.2**. Antigravity Autocode et Codex Autocode disposent chacun d’un emplacement de dossier de plans indépendant, réglable dans leurs paramètres Skills & Rules. Le chemin peut être saisi, choisi avec le sélecteur de dossiers ou réinitialisé ; aucun repli implicite vers le répertoire de travail de l’application n’a lieu si l’emplacement n’est pas configuré.
+
 ---
 
 ## Cinq flux de travail principaux

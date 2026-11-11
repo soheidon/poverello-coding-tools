@@ -1303,4 +1303,13 @@ export const translations: TranslationMap = {
   "planManager.btnConfirm": "确定",
   "planManager.confirming": "处理中...",
   "planManager.errorInvalidFileName": "无效的文件名（不允许使用斜杠和冒号）",
+  "planManager.noLocationWarning": "计划文件夹位置未设置。请在设置界面的“计划文件夹位置”或通过“计划文件夹”按钮选择项目文件夹。",
+  "planFolder.antigravityTitle": "计划文件夹位置 (Antigravity Autocode)",
+  "planFolder.codexTitle": "计划文件夹位置 (Codex Autocode)",
+  "planFolder.desc": "设置在 Autocode 界面点击“计划文件夹”按钮时打开的基准项目目录。",
+  "planFolder.btnSelectFolder": "选择文件夹",
+  "planFolder.btnReset": "重置",
+  "planFolder.currentPathLabel": "当前设置路径：",
+  "planFolder.notConfigured": "未设置（自动检测）",
+  "planFolder.inputPlaceholder": "未配置（输入项目路径或选择文件夹）",
 };

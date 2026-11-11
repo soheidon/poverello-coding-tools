@@ -1302,4 +1302,13 @@ export const translations: TranslationMap = {
   "planManager.btnConfirm": "確定",
   "planManager.confirming": "處理中...",
   "planManager.errorInvalidFileName": "無效的檔案名稱（不允許使用斜線和冒號）",
+  "planManager.noLocationWarning": "計畫資料夾位置未設定。請在設定畫面的「計畫資料夾位置」或透過「計畫資料夾」按鈕選取專案資料夾。",
+  "planFolder.antigravityTitle": "計畫資料夾位置 (Antigravity Autocode)",
+  "planFolder.codexTitle": "計畫資料夾位置 (Codex Autocode)",
+  "planFolder.desc": "設定在 Autocode 畫面點選「計畫資料夾」按鈕時開啟的基準專案目錄。",
+  "planFolder.btnSelectFolder": "選取資料夾",
+  "planFolder.btnReset": "重設",
+  "planFolder.currentPathLabel": "目前設定路徑：",
+  "planFolder.notConfigured": "未設定（自動偵測）",
+  "planFolder.inputPlaceholder": "未設定（輸入專案路徑或選取資料夾）",
 };

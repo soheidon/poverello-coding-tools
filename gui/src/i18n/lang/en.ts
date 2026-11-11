@@ -1304,6 +1304,15 @@ export const translations = {
   "planManager.btnConfirm": "Confirm",
   "planManager.confirming": "Processing...",
   "planManager.errorInvalidFileName": "Invalid file name (slashes and colons are not allowed)",
+  "planManager.noLocationWarning": "Plan folder location is not configured. Please select your project directory in the settings panel or via the 'Plan Folder' button.",
+  "planFolder.antigravityTitle": "Plan Folder Location (Antigravity Autocode)",
+  "planFolder.codexTitle": "Plan Folder Location (Codex Autocode)",
+  "planFolder.desc": "Configure the base project directory to open when clicking the 'Plan Folder' button on the Autocode screen.",
+  "planFolder.btnSelectFolder": "Select Folder",
+  "planFolder.btnReset": "Reset",
+  "planFolder.currentPathLabel": "Current Path:",
+  "planFolder.notConfigured": "Not configured (auto-detected)",
+  "planFolder.inputPlaceholder": "Unconfigured (enter project path or select folder)",
 } as const;
 
 export type TranslationKey = keyof typeof translations;

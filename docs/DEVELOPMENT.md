@@ -165,5 +165,7 @@ Before creating a release, verify the following:
 - [ ] Reviewer diagnostic JSONL contains no prompts, response bodies, or credentials; retention/rotation and export filtering match the implementation.
 - [ ] Historical Codex Skill template updates distinguish verified releases from unknown/modified files and preserve backups; tests use synthetic directories, not the user's installed Skills.
 - [ ] Settings > Codex Skills & Rules preserves content outside Poverello's marked `AGENTS.md` block and reports when `AGENTS.override.md` shadows the managed rules.
+- [ ] Configure, save, edit, browse, and reset the plan-folder root independently for Antigravity and Codex; confirm the selected root is used consistently for plan listing, selection, creation, and role assignment.
+- [ ] Change the configured root and confirm stale selections from the previous root are cleared. With the root unset or invalid, confirm the UI requests configuration and does not silently use the application's current working directory.
 - [ ] Settings > CLI Tools shows Node.js/npm prerequisites separately from CLI installation and authentication status; verify that Node.js is not installed automatically.
 - [ ] Non-interactive CLI and Node.js/npm status probes do not show console windows, repeated tab navigation reuses bounded cached results, explicit refresh invalidates the relevant cache, and user-requested login remains interactive. Verify that initialization errors such as `0xC0000142` are surfaced rather than treated as success.

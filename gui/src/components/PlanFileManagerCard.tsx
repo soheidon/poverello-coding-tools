@@ -48,6 +48,35 @@ export default function PlanFileManagerCard({
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [configuredRoot, setConfiguredRoot] = useState<string | null>(repoPath ?? null);
+  const [locationLoaded, setLocationLoaded] = useState<boolean>(!!repoPath);
+
+  useEffect(() => {
+    if (repoPath) {
+      setConfiguredRoot(repoPath);
+      setLocationLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    void invoke<string | null>("get_plan_manager_location", { surface })
+      .then((loc) => {
+        if (!cancelled) {
+          setConfiguredRoot(loc);
+          setLocationLoaded(true);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(String(e));
+          setLocationLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [repoPath, surface]);
+
+  const activeRepo = repoPath ?? configuredRoot ?? null;
 
   // Keep role assignments scoped to this repository and Autocode surface.
   const [currentPlannerRole, setCurrentPlannerRole] = useState<string | null>(plannerRole || null);
@@ -59,8 +88,9 @@ export default function PlanFileManagerCard({
   useEffect(() => { onRolesChangedRef.current = onRolesChanged; }, [onRolesChanged]);
 
   useEffect(() => {
+    if (!locationLoaded || !activeRepo) return;
     let cancelled = false;
-    void invoke<{ planner_id: string | null; reviser_id: string | null }>("get_plan_role_assignment", { surface, repoPath: repoPath ?? null })
+    void invoke<{ planner_id: string | null; reviser_id: string | null }>("get_plan_role_assignment", { surface, repoPath: activeRepo })
       .then((assignment) => {
         if (cancelled) return;
         setCurrentPlannerRole(assignment.planner_id);
@@ -73,7 +103,7 @@ export default function PlanFileManagerCard({
       })
       .catch((e) => { if (!cancelled) setError(String(e)); });
     return () => { cancelled = true; };
-  }, [surface, repoPath]);
+  }, [surface, activeRepo, locationLoaded]);
 
   // Keep callback and activePlanPath references in refs to avoid re-render loops
   const onActivePlanChangedRef = useRef(onActivePlanChanged);
@@ -114,7 +144,7 @@ export default function PlanFileManagerCard({
       setError(null);
       const targetFolder = folderOverride !== undefined ? folderOverride : selectedFolderRef.current;
       const res = await invoke<PlanFileDetails>("list_available_plans", {
-        repoPath: repoPath ?? null,
+        repoPath: activeRepo,
         folderPath: targetFolder ?? null,
       });
       setDetails(res);
@@ -138,11 +168,25 @@ export default function PlanFileManagerCard({
     } finally {
       setLoading(false);
     }
-  }, [repoPath]);
+  }, [activeRepo]);
 
+  const prevRepoRef = useRef<string | null>(activeRepo);
   useEffect(() => {
+    if (!locationLoaded) return;
+    if (prevRepoRef.current !== activeRepo) {
+      prevRepoRef.current = activeRepo;
+      setSelectedFolder(null);
+      selectedFolderRef.current = null;
+      setInputFileName("");
+      setDetails(null);
+    }
+    if (!activeRepo) {
+      setDetails(null);
+      setLoading(false);
+      return;
+    }
     void loadPlans();
-  }, [loadPlans]);
+  }, [locationLoaded, activeRepo, loadPlans]);
 
   const handleManualRefresh = async () => {
     if (!selectedFolder) return;
@@ -157,8 +201,13 @@ export default function PlanFileManagerCard({
   const handleSelectFolder = async () => {
     try {
       setError(null);
+      if (!activeRepo) {
+        setError(t("planManager.noLocationWarning"));
+        return;
+      }
       const picked = await invoke<string | null>("select_plan_folder_dialog", {
-        repoPath: repoPath ?? null,
+        repoPath: activeRepo,
+        surface,
       });
       if (picked) {
         setSelectedFolder(picked);
@@ -196,7 +245,7 @@ export default function PlanFileManagerCard({
       if (existing) {
         const res = await invoke<PlanFileDetails>("set_active_plan", {
           relativePath: existing.relative_path,
-          repoPath: repoPath ?? null,
+          repoPath: activeRepo,
         });
         setDetails(res);
         setActionMessage(`${t("planManager.planActivated") || "計画書を設定しました"}: ${cleanName}`);
@@ -210,7 +259,7 @@ export default function PlanFileManagerCard({
             folder: selectedFolder,
             set_as_active: true,
           },
-          repoPath: repoPath ?? null,
+          repoPath: activeRepo,
         });
         setDetails(res);
         setActionMessage(`${t("planManager.planCreated") || "新しい計画書を作成しました"}: ${cleanName}`);
@@ -248,7 +297,7 @@ export default function PlanFileManagerCard({
       try {
         await invoke("set_plan_role_assignment", {
           surface,
-          repoPath: repoPath ?? null,
+          repoPath: activeRepo,
           assignment: { planner_id: target.plannerRole, reviser_id: target.reviserRole },
         });
         if (sequence === roleSaveSequenceRef.current) setError(null);
@@ -258,7 +307,7 @@ export default function PlanFileManagerCard({
         try {
           const stored = await invoke<{ planner_id: string | null; reviser_id: string | null }>("get_plan_role_assignment", {
             surface,
-            repoPath: repoPath ?? null,
+            repoPath: activeRepo,
           });
           if (sequence === roleSaveSequenceRef.current) {
             roleAssignmentRef.current = { plannerRole: stored.planner_id, reviserRole: stored.reviser_id };
@@ -372,6 +421,29 @@ export default function PlanFileManagerCard({
       {error && (
         <div style={{ padding: "6px 10px", marginBottom: 8, backgroundColor: "#fef2f2", color: "#991b1b", borderRadius: 6, fontSize: 12 }}>
           {error}
+        </div>
+      )}
+      {!activeRepo && locationLoaded && (
+        <div
+          data-testid="no-location-warning"
+          style={{
+            padding: "8px 12px",
+            marginBottom: 8,
+            backgroundColor: "#fff8c5",
+            border: "1px solid #d4a72c",
+            borderRadius: 6,
+            fontSize: 12,
+            color: "#573a08",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <span aria-hidden="true">⚠️</span>
+          <span>
+            {t("planManager.noLocationWarning") ||
+              "プランフォルダの場所が未設定です。上部の「プランフォルダの場所」設定または「📁 プランフォルダ」からプロジェクトフォルダを選択してください。"}
+          </span>
         </div>
       )}
 

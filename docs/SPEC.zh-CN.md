@@ -6,6 +6,7 @@
 > **v0.26.1：** 非交互式 CLI 和 Node.js/npm 状态检查不会打开控制台窗口，并会在切换标签页时复用短时缓存结果。Windows 的进程初始化错误（包括 `0xC0000142`）会明确报告；用户主动发起的登录仍使用交互式终端。
 > **v0.26.2：** Codex Autocode 区分 Codex 在当前会话中的工作与外部审查器。优先审查器只裁定有效判定之间的分歧。DeepSeek Harness 的 headless 配置和工具限制不能证明 Windows 操作系统层面的文件系统或网络隔离。新增诊断日志和历史 Skill 模板的安全更新。
 > **v0.27.0：** 新增按仓库选择 Active Plan、按界面分配 Planner / Reviser，以及在恢复前严格检查身份与未解决问题的检查点机制。新增 OpenRouter Tencent Hy4 模型与价格元数据；Antigravity Nerf 设置集中到 GUI，并停用旧斜杠命令。自动应用更新尚未启用。
+> **v0.27.2：** 为 Antigravity Autocode 和 Codex Autocode 添加相互独立的计划文件夹位置设置。各位置会一致地用于计划操作；未配置时不会默默回退到应用程序的工作目录。
 
 ## 概述
 
@@ -139,6 +140,8 @@ Tauri v2 + React 19 + TypeScript。顶层导航包含 Gateway（仪表板）、M
 - Workflow Skills 会读取各界面的角色分配。必要角色缺失、不受支持或不可用时，工作流会停止，不会隐式切换角色。角色分配本身不会启动代理，也不会绕过审查安全门。
 - 检查点保存在 Active Plan 中，记录工作流状态、已完成工作、修改文件、验证结果、审查状态和下一步操作。恢复前会验证仓库身份、Active Plan 路径、计划 revision 与文件身份、未解决问题及修改文件状态；任何不匹配都会安全停止。
 - 计划候选写入、审计追加和检查点保存均使用预期文件身份与 SHA-256 双重 CAS。相关 IPC 命令包括 `apply_plan_candidate`、`append_plan_audit_trail`、`save_plan_checkpoint`、`get_plan_checkpoint` 和 `verify_plan_resumption`。
+- Antigravity 和 Codex 分别在各自的 Skills & Rules 设置中保存项目位置。对应的 Autocode 计划管理器会在计划列表、选择、创建以及 Active Plan 和角色分配操作中一致地使用该位置。位置未设置或无效时会要求明确配置，不会默默使用应用程序的工作目录。
+- 路径支持直接编辑、通过文件夹选择器指定或重置。无论选择仓库根目录还是其 `.plan` 文件夹，都会统一规范化项目根路径。
 
 ### Tencent Hy4 与 Antigravity Nerf 设置
 

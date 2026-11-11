@@ -6,6 +6,7 @@
 > **v0.26.1:** 非対話のCLI・Node.js/npm状態確認ではコンソールを表示せず、タブ切替時は短時間のキャッシュ結果を再利用します。`0xC0000142`などのWindowsプロセス初期化エラーを明示し、ユーザーが開始するログイン端末は引き続き対話式で表示します。
 > **v0.26.2:** Codex AutocodeではCodexの同一セッション内作業と外部Reviewerを区別し、有効な判定の不一致に限って優先Reviewerで裁定します。DeepSeekのheadless設定やツール制限はWindows OSレベルのファイルシステム・ネットワーク隔離を証明しません。診断ログと、履歴のあるSkillテンプレートの安全な更新に対応します。
 > **v0.27.0:** リポジトリ単位のActive Plan、画面別Planner / Reviser割当、同一性と指摘をfail-closedで検査するチェックポイント再開を追加します。OpenRouter Tencent Hy4のモデル・料金メタデータを追加し、Antigravity Nerf設定をGUIへ集約して旧スラッシュコマンドを廃止します。自動アップデートは有効化されていません。
+> **v0.27.2:** Antigravity AutocodeとCodex Autocodeに、独立したプランフォルダー基準場所の設定を追加します。プラン操作全体で設定場所を一貫して使い、未設定時にアプリの作業ディレクトリへ暗黙にフォールバックしません。
 
 ## 概要
 
@@ -144,6 +145,8 @@ Tauri v2 + React 19 + TypeScript。トップレベルナビゲーション: Gate
 - Active Planファイルはリポジトリごとに1つ選択し、Codex AutocodeとAntigravity Autocodeで共有します。PlannerとReviserは画面ごとに別々に保存し、Reviewer設定は既存のレビュー設定を参照します。
 - Workflow Skillsは画面ごとの担当割当を読み込みます。必要な担当が未設定、非対応、または利用できない場合は、暗黙に別担当へ切り替えず停止します。担当割当自体がエージェントを起動したり、Reviewerの安全ゲートを迂回したりすることはありません。
 - チェックポイントはActive Plan内にワークフロー状態、完了作業、変更ファイル、検証結果、レビュー状態、次の操作を保存します。再開前にリポジトリ同一性、Active Planのパス、計画revisionとfile identity、未解決指摘、変更ファイル状態を検査し、不一致があれば停止します。
+- AntigravityとCodexは、それぞれのSkills & Rules設定で独立したプロジェクトルートを保存します。対応するAutocodeのプラン一覧、選択、作成、Active Planと役割割当は、そのルートを一貫して使用します。未設定・無効時は設定を促し、アプリの作業ディレクトリを暗黙に使いません。
+- ルートパスは直接編集、フォルダー選択、リセットができます。リポジトリルートまたはその`.plan`フォルダーを選んだ場合、プラン管理用ルートを正規化します。
 - 計画候補の反映、監査追記、チェックポイント保存は、期待file identityとSHA-256の両方を使うCASで保護します。関連IPCは `apply_plan_candidate`、`append_plan_audit_trail`、`save_plan_checkpoint`、`get_plan_checkpoint`、`verify_plan_resumption` です。
 
 ### Tencent Hy4 と Antigravity Nerf設定

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n";
+import PlanFolderLocationCard from "./PlanFolderLocationCard";
 import type {
   CodexSkillsStatus,
   CodexSkillItemInfo,
@@ -215,6 +216,9 @@ export default function CodexSkillsRulesPanel() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }} data-testid="codex-skills-rules-panel">
+      {/* ── CARD 0: Plan Folder Location ── */}
+      <PlanFolderLocationCard surface="codex" />
+
       {/* ── CARD 1: Codex Workflow Skills ── */}
       <div className="settings-tile" data-testid="codex-skills-card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
