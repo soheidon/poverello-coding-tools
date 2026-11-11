@@ -7858,6 +7858,97 @@ fn select_plan_folder_dialog(
     }
 }
 
+fn validate_selected_plan_file(
+    canonical_repo: &std::path::Path,
+    path: &std::path::Path,
+) -> Result<String, String> {
+    if !path.is_file() {
+        return Err("Selected path is not a file".to_string());
+    }
+
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if !ext.eq_ignore_ascii_case("md") {
+        return Err("Selected file must have a .md extension".to_string());
+    }
+
+    let canonical_picked = path
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize picked file: {e}"))?;
+    if !canonical_picked.starts_with(canonical_repo) {
+        return Err("Selected file must be inside the repository root".to_string());
+    }
+
+    let rel = canonical_picked
+        .strip_prefix(canonical_repo)
+        .map_err(|e| e.to_string())?;
+    let rel_str = rel.to_string_lossy().replace('\\', "/");
+    if rel_str.is_empty() {
+        return Err("Selected file path is invalid".to_string());
+    }
+
+    plan_manager::validate_plan_path(canonical_repo, &rel_str)?;
+
+    Ok(rel_str)
+}
+
+#[tauri::command]
+fn select_plan_file_dialog(
+    repo_path: Option<String>,
+    surface: Option<String>,
+    dialog_title: Option<String>,
+) -> Result<Option<String>, String> {
+    let target_repo = if let Some(p) = repo_path.filter(|p| !p.trim().is_empty()) {
+        Some(p)
+    } else if let Some(s) = surface {
+        get_plan_manager_location(s)?
+    } else {
+        None
+    };
+
+    let effective_target = match target_repo {
+        Some(p) => p,
+        None => {
+            return Err("Plan folder location is not configured. Please set the plan folder location in Skill & Rules settings first.".to_string());
+        }
+    };
+
+    let repo_root = plan_manager::resolve_repo_root(Some(&effective_target))?;
+    let canonical_repo = repo_root
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        let starting_dir = if repo_root.join(plan_manager::PLAN_DIR_NAME).is_dir() {
+            repo_root.join(plan_manager::PLAN_DIR_NAME)
+        } else {
+            repo_root.clone()
+        };
+
+        let title = dialog_title
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| "Select Plan File".to_string());
+
+        let picked = rfd::FileDialog::new()
+            .set_title(&title)
+            .set_directory(&starting_dir)
+            .add_filter("Markdown Plan File", &["md"])
+            .pick_file();
+
+        if let Some(path) = picked {
+            let rel_str = validate_selected_plan_file(&canonical_repo, &path)?;
+            Ok(Some(rel_str))
+        } else {
+            Ok(None)
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = dialog_title;
+        Ok(None)
+    }
+}
+
 #[tauri::command]
 fn get_active_plan(
     repo_path: Option<String>,
@@ -10965,6 +11056,7 @@ pub fn run() {
             set_plan_manager_location,
             select_plan_root_dialog,
             select_plan_folder_dialog,
+            select_plan_file_dialog,
             get_active_plan,
             set_active_plan,
             get_plan_role_assignment,
@@ -20626,6 +20718,60 @@ mod tests {
         let res2 = select_plan_folder_dialog(empty_repo, None);
         assert!(res2.is_err());
         assert!(res2.unwrap_err().contains("not configured"));
+    }
+
+    #[test]
+    fn test_select_plan_file_dialog_rejects_unconfigured_location_without_cwd_fallback() {
+        let res = select_plan_file_dialog(None, None, None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("not configured"));
+
+        let empty_repo = Some("   ".to_string());
+        let res2 = select_plan_file_dialog(empty_repo, None, None);
+        assert!(res2.is_err());
+        assert!(res2.unwrap_err().contains("not configured"));
+    }
+
+    #[test]
+    fn test_validate_selected_plan_file_suite() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let canonical_repo = temp_dir.path().canonicalize().unwrap();
+
+        // 1. Valid markdown file in root
+        let plan_file = canonical_repo.join("plan1.md");
+        std::fs::write(&plan_file, "# Plan 1").unwrap();
+        let res = validate_selected_plan_file(&canonical_repo, &plan_file);
+        assert_eq!(res.unwrap(), "plan1.md");
+
+        // 2. Valid markdown file in subfolder (.plan)
+        let plan_dir = canonical_repo.join(".plan");
+        std::fs::create_dir_all(&plan_dir).unwrap();
+        let sub_plan = plan_dir.join("subplan.md");
+        std::fs::write(&sub_plan, "# Sub Plan").unwrap();
+        let res_sub = validate_selected_plan_file(&canonical_repo, &sub_plan);
+        assert_eq!(res_sub.unwrap(), ".plan/subplan.md");
+
+        // 3. Reject non-markdown file (.txt)
+        let txt_file = canonical_repo.join("notes.txt");
+        std::fs::write(&txt_file, "notes").unwrap();
+        let res_txt = validate_selected_plan_file(&canonical_repo, &txt_file);
+        assert!(res_txt.is_err());
+        assert!(res_txt.unwrap_err().contains(".md extension"));
+
+        // 4. Reject directory
+        let dir_path = canonical_repo.join("my-dir");
+        std::fs::create_dir_all(&dir_path).unwrap();
+        let res_dir = validate_selected_plan_file(&canonical_repo, &dir_path);
+        assert!(res_dir.is_err());
+        assert!(res_dir.unwrap_err().contains("not a file"));
+
+        // 5. Reject file outside repo root
+        let outside_temp = tempfile::tempdir().unwrap();
+        let outside_file = outside_temp.path().join("outside.md");
+        std::fs::write(&outside_file, "# Outside").unwrap();
+        let res_outside = validate_selected_plan_file(&canonical_repo, &outside_file);
+        assert!(res_outside.is_err());
+        assert!(res_outside.unwrap_err().contains("inside the repository root"));
     }
 
     #[test]

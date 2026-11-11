@@ -96,9 +96,10 @@ export default function PlanFolderLocationCard({ surface }: PlanFolderLocationCa
   };
 
   const title =
-    surface === "antigravity"
-      ? t("planFolder.antigravityTitle") || "プランフォルダの場所 (Antigravity Autocode)"
-      : t("planFolder.codexTitle") || "プランフォルダの場所 (Codex Autocode)";
+    t("planFolder.title") ||
+    (surface === "antigravity"
+      ? t("planFolder.antigravityTitle") || "プランフォルダの場所"
+      : t("planFolder.codexTitle") || "プランフォルダの場所");
 
   const placeholder =
     t("planFolder.inputPlaceholder") ||
@@ -148,7 +149,7 @@ export default function PlanFolderLocationCard({ surface }: PlanFolderLocationCa
 
       <p style={{ margin: "0 0 10px 0", fontSize: 12, color: "#656d76" }}>
         {t("planFolder.desc") ||
-          "Autocode 画面の「プランフォルダ」ボタンを押したときに開く基準プロジェクトディレクトリを設定します。"}
+          "「プランフォルダ」ボタンを押したときに開く基準プロジェクトディレクトリを設定します。"}
       </p>
 
       {error && (

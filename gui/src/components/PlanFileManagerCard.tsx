@@ -202,18 +202,40 @@ export default function PlanFileManagerCard({
     try {
       setError(null);
       if (!activeRepo) {
-        setError(t("planManager.noLocationWarning"));
+        // 未設定時はプロジェクトフォルダ選択ダイアログを開く
+        const picked = await invoke<string | null>("select_plan_root_dialog", {
+          surface,
+        });
+        if (picked) {
+          // select_plan_root_dialog persists and normalizes the selected root.
+          setConfiguredRoot(picked);
+          setInputFileName("");
+          // The activeRepo-dependent effect resets stale selection and loads
+          // plans with the newly configured root after React applies this state.
+        }
         return;
       }
-      const picked = await invoke<string | null>("select_plan_folder_dialog", {
+      const picked = await invoke<string | null>("select_plan_file_dialog", {
         repoPath: activeRepo,
         surface,
+        dialogTitle: t("planManager.selectPlanFile") || "プランファイルを選択",
       });
-      if (picked) {
-        setSelectedFolder(picked);
-        setInputFileName("");
-        await loadPlans(picked);
+      if (!picked) return;
+      const res = await invoke<PlanFileDetails>("set_active_plan", {
+        relativePath: picked,
+        repoPath: activeRepo,
+      });
+      const parentFolder = picked.includes("/") ? picked.substring(0, picked.lastIndexOf("/")) : ".";
+      setDetails(res);
+      setSelectedFolder(parentFolder);
+      selectedFolderRef.current = parentFolder;
+      setInputFileName("");
+      setActionMessage(`${t("planManager.planActivated") || "計画書を設定しました"}: ${picked.split("/").pop() || picked}`);
+      setTimeout(() => setActionMessage(null), 3000);
+      if (onActivePlanChangedRef.current) {
+        onActivePlanChangedRef.current(picked);
       }
+      await loadPlans(parentFolder);
     } catch (e: unknown) {
       setError(String(e));
     }
@@ -423,30 +445,6 @@ export default function PlanFileManagerCard({
           {error}
         </div>
       )}
-      {!activeRepo && locationLoaded && (
-        <div
-          data-testid="no-location-warning"
-          style={{
-            padding: "8px 12px",
-            marginBottom: 8,
-            backgroundColor: "#fff8c5",
-            border: "1px solid #d4a72c",
-            borderRadius: 6,
-            fontSize: 12,
-            color: "#573a08",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
-          <span aria-hidden="true">⚠️</span>
-          <span>
-            {t("planManager.noLocationWarning") ||
-              "プランフォルダの場所が未設定です。上部の「プランフォルダの場所」設定または「📁 プランフォルダ」からプロジェクトフォルダを選択してください。"}
-          </span>
-        </div>
-      )}
-
       {/* ── ROW 1: Heading, Active Status & Refresh ── */}
       <div
         style={{
@@ -569,13 +567,19 @@ export default function PlanFileManagerCard({
             padding: "4px 10px",
             fontSize: 12,
           }}
-          title={selectedFolder ? `${t("planManager.folderLabel") || "プランフォルダ"}: ${selectedFolder}` : t("planManager.btnSelectFolder") || "プランフォルダを選択"}
+          title={
+            !activeRepo
+              ? t("planManager.btnSelectFolder") || "プランフォルダを選択"
+              : selectedFolder
+                ? `${t("planManager.selectPlanFile") || "プランファイルを選択"} (${t("planManager.folderLabel") || "プランフォルダ"}: ${selectedFolder})`
+                : t("planManager.selectPlanFile") || "プランファイルを選択"
+          }
         >
-          <span aria-hidden="true">📁</span>
+          <span aria-hidden="true">{activeRepo ? "📄" : "📁"}</span>
           <span>
-            {!selectedFolder || selectedFolder === ".plan"
+            {!activeRepo
               ? t("planManager.defaultPlanFolderLabel") || "プランフォルダ"
-              : selectedFolder}
+              : t("planManager.planFileButtonLabel") || "プランファイル"}
           </span>
         </button>
 

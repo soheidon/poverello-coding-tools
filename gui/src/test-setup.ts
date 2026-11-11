@@ -286,6 +286,17 @@ vi.mock("./i18n", () => {
       reviewerGemini: "Gemini CLI",
       priorityLabel: "Priority Reviewer",
     },
+    planFolder: {
+      title: "Plan Folder Location",
+      antigravityTitle: "Plan Folder Location",
+      codexTitle: "Plan Folder Location",
+      desc: "Configure the base project directory to open when clicking the 'Plan Folder' button.",
+      btnSelectFolder: "Select Folder",
+      btnReset: "Reset",
+      currentPathLabel: "Current Path:",
+      notConfigured: "Not configured (auto-detected)",
+      inputPlaceholder: "Unconfigured (enter project path or select folder)",
+    },
   };
 
   return {

@@ -24,6 +24,8 @@ describe("PlanFolderLocationCard Component", () => {
     render(<PlanFolderLocationCard surface="antigravity" />);
 
     expect(screen.getByTestId("plan-folder-location-card-antigravity")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3 })).toHaveTextContent(/プランフォルダの場所|Plan Folder Location/);
+    expect(screen.getByRole("heading", { level: 3 }).textContent).not.toMatch(/Antigravity Autocode/);
     await waitFor(() => {
       const input = screen.getByTestId<HTMLInputElement>("input-plan-folder-location");
       expect(input.value).toBe("C:/dev/my-antigravity-project");
@@ -46,6 +48,8 @@ describe("PlanFolderLocationCard Component", () => {
     render(<PlanFolderLocationCard surface="codex" />);
 
     expect(screen.getByTestId("plan-folder-location-card-codex")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3 })).toHaveTextContent(/プランフォルダの場所|Plan Folder Location/);
+    expect(screen.getByRole("heading", { level: 3 }).textContent).not.toMatch(/Codex Autocode/);
     await waitFor(() => {
       const input = screen.getByTestId<HTMLInputElement>("input-plan-folder-location");
       expect(input.value).toBe("");

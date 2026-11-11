@@ -212,22 +212,30 @@ describe("PlanFileManagerCard Component", () => {
     expect(screen.getByTestId("btn-refresh-plans")).toBeDisabled();
   });
 
-  it("selects a folder via select_plan_folder_dialog and enables input", async () => {
+  it("selects a plan file via select_plan_file_dialog, sets it as active, and reloads parent folder", async () => {
     const user = userEvent.setup();
+    const onActivePlanChanged = vi.fn();
 
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "list_available_plans") {
         return Promise.resolve(mockPlanDetailsEmpty);
       }
-      if (cmd === "select_plan_folder_dialog") {
-        return Promise.resolve(".plan");
+      if (cmd === "select_plan_file_dialog") {
+        return Promise.resolve(".plan/feature-xyz.md");
+      }
+      if (cmd === "set_active_plan") {
+        return Promise.resolve({
+          ...mockPlanDetailsWithPlans,
+          active_plan_path: "C:\\mock\\repo\\.plan\\feature-xyz.md",
+          active_plan_relative_path: ".plan/feature-xyz.md",
+        });
       }
       return Promise.resolve();
     });
 
     render(
       <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
-        <PlanFileManagerCard surface="codex" />
+        <PlanFileManagerCard surface="codex" onActivePlanChanged={onActivePlanChanged} />
       </LanguageContext.Provider>
     );
 
@@ -238,11 +246,18 @@ describe("PlanFileManagerCard Component", () => {
     await user.click(screen.getByTestId("btn-select-folder"));
 
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("select_plan_folder_dialog", {
+      expect(mockInvoke).toHaveBeenCalledWith("select_plan_file_dialog", {
         repoPath: "C:\\mock\\repo",
         surface: "codex",
+        dialogTitle: expect.any(String),
+      });
+      expect(mockInvoke).toHaveBeenCalledWith("set_active_plan", {
+        relativePath: ".plan/feature-xyz.md",
+        repoPath: "C:\\mock\\repo",
       });
     });
+
+    expect(onActivePlanChanged).toHaveBeenCalledWith(".plan/feature-xyz.md");
   });
 
   it("rejects path traversal in file input and prevents mutation", async () => {
@@ -675,7 +690,7 @@ describe("PlanFileManagerCard Component", () => {
     });
   });
 
-  it("displays noLocationWarning when both repoPath and configuredRoot are not set", async () => {
+  it("does not display the location warning when no repository root is configured", async () => {
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "get_plan_manager_location") {
         return Promise.resolve(null);
@@ -690,8 +705,9 @@ describe("PlanFileManagerCard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("no-location-warning")).toBeInTheDocument();
+      expect(screen.queryByTestId("no-location-warning")).not.toBeInTheDocument();
     });
+    expect(screen.getByTestId("btn-select-folder")).toBeInTheDocument();
     expect(screen.getByTestId("btn-refresh-plans")).toBeDisabled();
     expect(mockInvoke).not.toHaveBeenCalledWith("list_available_plans", expect.anything());
   });
@@ -727,5 +743,228 @@ describe("PlanFileManagerCard Component", () => {
       expect(screen.queryByTestId("active-plan-badge")).not.toBeInTheDocument();
       expect(screen.getByTestId("no-active-plan-warning")).toBeInTheDocument();
     });
+  });
+
+  describe("unconfigured plan folder location dialog opening", () => {
+    it.each(["codex" as const, "antigravity" as const])(
+      "calls select_plan_root_dialog when unconfigured on %s and cancels gracefully",
+      async (surface) => {
+        const user = userEvent.setup();
+        mockInvoke.mockImplementation((cmd: string) => {
+          if (cmd === "get_plan_manager_location") {
+            return Promise.resolve(null);
+          }
+          if (cmd === "select_plan_root_dialog") {
+            return Promise.resolve(null);
+          }
+          return Promise.resolve();
+        });
+
+        render(
+          <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+            <PlanFileManagerCard surface={surface} repoPath={null} />
+          </LanguageContext.Provider>
+        );
+
+        await waitFor(() => {
+          expect(screen.queryByTestId("no-location-warning")).not.toBeInTheDocument();
+        });
+
+        await user.click(screen.getByTestId("btn-select-folder"));
+
+        await waitFor(() => {
+          expect(mockInvoke).toHaveBeenCalledWith("select_plan_root_dialog", { surface });
+        });
+        expect(mockInvoke).not.toHaveBeenCalledWith("select_plan_folder_dialog", expect.anything());
+        expect(mockInvoke).not.toHaveBeenCalledWith("list_available_plans", expect.anything());
+        expect(screen.queryByTestId("no-location-warning")).not.toBeInTheDocument();
+      }
+    );
+
+    it.each(["codex" as const, "antigravity" as const])(
+      "calls select_plan_root_dialog on %s, updates root, removes warning, and loads plans with selected root only",
+      async (surface) => {
+        const user = userEvent.setup();
+        const selectedRepo = "C:\\mock\\new-repo";
+        mockInvoke.mockImplementation((cmd: string, args?: any) => {
+          if (cmd === "get_plan_manager_location") {
+            return Promise.resolve(null);
+          }
+          if (cmd === "select_plan_root_dialog") {
+            return Promise.resolve(selectedRepo);
+          }
+          if (cmd === "list_available_plans") {
+            return Promise.resolve({
+              repo_root: selectedRepo,
+              plans_dir: `${selectedRepo}\\.plan`,
+              active_plan_path: null,
+              active_plan_relative_path: null,
+              plans: [],
+            });
+          }
+          if (cmd === "get_plan_role_assignment") {
+            return Promise.resolve({ planner_id: null, reviser_id: null });
+          }
+          return Promise.resolve();
+        });
+
+        render(
+          <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+            <PlanFileManagerCard surface={surface} repoPath={null} />
+          </LanguageContext.Provider>
+        );
+
+        await waitFor(() => {
+          expect(screen.queryByTestId("no-location-warning")).not.toBeInTheDocument();
+        });
+
+        await user.click(screen.getByTestId("btn-select-folder"));
+
+        await waitFor(() => {
+          expect(mockInvoke).toHaveBeenCalledWith("select_plan_root_dialog", { surface });
+        });
+        expect(mockInvoke).not.toHaveBeenCalledWith("select_plan_folder_dialog", expect.anything());
+
+        // Warning banner is cleared once root is configured
+        await waitFor(() => {
+          expect(screen.queryByTestId("no-location-warning")).not.toBeInTheDocument();
+        });
+
+        // Exactly one list_available_plans call with the selected repo root, never with null
+        await waitFor(() => {
+          expect(mockInvoke).toHaveBeenCalledWith("list_available_plans", {
+            repoPath: selectedRepo,
+            folderPath: null,
+          });
+        });
+
+        const listCalls = mockInvoke.mock.calls.filter(([cmd]) => cmd === "list_available_plans");
+        expect(listCalls).toHaveLength(1);
+        expect(listCalls[0][1]).toEqual({
+          repoPath: selectedRepo,
+          folderPath: null,
+        });
+
+        // Does not redundantly call set_plan_manager_location from frontend
+        expect(mockInvoke).not.toHaveBeenCalledWith("set_plan_manager_location", expect.anything());
+      }
+    );
+
+    it.each(["codex" as const, "antigravity" as const])(
+      "opens select_plan_file_dialog when root is configured on %s, sets active plan, and reloads parent folder",
+      async (surface) => {
+        const user = userEvent.setup();
+        const configuredRepo = "C:\\mock\\existing-repo";
+        const onActivePlanChanged = vi.fn();
+
+        let activePlan: string | null = null;
+        mockInvoke.mockImplementation((cmd: string, args?: any) => {
+          if (cmd === "get_plan_manager_location") {
+            return Promise.resolve(configuredRepo);
+          }
+          if (cmd === "list_available_plans") {
+            return Promise.resolve({
+              repo_root: configuredRepo,
+              plans_dir: `${configuredRepo}\\.plan`,
+              active_plan_path: activePlan ? `${configuredRepo}\\${activePlan.replace(/\//g, "\\")}` : null,
+              active_plan_relative_path: activePlan,
+              plans: [],
+            });
+          }
+          if (cmd === "select_plan_file_dialog") {
+            return Promise.resolve(".plan/my-plan.md");
+          }
+          if (cmd === "set_active_plan") {
+            activePlan = args?.relativePath || ".plan/my-plan.md";
+            return Promise.resolve({
+              repo_root: configuredRepo,
+              plans_dir: `${configuredRepo}\\.plan`,
+              active_plan_path: `${configuredRepo}\\.plan\\my-plan.md`,
+              active_plan_relative_path: ".plan/my-plan.md",
+              plans: [],
+            });
+          }
+          return Promise.resolve();
+        });
+
+        render(
+          <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+            <PlanFileManagerCard surface={surface} onActivePlanChanged={onActivePlanChanged} />
+          </LanguageContext.Provider>
+        );
+
+        await waitFor(() => {
+          expect(screen.getByTestId("btn-select-folder")).toBeInTheDocument();
+          expect(screen.getByTestId("no-active-plan-warning")).toBeInTheDocument();
+        });
+
+        onActivePlanChanged.mockClear();
+
+        await user.click(screen.getByTestId("btn-select-folder"));
+
+        await waitFor(() => {
+          expect(mockInvoke).toHaveBeenCalledWith("select_plan_file_dialog", {
+            repoPath: configuredRepo,
+            surface,
+            dialogTitle: expect.any(String),
+          });
+          expect(mockInvoke).toHaveBeenCalledWith("set_active_plan", {
+            relativePath: ".plan/my-plan.md",
+            repoPath: configuredRepo,
+          });
+          expect(screen.getByTestId("active-plan-badge")).toBeInTheDocument();
+        });
+        expect(onActivePlanChanged).toHaveBeenCalledWith(".plan/my-plan.md");
+        expect(mockInvoke).not.toHaveBeenCalledWith("select_plan_root_dialog", expect.anything());
+      }
+    );
+
+    it.each(["codex" as const, "antigravity" as const])(
+      "preserves active plan and UI selection when select_plan_file_dialog is cancelled on %s",
+      async (surface) => {
+        const user = userEvent.setup();
+        const configuredRepo = "C:\\mock\\existing-repo";
+        const onActivePlanChanged = vi.fn();
+
+        mockInvoke.mockImplementation((cmd: string) => {
+          if (cmd === "get_plan_manager_location") {
+            return Promise.resolve(configuredRepo);
+          }
+          if (cmd === "list_available_plans") {
+            return Promise.resolve(mockPlanDetailsWithPlans);
+          }
+          if (cmd === "select_plan_file_dialog") {
+            return Promise.resolve(null);
+          }
+          return Promise.resolve();
+        });
+
+        render(
+          <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+            <PlanFileManagerCard surface={surface} onActivePlanChanged={onActivePlanChanged} />
+          </LanguageContext.Provider>
+        );
+
+        await waitFor(() => {
+          expect(screen.getByTestId("btn-select-folder")).toBeInTheDocument();
+          expect(screen.getByTestId("active-plan-badge")).toBeInTheDocument();
+        });
+
+        onActivePlanChanged.mockClear();
+
+        await user.click(screen.getByTestId("btn-select-folder"));
+
+        await waitFor(() => {
+          expect(mockInvoke).toHaveBeenCalledWith("select_plan_file_dialog", {
+            repoPath: configuredRepo,
+            surface,
+            dialogTitle: expect.any(String),
+          });
+        });
+
+        expect(mockInvoke).not.toHaveBeenCalledWith("set_active_plan", expect.anything());
+        expect(onActivePlanChanged).not.toHaveBeenCalled();
+      }
+    );
   });
 });
