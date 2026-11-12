@@ -1,6 +1,6 @@
 # Poverello Coding Tools — Release Notes
 
-## v0.27.3 — Release target (not yet published)
+## v0.27.3 — 2026-11-13
 
 ### Independent Project-Plan Slots
 
