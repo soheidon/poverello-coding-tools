@@ -7891,6 +7891,36 @@ fn validate_selected_plan_file(
     Ok(rel_str)
 }
 
+pub(crate) fn normalize_dialog_directory(path: &std::path::Path) -> std::path::PathBuf {
+    let raw = path.to_string_lossy();
+    if raw.starts_with(r"\\?\UNC\") {
+        std::path::PathBuf::from(format!(r"\\{}", &raw[8..]))
+    } else if raw.starts_with(r"\\?\") {
+        std::path::PathBuf::from(&raw[4..])
+    } else {
+        path.to_path_buf()
+    }
+}
+
+pub(crate) fn resolve_plan_dialog_starting_dir(repo_root: &std::path::Path) -> std::path::PathBuf {
+    let fallback = if repo_root.join(plan_manager::PLAN_DIR_NAME).is_dir() {
+        repo_root.join(plan_manager::PLAN_DIR_NAME)
+    } else {
+        repo_root.to_path_buf()
+    };
+
+    if let Ok(Some(active_details)) = plan_manager::get_active_plan(repo_root) {
+        let active_path = std::path::PathBuf::from(active_details.abs_path);
+        if let Some(parent) = active_path.parent() {
+            if parent.is_dir() {
+                return normalize_dialog_directory(parent);
+            }
+        }
+    }
+
+    normalize_dialog_directory(&fallback)
+}
+
 #[tauri::command]
 fn select_plan_file_dialog(
     repo_path: Option<String>,
@@ -7919,11 +7949,7 @@ fn select_plan_file_dialog(
 
     #[cfg(target_os = "windows")]
     {
-        let starting_dir = if repo_root.join(plan_manager::PLAN_DIR_NAME).is_dir() {
-            repo_root.join(plan_manager::PLAN_DIR_NAME)
-        } else {
-            repo_root.clone()
-        };
+        let starting_dir = resolve_plan_dialog_starting_dir(&repo_root);
 
         let title = dialog_title
             .filter(|t| !t.trim().is_empty())
@@ -20772,6 +20798,49 @@ mod tests {
         let res_outside = validate_selected_plan_file(&canonical_repo, &outside_file);
         assert!(res_outside.is_err());
         assert!(res_outside.unwrap_err().contains("inside the repository root"));
+    }
+
+    #[test]
+    fn test_normalize_dialog_directory_strips_windows_extended_prefixes() {
+        let p_unc = std::path::Path::new(r"\\?\UNC\server\share\repo\.plan");
+        assert_eq!(
+            normalize_dialog_directory(p_unc),
+            std::path::PathBuf::from(r"\\server\share\repo\.plan")
+        );
+
+        let p_drive = std::path::Path::new(r"\\?\C:\Users\Sohei\dev\.plan");
+        assert_eq!(
+            normalize_dialog_directory(p_drive),
+            std::path::PathBuf::from(r"C:\Users\Sohei\dev\.plan")
+        );
+
+        let p_norm = std::path::Path::new(r"C:\Users\Sohei\dev\.plan");
+        assert_eq!(
+            normalize_dialog_directory(p_norm),
+            std::path::PathBuf::from(r"C:\Users\Sohei\dev\.plan")
+        );
+    }
+
+    #[test]
+    fn test_resolve_plan_dialog_starting_dir_uses_active_plan_parent() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let repo_root = temp_dir.path();
+        let plan_dir = repo_root.join(".plan");
+        std::fs::create_dir_all(&plan_dir).unwrap();
+
+        // 1. With .plan present and no active plan set -> falls back to repo/.plan
+        let dir = resolve_plan_dialog_starting_dir(repo_root);
+        assert_eq!(dir, normalize_dialog_directory(&plan_dir));
+
+        // 2. With active plan set in custom subfolder -> uses active plan parent
+        let custom_dir = repo_root.join("plans").join("nested");
+        std::fs::create_dir_all(&custom_dir).unwrap();
+        let plan_file = custom_dir.join("test.md");
+        std::fs::write(&plan_file, "# Test").unwrap();
+        plan_manager::set_active_plan(repo_root, "plans/nested/test.md").unwrap();
+
+        let dir_active = resolve_plan_dialog_starting_dir(repo_root);
+        assert_eq!(dir_active, normalize_dialog_directory(&custom_dir));
     }
 
     #[test]

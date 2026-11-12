@@ -24,6 +24,93 @@ export interface PlanFileManagerCardProps {
   onPlanReviewersChanged?: (reviewers: string[] | null) => void;
 }
 
+export function normalizeDisplayPath(rawPath?: string | null): string {
+  if (!rawPath) return "";
+  let p = rawPath.trim();
+  // Strip file:/// or file:// prefix if present
+  if (p.startsWith("file:///")) {
+    p = decodeURI(p.slice(8));
+  } else if (p.startsWith("file://")) {
+    p = decodeURI(p.slice(7));
+  }
+  // Strip Windows extended-length prefix \\?\ or //?/
+  if (p.startsWith("\\\\?\\UNC\\")) {
+    p = "\\\\" + p.slice(8);
+  } else if (p.startsWith("\\\\?\\")) {
+    p = p.slice(4);
+  } else if (p.startsWith("//?/UNC/")) {
+    p = "//" + p.slice(8);
+  } else if (p.startsWith("//?/")) {
+    p = p.slice(4);
+  } else if (p.startsWith("/?/")) {
+    p = p.slice(3);
+  }
+  // If starts with /C:/ or /C:\, remove leading slash
+  if (/^\/[a-zA-Z]:[/|\\]/.test(p)) {
+    p = p.slice(1);
+  }
+  // If it's a Windows drive path (e.g. C:/...), normalize forward slashes to backslashes
+  if (/^[a-zA-Z]:/.test(p)) {
+    p = p.replace(/\//g, "\\");
+  }
+  return p;
+}
+
+export type KnownPlanStatus =
+  | "PLANNED"
+  | "IMPLEMENTED"
+  | "APPROVED"
+  | "REQUEST_CHANGES"
+  | "BLOCKED"
+  | "IN_PROGRESS";
+
+export function resolveStatusCategory(rawStatus?: string | null): KnownPlanStatus | null {
+  if (!rawStatus) return null;
+  let clean = rawStatus.trim();
+  if (clean.startsWith("[") && clean.endsWith("]")) {
+    clean = clean.slice(1, -1).trim();
+  }
+  const first = clean.split(/\s*[-—]\s*/)[0].trim().toUpperCase();
+  if (!first) return null;
+
+  if (first.startsWith("APPROVED")) return "APPROVED";
+  if (first.startsWith("IMPLEMENTED")) return "IMPLEMENTED";
+  if (first.startsWith("PLANNED")) return "PLANNED";
+  if (first.startsWith("REQUEST_CHANGES") || first.startsWith("CHANGES_REQUESTED")) return "REQUEST_CHANGES";
+  if (first.startsWith("BLOCKED") || first.startsWith("HALTED")) return "BLOCKED";
+  if (first.startsWith("IN_PROGRESS")) return "IN_PROGRESS";
+  return null;
+}
+
+export function getLocalizedStatusLabel(
+  rawStatus: string | null | undefined,
+  t: (key: any, params?: any) => string
+): string {
+  const category = resolveStatusCategory(rawStatus);
+  if (category === "PLANNED") return t("planManager.status.planned") || "計画済";
+  if (category === "IMPLEMENTED") return t("planManager.status.implemented") || "実装済";
+  if (category === "APPROVED") return t("planManager.status.approved") || "承認済";
+  if (category === "REQUEST_CHANGES") return t("planManager.status.requestChanges") || "要修正";
+  if (category === "BLOCKED") return t("planManager.status.blocked") || "中断";
+  if (category === "IN_PROGRESS") return t("planManager.status.inProgress") || "進行中";
+  return t("planManager.status.unknown") || t("planManager.selected") || "選択中";
+}
+
+// Preserve toFileUrl and getConciseStatus for backward compatibility
+export function toFileUrl(filePath: string): string {
+  if (!filePath) return "";
+  if (filePath.startsWith("file:///")) return filePath;
+  let normalized = filePath.replace(/\\/g, "/");
+  if (/^[a-zA-Z]:/.test(normalized) || !normalized.startsWith("/")) {
+    normalized = `/${normalized}`;
+  }
+  return `file://${encodeURI(normalized)}`;
+}
+
+export function getConciseStatus(status?: string | null): string | null {
+  return resolveStatusCategory(status);
+}
+
 export default function PlanFileManagerCard({
   repoPath,
   surface = "codex",
@@ -42,10 +129,8 @@ export default function PlanFileManagerCard({
 
   const [details, setDetails] = useState<PlanFileDetails | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
-  const [inputFileName, setInputFileName] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [configuredRoot, setConfiguredRoot] = useState<string | null>(repoPath ?? null);
@@ -155,7 +240,6 @@ export default function PlanFileManagerCard({
           ? loadedActive.substring(0, loadedActive.lastIndexOf("/"))
           : ".";
         setSelectedFolder(derivedFolder);
-        setInputFileName(loadedActive.split("/").pop() || "");
       } else if (res.selected_folder && !selectedFolderRef.current && folderOverride === undefined) {
         setSelectedFolder(res.selected_folder);
       }
@@ -177,7 +261,6 @@ export default function PlanFileManagerCard({
       prevRepoRef.current = activeRepo;
       setSelectedFolder(null);
       selectedFolderRef.current = null;
-      setInputFileName("");
       setDetails(null);
     }
     if (!activeRepo) {
@@ -209,7 +292,6 @@ export default function PlanFileManagerCard({
         if (picked) {
           // select_plan_root_dialog persists and normalizes the selected root.
           setConfiguredRoot(picked);
-          setInputFileName("");
           // The activeRepo-dependent effect resets stale selection and loads
           // plans with the newly configured root after React applies this state.
         }
@@ -229,7 +311,6 @@ export default function PlanFileManagerCard({
       setDetails(res);
       setSelectedFolder(parentFolder);
       selectedFolderRef.current = parentFolder;
-      setInputFileName("");
       setActionMessage(`${t("planManager.planActivated") || "計画書を設定しました"}: ${picked.split("/").pop() || picked}`);
       setTimeout(() => setActionMessage(null), 3000);
       if (onActivePlanChangedRef.current) {
@@ -241,68 +322,10 @@ export default function PlanFileManagerCard({
     }
   };
 
-  const handleConfirm = async () => {
-    if (!selectedFolder || !inputFileName.trim() || confirming) return;
-    let cleanName = inputFileName.trim();
-    if (!cleanName.endsWith(".md")) {
-      cleanName = `${cleanName}.md`;
-    }
-
-    if (cleanName.includes("/") || cleanName.includes("\\") || cleanName.includes(":") || cleanName.includes("..")) {
-      setError(t("planManager.errorInvalidFileName") || "無効なファイル名です（スラッシュやコロンは使用できません）");
-      return;
-    }
-
-    const targetRelPath = selectedFolder === "." ? cleanName : `${selectedFolder}/${cleanName}`;
-
-    const existing = details?.plans?.find((p) => {
-      const pName = p.relative_path.split("/").pop() || p.relative_path;
-      return pName.toLowerCase() === cleanName.toLowerCase() || p.relative_path === targetRelPath;
-    });
-
-    try {
-      setConfirming(true);
-      setError(null);
-
-      if (existing) {
-        const res = await invoke<PlanFileDetails>("set_active_plan", {
-          relativePath: existing.relative_path,
-          repoPath: activeRepo,
-        });
-        setDetails(res);
-        setActionMessage(`${t("planManager.planActivated") || "計画書を設定しました"}: ${cleanName}`);
-        if (onActivePlanChangedRef.current) {
-          onActivePlanChangedRef.current(existing.relative_path);
-        }
-      } else {
-        const res = await invoke<PlanFileDetails>("create_plan_file", {
-          request: {
-            name: cleanName,
-            folder: selectedFolder,
-            set_as_active: true,
-          },
-          repoPath: activeRepo,
-        });
-        setDetails(res);
-        setActionMessage(`${t("planManager.planCreated") || "新しい計画書を作成しました"}: ${cleanName}`);
-        if (onActivePlanChangedRef.current) {
-          onActivePlanChangedRef.current(targetRelPath);
-        }
-      }
-
-      setTimeout(() => setActionMessage(null), 3000);
-      await loadPlans(selectedFolder);
-    } catch (e: unknown) {
-      setError(String(e));
-    } finally {
-      setConfirming(false);
-    }
-  };
-
   const handleOpenPlan = async () => {
-    if (!activeEntry?.path) return;
+    if (!activeOperationalPath) return;
     try {
-      await invoke("open_path", { path: activeEntry.path });
+      await invoke("open_path", { path: activeOperationalPath });
     } catch (e: unknown) {
       setError(String(e));
     }
@@ -416,7 +439,22 @@ export default function PlanFileManagerCard({
   };
 
   const activeRelPath = details?.active_plan_relative_path || activePlanPath;
-  const activeEntry = details?.plans.find((p) => p.relative_path === activeRelPath);
+  const activeEntry = details?.plans?.find((p) => p.relative_path === activeRelPath);
+  const activeOperationalPath =
+    activeEntry?.path ||
+    (activeRepo && activeRelPath
+      ? (activeRepo.includes("\\")
+          ? `${activeRepo}\\${activeRelPath.replace(/\//g, "\\")}`
+          : `${activeRepo}/${activeRelPath}`)
+      : activeRelPath || "");
+  const activeDisplayPath = normalizeDisplayPath(activeOperationalPath);
+  const localizedStatusLabel = getLocalizedStatusLabel(activeEntry?.status, t);
+  const openPlanAriaLabel = activeEntry?.title
+    ? `${activeDisplayPath} — ${activeEntry.title}`
+    : activeDisplayPath;
+  const openPlanTitle = activeEntry?.title
+    ? `${activeDisplayPath} — ${activeEntry.title} (${t("planManager.openPlanTooltip") || "エディタで開く"})`
+    : `${activeDisplayPath} (${t("planManager.openPlanTooltip") || "エディタで開く"})`;
 
   return (
     <div
@@ -445,7 +483,7 @@ export default function PlanFileManagerCard({
           {error}
         </div>
       )}
-      {/* ── ROW 1: Heading, Active Status & Refresh ── */}
+      {/* ── ROW 1: Heading, Concise Localized Status Chip & Refresh ── */}
       <div
         style={{
           display: "flex",
@@ -453,73 +491,33 @@ export default function PlanFileManagerCard({
           alignItems: "center",
           gap: 8,
           marginBottom: 8,
-          flexWrap: "wrap",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
-          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--color-text-primary, #111827)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--color-text-primary, #111827)", flexShrink: 0 }}>
             {t("planManager.title") || "プランファイル"}
           </h3>
 
           {activeRelPath ? (
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, minWidth: 0 }}>
-              <span style={{ fontSize: 13 }} aria-hidden="true">📄</span>
-              <button
-                type="button"
-                onClick={() => void handleOpenPlan()}
-                data-testid="btn-open-plan"
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  fontFamily: "monospace",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: "var(--color-primary, #0969da)",
-                  cursor: "pointer",
-                  textDecoration: "underline",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  textAlign: "left",
-                }}
-                title={`${activeEntry?.path || activeRelPath} (${t("planManager.openPlanTooltip") || "エディタで開く"})`}
-              >
-                {activeRelPath}
-              </button>
-              <span
-                className="badge badge-success"
-                data-testid="active-plan-badge"
-                style={{
-                  fontSize: 11,
-                  padding: "1px 6px",
-                  borderRadius: 4,
-                  fontWeight: 500,
-                  backgroundColor: "#dafbe1",
-                  color: "#1a7f37",
-                  border: "1px solid #aceebb",
-                  flexShrink: 0,
-                }}
-              >
-                {activeEntry?.status ? `[${activeEntry.status}]` : t("planManager.selected") || "選択中"}
-              </span>
-              {activeEntry?.title && (
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: "var(--color-text-secondary, #57606a)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    maxWidth: 220,
-                  }}
-                  title={activeEntry.title}
-                >
-                  <span aria-hidden="true" style={{ margin: "0 4px", color: "#8c959f" }}>—</span>
-                  <span>{activeEntry.title}</span>
-                </span>
-              )}
-            </div>
+            <span
+              className="badge badge-success"
+              data-testid="active-plan-badge"
+              style={{
+                fontSize: 11,
+                padding: "1px 6px",
+                borderRadius: 4,
+                fontWeight: 500,
+                backgroundColor: "#dafbe1",
+                color: "#1a7f37",
+                border: "1px solid #aceebb",
+                flexShrink: 0,
+                whiteSpace: "nowrap",
+              }}
+              title={localizedStatusLabel}
+              aria-label={localizedStatusLabel}
+            >
+              [{localizedStatusLabel}]
+            </span>
           ) : (
             <span
               data-testid="no-active-plan-warning"
@@ -538,13 +536,13 @@ export default function PlanFileManagerCard({
           disabled={refreshing || !selectedFolder}
           data-testid="btn-refresh-plans"
           title={t("planManager.refresh") || "再読込"}
-          style={{ fontSize: 11, padding: "2px 8px" }}
+          style={{ fontSize: 11, padding: "2px 8px", flexShrink: 0, whiteSpace: "nowrap" }}
         >
           {refreshing ? t("planManager.loading") || "更新中..." : `⟳ ${t("planManager.refresh") || "再読込"}`}
         </button>
       </div>
 
-      {/* ── ROW 2: Folder Selector, File Input & Confirm Button ── */}
+      {/* ── ROW 2: Active Path Display, Plan File Picker & Open Plan File ── */}
       <div
         style={{
           display: "flex",
@@ -553,7 +551,68 @@ export default function PlanFileManagerCard({
           marginBottom: 12,
         }}
       >
-        {/* Folder Select Button */}
+        {/* Bordered Read-Only Static Path Field (not a link, selectable text) */}
+        <div
+          data-testid="active-plan-path-container"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          {activeDisplayPath ? (
+            <div
+              data-testid="active-plan-path-display"
+              title={activeDisplayPath}
+              aria-label={openPlanAriaLabel}
+              style={{
+                width: "100%",
+                display: "block",
+                padding: "4px 10px",
+                fontSize: 12,
+                fontFamily: "monospace",
+                color: "var(--color-text-primary, #111827)",
+                backgroundColor: "#ffffff",
+                border: "1px solid #d0d7de",
+                borderRadius: 6,
+                textAlign: "left",
+                textDecoration: "none",
+                overflowX: "auto",
+                whiteSpace: "nowrap",
+                userSelect: "text",
+                cursor: "text",
+                lineHeight: "1.5",
+              }}
+            >
+              {activeDisplayPath}
+            </div>
+          ) : (
+            <div
+              data-testid="empty-plan-path-field"
+              style={{
+                width: "100%",
+                padding: "4px 10px",
+                fontSize: 12,
+                color: "#8c959f",
+                backgroundColor: "#f6f8fa",
+                border: "1px solid #d0d7de",
+                borderRadius: 6,
+                fontStyle: "italic",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                lineHeight: "1.5",
+              }}
+            >
+              {!activeRepo
+                ? t("planManager.placeholderSelectFolderFirst") || "プランフォルダを選択してください"
+                : t("planManager.warningTitle") || "計画書が選択されていません"}
+            </div>
+          )}
+        </div>
+
+        {/* Plan File Picker Button */}
         <button
           type="button"
           className="btn btn-small"
@@ -566,6 +625,7 @@ export default function PlanFileManagerCard({
             flexShrink: 0,
             padding: "4px 10px",
             fontSize: 12,
+            whiteSpace: "nowrap",
           }}
           title={
             !activeRepo
@@ -579,62 +639,30 @@ export default function PlanFileManagerCard({
           <span>
             {!activeRepo
               ? t("planManager.defaultPlanFolderLabel") || "プランフォルダ"
-              : t("planManager.planFileButtonLabel") || "プランファイル"}
+              : t("planManager.planFileButtonLabel") || "プランファイル選択"}
           </span>
         </button>
 
-        {/* Unified File Name Input with Candidate Datalist */}
-        <div style={{ flex: 1, position: "relative" }}>
-          <input
-            type="text"
-            className="form-control"
-            list="plan-file-candidates"
-            value={inputFileName}
-            onChange={(e) => setInputFileName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                void handleConfirm();
-              }
-            }}
-            placeholder={
-              !selectedFolder
-                ? t("planManager.placeholderSelectFolderFirst") || "フォルダを選択してください"
-                : t("planManager.placeholderFileName") || "計画ファイル名を入力または選択 (.md)"
-            }
-            disabled={!selectedFolder}
-            data-testid="plan-file-input"
-            style={{
-              width: "100%",
-              padding: "4px 10px",
-              fontSize: 12,
-              borderRadius: 6,
-              border: "1px solid #d0d7de",
-              backgroundColor: !selectedFolder ? "#f6f8fa" : "#ffffff",
-              color: !selectedFolder ? "#8c959f" : "inherit",
-            }}
-          />
-          <datalist id="plan-file-candidates" data-testid="plan-file-candidates">
-            {details?.plans?.map((p) => {
-              const name = p.relative_path.split("/").pop() || p.relative_path;
-              return (
-                <option key={p.relative_path} value={name}>
-                  {p.title ? `${name} — ${p.title}` : name}
-                </option>
-              );
-            })}
-          </datalist>
-        </div>
-
-        {/* Confirm Button */}
+        {/* Dedicated Open Plan File Button */}
         <button
           type="button"
-          className="btn btn-small btn-primary"
-          onClick={() => void handleConfirm()}
-          disabled={!selectedFolder || !inputFileName.trim() || confirming}
-          data-testid="btn-confirm-plan"
-          style={{ flexShrink: 0, padding: "4px 12px", fontSize: 12 }}
+          className="btn btn-small"
+          onClick={() => void handleOpenPlan()}
+          disabled={!activeDisplayPath}
+          data-testid="btn-open-plan"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            flexShrink: 0,
+            padding: "4px 12px",
+            fontSize: 12,
+            whiteSpace: "nowrap",
+          }}
+          title={openPlanTitle}
+          aria-label={openPlanAriaLabel}
         >
-          {confirming ? t("planManager.confirming") || "処理中..." : t("planManager.btnConfirm") || "確定"}
+          <span>{t("planManager.btnOpenPlanFile") || "プランファイルを開く"}</span>
         </button>
       </div>
 

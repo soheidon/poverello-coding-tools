@@ -93,69 +93,25 @@ describe("PlanFileManagerCard Component", () => {
       expect(screen.getByTestId("active-plan-badge")).toBeInTheDocument();
     });
 
-    expect(screen.getByText(".plan/V0.26.3.md")).toBeInTheDocument();
-    expect(screen.getByText("Plan Manager & Role Separation")).toBeInTheDocument();
-    expect(screen.getByTestId("active-plan-badge")).toHaveTextContent("[APPROVED]");
-  });
-
-  it("allows selecting an existing plan by input and clicking confirm", async () => {
-    const user = userEvent.setup();
-    const onActivePlanChanged = vi.fn();
-
-    mockInvoke.mockImplementation((cmd: string, args: any) => {
-      if (cmd === "list_available_plans") {
-        return Promise.resolve(mockPlanDetailsWithPlans);
-      }
-      if (cmd === "set_active_plan") {
-        return Promise.resolve({
-          ...mockPlanDetailsWithPlans,
-          active_plan_relative_path: args.relativePath,
-        });
-      }
-      return Promise.resolve();
-    });
-
-    render(
-      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
-        <PlanFileManagerCard
-          surface="codex"
-          onActivePlanChanged={onActivePlanChanged}
-        />
-      </LanguageContext.Provider>
+    expect(screen.getByTestId("active-plan-path-display")).toHaveTextContent("C:\\mock\\repo\\.plan\\V0.26.3.md");
+    expect(screen.getByTestId("active-plan-path-display")).toHaveAttribute(
+      "aria-label",
+      "C:\\mock\\repo\\.plan\\V0.26.3.md — Plan Manager & Role Separation"
     );
-
-    await waitFor(() => {
-      expect(screen.getByTestId("plan-file-input")).not.toBeDisabled();
-    });
-
-    const input = screen.getByTestId("plan-file-input");
-    await user.clear(input);
-    await user.type(input, "feature-xyz.md");
-
-    const confirmBtn = screen.getByTestId("btn-confirm-plan");
-    expect(confirmBtn).not.toBeDisabled();
-    await user.click(confirmBtn);
-
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("set_active_plan", {
-        relativePath: ".plan/feature-xyz.md",
-        repoPath: "C:\\mock\\repo",
-      });
-    });
+    expect(screen.getByTestId("btn-open-plan")).toBeInTheDocument();
+    expect(screen.getByTestId("btn-open-plan")).not.toBeDisabled();
+    expect(screen.getByTestId("active-plan-badge")).toHaveTextContent("[planManager.status.approved]");
+    expect(screen.getByTestId("active-plan-path-container")).toBeInTheDocument();
+    expect(screen.queryByTestId("btn-create-plan")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("plan-file-input")).not.toBeInTheDocument();
   });
 
-  it("creates a new plan via confirm button when file does not exist", async () => {
+  it("renders static selectable path display that does not trigger open_path on click", async () => {
     const user = userEvent.setup();
 
-    mockInvoke.mockImplementation((cmd: string, args: any) => {
+    mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "list_available_plans") {
         return Promise.resolve(mockPlanDetailsWithPlans);
-      }
-      if (cmd === "create_plan_file") {
-        return Promise.resolve({
-          ...mockPlanDetailsWithPlans,
-          active_plan_relative_path: `.plan/${args.request.name}`,
-        });
       }
       return Promise.resolve();
     });
@@ -167,29 +123,46 @@ describe("PlanFileManagerCard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("plan-file-input")).not.toBeDisabled();
+      expect(screen.getByTestId("active-plan-path-display")).toBeInTheDocument();
     });
 
-    const input = screen.getByTestId("plan-file-input");
-    await user.clear(input);
-    await user.type(input, "V0.26.4-next"); // omits .md, will auto-complete
+    const pathDisplay = screen.getByTestId("active-plan-path-display");
+    expect(pathDisplay).toHaveTextContent("C:\\mock\\repo\\.plan\\V0.26.3.md");
 
-    const confirmBtn = screen.getByTestId("btn-confirm-plan");
-    await user.click(confirmBtn);
+    // Clicking the path field itself is a no-op (static text, not a link or button)
+    await user.click(pathDisplay);
+    expect(mockInvoke).not.toHaveBeenCalledWith("open_path", expect.anything());
+  });
+
+  it("invokes open_path with the operational path when clicking the dedicated open button", async () => {
+    const user = userEvent.setup();
+
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "list_available_plans") {
+        return Promise.resolve(mockPlanDetailsWithPlans);
+      }
+      return Promise.resolve();
+    });
+
+    render(
+      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+        <PlanFileManagerCard surface="codex" />
+      </LanguageContext.Provider>
+    );
 
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("create_plan_file", {
-        request: {
-          name: "V0.26.4-next.md",
-          folder: ".plan",
-          set_as_active: true,
-        },
-        repoPath: "C:\\mock\\repo",
-      });
+      expect(screen.getByTestId("btn-open-plan")).not.toBeDisabled();
+    });
+
+    const openBtn = screen.getByTestId("btn-open-plan");
+    await user.click(openBtn);
+
+    expect(mockInvoke).toHaveBeenCalledWith("open_path", {
+      path: "C:\\mock\\repo\\.plan\\V0.26.3.md",
     });
   });
 
-  it("disables file input and confirm button when no folder is selected", async () => {
+  it("disables dedicated open button and displays empty message when no plan is selected", async () => {
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "list_available_plans") {
         return Promise.resolve(mockPlanDetailsEmpty);
@@ -204,11 +177,13 @@ describe("PlanFileManagerCard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("plan-file-input")).toBeInTheDocument();
+      expect(screen.getByTestId("btn-open-plan")).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId("plan-file-input")).toBeDisabled();
-    expect(screen.getByTestId("btn-confirm-plan")).toBeDisabled();
+    expect(screen.getByTestId("btn-open-plan")).toBeDisabled();
+    expect(screen.queryByTestId("active-plan-path-display")).not.toBeInTheDocument();
+    expect(screen.getByTestId("empty-plan-path-field")).toBeInTheDocument();
+    expect(screen.queryByTestId("btn-create-plan")).not.toBeInTheDocument();
     expect(screen.getByTestId("btn-refresh-plans")).toBeDisabled();
   });
 
@@ -260,9 +235,7 @@ describe("PlanFileManagerCard Component", () => {
     expect(onActivePlanChanged).toHaveBeenCalledWith(".plan/feature-xyz.md");
   });
 
-  it("rejects path traversal in file input and prevents mutation", async () => {
-    const user = userEvent.setup();
-
+  it("does not render create plan input or mode in PlanFileManagerCard", async () => {
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "list_available_plans") {
         return Promise.resolve(mockPlanDetailsWithPlans);
@@ -277,18 +250,13 @@ describe("PlanFileManagerCard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("plan-file-input")).not.toBeDisabled();
+      expect(screen.getByTestId("active-plan-path-container")).toBeInTheDocument();
     });
 
-    const input = screen.getByTestId("plan-file-input");
-    await user.clear(input);
-    await user.type(input, "../secret.md");
-
-    const confirmBtn = screen.getByTestId("btn-confirm-plan");
-    await user.click(confirmBtn);
-
-    expect(mockInvoke).not.toHaveBeenCalledWith("set_active_plan", expect.anything());
-    expect(mockInvoke).not.toHaveBeenCalledWith("create_plan_file", expect.anything());
+    expect(screen.queryByTestId("btn-create-plan")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("plan-file-input")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("btn-confirm-plan")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("create-plan-mode")).not.toBeInTheDocument();
   });
 
   it("keeps roles unselected on antigravity surface until explicitly chosen", async () => {
@@ -966,5 +934,270 @@ describe("PlanFileManagerCard Component", () => {
         expect(onActivePlanChanged).not.toHaveBeenCalled();
       }
     );
+  });
+
+  describe("Phase 14 & Phase 15 Autocode Plan Header, Path Presentation, and Selection UX", () => {
+    const testCases: Array<{ surface: "codex" | "antigravity" }> = [
+      { surface: "codex" },
+      { surface: "antigravity" },
+    ];
+
+    testCases.forEach(({ surface }) => {
+      it(`renders compact header, concise status, no-wrap refresh, normal Windows path in static bordered field on ${surface}`, async () => {
+        const mockVerbosePlanDetails: PlanFileDetails = {
+          repo_root: "C:\\Users\\Sohei\\dev\\project",
+          plans_dir: "C:\\Users\\Sohei\\dev\\project\\.plan",
+          active_plan_path: "C:\\Users\\Sohei\\dev\\project\\.plan\\V0.27.2.md",
+          active_plan_relative_path: ".plan/V0.27.2.md",
+          plans: [
+            {
+              path: "C:\\Users\\Sohei\\dev\\project\\.plan\\V0.27.2.md",
+              relative_path: ".plan/V0.27.2.md",
+              title: "Very Long Detailed Plan Title That Should Not Overflow Compact Header",
+              status: "APPROVED — Phase 12 implementation reviewed and approved by Codex Desktop (APPROVED_WITH_NON_BLOCKING_FINDINGS)",
+              last_modified_ms: 1700000000000,
+              is_active: true,
+            },
+          ],
+        };
+
+        mockInvoke.mockImplementation((cmd: string) => {
+          if (cmd === "list_available_plans") {
+            return Promise.resolve(mockVerbosePlanDetails);
+          }
+          if (cmd === "get_plan_manager_location") {
+            return Promise.resolve("C:\\Users\\Sohei\\dev\\project");
+          }
+          return Promise.resolve();
+        });
+
+        render(
+          <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+            <PlanFileManagerCard surface={surface} repoPath="C:\\Users\\Sohei\\dev\\project" />
+          </LanguageContext.Provider>
+        );
+
+        await waitFor(() => {
+          expect(screen.getByTestId("active-plan-badge")).toBeInTheDocument();
+        });
+
+        // 1. Heading and concise status (no verbose narration)
+        expect(screen.getByText("planManager.title")).toBeInTheDocument();
+        const badge = screen.getByTestId("active-plan-badge");
+        expect(badge).toHaveTextContent("[planManager.status.approved]");
+        expect(badge.textContent).not.toContain("APPROVED_WITH_NON_BLOCKING_FINDINGS");
+        expect(badge).toHaveAttribute("title", "planManager.status.approved");
+
+        // 2. Refresh button has flex-shrink: 0 and white-space: nowrap
+        const refreshBtn = screen.getByTestId("btn-refresh-plans");
+        expect(refreshBtn).toHaveStyle({ flexShrink: "0", whiteSpace: "nowrap" });
+
+        // 3. Normal Windows path rendered inside bordered static field beside picker button on Row 2 (not a link)
+        expect(screen.queryByTestId("active-plan-url-row")).not.toBeInTheDocument();
+        const pathContainer = screen.getByTestId("active-plan-path-container");
+        expect(pathContainer).toBeInTheDocument();
+
+        const pathDisplay = screen.getByTestId("active-plan-path-display");
+        expect(pathDisplay).toHaveTextContent("C:\\Users\\Sohei\\dev\\project\\.plan\\V0.27.2.md");
+        expect(pathDisplay.textContent).not.toContain("file:///");
+        expect(pathDisplay.textContent).not.toContain("\\\\?\\");
+        expect(pathDisplay).toHaveAttribute(
+          "aria-label",
+          "C:\\Users\\Sohei\\dev\\project\\.plan\\V0.27.2.md — Very Long Detailed Plan Title That Should Not Overflow Compact Header"
+        );
+
+        // 4. Phase 16: Row 2 Layout Ordering and Buttons
+        const selectBtn = screen.getByTestId("btn-select-folder");
+        const openBtn = screen.getByTestId("btn-open-plan");
+        expect(selectBtn).toBeInTheDocument();
+        expect(openBtn).toBeInTheDocument();
+        expect(openBtn).not.toBeDisabled();
+        expect(openBtn).toHaveTextContent("planManager.btnOpenPlanFile");
+
+        // Verify Row 2 order: active-plan-path-container precedes btn-select-folder which precedes btn-open-plan
+        expect(pathContainer.compareDocumentPosition(selectBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(selectBtn.compareDocumentPosition(openBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+        // Verify selector button label key
+        expect(selectBtn).toHaveTextContent("planManager.planFileButtonLabel");
+
+        // Verify open button contains no leading arrow glyph or icon span
+        expect(openBtn.textContent).not.toContain("↗");
+        expect(openBtn.textContent).not.toContain("→");
+        expect(openBtn.querySelector("span[aria-hidden='true']")).toBeNull();
+
+        // 5. Create button and confirm button are completely absent
+        expect(screen.queryByTestId("btn-confirm-plan")).not.toBeInTheDocument();
+        expect(screen.queryByTestId("btn-create-plan")).not.toBeInTheDocument();
+      });
+
+      it(`places directory box before selector and open buttons with no arrow on ${surface}`, async () => {
+        mockInvoke.mockImplementation((cmd: string) => {
+          if (cmd === "list_available_plans") {
+            return Promise.resolve(mockPlanDetailsWithPlans);
+          }
+          if (cmd === "get_plan_manager_location") {
+            return Promise.resolve("C:\\mock\\repo");
+          }
+          return Promise.resolve();
+        });
+
+        render(
+          <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+            <PlanFileManagerCard surface={surface} repoPath="C:\\mock\\repo" />
+          </LanguageContext.Provider>
+        );
+
+        await waitFor(() => {
+          expect(screen.getByTestId("active-plan-path-container")).toBeInTheDocument();
+        });
+
+        const pathContainer = screen.getByTestId("active-plan-path-container");
+        const selectBtn = screen.getByTestId("btn-select-folder");
+        const openBtn = screen.getByTestId("btn-open-plan");
+
+        // Verify exact Row 2 DOM ordering
+        expect(pathContainer.compareDocumentPosition(selectBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(selectBtn.compareDocumentPosition(openBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+        // Verify selector button label
+        expect(selectBtn).toHaveTextContent("planManager.planFileButtonLabel");
+
+        // Verify open button text and lack of arrow icon
+        expect(openBtn).toHaveTextContent("planManager.btnOpenPlanFile");
+        expect(openBtn.textContent).not.toContain("↗");
+        expect(openBtn.textContent).not.toContain("→");
+        expect(openBtn.querySelector("span[aria-hidden='true']")).toBeNull();
+      });
+
+      it(`normalizes Windows extended-length prefix \\\\?\\ on ${surface} while preserving operational path for open_path`, async () => {
+        const user = userEvent.setup();
+        const rawExtendedPath = "\\\\?\\C:\\Users\\Sohei\\dev\\project\\.plan\\V0.27.2.md";
+        const mockExtendedPlanDetails: PlanFileDetails = {
+          repo_root: "C:\\Users\\Sohei\\dev\\project",
+          plans_dir: "C:\\Users\\Sohei\\dev\\project\\.plan",
+          active_plan_path: rawExtendedPath,
+          active_plan_relative_path: ".plan/V0.27.2.md",
+          plans: [
+            {
+              path: rawExtendedPath,
+              relative_path: ".plan/V0.27.2.md",
+              title: "Extended Path Plan",
+              status: "IMPLEMENTED",
+              last_modified_ms: 1700000000000,
+              is_active: true,
+            },
+          ],
+        };
+
+        mockInvoke.mockImplementation((cmd: string) => {
+          if (cmd === "list_available_plans") {
+            return Promise.resolve(mockExtendedPlanDetails);
+          }
+          if (cmd === "get_plan_manager_location") {
+            return Promise.resolve("C:\\Users\\Sohei\\dev\\project");
+          }
+          return Promise.resolve();
+        });
+
+        render(
+          <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+            <PlanFileManagerCard surface={surface} repoPath="C:\\Users\\Sohei\\dev\\project" />
+          </LanguageContext.Provider>
+        );
+
+        await waitFor(() => {
+          expect(screen.getByTestId("active-plan-path-display")).toBeInTheDocument();
+        });
+
+        const pathDisplay = screen.getByTestId("active-plan-path-display");
+        // Displayed path strips \\?\ and starts with C:\
+        expect(pathDisplay).toHaveTextContent("C:\\Users\\Sohei\\dev\\project\\.plan\\V0.27.2.md");
+        expect(pathDisplay.textContent).not.toContain("\\\\?\\");
+        expect(pathDisplay.textContent).not.toContain("file:///");
+
+        // Clicking the path display does not call open_path (static text)
+        await user.click(pathDisplay);
+        expect(mockInvoke).not.toHaveBeenCalledWith("open_path", expect.anything());
+
+        // Clicking dedicated open button invokes open_path with the exact raw operational path
+        const openBtn = screen.getByTestId("btn-open-plan");
+        await user.click(openBtn);
+        expect(mockInvoke).toHaveBeenCalledWith("open_path", {
+          path: rawExtendedPath,
+        });
+      });
+
+      it(`falls back to bounded neutral localized label for unknown status on ${surface}`, async () => {
+        const mockUnknownStatusPlanDetails: PlanFileDetails = {
+          repo_root: "C:\\Users\\Sohei\\dev\\project",
+          plans_dir: "C:\\Users\\Sohei\\dev\\project\\.plan",
+          active_plan_path: "C:\\Users\\Sohei\\dev\\project\\.plan\\custom.md",
+          active_plan_relative_path: ".plan/custom.md",
+          plans: [
+            {
+              path: "C:\\Users\\Sohei\\dev\\project\\.plan\\custom.md",
+              relative_path: ".plan/custom.md",
+              title: "Custom Plan",
+              status: "SOME_ARBITRARY_UNRECOGNIZED_STATUS_STRING",
+              last_modified_ms: 1700000000000,
+              is_active: true,
+            },
+          ],
+        };
+
+        mockInvoke.mockImplementation((cmd: string) => {
+          if (cmd === "list_available_plans") {
+            return Promise.resolve(mockUnknownStatusPlanDetails);
+          }
+          if (cmd === "get_plan_manager_location") {
+            return Promise.resolve("C:\\Users\\Sohei\\dev\\project");
+          }
+          return Promise.resolve();
+        });
+
+        render(
+          <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+            <PlanFileManagerCard surface={surface} repoPath="C:\\Users\\Sohei\\dev\\project" />
+          </LanguageContext.Provider>
+        );
+
+        await waitFor(() => {
+          expect(screen.getByTestId("active-plan-badge")).toBeInTheDocument();
+        });
+
+        const badge = screen.getByTestId("active-plan-badge");
+        expect(badge).toHaveTextContent("[planManager.status.unknown]");
+        expect(badge.textContent).not.toContain("SOME_ARBITRARY_UNRECOGNIZED_STATUS_STRING");
+        expect(badge).toHaveAttribute("title", "planManager.status.unknown");
+      });
+
+      it(`disables open plan button and shows empty placeholder when active plan is unset on ${surface}`, async () => {
+        mockInvoke.mockImplementation((cmd: string) => {
+          if (cmd === "list_available_plans") {
+            return Promise.resolve(mockPlanDetailsEmpty);
+          }
+          if (cmd === "get_plan_manager_location") {
+            return Promise.resolve("C:\\mock\\repo");
+          }
+          return Promise.resolve();
+        });
+
+        render(
+          <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+            <PlanFileManagerCard surface={surface} repoPath="C:\\mock\\repo" />
+          </LanguageContext.Provider>
+        );
+
+        await waitFor(() => {
+          expect(screen.getByTestId("btn-open-plan")).toBeInTheDocument();
+        });
+
+        expect(screen.getByTestId("btn-open-plan")).toBeDisabled();
+        expect(screen.getByTestId("empty-plan-path-field")).toBeInTheDocument();
+        expect(screen.queryByTestId("active-plan-path-display")).not.toBeInTheDocument();
+        expect(screen.queryByTestId("btn-create-plan")).not.toBeInTheDocument();
+      });
+    });
   });
 });

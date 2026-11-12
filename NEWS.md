@@ -7,6 +7,12 @@
 - Added an editable path field with folder browsing and reset controls. Each configured root is used consistently for plan listing, selection, creation, and role/active-plan operations.
 - Removed the implicit current-working-directory fallback when a plan root is not configured, and added clear setup/error handling.
 
+### Plan File Selection and Display
+- Select an existing Markdown (`.md`) file directly as the Active Plan from either Autocode surface, then open it in the editor with the dedicated action.
+- Show the active plan's full absolute path as selectable text with a concise localized status; clicking the path does not open the file.
+- Start the plan-file picker in the active plan's parent folder (or the repository's `.plan` folder when there is no active plan).
+- Localize the selection/open actions and status labels across all eight GUI languages.
+
 ## v0.27.1 — 2026-11-09
 
 ### Application Updates & UI Improvements

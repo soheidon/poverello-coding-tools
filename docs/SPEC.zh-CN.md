@@ -6,7 +6,7 @@
 > **v0.26.1：** 非交互式 CLI 和 Node.js/npm 状态检查不会打开控制台窗口，并会在切换标签页时复用短时缓存结果。Windows 的进程初始化错误（包括 `0xC0000142`）会明确报告；用户主动发起的登录仍使用交互式终端。
 > **v0.26.2：** Codex Autocode 区分 Codex 在当前会话中的工作与外部审查器。优先审查器只裁定有效判定之间的分歧。DeepSeek Harness 的 headless 配置和工具限制不能证明 Windows 操作系统层面的文件系统或网络隔离。新增诊断日志和历史 Skill 模板的安全更新。
 > **v0.27.0：** 新增按仓库选择 Active Plan、按界面分配 Planner / Reviser，以及在恢复前严格检查身份与未解决问题的检查点机制。新增 OpenRouter Tencent Hy4 模型与价格元数据；Antigravity Nerf 设置集中到 GUI，并停用旧斜杠命令。自动应用更新尚未启用。
-> **v0.27.2：** 为 Antigravity Autocode 和 Codex Autocode 添加相互独立的计划文件夹位置设置。各位置会一致地用于计划操作；未配置时不会默默回退到应用程序的工作目录。
+> **v0.27.2：** 为 Antigravity Autocode 和 Codex Autocode 添加相互独立的计划文件夹位置设置。各位置会一致地用于计划操作；未配置时不会默默回退到应用程序的工作目录。还可直接选择现有 Markdown 计划文件并在编辑器中打开；界面显示活动计划的绝对路径和状态，文件选择器从该计划所在文件夹开始。
 
 ## 概述
 

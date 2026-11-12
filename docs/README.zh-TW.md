@@ -15,7 +15,7 @@ Poverello Coding Tools（應用程式內顯示名稱為 **Poverello**）是一�
 > [!TIP]
 > **最新消息：** 請參閱 [NEWS.md（版本說明）](../NEWS.md)，了解各版本功能、實作細節與變更記錄。
 
-目前版本為 **v0.27.2**。Antigravity Autocode 與 Codex Autocode 可分別在各自的 Skills & Rules 設定中設定獨立的計畫資料夾位置。路徑可直接編輯、透過資料夾選擇器指定或重設；未設定時不會暗中退回使用應用程式的工作目錄。
+目前版本為 **v0.27.2**。Antigravity Autocode 與 Codex Autocode 可分別在各自的 Skills & Rules 設定中設定獨立的計畫資料夾位置。路徑可直接編輯、透過資料夾選擇器指定或重設；未設定時不會暗中退回使用應用程式的工作目錄。也可直接選取 Markdown（.md）計畫檔作為 Active Plan，並在編輯器中開啟。畫面會顯示活動計畫的完整絕對路徑與狀態；檔案選擇器會從該計畫所在資料夾開啟。
 
 ---
 

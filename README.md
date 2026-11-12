@@ -15,7 +15,7 @@ Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companio
 > [!TIP]
 > **What's New:** For version-by-version feature updates, implementation details, and changelogs, see [NEWS.md (Release Notes)](NEWS.md).
 
-The current release is **v0.27.2**. Antigravity and Codex each have a separate plan-folder root setting under their Skills & Rules settings.
+The current release is **v0.27.2**. Antigravity and Codex each have a separate plan-folder root setting under their Skills & Rules settings. Existing Markdown plan files can be selected directly and opened in the editor; the active plan's full path and status are shown, and the picker starts in the active plan folder.
 
 ---
 
