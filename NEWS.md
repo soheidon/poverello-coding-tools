@@ -1,5 +1,15 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.27.3 — Release target (not yet published)
+
+### Independent Project-Plan Slots
+
+- Added an always-present primary project-plan row to both Antigravity Autocode and Codex Autocode, with an optional second row (up to two per surface).
+- Selecting a Markdown (`.md`) plan associates it with the Git repository containing the file. Each surface stores its project-plan selections independently.
+- The plan-folder setting now controls only the file picker's starting directory when no plan is active; it does not restrict which repository's plan can be selected. With an active plan, the picker starts in that plan's folder.
+- Removing the optional second row clears its Poverello association only. It does not delete, move, or edit the project or plan file.
+- Removed the leading file icon from the plan-file selection button on both Autocode surfaces.
+
 ## v0.27.2 — 2026-11-11
 
 ### Plan Folder Location Settings

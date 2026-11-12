@@ -7,7 +7,11 @@ description: 承認済み計画に基づく実装・テスト、外部Codex/Deep
 
 ## 役割と権能分離 (Separation of Powers)
 
-- **正本計画書（Active Plan File）**: 作業開始前に必ず確認する。GUIでアクティブプランファイルが指定されていない場合、即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED: Poverello GUI の Autocode 画面から作業対象のプランファイルを指定または新規作成してください。` を出力して停止する。計画書ファイルを読み込み、そのSHA-256ダイジェストを記録する。以降のすべてのフェーズ（実装、テスト結果、レビュー判定、是正）の更新は、直前フェーズのSHA-256ダイジェストを `expected_sha256` として指定した `append_plan_audit_trail` による CAS（Compare-And-Swap）更新を用いて、正本計画書の `## 5. Execution History & Audit Trail` へ順次追記する。
+- **正本計画書（Active Plan File）の解決順序**: 作業開始前に必ず確認する。
+  1. **引数・プロンプト明示指定**: ユーザーが引数等で計画書パスを指定している場合は最優先する。
+  2. **作業リポジトリローカル設定**: 作業ディレクトリの最近傍Gitリポジトリ（`.git`）配下の `.plan/.active-plan.json`（サーフェス固有 `surfaces.antigravity.active_plan_path` または legacy `active_plan_path`）を解決する。
+  3. **GUI設定のプロジェクトスロット**: `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` の `slots` から作業リポジトリルートに一致するスロットの `plan_path` を解決する。
+  4. **未解決時の安全な停止 (Fail Closed)**: 対応する計画書が特定できない、または複数一致で曖昧な場合は別プロジェクトの計画書を推測・誤用せず、即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED: Poverello GUI の Autocode 画面から作業対象のプランファイルを指定または新規作成してください。` を出力して停止する。計画書ファイルを読み込み、そのSHA-256ダイジェストを記録する。以降のすべてのフェーズ（実装、テスト結果、レビュー判定、是正）の更新は、直前フェーズのSHA-256ダイジェストを `expected_sha256` として指定した `append_plan_audit_trail` による CAS（Compare-And-Swap）更新を用いて、正本計画書の `## 5. Execution History & Audit Trail` へ順次追記する。
 - 計画candidateは一時領域で作成し、`apply_plan_candidate` に工程開始時の `expected_file_identity` とSHA-256を渡して反映する。監査追記eventとチェックポイント保存の両方にidentityとSHA-256を指定し（いずれも必須）、各信頼済み書込み後に返されたidentity/Hashを次工程へ引き継ぐ。再開時は `get_plan_checkpoint` と `verify_plan_resumption` を実行し、repo、path、revision、file identity、Findingの全検査が成功しなければ停止する。
 - **実装主体 (Implementer)**: 承認済み正本計画書に基づき実装およびテストを実施し、計画書の Audit Trail セクションへ記録する。
 - Planner/Reviserは `.plan/.active-plan.json` の `role_assignments.antigravity.planner_id` / `reviser_id` を用いる。未設定・不正なら停止し、global設定や別roleへのfallbackを禁止する。

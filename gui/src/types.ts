@@ -421,6 +421,19 @@ export interface CodexReviewSettings {
   build_reviewers?: string[] | null;
 }
 
+export interface SelectedPlanResult {
+  repo_path: string;
+  relative_path: string;
+  surface?: string | null;
+  slot_id?: string | null;
+}
+
+export interface ProjectPlanSlot {
+  slot_id: string;
+  repo_path?: string | null;
+  plan_path?: string | null;
+}
+
 export interface PlanFileEntry {
   path: string;
   relative_path: string;

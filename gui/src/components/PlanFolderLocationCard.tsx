@@ -6,6 +6,22 @@ export interface PlanFolderLocationCardProps {
   surface: "antigravity" | "codex";
 }
 
+export function normalizePlanRootDisplayPath(rawPath?: string | null): string {
+  if (!rawPath) return "";
+
+  let path = rawPath.trim();
+  if (path.startsWith("\\\\?\\UNC\\") || path.startsWith("//?/UNC/")) {
+    path = `\\\\${path.slice(8).replace(/\//g, "\\")}`;
+  } else if (path.startsWith("\\\\?\\") || path.startsWith("//?/")) {
+    path = path.slice(4);
+  }
+
+  if (/^[a-zA-Z]:/.test(path)) {
+    path = path.replace(/\//g, "\\");
+  }
+  return path;
+}
+
 export default function PlanFolderLocationCard({ surface }: PlanFolderLocationCardProps) {
   const { t } = useTranslation();
 
@@ -22,7 +38,7 @@ export default function PlanFolderLocationCard({ surface }: PlanFolderLocationCa
       setError(null);
       const res = await invoke<string | null>("get_plan_manager_location", { surface });
       setLocation(res);
-      setInputValue(res ?? "");
+      setInputValue(normalizePlanRootDisplayPath(res));
     } catch (e: unknown) {
       setError(String(e));
     } finally {
@@ -36,8 +52,8 @@ export default function PlanFolderLocationCard({ surface }: PlanFolderLocationCa
 
   const saveLocation = async (rawPath: string | null) => {
     const trimmed = rawPath && rawPath.trim() !== "" ? rawPath.trim() : null;
-    if (trimmed === location) {
-      setInputValue(location ?? "");
+    if (normalizePlanRootDisplayPath(trimmed) === normalizePlanRootDisplayPath(location)) {
+      setInputValue(normalizePlanRootDisplayPath(location));
       return;
     }
 
@@ -50,13 +66,13 @@ export default function PlanFolderLocationCard({ surface }: PlanFolderLocationCa
         path: trimmed,
       });
       setLocation(canonical);
-      setInputValue(canonical ?? "");
+      setInputValue(normalizePlanRootDisplayPath(canonical));
       setSavedMessage(true);
       setTimeout(() => setSavedMessage(false), 3000);
     } catch (e: unknown) {
       setError(String(e));
       setSavedMessage(false);
-      setInputValue(location ?? "");
+      setInputValue(normalizePlanRootDisplayPath(location));
     } finally {
       setSaving(false);
     }

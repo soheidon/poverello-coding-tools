@@ -15,7 +15,7 @@ Poverello Coding Tools (que aparece en la aplicación como **Poverello**) es una
 > [!TIP]
 > **Novedades:** Consulta [NEWS.md (Notas de la versión)](../NEWS.md) para ver las funciones, detalles de implementación y cambios de cada versión.
 
-La versión actual es **v0.27.2**. Antigravity Autocode y Codex Autocode tienen ubicaciones independientes para la carpeta de planes, configurables en sus respectivos ajustes de Skills & Rules. La ruta se puede editar, elegir con el selector de carpetas o restablecer; si no está configurada, no se recurre silenciosamente al directorio de trabajo de la aplicación. También se pueden seleccionar directamente archivos Markdown (.md) como Active Plan y abrirlos en el editor. Se muestran la ruta absoluta completa y el estado del plan activo; el selector de archivos se abre en la carpeta de ese plan.
+El próximo lanzamiento previsto es **v0.27.3** (aún no publicado). Cada interfaz de Autocode tiene una fila permanente de proyecto y plan, y permite añadir una segunda fila opcional. Al seleccionar un plan Markdown, se asocia con el repositorio que contiene el archivo. Antigravity y Codex guardan sus selecciones por separado. La ubicación de la carpeta de planes solo se usa como carpeta inicial del selector cuando no hay un Active Plan. Al quitar la segunda fila opcional, solo se elimina la asociación de Poverello; no se borran los archivos del proyecto ni del plan. Se muestran la ruta completa y el estado del plan seleccionado, con una acción independiente para abrir el archivo.
 
 ---
 

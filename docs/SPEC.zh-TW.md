@@ -7,6 +7,7 @@
 > **v0.26.2：** Codex Autocode 區分 Codex 在目前工作階段中的工作與外部審查器。優先審查器僅裁決有效判定之間的分歧。DeepSeek Harness 的 headless 設定與工具限制無法證明 Windows 作業系統層級的檔案系統或網路隔離。新增診斷記錄與歷史 Skill 範本的安全更新。
 > **v0.27.0：** 新增依儲存庫選取 Active Plan、依介面指派 Planner / Reviser，以及在恢復前嚴格檢查身分與未解決問題的檢查點機制。新增 OpenRouter Tencent Hy4 模型與價格中繼資料；Antigravity Nerf 設定集中於 GUI，並停用舊斜線指令。尚未啟用應用程式自動更新。
 > **v0.27.2：** 為 Antigravity Autocode 與 Codex Autocode 新增彼此獨立的計畫資料夾位置設定。各位置會一致地套用於計畫操作；未設定時不會暗中退回使用應用程式的工作目錄。也可直接選取現有 Markdown 計畫檔並在編輯器中開啟；畫面顯示活動計畫的絕對路徑與狀態，檔案選擇器從該計畫所在資料夾開始。
+> **v0.27.3（發布目標；尚未發布）：** 為 Antigravity Autocode 與 Codex Autocode 新增彼此獨立的專案-計畫列。每個介面固定保留一個主要列，並可新增一個選用的第二列。選取 `.md` 計畫檔後，會將它關聯至包含該檔案的 Git 儲存庫；兩個介面分別儲存各自的選擇。計畫資料夾設定僅在沒有 Active Plan 時決定檔案選擇器的起始目錄，不限制可選檔案，也不定義專案根目錄。移除選用列只會清除 Poverello 中的關聯，不會刪除檔案。
 
 ## 概述
 
@@ -136,11 +137,11 @@ Tauri v2 + React 19 + TypeScript。頂層導覽包含 Gateway（儀表板）、M
 
 ### Active Plan 與工作流程角色管理
 
-- 每個儲存庫選擇一個 Active Plan 檔案，供 Codex Autocode 與 Antigravity Autocode 共用。Planner 與 Reviser 依 Autocode 介面分別儲存；審查器選擇仍使用既有審查策略設定。
+- Antigravity Autocode 與 Codex Autocode 的 Active Plan 脈絡彼此獨立。每個介面固定顯示一個主要專案-計畫列，並可新增一個選用的第二列（最多兩列）。選取的 Markdown 檔會關聯至包含該檔案的 Git 儲存庫。移除第二列只會清除 Poverello 中的關聯，不會刪除專案或計畫檔。
 - Workflow Skills 會讀取各介面的角色指派。必要角色缺漏、不受支援或無法使用時，工作流程會停止，不會暗中切換角色。角色指派本身不會啟動代理，也不會繞過審查安全閘門。
 - 檢查點儲存在 Active Plan 中，記錄工作流程狀態、已完成工作、修改檔案、驗證結果、審查狀態與下一步操作。恢復前會驗證儲存庫身分、Active Plan 路徑、計畫 revision 與檔案身分、未解決問題及修改檔案狀態；任何不一致都會安全停止。
-- 計畫候選寫入、稽核追加與檢查點儲存皆使用預期檔案身分與 SHA-256 雙重 CAS。相關 IPC 指令包括 `apply_plan_candidate`、`append_plan_audit_trail`、`save_plan_checkpoint`、`get_plan_checkpoint` 與 `verify_plan_resumption`。
-- Antigravity 與 Codex 分別在各自的 Skills & Rules 設定中儲存獨立的專案位置。對應的 Autocode 計畫管理器會在計畫清單、選取、建立及 Active Plan／角色指派操作中一致使用該位置。位置未設定或無效時會要求明確設定，不會暗中使用應用程式的工作目錄。
+- Antigravity 與 Codex 分別儲存各自的專案-計畫列。獨立的計畫資料夾設定僅在沒有 Active Plan 時作為檔案選擇器的起始目錄；它不會限制檔案選取，也不定義實際的儲存庫根目錄。若所選計畫位於另一個 Git 儲存庫，會依所選檔案解析該儲存庫根目錄。
+- 有 Active Plan 時，檔案選擇器會從該計畫所在資料夾開啟；否則使用已設定的起始資料夾；若未設定，則由系統原生檔案選擇器使用作業系統提供的預設資料夾，不會將應用程式工作目錄視為計畫根目錄。每列的計畫與儲存庫關聯依介面分別儲存。移除選用列不會修改關聯檔案。
 - 路徑可直接編輯、透過資料夾選擇器指定或重設。無論選取儲存庫根目錄或其 `.plan` 資料夾，都會一致地正規化專案根目錄。
 
 ### Tencent Hy4 與 Antigravity Nerf 設定

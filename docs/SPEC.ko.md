@@ -7,6 +7,7 @@
 > **v0.26.2:** Codex Autocode는 현재 세션에서 Codex가 수행하는 작업과 외부 리뷰어를 구분합니다. 우선 리뷰어는 유효한 판정이 서로 다를 때만 판정하며, DeepSeek Harness의 headless 설정과 도구 제한은 Windows OS 수준의 파일 시스템·네트워크 격리를 증명하지 않습니다. 진단 로그와 과거 Skill 템플릿의 안전한 업데이트를 제공합니다.
 > **v0.27.0:** 저장소별 Active Plan 선택, 화면별 Planner / Reviser 지정, 재개 전에 식별 정보와 미해결 문제를 fail-closed 방식으로 검사하는 체크포인트 기능을 추가합니다. OpenRouter Tencent Hy4 모델 및 가격 메타데이터를 추가하고 Antigravity Nerf 설정을 GUI로 통합하며 기존 슬래시 명령을 종료합니다. 앱 자동 업데이트는 활성화되어 있지 않습니다.
 > **v0.27.2:** Antigravity Autocode와 Codex Autocode에 서로 독립적인 계획 폴더 위치 설정을 추가했습니다. 각 위치를 계획 작업 전반에서 일관되게 사용하며, 미설정 시 앱 작업 디렉터리로 암묵적으로 대체하지 않습니다. 기존 Markdown 계획 파일을 직접 선택해 편집기에서 열 수 있습니다. 활성 계획의 절대 경로와 상태가 표시되고, 파일 선택기는 해당 계획 폴더에서 시작합니다.
+> **v0.27.3(릴리스 대상, 미공개):** Antigravity Autocode와 Codex Autocode에 서로 독립적인 프로젝트-계획 행을 추가합니다. 각 화면에는 기본 행이 항상 있으며 선택적으로 두 번째 행을 추가할 수 있습니다. 선택한 `.md` 계획은 해당 파일을 포함하는 Git 저장소와 연결되고 두 화면은 각자의 선택을 독립적으로 저장합니다. 계획 폴더 설정은 Active Plan이 없을 때 파일 선택기의 시작 폴더만 지정하며, 선택 범위를 제한하거나 프로젝트 루트를 정하지 않습니다. 선택적 행을 제거해도 Poverello 연결 정보만 해제되고 파일은 삭제되지 않습니다.
 
 ## 개요
 
@@ -136,12 +137,12 @@ Tauri v2 + React 19 + TypeScript. 상단 탐색: Gateway (Dashboard), MCP, Antig
 
 ### Active Plan 및 워크플로 역할 관리
 
-- 저장소마다 Active Plan 파일 하나를 선택해 Codex Autocode와 Antigravity Autocode가 공유합니다. Planner와 Reviser는 Autocode 화면별로 따로 저장하며 리뷰어 선택은 기존 리뷰 정책 설정을 사용합니다.
+- Active Plan 컨텍스트는 Antigravity Autocode와 Codex Autocode에서 독립적입니다. 각 화면에는 기본 프로젝트-계획 행이 항상 있으며 선택적으로 두 번째 행을 추가할 수 있습니다(최대 2개). 선택한 Markdown 파일은 해당 파일을 포함하는 Git 저장소와 연결됩니다. 두 번째 행을 제거해도 Poverello 연결 정보만 해제되며 프로젝트와 계획 파일은 삭제되지 않습니다.
 - Workflow Skills는 화면별 역할 지정을 읽습니다. 필요한 역할이 없거나 지원되지 않거나 사용할 수 없으면 다른 역할로 암묵적으로 대체하지 않고 중지합니다. 역할 지정만으로 에이전트를 시작하거나 리뷰 안전 게이트를 우회하지 않습니다.
 - 체크포인트는 Active Plan에 워크플로 상태, 완료 작업, 수정 파일, 검증 결과, 리뷰 상태 및 다음 작업을 기록합니다. 재개 전에 저장소 식별 정보, Active Plan 경로, 계획 revision과 파일 식별 정보, 미해결 지적 및 수정 파일 상태를 검증하며 불일치 시 fail-closed로 중지합니다.
 - 계획 후보 반영, 감사 기록 추가 및 체크포인트 저장은 예상 파일 식별 정보와 SHA-256을 모두 사용하는 CAS로 보호됩니다. 관련 IPC 명령은 `apply_plan_candidate`, `append_plan_audit_trail`, `save_plan_checkpoint`, `get_plan_checkpoint`, `verify_plan_resumption`입니다.
-- Antigravity와 Codex는 각자의 Skills & Rules 설정에서 독립된 프로젝트 경로를 저장합니다. 각 Autocode 계획 관리자는 계획 목록, 선택, 생성 및 Active Plan/역할 지정에 해당 경로를 일관되게 사용합니다. 위치가 없거나 유효하지 않으면 명시적인 설정을 요구하고 앱 작업 디렉터리를 암묵적으로 사용하지 않습니다.
-- 경로를 직접 편집하거나 폴더 선택기로 지정하고 초기화할 수 있습니다. 저장소 루트 또는 `.plan` 폴더를 선택해도 프로젝트 루트를 동일하게 정규화합니다.
+- Antigravity와 Codex는 프로젝트-계획 행을 서로 독립적으로 저장합니다. 별도의 계획 폴더 설정은 Active Plan이 없을 때 파일 선택기의 시작 폴더만 지정하며, 선택 범위나 실제 저장소 루트를 제한하지 않습니다. 선택한 계획이 다른 Git 저장소에 있으면 해당 파일을 기준으로 저장소 루트를 확인합니다.
+- Active Plan이 있으면 파일 선택기는 해당 계획 파일이 있는 폴더에서 열립니다. 없으면 설정된 시작 폴더를 사용하고, 설정도 없으면 네이티브 파일 선택기가 운영체제 기본 폴더를 사용합니다. 앱 작업 디렉터리를 계획 루트로 취급하지 않습니다. 각 행의 계획 및 저장소 연결은 화면별로 저장됩니다. 선택적 행을 제거해도 연결된 파일은 변경되지 않습니다.
 
 ### Tencent Hy4 및 Antigravity Nerf 설정
 

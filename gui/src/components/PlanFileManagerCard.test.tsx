@@ -5,12 +5,27 @@ import PlanFileManagerCard from "./PlanFileManagerCard";
 import { LanguageContext } from "../i18n";
 import type { PlanFileDetails } from "../types";
 
-const mockInvoke = vi.fn();
+const mockInvoke = vi.fn((cmd: string, args?: unknown) => undefined as any);
+let lastConfiguredLocation: string | null = "C:\\mock\\repo";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: async (cmd: string, args?: unknown) => {
-    const res = await mockInvoke(cmd, args);
-    if (cmd === "get_plan_manager_location" && res === undefined) {
+    const res = await (args !== undefined ? mockInvoke(cmd, args) : mockInvoke(cmd));
+    if (cmd === "get_plan_manager_location") {
+      if (res !== undefined) {
+        lastConfiguredLocation = res;
+        return res;
+      }
+      lastConfiguredLocation = "C:\\mock\\repo";
       return "C:\\mock\\repo";
+    }
+    if (cmd === "get_project_plan_slots" && res === undefined) {
+      const repo = (args as any)?.repoPath || lastConfiguredLocation;
+      if (repo === null) {
+        return [{ slot_id: "primary", repo_path: null, plan_path: null }];
+      }
+      return [
+        { slot_id: "primary", repo_path: repo, plan_path: ".plan/V0.26.3.md" },
+      ];
     }
     return res;
   },
@@ -52,12 +67,18 @@ const mockPlanDetailsWithPlans: PlanFileDetails = {
 describe("PlanFileManagerCard Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    lastConfiguredLocation = "C:\\mock\\repo";
   });
 
   it("renders warning banner when no active plan is specified", async () => {
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "list_available_plans") {
         return Promise.resolve(mockPlanDetailsEmpty);
+      }
+      if (cmd === "get_project_plan_slots") {
+        return Promise.resolve([
+          { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: null },
+        ]);
       }
       return Promise.resolve();
     });
@@ -91,13 +112,13 @@ describe("PlanFileManagerCard Component", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("active-plan-badge")).toBeInTheDocument();
+      expect(screen.getByTestId("active-plan-path-display")).toHaveAttribute(
+        "aria-label",
+        "C:\\mock\\repo\\.plan\\V0.26.3.md — Plan Manager & Role Separation"
+      );
     });
 
     expect(screen.getByTestId("active-plan-path-display")).toHaveTextContent("C:\\mock\\repo\\.plan\\V0.26.3.md");
-    expect(screen.getByTestId("active-plan-path-display")).toHaveAttribute(
-      "aria-label",
-      "C:\\mock\\repo\\.plan\\V0.26.3.md — Plan Manager & Role Separation"
-    );
     expect(screen.getByTestId("btn-open-plan")).toBeInTheDocument();
     expect(screen.getByTestId("btn-open-plan")).not.toBeDisabled();
     expect(screen.getByTestId("active-plan-badge")).toHaveTextContent("[planManager.status.approved]");
@@ -167,6 +188,11 @@ describe("PlanFileManagerCard Component", () => {
       if (cmd === "list_available_plans") {
         return Promise.resolve(mockPlanDetailsEmpty);
       }
+      if (cmd === "get_project_plan_slots") {
+        return Promise.resolve([
+          { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: null },
+        ]);
+      }
       return Promise.resolve();
     });
 
@@ -215,20 +241,23 @@ describe("PlanFileManagerCard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("btn-select-folder")).toBeInTheDocument();
+      expect(screen.getByTestId("btn-select-plan-file")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByTestId("btn-select-folder"));
+    await user.click(screen.getByTestId("btn-select-plan-file"));
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("select_plan_file_dialog", {
         repoPath: "C:\\mock\\repo",
         surface: "codex",
         dialogTitle: expect.any(String),
+        slotId: "primary",
       });
       expect(mockInvoke).toHaveBeenCalledWith("set_active_plan", {
         relativePath: ".plan/feature-xyz.md",
         repoPath: "C:\\mock\\repo",
+        surface: "codex",
+        slotId: "primary",
       });
     });
 
@@ -675,7 +704,7 @@ describe("PlanFileManagerCard Component", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("no-location-warning")).not.toBeInTheDocument();
     });
-    expect(screen.getByTestId("btn-select-folder")).toBeInTheDocument();
+    expect(screen.getByTestId("btn-select-plan-file")).toBeInTheDocument();
     expect(screen.getByTestId("btn-refresh-plans")).toBeDisabled();
     expect(mockInvoke).not.toHaveBeenCalledWith("list_available_plans", expect.anything());
   });
@@ -685,6 +714,15 @@ describe("PlanFileManagerCard Component", () => {
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "list_available_plans") {
         return Promise.resolve(currentRepo === "C:\\mock\\repo1" ? mockPlanDetailsWithPlans : mockPlanDetailsEmpty);
+      }
+      if (cmd === "get_project_plan_slots") {
+        return Promise.resolve([
+          {
+            slot_id: "primary",
+            repo_path: currentRepo,
+            plan_path: currentRepo === "C:\\mock\\repo1" ? ".plan/V0.26.3.md" : null,
+          },
+        ]);
       }
       return Promise.resolve();
     });
@@ -713,16 +751,16 @@ describe("PlanFileManagerCard Component", () => {
     });
   });
 
-  describe("unconfigured plan folder location dialog opening", () => {
+  describe("unconfigured plan folder location and slot selection", () => {
     it.each(["codex" as const, "antigravity" as const])(
-      "calls select_plan_root_dialog when unconfigured on %s and cancels gracefully",
+      "calls select_plan_file_dialog directly without calling select_plan_root_dialog when unconfigured on %s",
       async (surface) => {
         const user = userEvent.setup();
         mockInvoke.mockImplementation((cmd: string) => {
           if (cmd === "get_plan_manager_location") {
             return Promise.resolve(null);
           }
-          if (cmd === "select_plan_root_dialog") {
+          if (cmd === "select_plan_file_dialog") {
             return Promise.resolve(null);
           }
           return Promise.resolve();
@@ -738,36 +776,68 @@ describe("PlanFileManagerCard Component", () => {
           expect(screen.queryByTestId("no-location-warning")).not.toBeInTheDocument();
         });
 
-        await user.click(screen.getByTestId("btn-select-folder"));
+        await user.click(screen.getByTestId("btn-select-plan-file"));
 
         await waitFor(() => {
-          expect(mockInvoke).toHaveBeenCalledWith("select_plan_root_dialog", { surface });
+          expect(mockInvoke).toHaveBeenCalledWith(
+            "select_plan_file_dialog",
+            expect.objectContaining({ surface, slotId: "primary" })
+          );
         });
-        expect(mockInvoke).not.toHaveBeenCalledWith("select_plan_folder_dialog", expect.anything());
+        expect(mockInvoke).not.toHaveBeenCalledWith("select_plan_root_dialog", expect.anything());
         expect(mockInvoke).not.toHaveBeenCalledWith("list_available_plans", expect.anything());
         expect(screen.queryByTestId("no-location-warning")).not.toBeInTheDocument();
       }
     );
 
     it.each(["codex" as const, "antigravity" as const])(
-      "calls select_plan_root_dialog on %s, updates root, removes warning, and loads plans with selected root only",
+      "renders no project-folder picker and selecting plan directly binds repo on %s",
       async (surface) => {
         const user = userEvent.setup();
         const selectedRepo = "C:\\mock\\new-repo";
-        mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        const selectedPlan = ".plan/new-feature.md";
+        mockInvoke.mockImplementation((cmd: string) => {
           if (cmd === "get_plan_manager_location") {
             return Promise.resolve(null);
           }
-          if (cmd === "select_plan_root_dialog") {
-            return Promise.resolve(selectedRepo);
+          if (cmd === "select_plan_file_dialog") {
+            return Promise.resolve({
+              repo_path: selectedRepo,
+              relative_path: selectedPlan,
+              surface,
+              slot_id: "primary",
+            });
+          }
+          if (cmd === "set_active_plan") {
+            return Promise.resolve({
+              repo_root: selectedRepo,
+              plans_dir: `${selectedRepo}\\.plan`,
+              active_plan_path: `${selectedRepo}\\${selectedPlan}`,
+              active_plan_relative_path: selectedPlan,
+              plans: [
+                {
+                  filename: "new-feature.md",
+                  relative_path: selectedPlan,
+                  abs_path: `${selectedRepo}\\${selectedPlan}`,
+                  is_active: true,
+                },
+              ],
+            });
           }
           if (cmd === "list_available_plans") {
             return Promise.resolve({
               repo_root: selectedRepo,
               plans_dir: `${selectedRepo}\\.plan`,
-              active_plan_path: null,
-              active_plan_relative_path: null,
-              plans: [],
+              active_plan_path: `${selectedRepo}\\${selectedPlan}`,
+              active_plan_relative_path: selectedPlan,
+              plans: [
+                {
+                  filename: "new-feature.md",
+                  relative_path: selectedPlan,
+                  abs_path: `${selectedRepo}\\${selectedPlan}`,
+                  is_active: true,
+                },
+              ],
             });
           }
           if (cmd === "get_plan_role_assignment") {
@@ -786,35 +856,31 @@ describe("PlanFileManagerCard Component", () => {
           expect(screen.queryByTestId("no-location-warning")).not.toBeInTheDocument();
         });
 
-        await user.click(screen.getByTestId("btn-select-folder"));
+        // Folder selection button does not exist
+        expect(screen.queryByTestId("btn-select-project-primary")).not.toBeInTheDocument();
+
+        // Clicking plan file button selects plan and binds repo
+        await user.click(screen.getByTestId("btn-select-plan-file"));
 
         await waitFor(() => {
-          expect(mockInvoke).toHaveBeenCalledWith("select_plan_root_dialog", { surface });
+          expect(mockInvoke).toHaveBeenCalledWith(
+            "select_plan_file_dialog",
+            expect.objectContaining({ surface, slotId: "primary" })
+          );
         });
-        expect(mockInvoke).not.toHaveBeenCalledWith("select_plan_folder_dialog", expect.anything());
 
-        // Warning banner is cleared once root is configured
         await waitFor(() => {
-          expect(screen.queryByTestId("no-location-warning")).not.toBeInTheDocument();
-        });
-
-        // Exactly one list_available_plans call with the selected repo root, never with null
-        await waitFor(() => {
-          expect(mockInvoke).toHaveBeenCalledWith("list_available_plans", {
+          expect(mockInvoke).toHaveBeenCalledWith("set_active_plan", {
+            relativePath: selectedPlan,
             repoPath: selectedRepo,
-            folderPath: null,
+            surface,
+            slotId: "primary",
           });
         });
 
-        const listCalls = mockInvoke.mock.calls.filter(([cmd]) => cmd === "list_available_plans");
-        expect(listCalls).toHaveLength(1);
-        expect(listCalls[0][1]).toEqual({
-          repoPath: selectedRepo,
-          folderPath: null,
-        });
-
-        // Does not redundantly call set_plan_manager_location from frontend
-        expect(mockInvoke).not.toHaveBeenCalledWith("set_plan_manager_location", expect.anything());
+        // Does not call folder selection dialogs
+        expect(mockInvoke).not.toHaveBeenCalledWith("select_project_folder_dialog", expect.anything());
+        expect(mockInvoke).not.toHaveBeenCalledWith("select_plan_root_dialog", expect.anything());
       }
     );
 
@@ -829,6 +895,11 @@ describe("PlanFileManagerCard Component", () => {
         mockInvoke.mockImplementation((cmd: string, args?: any) => {
           if (cmd === "get_plan_manager_location") {
             return Promise.resolve(configuredRepo);
+          }
+          if (cmd === "get_project_plan_slots") {
+            return Promise.resolve([
+              { slot_id: "primary", repo_path: configuredRepo, plan_path: activePlan },
+            ]);
           }
           if (cmd === "list_available_plans") {
             return Promise.resolve({
@@ -849,7 +920,16 @@ describe("PlanFileManagerCard Component", () => {
               plans_dir: `${configuredRepo}\\.plan`,
               active_plan_path: `${configuredRepo}\\.plan\\my-plan.md`,
               active_plan_relative_path: ".plan/my-plan.md",
-              plans: [],
+              plans: [
+                {
+                  path: `${configuredRepo}\\.plan\\my-plan.md`,
+                  relative_path: ".plan/my-plan.md",
+                  title: "My Plan",
+                  status: "APPROVED",
+                  last_modified_ms: 1700000000000,
+                  is_active: true,
+                },
+              ],
             });
           }
           return Promise.resolve();
@@ -862,23 +942,26 @@ describe("PlanFileManagerCard Component", () => {
         );
 
         await waitFor(() => {
-          expect(screen.getByTestId("btn-select-folder")).toBeInTheDocument();
+          expect(screen.getByTestId("btn-select-plan-file")).toBeInTheDocument();
           expect(screen.getByTestId("no-active-plan-warning")).toBeInTheDocument();
         });
 
         onActivePlanChanged.mockClear();
 
-        await user.click(screen.getByTestId("btn-select-folder"));
+        await user.click(screen.getByTestId("btn-select-plan-file"));
 
         await waitFor(() => {
           expect(mockInvoke).toHaveBeenCalledWith("select_plan_file_dialog", {
             repoPath: configuredRepo,
             surface,
             dialogTitle: expect.any(String),
+            slotId: "primary",
           });
           expect(mockInvoke).toHaveBeenCalledWith("set_active_plan", {
             relativePath: ".plan/my-plan.md",
             repoPath: configuredRepo,
+            surface,
+            slotId: "primary",
           });
           expect(screen.getByTestId("active-plan-badge")).toBeInTheDocument();
         });
@@ -898,6 +981,11 @@ describe("PlanFileManagerCard Component", () => {
           if (cmd === "get_plan_manager_location") {
             return Promise.resolve(configuredRepo);
           }
+          if (cmd === "get_project_plan_slots") {
+            return Promise.resolve([
+              { slot_id: "primary", repo_path: configuredRepo, plan_path: ".plan/V0.26.3.md" },
+            ]);
+          }
           if (cmd === "list_available_plans") {
             return Promise.resolve(mockPlanDetailsWithPlans);
           }
@@ -914,19 +1002,20 @@ describe("PlanFileManagerCard Component", () => {
         );
 
         await waitFor(() => {
-          expect(screen.getByTestId("btn-select-folder")).toBeInTheDocument();
+          expect(screen.getByTestId("btn-select-plan-file")).toBeInTheDocument();
           expect(screen.getByTestId("active-plan-badge")).toBeInTheDocument();
         });
 
         onActivePlanChanged.mockClear();
 
-        await user.click(screen.getByTestId("btn-select-folder"));
+        await user.click(screen.getByTestId("btn-select-plan-file"));
 
         await waitFor(() => {
           expect(mockInvoke).toHaveBeenCalledWith("select_plan_file_dialog", {
             repoPath: configuredRepo,
             surface,
             dialogTitle: expect.any(String),
+            slotId: "primary",
           });
         });
 
@@ -968,6 +1057,15 @@ describe("PlanFileManagerCard Component", () => {
           if (cmd === "get_plan_manager_location") {
             return Promise.resolve("C:\\Users\\Sohei\\dev\\project");
           }
+          if (cmd === "get_project_plan_slots") {
+            return Promise.resolve([
+              {
+                slot_id: "primary",
+                repo_path: "C:\\Users\\Sohei\\dev\\project",
+                plan_path: ".plan/V0.27.2.md",
+              },
+            ]);
+          }
           return Promise.resolve();
         });
 
@@ -1007,14 +1105,14 @@ describe("PlanFileManagerCard Component", () => {
         );
 
         // 4. Phase 16: Row 2 Layout Ordering and Buttons
-        const selectBtn = screen.getByTestId("btn-select-folder");
+        const selectBtn = screen.getByTestId("btn-select-plan-file");
         const openBtn = screen.getByTestId("btn-open-plan");
         expect(selectBtn).toBeInTheDocument();
         expect(openBtn).toBeInTheDocument();
         expect(openBtn).not.toBeDisabled();
         expect(openBtn).toHaveTextContent("planManager.btnOpenPlanFile");
 
-        // Verify Row 2 order: active-plan-path-container precedes btn-select-folder which precedes btn-open-plan
+        // Verify single-row order: active-plan-path-container precedes btn-select-plan-file which precedes btn-open-plan
         expect(pathContainer.compareDocumentPosition(selectBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(selectBtn.compareDocumentPosition(openBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
@@ -1053,7 +1151,7 @@ describe("PlanFileManagerCard Component", () => {
         });
 
         const pathContainer = screen.getByTestId("active-plan-path-container");
-        const selectBtn = screen.getByTestId("btn-select-folder");
+        const selectBtn = screen.getByTestId("btn-select-plan-file");
         const openBtn = screen.getByTestId("btn-open-plan");
 
         // Verify exact Row 2 DOM ordering
@@ -1096,6 +1194,15 @@ describe("PlanFileManagerCard Component", () => {
           }
           if (cmd === "get_plan_manager_location") {
             return Promise.resolve("C:\\Users\\Sohei\\dev\\project");
+          }
+          if (cmd === "get_project_plan_slots") {
+            return Promise.resolve([
+              {
+                slot_id: "primary",
+                repo_path: "C:\\Users\\Sohei\\dev\\project",
+                plan_path: ".plan/V0.27.2.md",
+              },
+            ]);
           }
           return Promise.resolve();
         });
@@ -1153,6 +1260,15 @@ describe("PlanFileManagerCard Component", () => {
           if (cmd === "get_plan_manager_location") {
             return Promise.resolve("C:\\Users\\Sohei\\dev\\project");
           }
+          if (cmd === "get_project_plan_slots") {
+            return Promise.resolve([
+              {
+                slot_id: "primary",
+                repo_path: "C:\\Users\\Sohei\\dev\\project",
+                plan_path: ".plan/custom.md",
+              },
+            ]);
+          }
           return Promise.resolve();
         });
 
@@ -1180,6 +1296,15 @@ describe("PlanFileManagerCard Component", () => {
           if (cmd === "get_plan_manager_location") {
             return Promise.resolve("C:\\mock\\repo");
           }
+          if (cmd === "get_project_plan_slots") {
+            return Promise.resolve([
+              {
+                slot_id: "primary",
+                repo_path: "C:\\mock\\repo",
+                plan_path: null,
+              },
+            ]);
+          }
           return Promise.resolve();
         });
 
@@ -1198,6 +1323,469 @@ describe("PlanFileManagerCard Component", () => {
         expect(screen.queryByTestId("active-plan-path-display")).not.toBeInTheDocument();
         expect(screen.queryByTestId("btn-create-plan")).not.toBeInTheDocument();
       });
+
+      it(`removes leading file icon from plan file select button on ${surface}`, async () => {
+        mockInvoke.mockImplementation((cmd: string) => {
+          if (cmd === "list_available_plans") {
+            return Promise.resolve(mockPlanDetailsWithPlans);
+          }
+          if (cmd === "get_plan_manager_location") {
+            return Promise.resolve("C:\\mock\\repo");
+          }
+          return Promise.resolve();
+        });
+
+        render(
+          <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+            <PlanFileManagerCard surface={surface} repoPath="C:\\mock\\repo" />
+          </LanguageContext.Provider>
+        );
+
+        await waitFor(() => {
+          expect(screen.getByTestId("btn-select-plan-file")).toBeInTheDocument();
+        });
+
+        const selectBtn = screen.getByTestId("btn-select-plan-file");
+        expect(selectBtn.textContent).not.toMatch(/[\u{1F300}-\u{1F9FF}]/u);
+        expect(selectBtn).toHaveTextContent("planManager.planFileButtonLabel");
+      });
+    });
+  });
+
+  describe("V0.27.3 Project-Scoped Plan Slots Management", () => {
+    it("renders permanent primary slot and allows adding/removing a second slot", async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: ".plan/V0.26.3.md" },
+          ]);
+        }
+        if (cmd === "list_available_plans") {
+          return Promise.resolve(mockPlanDetailsWithPlans);
+        }
+        if (cmd === "set_project_plan_slots") {
+          return Promise.resolve();
+        }
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" repoPath="C:\\mock\\repo" />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("project-plan-slot-primary")).toBeInTheDocument();
+      });
+
+      // Primary slot exists and secondary slot does not exist yet
+      expect(screen.queryByTestId("project-plan-slot-secondary")).not.toBeInTheDocument();
+      expect(screen.getByTestId("btn-add-slot")).toBeInTheDocument();
+
+      // Click add second slot
+      await user.click(screen.getByTestId("btn-add-slot"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("project-plan-slot-secondary")).toBeInTheDocument();
+      });
+
+      // After adding, set_project_plan_slots should be called with both slots
+      expect(mockInvoke).toHaveBeenCalledWith("set_project_plan_slots", {
+        surface: "codex",
+        slots: [
+          { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: ".plan/V0.26.3.md" },
+          { slot_id: "secondary", repo_path: null, plan_path: null },
+        ],
+      });
+
+      // Add button is hidden when max (2) slots are active
+      expect(screen.queryByTestId("btn-add-slot")).not.toBeInTheDocument();
+
+      // Secondary slot has a remove button
+      const removeBtn = screen.getByTestId("btn-remove-slot-secondary");
+      expect(removeBtn).toBeInTheDocument();
+      expect(removeBtn).toHaveAttribute("title", "planManager.removeSlotTooltip");
+
+      // Primary slot does NOT have a remove button (permanent)
+      expect(screen.queryByTestId("btn-remove-slot-primary")).not.toBeInTheDocument();
+
+      // Click remove on secondary slot
+      await user.click(removeBtn);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("project-plan-slot-secondary")).not.toBeInTheDocument();
+      });
+
+      // set_project_plan_slots should be called with only primary slot
+      expect(mockInvoke).toHaveBeenCalledWith("set_project_plan_slots", {
+        surface: "codex",
+        slots: [
+          { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: ".plan/V0.26.3.md" },
+        ],
+      });
+
+      // Add button reappears
+      expect(screen.getByTestId("btn-add-slot")).toBeInTheDocument();
+    });
+
+    it("allows selecting plan file for a slot and directly binds enclosing repo", async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: null },
+          ]);
+        }
+        if (cmd === "select_plan_file_dialog") {
+          return Promise.resolve({
+            repo_path: "C:\\mock\\other-repo",
+            relative_path: ".plan/other.md",
+            surface: "codex",
+            slot_id: "primary",
+          });
+        }
+        if (cmd === "set_active_plan") {
+          return Promise.resolve({
+            rel_path: ".plan/other.md",
+            abs_path: "C:\\mock\\other-repo\\.plan\\other.md",
+            file_name: "other.md",
+            title: "Other Plan",
+            active_plan_relative_path: ".plan/other.md",
+            plans: [],
+          });
+        }
+        if (cmd === "set_project_plan_slots") {
+          return Promise.resolve();
+        }
+        if (cmd === "list_available_plans") {
+          return Promise.resolve(mockPlanDetailsEmpty);
+        }
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" repoPath="C:\\mock\\repo" />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("btn-select-plan-file")).toBeInTheDocument();
+      });
+
+      // No separate project folder button exists
+      expect(screen.queryByTestId("btn-select-project-primary")).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId("btn-select-plan-file"));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith(
+          "select_plan_file_dialog",
+          expect.objectContaining({ surface: "codex", slotId: "primary" })
+        );
+      });
+
+      expect(mockInvoke).toHaveBeenCalledWith("set_project_plan_slots", {
+        surface: "codex",
+        slots: [
+          {
+            slot_id: "primary",
+            repo_path: "C:\\mock\\other-repo",
+            plan_path: ".plan/other.md",
+          },
+        ],
+      });
+    });
+
+    it("verifies cross-surface independence and stale async write protection", async () => {
+      const user = userEvent.setup();
+
+      // Test stale async protection: slow plan picker should not resurrect removed secondary slot
+      let resolvePlanPicker: (val: any) => void;
+      const planPickerPromise = new Promise<any>((resolve) => {
+        resolvePlanPicker = resolve;
+      });
+
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: ".plan/V0.26.3.md" },
+            { slot_id: "secondary", repo_path: null, plan_path: null },
+          ]);
+        }
+        if (cmd === "select_plan_file_dialog") {
+          return planPickerPromise;
+        }
+        if (cmd === "list_available_plans") {
+          return Promise.resolve(mockPlanDetailsWithPlans);
+        }
+        if (cmd === "set_project_plan_slots") {
+          return Promise.resolve();
+        }
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" repoPath="C:\\mock\\repo" />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("project-plan-slot-secondary")).toBeInTheDocument();
+      });
+
+      // 1. Click select plan on secondary slot (starts in-flight async picker)
+      const selectPlanBtn = screen.getByTestId("btn-select-plan-file-secondary");
+      await user.click(selectPlanBtn);
+
+      // 2. While picker is in-flight, user clicks remove secondary slot
+      const removeBtn = screen.getByTestId("btn-remove-slot-secondary");
+      await user.click(removeBtn);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("project-plan-slot-secondary")).not.toBeInTheDocument();
+      });
+
+      // 3. In-flight plan picker finishes later
+      resolvePlanPicker!({
+        repo_path: "C:\\mock\\stale-secondary-repo",
+        relative_path: ".plan/stale.md",
+        surface: "codex",
+        slot_id: "secondary",
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      // 4. Stale slot must NOT be resurrected
+      expect(screen.queryByTestId("project-plan-slot-secondary")).not.toBeInTheDocument();
+    });
+
+    it("resolves distinct Codex project root to the matching slot and loads its plan and roles", async () => {
+      const onActivePlanChanged = vi.fn();
+      const onRolesChanged = vi.fn();
+
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\repo-a", plan_path: ".plan/plan-a.md" },
+            { slot_id: "secondary", repo_path: "C:\\mock\\repo-b", plan_path: ".plan/plan-b.md" },
+          ]);
+        }
+        if (cmd === "list_available_plans") {
+          const repo = args?.repoPath;
+          return Promise.resolve({
+            repo_root: repo,
+            plans_dir: `${repo}\\.plan`,
+            active_plan_path: `${repo}\\.plan\\plan-${repo?.includes("b") ? "b" : "a"}.md`,
+            active_plan_relative_path: `.plan/plan-${repo?.includes("b") ? "b" : "a"}.md`,
+            plans: [
+              {
+                path: `${repo}\\.plan\\plan-${repo?.includes("b") ? "b" : "a"}.md`,
+                relative_path: `.plan/plan-${repo?.includes("b") ? "b" : "a"}.md`,
+                title: `Plan ${repo?.includes("b") ? "B" : "A"}`,
+                status: "APPROVED",
+                last_modified_ms: 1700000000000,
+                is_active: true,
+              },
+            ],
+          });
+        }
+        if (cmd === "get_plan_role_assignment") {
+          if (args?.repoPath === "C:\\mock\\repo-b") {
+            return Promise.resolve({ planner_id: "custom_planner_b", reviser_id: null });
+          }
+          return Promise.resolve({ planner_id: "default_planner_a", reviser_id: null });
+        }
+        return Promise.resolve();
+      });
+
+      // Thread running in repo-b: repoPath prop matches secondary slot
+      render(
+        <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+          <PlanFileManagerCard
+            surface="codex"
+            repoPath="C:\\mock\\repo-b"
+            onActivePlanChanged={onActivePlanChanged}
+            onRolesChanged={onRolesChanged}
+          />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("active-plan-path-display-secondary")).toBeInTheDocument();
+      });
+
+      // Role assignment must be queried for repo-b, not repo-a
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith("get_plan_role_assignment", {
+          surface: "codex",
+          repoPath: "C:\\mock\\repo-b",
+        });
+      });
+
+      expect(onRolesChanged).toHaveBeenCalledWith(
+        expect.objectContaining({ plannerRole: "custom_planner_b" })
+      );
+      expect(onActivePlanChanged).toHaveBeenCalledWith(".plan/plan-b.md");
+    });
+
+    it("shows unmatched workspace warning and does not guess another slot's plan when repoPath matches no slot", async () => {
+      const onActivePlanChanged = vi.fn();
+
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\repo-a", plan_path: ".plan/plan-a.md" },
+            { slot_id: "secondary", repo_path: "C:\\mock\\repo-b", plan_path: ".plan/plan-b.md" },
+          ]);
+        }
+        return Promise.resolve();
+      });
+
+      // Thread running in repo-c: does not match any configured slot
+      render(
+        <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+          <PlanFileManagerCard
+            surface="codex"
+            repoPath="C:\\mock\\repo-c"
+            onActivePlanChanged={onActivePlanChanged}
+          />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("unmatched-workspace-warning")).toBeInTheDocument();
+      });
+
+      // Active plan must NOT silently guess repo-a or repo-b
+      expect(onActivePlanChanged).toHaveBeenCalledWith(null);
+    });
+
+    it("updates slot repo_path and plan_path when selecting a plan in another repository", async () => {
+      const user = userEvent.setup();
+      let savedSlots: any[] = [];
+
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\old-repo", plan_path: ".plan/old-plan.md" },
+          ]);
+        }
+        if (cmd === "select_plan_file_dialog") {
+          return Promise.resolve({
+            repo_path: "C:\\mock\\brand-new-repo",
+            relative_path: ".plan/new-plan.md",
+            surface: "codex",
+            slot_id: "primary",
+          });
+        }
+        if (cmd === "set_active_plan") {
+          return Promise.resolve({
+            repo_root: "C:\\mock\\brand-new-repo",
+            plans_dir: "C:\\mock\\brand-new-repo\\.plan",
+            active_plan_path: "C:\\mock\\brand-new-repo\\.plan\\new-plan.md",
+            active_plan_relative_path: ".plan/new-plan.md",
+            plans: [],
+          });
+        }
+        if (cmd === "list_available_plans") {
+          return Promise.resolve({
+            repo_root: "C:\\mock\\brand-new-repo",
+            plans_dir: "C:\\mock\\brand-new-repo\\.plan",
+            active_plan_path: "C:\\mock\\brand-new-repo\\.plan\\new-plan.md",
+            active_plan_relative_path: ".plan/new-plan.md",
+            plans: [],
+          });
+        }
+        if (cmd === "set_project_plan_slots") {
+          savedSlots = args?.slots;
+          return Promise.resolve(args?.slots);
+        }
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" repoPath="C:\\mock\\old-repo" />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("active-plan-path-display")).toBeInTheDocument();
+      });
+
+      // No folder picker button exists
+      expect(screen.queryByTestId("btn-select-project-primary")).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId("btn-select-plan-file"));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith(
+          "select_plan_file_dialog",
+          expect.objectContaining({ surface: "codex", slotId: "primary" })
+        );
+      });
+
+      await waitFor(() => {
+        expect(savedSlots.length).toBeGreaterThan(0);
+      });
+
+      expect(savedSlots[0]).toEqual({
+        slot_id: "primary",
+        repo_path: "C:\\mock\\brand-new-repo",
+        plan_path: ".plan/new-plan.md",
+      });
+    });
+
+    it("renders single-row plan-centric layout with slot labels, no folder picker buttons, and remove on secondary row", async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\repo-1", plan_path: ".plan/v1.md" },
+            { slot_id: "secondary", repo_path: null, plan_path: null },
+          ]);
+        }
+        if (cmd === "list_available_plans") {
+          return Promise.resolve(mockPlanDetailsWithPlans);
+        }
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" repoPath="C:\\mock\\repo-1" />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("project-plan-slot-primary")).toBeInTheDocument();
+        expect(screen.getByTestId("project-plan-slot-secondary")).toBeInTheDocument();
+      });
+
+      // Assert slot labels exist
+      expect(screen.getByTestId("slot-label-primary")).toHaveTextContent("planManager.slotPrimary:");
+      expect(screen.getByTestId("slot-label-secondary")).toHaveTextContent("planManager.slotSecondary:");
+
+      // Assert no project folder picker buttons exist anywhere
+      expect(screen.queryByTestId("btn-select-project-primary")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("btn-select-project-secondary")).not.toBeInTheDocument();
+
+      // Assert primary slot row has plan select and open buttons, but NO remove button
+      const primarySlot = screen.getByTestId("project-plan-slot-primary");
+      expect(primarySlot).toContainElement(screen.getByTestId("btn-select-plan-file"));
+      expect(primarySlot).toContainElement(screen.getByTestId("btn-open-plan"));
+      expect(primarySlot.querySelector('[data-testid="btn-remove-slot-secondary"]')).toBeNull();
+
+      // Assert secondary slot row has plan select, open button, and remove button
+      const secondarySlot = screen.getByTestId("project-plan-slot-secondary");
+      expect(secondarySlot).toContainElement(screen.getByTestId("btn-select-plan-file-secondary"));
+      expect(secondarySlot).toContainElement(screen.getByTestId("btn-open-plan-secondary"));
+      expect(secondarySlot).toContainElement(screen.getByTestId("btn-remove-slot-secondary"));
+
+      // Secondary empty plan path field displays placeholder directly
+      expect(screen.getByTestId("empty-plan-path-field-secondary")).toHaveTextContent("planManager.emptyPlanPlaceholder");
     });
   });
 });

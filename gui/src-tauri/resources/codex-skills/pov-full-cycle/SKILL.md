@@ -7,7 +7,11 @@ description: 計画作成、計画レビュー、実装・テスト、実装レ�
 
 ## 役割と権能分離 (Separation of Powers)
 
-- **正本計画書（Active Plan File）**: 作業開始前に必ず確認する。GUIでアクティブプランファイルが指定されていない場合、即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED` を出力して停止する。
+- **正本計画書（Active Plan File）の解決順序**: 作業開始前に必ず確認する。
+  1. **引数・プロンプト明示指定**: ユーザーが引数等で計画書パスを指定している場合は最優先する。
+  2. **作業リポジトリローカル設定**: 作業ディレクトリの最近傍Gitリポジトリ（`.git`）配下の `.plan/.active-plan.json`（サーフェス固有 `surfaces.codex.active_plan_path` または legacy `active_plan_path`）を解決する。
+  3. **GUI設定のプロジェクトスロット**: `CODEX_HOME/pov-review-settings.json` の `slots` から作業リポジトリルートに一致するスロットの `plan_path` を解決する。
+  4. **未解決時の安全な停止 (Fail Closed)**: 対応する計画書が特定できない、または複数一致で曖昧な場合は別プロジェクトの計画書を推測・誤用せず、即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED: Poverello GUI の Autocode 画面から作業対象のプランファイルを指定または新規作成してください。` を出力して停止する。
 - **Planner (計画作成担当)**: 指定された正本計画書（`.plan/<name>.md` 等）に初期計画を作成する。
 - **Reviewer (検査担当)**: 計画書および実装差分を完全な読み取り専用（Read-Only）として検査し、合否判定（`APPROVED` / `REQUEST_CHANGES`）と指摘のみを返す。**Reviewer 自身が計画書やコードを直接編集・修正・承認改ざんすることは厳格に禁止される**。
 - **Reviser / Implementer**: 計画の修正および実装・是正を担当し、修正後に再度 Reviewer の検査を仰ぐ。

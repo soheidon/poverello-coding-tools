@@ -7,6 +7,7 @@
 > **v0.26.2：** Codex Autocode 区分 Codex 在当前会话中的工作与外部审查器。优先审查器只裁定有效判定之间的分歧。DeepSeek Harness 的 headless 配置和工具限制不能证明 Windows 操作系统层面的文件系统或网络隔离。新增诊断日志和历史 Skill 模板的安全更新。
 > **v0.27.0：** 新增按仓库选择 Active Plan、按界面分配 Planner / Reviser，以及在恢复前严格检查身份与未解决问题的检查点机制。新增 OpenRouter Tencent Hy4 模型与价格元数据；Antigravity Nerf 设置集中到 GUI，并停用旧斜杠命令。自动应用更新尚未启用。
 > **v0.27.2：** 为 Antigravity Autocode 和 Codex Autocode 添加相互独立的计划文件夹位置设置。各位置会一致地用于计划操作；未配置时不会默默回退到应用程序的工作目录。还可直接选择现有 Markdown 计划文件并在编辑器中打开；界面显示活动计划的绝对路径和状态，文件选择器从该计划所在文件夹开始。
+> **v0.27.3（发布目标；尚未发布）：** 为 Antigravity Autocode 和 Codex Autocode 添加相互独立的项目-计划行。每个界面始终保留一个主行，并可添加一个可选的第二行。选择 `.md` 计划文件后，会将其关联到包含该文件的 Git 仓库；两个界面分别保存各自的选择。计划文件夹设置仅在没有 Active Plan 时决定文件选择器的起始目录，不限制可选文件，也不定义项目根目录。移除可选行只会清除 Poverello 中的关联，不会删除文件。
 
 ## 概述
 
@@ -136,11 +137,11 @@ Tauri v2 + React 19 + TypeScript。顶层导航包含 Gateway（仪表板）、M
 
 ### Active Plan 与工作流角色管理
 
-- 每个仓库选择一个 Active Plan 文件，供 Codex Autocode 与 Antigravity Autocode 共享。Planner 和 Reviser 按 Autocode 界面分别保存；审查器选择仍使用现有审查策略设置。
+- Antigravity Autocode 与 Codex Autocode 的 Active Plan 上下文彼此独立。每个界面始终有一个主项目-计划行，并可添加一个可选的第二行（最多两行）。选中的 Markdown 文件会关联到包含该文件的 Git 仓库。移除第二行只会清除 Poverello 中的关联，不会删除项目或计划文件。
 - Workflow Skills 会读取各界面的角色分配。必要角色缺失、不受支持或不可用时，工作流会停止，不会隐式切换角色。角色分配本身不会启动代理，也不会绕过审查安全门。
 - 检查点保存在 Active Plan 中，记录工作流状态、已完成工作、修改文件、验证结果、审查状态和下一步操作。恢复前会验证仓库身份、Active Plan 路径、计划 revision 与文件身份、未解决问题及修改文件状态；任何不匹配都会安全停止。
-- 计划候选写入、审计追加和检查点保存均使用预期文件身份与 SHA-256 双重 CAS。相关 IPC 命令包括 `apply_plan_candidate`、`append_plan_audit_trail`、`save_plan_checkpoint`、`get_plan_checkpoint` 和 `verify_plan_resumption`。
-- Antigravity 和 Codex 分别在各自的 Skills & Rules 设置中保存项目位置。对应的 Autocode 计划管理器会在计划列表、选择、创建以及 Active Plan 和角色分配操作中一致地使用该位置。位置未设置或无效时会要求明确配置，不会默默使用应用程序的工作目录。
+- Antigravity 和 Codex 分别保存各自的项目-计划行。单独的计划文件夹设置仅在没有 Active Plan 时用作文件选择器的起始目录；它不会限制文件选择，也不定义实际的仓库根目录。如果所选计划位于另一个 Git 仓库，会根据所选文件解析该仓库根目录。
+- 有 Active Plan 时，文件选择器从该计划所在文件夹打开；否则使用已配置的起始目录；若未配置，则由系统原生文件选择器使用操作系统提供的默认目录，不会将应用程序工作目录视为计划根目录。每行的计划和仓库关联按界面分别保存。移除可选行不会修改关联文件。
 - 路径支持直接编辑、通过文件夹选择器指定或重置。无论选择仓库根目录还是其 `.plan` 文件夹，都会统一规范化项目根路径。
 
 ### Tencent Hy4 与 Antigravity Nerf 设置

@@ -50,11 +50,31 @@ pub struct PlanFileDetails {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectPlanSlot {
+    pub slot_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SurfacePlanState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_plan_path: Option<String>,
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub slots: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ActivePlanState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_plan_path: Option<String>,
     pub last_updated_unix: u64,
     #[serde(default)]
     pub role_assignments: std::collections::HashMap<String, RoleAssignment>,
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub surfaces: std::collections::HashMap<String, SurfacePlanState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -63,13 +83,53 @@ pub struct RoleAssignment {
     pub reviser_id: Option<String>,
 }
 
+pub fn find_enclosing_repo_root(file_path: &Path) -> Result<PathBuf, String> {
+    let mut current = file_path;
+    if current.is_file() {
+        current = match current.parent() {
+            Some(p) => p,
+            None => return Err(format!("File '{}' has no parent directory", file_path.display())),
+        };
+    }
+    loop {
+        let git_dir = current.join(".git");
+        if git_dir.exists() {
+            return Ok(current.to_path_buf());
+        }
+        match current.parent() {
+            Some(parent) if parent != current => current = parent,
+            _ => break,
+        }
+    }
+    Err(format!(
+        "Selected plan file '{}' is not contained in a Git repository",
+        file_path.display()
+    ))
+}
+
 fn load_active_plan_state(repo_root: &Path) -> Result<ActivePlanState, String> {
     let path = repo_root.join(PLAN_DIR_NAME).join(ACTIVE_PLAN_FILE_NAME);
     if !path.exists() {
-        return Ok(ActivePlanState { active_plan_path: None, last_updated_unix: 0, role_assignments: Default::default() });
+        return Ok(ActivePlanState {
+            active_plan_path: None,
+            last_updated_unix: 0,
+            role_assignments: Default::default(),
+            surfaces: Default::default(),
+        });
     }
     let raw = std::fs::read_to_string(path).map_err(|e| format!("Failed to read active plan state: {e}"))?;
-    serde_json::from_str(&raw).map_err(|e| format!("Failed to parse active plan state: {e}"))
+    let mut state: ActivePlanState = serde_json::from_str(&raw).map_err(|e| format!("Failed to parse active plan state: {e}"))?;
+
+    // Migrate per-surface legacy active_plan_path to primary slot if slots is empty
+    for surf_state in state.surfaces.values_mut() {
+        if surf_state.slots.is_empty() {
+            if let Some(ref legacy) = surf_state.active_plan_path {
+                surf_state.slots.insert("primary".to_string(), legacy.clone());
+            }
+        }
+    }
+
+    Ok(state)
 }
 
 pub fn get_role_assignment(repo_root: &Path, surface: &str) -> Result<RoleAssignment, String> {
@@ -94,9 +154,22 @@ pub fn set_role_assignment(repo_root: &Path, surface: &str, assignment: RoleAssi
 /// Read and verify both per-surface role assignments and the active plan from
 /// the repository state file. Workflow launchers can use this to fail closed
 /// until role execution is wired to their dispatcher.
-pub fn get_role_assignment_for_active_plan(repo_root: &Path, surface: &str) -> Result<RoleAssignment, String> {
+pub fn get_role_assignment_for_active_plan(
+    repo_root: &Path,
+    surface: &str,
+    slot_id: Option<&str>,
+) -> Result<RoleAssignment, String> {
     let state = load_active_plan_state(repo_root)?;
-    let active = state.active_plan_path.as_deref().ok_or_else(|| "No active plan file is configured".to_string())?;
+    let surf_state = state
+        .surfaces
+        .get(surface)
+        .ok_or_else(|| format!("No active plan file is configured for {surface} surface"))?;
+    let sid = slot_id.unwrap_or("primary");
+    let active = surf_state
+        .slots
+        .get(sid)
+        .map(|s| s.as_str())
+        .ok_or_else(|| format!("No active plan file is configured for {surface} surface slot {sid:?}"))?;
     let path = validate_plan_path(repo_root, active)?;
     if !path.is_file() {
         return Err(format!("Active plan file does not exist: '{active}'"));
@@ -396,15 +469,24 @@ pub fn list_available_plans(repo_root: &Path, folder: Option<&str>) -> Result<Ve
     Ok(result)
 }
 
-pub fn get_active_plan(repo_root: &Path) -> Result<Option<PlanFileDetails>, String> {
+pub fn get_active_plan(
+    repo_root: &Path,
+    surface: Option<&str>,
+    slot_id: Option<&str>,
+) -> Result<Option<PlanFileDetails>, String> {
     let active_plan_file = repo_root.join(PLAN_DIR_NAME).join(ACTIVE_PLAN_FILE_NAME);
     let rel_path = if active_plan_file.exists() {
-        match std::fs::read_to_string(&active_plan_file) {
-            Ok(s) => {
-                let state: Result<ActivePlanState, _> = serde_json::from_str(&s);
-                state.ok().and_then(|st| st.active_plan_path)
+        if let Ok(st) = load_active_plan_state(repo_root) {
+            if let Some(surf) = surface {
+                st.surfaces.get(surf).and_then(|s| {
+                    let sid = slot_id.unwrap_or("primary");
+                    s.slots.get(sid).cloned()
+                })
+            } else {
+                st.active_plan_path
             }
-            Err(_) => None,
+        } else {
+            None
         }
     } else {
         None
@@ -456,9 +538,14 @@ pub fn get_active_plan(repo_root: &Path) -> Result<Option<PlanFileDetails>, Stri
     }))
 }
 
-pub fn get_plan_overview(repo_root: &Path, folder: Option<&str>) -> Result<PlanOverview, String> {
+pub fn get_plan_overview(
+    repo_root: &Path,
+    folder: Option<&str>,
+    surface: Option<&str>,
+    slot_id: Option<&str>,
+) -> Result<PlanOverview, String> {
     let plans_dir = repo_root.join(PLAN_DIR_NAME);
-    let active_details = get_active_plan(repo_root)?;
+    let active_details = get_active_plan(repo_root, surface, slot_id)?;
     let active_rel = active_details.as_ref().map(|d| d.rel_path.clone());
     let active_abs = active_details.as_ref().map(|d| d.abs_path.clone());
 
@@ -505,7 +592,12 @@ pub fn get_plan_overview(repo_root: &Path, folder: Option<&str>) -> Result<PlanO
     })
 }
 
-pub fn set_active_plan(repo_root: &Path, rel_path: &str) -> Result<PlanFileDetails, String> {
+pub fn set_active_plan(
+    repo_root: &Path,
+    rel_path: &str,
+    surface: Option<&str>,
+    slot_id: Option<&str>,
+) -> Result<PlanFileDetails, String> {
     let validated = validate_plan_path(repo_root, rel_path)?;
     if !validated.exists() || !validated.is_file() {
         return Err(format!("Plan file does not exist: '{rel_path}'"));
@@ -539,7 +631,24 @@ pub fn set_active_plan(repo_root: &Path, rel_path: &str) -> Result<PlanFileDetai
         .unwrap_or(0);
 
     let mut state = load_active_plan_state(repo_root)?;
-    state.active_plan_path = Some(normalized_rel.clone());
+    let sid = slot_id.unwrap_or("primary");
+    if let Some(surf) = surface {
+        let entry = state.surfaces.entry(surf.to_string()).or_default();
+        entry.slots.insert(sid.to_string(), normalized_rel.clone());
+        if sid == "primary" {
+            entry.active_plan_path = Some(normalized_rel.clone());
+        }
+        // Do NOT populate or overwrite the shared scalar with a surface-specific plan
+    } else {
+        state.active_plan_path = Some(normalized_rel.clone());
+        for surf in ["antigravity", "codex"] {
+            let entry = state.surfaces.entry(surf.to_string()).or_default();
+            entry.slots.insert(sid.to_string(), normalized_rel.clone());
+            if sid == "primary" {
+                entry.active_plan_path = Some(normalized_rel.clone());
+            }
+        }
+    }
     state.last_updated_unix = now_unix;
     write_active_plan_state_unlocked(repo_root, &state)?;
 
@@ -554,6 +663,28 @@ pub fn set_active_plan(repo_root: &Path, rel_path: &str) -> Result<PlanFileDetai
         file_identity: plan_file_identity(&abs_path).ok(),
         last_modified_unix,
     })
+}
+
+pub fn clear_active_plan_slot(
+    repo_root: &Path,
+    surface: &str,
+    slot_id: &str,
+) -> Result<(), String> {
+    let _state_lock = ACTIVE_PLAN_STATE_LOCK.lock().map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
+    let mut state = load_active_plan_state(repo_root)?;
+    if let Some(surf_state) = state.surfaces.get_mut(surface) {
+        surf_state.slots.remove(slot_id);
+        if slot_id == "primary" {
+            surf_state.active_plan_path = None;
+        }
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        state.last_updated_unix = now_unix;
+        write_active_plan_state_unlocked(repo_root, &state)?;
+    }
+    Ok(())
 }
 
 pub fn create_plan_file(repo_root: &Path, req: &CreatePlanRequest) -> Result<PlanFileDetails, String> {
@@ -679,7 +810,7 @@ r#"# {title}
         .map_err(|e| format!("Failed to commit new plan file: {e}"))?;
 
     if req.set_as_active.unwrap_or(true) {
-        set_active_plan(repo_root, &rel_path)
+        set_active_plan(repo_root, &rel_path, None, None)
     } else {
         let abs_path = target_path;
         let content = std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan file: {e}"))?;
@@ -1352,6 +1483,8 @@ pub fn verify_resumption_preflight(
     repo_root: &Path,
     rel_path: &str,
     checkpoint: &ExecutionCheckpoint,
+    surface: Option<&str>,
+    slot_id: Option<&str>,
 ) -> Result<ResumptionPreflightResult, String> {
     let canonical_repo = repo_root.canonicalize().map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
     let mut reasons = Vec::new();
@@ -1381,8 +1514,23 @@ pub fn verify_resumption_preflight(
             normalized_cp_plan, normalized_rel
         ));
     }
-    let configured_active = load_active_plan_state(repo_root)?.active_plan_path.unwrap_or_default().replace('\\', "/");
-    if configured_active.is_empty() || configured_active != normalized_rel {
+    let state = load_active_plan_state(repo_root)?;
+    let matches_active = if let Some(s) = surface {
+        let sid = slot_id.unwrap_or("primary");
+        state
+            .surfaces
+            .get(s)
+            .and_then(|st| st.slots.get(sid))
+            .map(|p| p.replace('\\', "/"))
+            == Some(normalized_rel.clone())
+    } else {
+        state.active_plan_path.as_deref().map(|p| p.replace('\\', "/")) == Some(normalized_rel.clone())
+            || state.surfaces.values().any(|s| {
+                s.active_plan_path.as_deref().map(|p| p.replace('\\', "/")) == Some(normalized_rel.clone())
+                    || s.slots.values().any(|p| p.replace('\\', "/") == normalized_rel)
+            })
+    };
+    if !matches_active {
         is_resumable = false;
         reasons.push("Requested plan does not match the repository's configured Active Plan File".to_string());
     }
@@ -1517,7 +1665,7 @@ mod tests {
         let initial_list = list_available_plans(repo, None).unwrap();
         assert!(initial_list.is_empty());
 
-        let initial_active = get_active_plan(repo).unwrap();
+        let initial_active = get_active_plan(repo, None, None).unwrap();
         assert!(initial_active.is_none());
 
         // 2. Create plan with set_as_active = true
@@ -1532,12 +1680,12 @@ mod tests {
         assert_eq!(created.title, "User Authentication Plan");
 
         // 3. Active plan should now be set
-        let active = get_active_plan(repo).unwrap().expect("should have active plan");
+        let active = get_active_plan(repo, None, None).unwrap().expect("should have active plan");
         assert_eq!(active.rel_path, ".plan/feature-auth.md");
         assert_eq!(active.title, "User Authentication Plan");
 
         // 4. Plan overview should include the item marked as active
-        let overview = get_plan_overview(repo, None).unwrap();
+        let overview = get_plan_overview(repo, None, None, None).unwrap();
         assert_eq!(overview.active_plan_relative_path.as_deref(), Some(".plan/feature-auth.md"));
         assert_eq!(overview.plans.len(), 1);
         assert!(overview.plans[0].is_active);
@@ -1572,12 +1720,12 @@ mod tests {
         assert_eq!(created2.rel_path, ".plan/feature-billing.md");
 
         // Active plan should still be feature-auth
-        let active2 = get_active_plan(repo).unwrap().expect("should have active plan");
+        let active2 = get_active_plan(repo, None, None).unwrap().expect("should have active plan");
         assert_eq!(active2.rel_path, ".plan/feature-auth.md");
 
         // 8. Switch active plan to billing
-        set_active_plan(repo, ".plan/feature-billing.md").unwrap();
-        let active3 = get_active_plan(repo).unwrap().expect("should have active plan");
+        set_active_plan(repo, ".plan/feature-billing.md", None, None).unwrap();
+        let active3 = get_active_plan(repo, None, None).unwrap().expect("should have active plan");
         assert_eq!(active3.rel_path, ".plan/feature-billing.md");
     }
 
@@ -1804,13 +1952,13 @@ Some description here...
         let cp = ExecutionCheckpoint { checkpoint_version: 1, workflow: "pov-full-cycle".into(), status: "IMPLEMENTATION".into(), last_completed: "TESTS".into(), next_action: "REVIEW".into(), repository: repo.to_string_lossy().into_owned(), active_plan: created.rel_path.clone(), plan_revision: String::new(), plan_file_identity: String::new(), workflow_run_id: "run".into(), completed_work: vec![], modified_files: vec![], validation: vec![], reviewer: "Codex".into(), review_result: "PENDING".into(), unresolved_findings: vec![], pending_work: vec![], timestamp: "now".into() };
         let saved = save_execution_checkpoint(repo, &created.rel_path, &cp, &created.file_identity.clone().unwrap(), &created.sha256_hash).unwrap();
         let stored = get_execution_checkpoint(repo, &created.rel_path).unwrap().unwrap();
-        let good = verify_resumption_preflight(repo, &created.rel_path, &stored).unwrap();
+        let good = verify_resumption_preflight(repo, &created.rel_path, &stored, None, None).unwrap();
         assert!(good.is_resumable, "{:?}", good.reasons);
 
         let mut edited = saved.content.clone();
         edited.push_str("\nExternal plan edit\n");
         std::fs::write(repo.join(&created.rel_path), edited).unwrap();
-        let stale = verify_resumption_preflight(repo, &created.rel_path, &stored).unwrap();
+        let stale = verify_resumption_preflight(repo, &created.rel_path, &stored, None, None).unwrap();
         assert!(!stale.is_resumable);
         assert!(stale.reasons.iter().any(|reason| reason.contains("revision hash")));
     }
@@ -1964,7 +2112,7 @@ Some description here...
         };
 
         // 1. Valid resumption preflight
-        let res_ok = verify_resumption_preflight(repo, &created.rel_path, &valid_cp).unwrap();
+        let res_ok = verify_resumption_preflight(repo, &created.rel_path, &valid_cp, None, None).unwrap();
         assert!(res_ok.is_resumable);
         assert_eq!(res_ok.next_action, "IMPLEMENT");
         assert!(res_ok.reasons.is_empty());
@@ -1972,12 +2120,12 @@ Some description here...
         // Plan edits and missing revision hashes fail closed.
         let mut changed_plan_cp = valid_cp.clone();
         std::fs::write(repo.join(&created.rel_path), "# externally changed plan\n").unwrap();
-        let changed = verify_resumption_preflight(repo, &created.rel_path, &changed_plan_cp).unwrap();
+        let changed = verify_resumption_preflight(repo, &created.rel_path, &changed_plan_cp, None, None).unwrap();
         assert!(!changed.is_resumable);
         assert!(changed.reasons.iter().any(|r| r.contains("revision hash")));
         std::fs::write(repo.join(&created.rel_path), &created.content).unwrap();
         changed_plan_cp.plan_revision = "".to_string();
-        let missing_revision = verify_resumption_preflight(repo, &created.rel_path, &changed_plan_cp).unwrap();
+        let missing_revision = verify_resumption_preflight(repo, &created.rel_path, &changed_plan_cp, None, None).unwrap();
         assert!(!missing_revision.is_resumable);
         assert!(missing_revision.reasons.iter().any(|r| r.contains("revision hash")));
 
@@ -1985,14 +2133,14 @@ Some description here...
         let mut invalid_repo_cp = valid_cp.clone();
         let other_temp = tempfile::tempdir().unwrap();
         invalid_repo_cp.repository = other_temp.path().to_string_lossy().to_string();
-        let res_repo_mismatch = verify_resumption_preflight(repo, &created.rel_path, &invalid_repo_cp).unwrap();
+        let res_repo_mismatch = verify_resumption_preflight(repo, &created.rel_path, &invalid_repo_cp, None, None).unwrap();
         assert!(!res_repo_mismatch.is_resumable);
         assert!(res_repo_mismatch.reasons.iter().any(|r| r.contains("Repository mismatch")));
 
         // 3. Completed workflow cannot resume as active
         let mut completed_cp = valid_cp.clone();
         completed_cp.status = "COMPLETED".to_string();
-        let res_completed = verify_resumption_preflight(repo, &created.rel_path, &completed_cp).unwrap();
+        let res_completed = verify_resumption_preflight(repo, &created.rel_path, &completed_cp, None, None).unwrap();
         assert!(!res_completed.is_resumable);
         assert_eq!(res_completed.next_action, "STOP");
         assert!(res_completed.reasons.iter().any(|r| r.contains("already marked as COMPLETED")));
@@ -2000,7 +2148,7 @@ Some description here...
         // 4. Missing modified file flagged
         let mut missing_file_cp = valid_cp.clone();
         missing_file_cp.modified_files = vec!["nonexistent_file.rs".to_string()];
-        let res_missing_file = verify_resumption_preflight(repo, &created.rel_path, &missing_file_cp).unwrap();
+        let res_missing_file = verify_resumption_preflight(repo, &created.rel_path, &missing_file_cp, None, None).unwrap();
         assert!(res_missing_file.reasons.iter().any(|r| r.contains("nonexistent_file.rs")));
     }
 
@@ -2017,7 +2165,7 @@ Some description here...
         assert!(set_role_assignment(repo, "codex", RoleAssignment { planner_id: Some("antigravity".into()), reviser_id: None }).is_err());
 
         let created = create_plan_file(repo, &CreatePlanRequest { name: "roles".into(), folder: None, title: None, set_as_active: Some(true) }).unwrap();
-        set_active_plan(repo, &created.rel_path).unwrap();
+        set_active_plan(repo, &created.rel_path, None, None).unwrap();
         assert_eq!(get_role_assignment(repo, "codex").unwrap(), codex);
         assert_eq!(get_role_assignment(repo, "antigravity").unwrap(), ag);
     }
@@ -2042,12 +2190,12 @@ Some description here...
         let repo = temp.path();
         let assignment = RoleAssignment { planner_id: Some("codex_session".into()), reviser_id: None };
         set_role_assignment(repo, "codex", assignment.clone()).unwrap();
-        assert!(get_role_assignment_for_active_plan(repo, "codex").is_err());
+        assert!(get_role_assignment_for_active_plan(repo, "codex", None).is_err());
 
         let created = create_plan_file(repo, &CreatePlanRequest { name: "active-role-plan".into(), folder: None, title: None, set_as_active: Some(true) }).unwrap();
-        assert_eq!(get_role_assignment_for_active_plan(repo, "codex").unwrap(), assignment);
+        assert_eq!(get_role_assignment_for_active_plan(repo, "codex", None).unwrap(), assignment);
         std::fs::remove_file(repo.join(created.rel_path)).unwrap();
-        assert!(get_role_assignment_for_active_plan(repo, "codex").is_err());
+        assert!(get_role_assignment_for_active_plan(repo, "codex", None).is_err());
     }
 
     #[test]
@@ -2078,19 +2226,19 @@ Some description here...
 
         let mut missing_path = cp.clone();
         missing_path.active_plan.clear();
-        assert!(!verify_resumption_preflight(repo, &created.rel_path, &missing_path).unwrap().is_resumable);
+        assert!(!verify_resumption_preflight(repo, &created.rel_path, &missing_path, None, None).unwrap().is_resumable);
 
         let mut halted = cp.clone();
         halted.status = "HALTED".into();
-        assert!(!verify_resumption_preflight(repo, &created.rel_path, &halted).unwrap().is_resumable);
+        assert!(!verify_resumption_preflight(repo, &created.rel_path, &halted, None, None).unwrap().is_resumable);
 
         let mut missing_modified = cp.clone();
         missing_modified.modified_files.push("src/missing.rs".into());
-        assert!(!verify_resumption_preflight(repo, &created.rel_path, &missing_modified).unwrap().is_resumable);
+        assert!(!verify_resumption_preflight(repo, &created.rel_path, &missing_modified, None, None).unwrap().is_resumable);
 
         let mut unknown = cp;
         unknown.next_action.clear();
-        assert!(!verify_resumption_preflight(repo, &created.rel_path, &unknown).unwrap().is_resumable);
+        assert!(!verify_resumption_preflight(repo, &created.rel_path, &unknown, None, None).unwrap().is_resumable);
     }
 
     #[test]
@@ -2119,5 +2267,149 @@ Some description here...
         stale_event.expected_sha256 = audited.sha256_hash;
         stale_event.expected_file_identity = Some("wrong-identity".into());
         assert!(append_audit_trail_event(repo, &created.rel_path, &stale_event).is_err());
+    }
+
+    #[test]
+    fn test_find_enclosing_repo_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("my-repo");
+        let sub = repo.join("deep").join("nested");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+
+        let plan_file = sub.join("plan.md");
+        std::fs::write(&plan_file, "# Plan").unwrap();
+
+        let found = find_enclosing_repo_root(&plan_file).unwrap();
+        assert_eq!(found.canonicalize().unwrap(), repo.canonicalize().unwrap());
+
+        // Test worktree where .git is a file
+        let worktree_temp = tempfile::tempdir().unwrap();
+        let wt = worktree_temp.path().join("wt");
+        let wt_sub = wt.join("folder");
+        std::fs::create_dir_all(&wt_sub).unwrap();
+        std::fs::write(wt.join(".git"), "gitdir: /path/to/gitdir").unwrap();
+        let wt_plan = wt_sub.join("plan.md");
+        std::fs::write(&wt_plan, "# WT Plan").unwrap();
+
+        let found_wt = find_enclosing_repo_root(&wt_plan).unwrap();
+        assert_eq!(found_wt.canonicalize().unwrap(), wt.canonicalize().unwrap());
+
+        // Test non-repo rejection
+        let non_repo = tempfile::tempdir().unwrap();
+        let non_repo_file = non_repo.path().join("outside.md");
+        std::fs::write(&non_repo_file, "# Outside").unwrap();
+        assert!(find_enclosing_repo_root(&non_repo_file).is_err());
+    }
+
+    #[test]
+    fn test_per_surface_active_plan_isolation_and_legacy_compatibility() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+
+        let plan_ag = create_plan_file(repo, &CreatePlanRequest {
+            name: "plan-ag".into(),
+            folder: None,
+            title: Some("AG Plan".into()),
+            set_as_active: Some(false),
+        }).unwrap();
+
+        let plan_codex = create_plan_file(repo, &CreatePlanRequest {
+            name: "plan-codex".into(),
+            folder: None,
+            title: Some("Codex Plan".into()),
+            set_as_active: Some(false),
+        }).unwrap();
+
+        // Initially no active plan for either
+        assert!(get_active_plan(repo, Some("antigravity"), None).unwrap().is_none());
+        assert!(get_active_plan(repo, Some("codex"), None).unwrap().is_none());
+
+        // Set Antigravity active plan
+        set_active_plan(repo, &plan_ag.rel_path, Some("antigravity"), None).unwrap();
+        assert_eq!(
+            get_active_plan(repo, Some("antigravity"), None).unwrap().unwrap().rel_path,
+            plan_ag.rel_path
+        );
+        // Codex has not set its plan yet and surfaces are strictly isolated: returns None
+        assert!(get_active_plan(repo, Some("codex"), None).unwrap().is_none());
+
+        // Now set Codex active plan independently
+        set_active_plan(repo, &plan_codex.rel_path, Some("codex"), None).unwrap();
+        assert_eq!(
+            get_active_plan(repo, Some("antigravity"), None).unwrap().unwrap().rel_path,
+            plan_ag.rel_path
+        );
+        assert_eq!(
+            get_active_plan(repo, Some("codex"), None).unwrap().unwrap().rel_path,
+            plan_codex.rel_path
+        );
+
+        // Test legacy JSON without surfaces section falls back gracefully when surface has no specific plan
+        let plan_dir = repo.join(PLAN_DIR_NAME);
+        std::fs::write(
+            plan_dir.join(ACTIVE_PLAN_FILE_NAME),
+            r#"{"active_plan_path":".plan/plan-ag.md","last_updated_unix":123}"#,
+        ).unwrap();
+        assert_eq!(
+            get_active_plan(repo, None, None).unwrap().unwrap().rel_path,
+            plan_ag.rel_path
+        );
+
+        // After setting codex active plan, antigravity has not set its own plan yet
+        set_active_plan(repo, &plan_codex.rel_path, Some("codex"), None).unwrap();
+        assert!(get_active_plan(repo, Some("antigravity"), None).unwrap().is_none());
+        assert_eq!(
+            get_active_plan(repo, Some("codex"), None).unwrap().unwrap().rel_path,
+            plan_codex.rel_path
+        );
+    }
+
+    #[test]
+    fn test_per_slot_active_plan_isolation_in_same_repo() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+
+        let plan_p1 = create_plan_file(repo, &CreatePlanRequest {
+            name: "plan-slot-1".into(),
+            folder: None,
+            title: Some("Slot 1 Plan".into()),
+            set_as_active: Some(false),
+        }).unwrap();
+
+        let plan_p2 = create_plan_file(repo, &CreatePlanRequest {
+            name: "plan-slot-2".into(),
+            folder: None,
+            title: Some("Slot 2 Plan".into()),
+            set_as_active: Some(false),
+        }).unwrap();
+
+        // Set primary slot plan
+        set_active_plan(repo, &plan_p1.rel_path, Some("codex"), Some("primary")).unwrap();
+        assert_eq!(
+            get_active_plan(repo, Some("codex"), Some("primary")).unwrap().unwrap().rel_path,
+            plan_p1.rel_path
+        );
+        // Secondary slot is still empty
+        assert!(get_active_plan(repo, Some("codex"), Some("secondary")).unwrap().is_none());
+
+        // Set secondary slot plan
+        set_active_plan(repo, &plan_p2.rel_path, Some("codex"), Some("secondary")).unwrap();
+        assert_eq!(
+            get_active_plan(repo, Some("codex"), Some("primary")).unwrap().unwrap().rel_path,
+            plan_p1.rel_path
+        );
+        assert_eq!(
+            get_active_plan(repo, Some("codex"), Some("secondary")).unwrap().unwrap().rel_path,
+            plan_p2.rel_path
+        );
+
+        // Clear secondary slot: primary remains untouched, secondary is removed
+        clear_active_plan_slot(repo, "codex", "secondary").unwrap();
+        assert_eq!(
+            get_active_plan(repo, Some("codex"), Some("primary")).unwrap().unwrap().rel_path,
+            plan_p1.rel_path
+        );
+        assert!(get_active_plan(repo, Some("codex"), Some("secondary")).unwrap().is_none());
     }
 }

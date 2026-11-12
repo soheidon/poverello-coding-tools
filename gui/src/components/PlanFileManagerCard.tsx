@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n";
-import type { PlanFileDetails, ReviewerPolicy } from "../types";
+import type { PlanFileDetails, ActivePlanFileDetails, ReviewerPolicy, ProjectPlanSlot, SelectedPlanResult } from "../types";
 import { reviewersToPolicy } from "./ExternalReviewCard";
 
 export interface PlanFileManagerCardProps {
@@ -136,6 +136,40 @@ export default function PlanFileManagerCard({
   const [configuredRoot, setConfiguredRoot] = useState<string | null>(repoPath ?? null);
   const [locationLoaded, setLocationLoaded] = useState<boolean>(!!repoPath);
 
+  // Surface-scoped project-plan slots state (1 or 2 slots)
+  const [slots, setSlots] = useState<ProjectPlanSlot[]>([
+    { slot_id: "primary", repo_path: null, plan_path: activePlanPath ?? null },
+  ]);
+  const [slotDetails, setSlotDetails] = useState<Record<string, PlanFileDetails | null>>({});
+  const activeSlotIdsRef = useRef<Set<string>>(new Set(["primary"]));
+  const slotsRef = useRef<ProjectPlanSlot[]>(slots);
+  useEffect(() => {
+    slotsRef.current = slots;
+  }, [slots]);
+
+  // Sequenced slot save queue to prevent out-of-order writes or recreation after remove
+  const slotSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const slotSaveSequenceRef = useRef(0);
+
+  const persistSlots = (explicitSlots?: ProjectPlanSlot[]) => {
+    const sequence = ++slotSaveSequenceRef.current;
+    if (explicitSlots) {
+      slotsRef.current = explicitSlots;
+    }
+    slotSaveQueueRef.current = slotSaveQueueRef.current.catch(() => undefined).then(async () => {
+      if (sequence !== slotSaveSequenceRef.current) return;
+      const currentSlots = slotsRef.current.filter((s) => activeSlotIdsRef.current.has(s.slot_id));
+      try {
+        await invoke("set_project_plan_slots", { surface, slots: currentSlots });
+      } catch (e) {
+        if (sequence === slotSaveSequenceRef.current) {
+          setError(String(e));
+        }
+      }
+    });
+    return slotSaveQueueRef.current;
+  };
+
   useEffect(() => {
     if (repoPath) {
       setConfiguredRoot(repoPath);
@@ -161,7 +195,78 @@ export default function PlanFileManagerCard({
     };
   }, [repoPath, surface]);
 
-  const activeRepo = repoPath ?? configuredRoot ?? null;
+  const normalizePathForCompare = (p: string | null | undefined): string => {
+    if (!p) return "";
+    return normalizeDisplayPath(p).replace(/\\/g, "/").replace(/\/+/g, "/").toLowerCase();
+  };
+
+  // Match active workspace (repoPath) to the corresponding slot
+  const matchedSlot = useMemo(() => {
+    if (!repoPath) {
+      return slots[0] || null;
+    }
+    const normTarget = normalizePathForCompare(repoPath);
+    const found = slots.find((s) => s.repo_path && normalizePathForCompare(s.repo_path) === normTarget);
+    if (found) return found;
+    // If primary slot has no repo configured yet, associate with it
+    if (slots.length === 1 && !slots[0].repo_path) {
+      return slots[0];
+    }
+    // Ambiguous / unmatched workspace root: do NOT guess another slot's plan!
+    return null;
+  }, [repoPath, slots]);
+
+  const isUnmatchedWorkspace = !!repoPath && !matchedSlot;
+  const activeRepo = matchedSlot ? (matchedSlot.repo_path || repoPath || null) : null;
+  const operationalSlotId = matchedSlot?.slot_id || "primary";
+
+  // Notify parent of null plan if workspace is unmatched
+  useEffect(() => {
+    if (isUnmatchedWorkspace) {
+      onActivePlanChangedRef.current?.(null);
+    }
+  }, [isUnmatchedWorkspace]);
+
+  // Load project-plan slots on mount or surface change
+  useEffect(() => {
+    let cancelled = false;
+    void invoke<ProjectPlanSlot[]>("get_project_plan_slots", { surface })
+      .then((fetchedSlots) => {
+        if (cancelled) return;
+        if (fetchedSlots && Array.isArray(fetchedSlots) && fetchedSlots.length > 0) {
+          setSlots(fetchedSlots);
+          slotsRef.current = fetchedSlots;
+          activeSlotIdsRef.current = new Set(fetchedSlots.map((s) => s.slot_id));
+        } else {
+          const initial: ProjectPlanSlot[] = [
+            {
+              slot_id: "primary",
+              repo_path: null,
+              plan_path: activePlanPath || null,
+            },
+          ];
+          setSlots(initial);
+          slotsRef.current = initial;
+          activeSlotIdsRef.current = new Set(["primary"]);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        const initial: ProjectPlanSlot[] = [
+          {
+            slot_id: "primary",
+            repo_path: null,
+            plan_path: activePlanPath || null,
+          },
+        ];
+        setSlots(initial);
+        slotsRef.current = initial;
+        activeSlotIdsRef.current = new Set(["primary"]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [surface]);
 
   // Keep role assignments scoped to this repository and Autocode surface.
   const [currentPlannerRole, setCurrentPlannerRole] = useState<string | null>(plannerRole || null);
@@ -181,10 +286,10 @@ export default function PlanFileManagerCard({
         setCurrentPlannerRole(assignment.planner_id);
         setCurrentReviserRole(assignment.reviser_id);
         roleAssignmentRef.current = { plannerRole: assignment.planner_id, reviserRole: assignment.reviser_id };
-      onRolesChangedRef.current?.({
-        plannerRole: assignment.planner_id,
-        reviserRole: assignment.reviser_id,
-      });
+        onRolesChangedRef.current?.({
+          plannerRole: assignment.planner_id,
+          reviserRole: assignment.reviser_id,
+        });
       })
       .catch((e) => { if (!cancelled) setError(String(e)); });
     return () => { cancelled = true; };
@@ -223,16 +328,21 @@ export default function PlanFileManagerCard({
     setCurrentPlanReviewers(planReviewers !== undefined ? planReviewers : null);
   }, [planReviewers]);
 
-  const loadPlans = useCallback(async (folderOverride?: string | null) => {
+  const loadPlans = useCallback(async (folderOverride?: string | null, repoOverride?: string | null) => {
+    const targetRepo = repoOverride ?? activeRepo;
+    if (!targetRepo) return;
     try {
       setLoading(true);
       setError(null);
       const targetFolder = folderOverride !== undefined ? folderOverride : selectedFolderRef.current;
       const res = await invoke<PlanFileDetails>("list_available_plans", {
-        repoPath: activeRepo,
+        repoPath: targetRepo,
         folderPath: targetFolder ?? null,
+        surface,
+        slotId: operationalSlotId,
       });
       setDetails(res);
+      setSlotDetails((prev) => ({ ...prev, primary: res }));
 
       const loadedActive = res.active_plan_relative_path ?? null;
       if (loadedActive && !selectedFolderRef.current && folderOverride === undefined) {
@@ -252,7 +362,7 @@ export default function PlanFileManagerCard({
     } finally {
       setLoading(false);
     }
-  }, [activeRepo]);
+  }, [activeRepo, surface]);
 
   const prevRepoRef = useRef<string | null>(activeRepo);
   useEffect(() => {
@@ -271,67 +381,179 @@ export default function PlanFileManagerCard({
     void loadPlans();
   }, [locationLoaded, activeRepo, loadPlans]);
 
+  // Load secondary slot details when secondary slot has a repo
+  useEffect(() => {
+    const secondarySlot = slots.find((s) => s.slot_id === "secondary");
+    if (!secondarySlot?.repo_path) return;
+    let cancelled = false;
+    void invoke<PlanFileDetails>("list_available_plans", {
+      repoPath: secondarySlot.repo_path,
+      surface,
+      slotId: "secondary",
+    })
+      .then((res) => {
+        if (!cancelled && activeSlotIdsRef.current.has("secondary")) {
+          setSlotDetails((prev) => ({ ...prev, secondary: res }));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [slots, surface]);
+
   const handleManualRefresh = async () => {
-    if (!selectedFolder) return;
     setRefreshing(true);
     try {
-      await loadPlans(selectedFolder);
+      if (selectedFolder) {
+        await loadPlans(selectedFolder);
+      } else {
+        await loadPlans();
+      }
+      const secondarySlot = slotsRef.current.find((s) => s.slot_id === "secondary");
+      if (secondarySlot?.repo_path) {
+        const res = await invoke<PlanFileDetails>("list_available_plans", {
+          repoPath: secondarySlot.repo_path,
+          surface,
+          slotId: "secondary",
+        });
+        if (activeSlotIdsRef.current.has("secondary")) {
+          setSlotDetails((prev) => ({ ...prev, secondary: res }));
+        }
+      }
     } finally {
       setRefreshing(false);
     }
   };
 
-  const handleSelectFolder = async () => {
+  const handleAddSlot = () => {
+    if (slotsRef.current.length >= 2) return;
+    const newSlot: ProjectPlanSlot = {
+      slot_id: "secondary",
+      repo_path: null,
+      plan_path: null,
+    };
+    const nextSlots = [...slotsRef.current, newSlot];
+    activeSlotIdsRef.current.add("secondary");
+    setSlots(nextSlots);
+    slotsRef.current = nextSlots;
+    void persistSlots(nextSlots);
+  };
+
+  const handleRemoveSecondarySlot = () => {
+    // Only remove association in settings, do NOT delete or modify underlying project/plan files!
+    activeSlotIdsRef.current.delete("secondary");
+    const nextSlots = slotsRef.current.filter((s) => s.slot_id !== "secondary");
+    setSlots(nextSlots);
+    slotsRef.current = nextSlots;
+    setSlotDetails((prev) => {
+      const copy = { ...prev };
+      delete copy.secondary;
+      return copy;
+    });
+    void persistSlots(nextSlots);
+  };
+
+  const handleSelectPlanFile = async (slotId: string) => {
     try {
       setError(null);
-      if (!activeRepo) {
-        // 未設定時はプロジェクトフォルダ選択ダイアログを開く
-        const picked = await invoke<string | null>("select_plan_root_dialog", {
-          surface,
-        });
-        if (picked) {
-          // select_plan_root_dialog persists and normalizes the selected root.
-          setConfiguredRoot(picked);
-          // The activeRepo-dependent effect resets stale selection and loads
-          // plans with the newly configured root after React applies this state.
-        }
+      const targetSlot = slotsRef.current.find((s) => s.slot_id === slotId);
+      const slotRepo = targetSlot?.repo_path || null;
+
+      const dialogArgs: Record<string, unknown> = {
+        repoPath: slotRepo || undefined,
+        surface,
+        slotId,
+        dialogTitle: t("planManager.selectPlanFile") || "プランファイルを選択",
+      };
+
+      const picked = await invoke<SelectedPlanResult | string | null>("select_plan_file_dialog", dialogArgs);
+      if (!picked) return;
+      if (!activeSlotIdsRef.current.has(slotId)) return; // Stale slot check
+
+      // Validate returned slot_id and surface to prevent cross-row or cross-surface stale misassignment
+      if (typeof picked !== "string") {
+        if (picked.slot_id && picked.slot_id !== slotId) return;
+        if (picked.surface && picked.surface !== surface) return;
+      }
+
+      const pickedRel = typeof picked === "string" ? picked : picked.relative_path;
+      const pickedRepo = typeof picked === "string" ? slotRepo : picked.repo_path;
+
+      if (!pickedRepo) {
+        setError("Cannot determine project repository for selected plan.");
         return;
       }
-      const picked = await invoke<string | null>("select_plan_file_dialog", {
-        repoPath: activeRepo,
-        surface,
-        dialogTitle: t("planManager.selectPlanFile") || "プランファイルを選択",
-      });
-      if (!picked) return;
+
       const res = await invoke<PlanFileDetails>("set_active_plan", {
-        relativePath: picked,
-        repoPath: activeRepo,
+        relativePath: pickedRel,
+        repoPath: pickedRepo,
+        surface,
+        slotId,
       });
-      const parentFolder = picked.includes("/") ? picked.substring(0, picked.lastIndexOf("/")) : ".";
-      setDetails(res);
-      setSelectedFolder(parentFolder);
-      selectedFolderRef.current = parentFolder;
-      setActionMessage(`${t("planManager.planActivated") || "計画書を設定しました"}: ${picked.split("/").pop() || picked}`);
-      setTimeout(() => setActionMessage(null), 3000);
-      if (onActivePlanChangedRef.current) {
-        onActivePlanChangedRef.current(picked);
+
+      if (!activeSlotIdsRef.current.has(slotId)) return; // Stale slot check
+
+      const nextSlots = slotsRef.current.map((s) =>
+        s.slot_id === slotId
+          ? { ...s, repo_path: pickedRepo, plan_path: pickedRel }
+          : s
+      );
+      setSlots(nextSlots);
+      slotsRef.current = nextSlots;
+      void persistSlots(nextSlots);
+
+      setSlotDetails((prev) => ({ ...prev, [slotId]: res }));
+      if (slotId === operationalSlotId) {
+        const parentFolder = pickedRel.includes("/") ? pickedRel.substring(0, pickedRel.lastIndexOf("/")) : ".";
+        setDetails(res);
+        setSelectedFolder(parentFolder);
+        selectedFolderRef.current = parentFolder;
+        if (onActivePlanChangedRef.current) {
+          onActivePlanChangedRef.current(pickedRel);
+        }
+        prevRepoRef.current = pickedRepo;
+        await loadPlans(parentFolder, pickedRepo);
       }
-      await loadPlans(parentFolder);
+
+      setActionMessage(`${t("planManager.planActivated") || "計画書を設定しました"}: ${pickedRel.split("/").pop() || pickedRel}`);
+      setTimeout(() => setActionMessage(null), 3000);
     } catch (e: unknown) {
       setError(String(e));
     }
   };
 
-  const handleOpenPlan = async () => {
-    if (!activeOperationalPath) return;
+  const handleOpenPlan = async (slotId: string) => {
+    const operationalPath = getSlotOperationalPath(slotId);
+    if (!operationalPath) return;
     try {
-      await invoke("open_path", { path: activeOperationalPath });
+      await invoke("open_path", { path: operationalPath });
     } catch (e: unknown) {
       setError(String(e));
     }
+  };
+
+  const getSlotOperationalPath = (slotId: string): string => {
+    const slot = slots.find((s) => s.slot_id === slotId);
+    if (!slot) return "";
+    const slotRepo = slot.repo_path || (slotId === "primary" ? activeRepo : null);
+    const slotRel = slot.plan_path || (slotId === "primary" ? (details?.active_plan_relative_path || activePlanPath) : null);
+    if (!slotRel) return "";
+
+    const slotDet = slotDetails[slotId] || (slotId === "primary" ? details : null);
+    const entry = slotDet?.plans?.find((p) => p.relative_path === slotRel);
+    if (entry?.path) return entry.path;
+
+    if (slotRepo && slotRel) {
+      return slotRepo.includes("\\")
+        ? `${slotRepo}\\${slotRel.replace(/\//g, "\\")}`
+        : `${slotRepo}/${slotRel}`;
+    }
+    return slotRel;
   };
 
   const persistRoleAssignment = async (plannerRole: string | null, reviserRole: string | null) => {
+    if (!activeRepo) return;
     setError(null);
     const target = { plannerRole, reviserRole };
     roleAssignmentRef.current = target;
@@ -423,38 +645,11 @@ export default function PlanFileManagerCard({
     }
   };
 
-  const handlePlanReviewPolicyChange = (policy: ReviewerPolicy) => {
-    setCurrentPlanReviewPolicy(policy);
-    if (onPlanReviewPolicyChanged) {
-      onPlanReviewPolicyChanged(policy);
-    }
-    if (onRolesChanged) {
-      onRolesChanged({
-        plannerRole: currentPlannerRole,
-        reviserRole: currentReviserRole,
-        planReviewPolicy: policy,
-        planReviewers: currentPlanReviewers,
-      });
-    }
-  };
-
-  const activeRelPath = details?.active_plan_relative_path || activePlanPath;
-  const activeEntry = details?.plans?.find((p) => p.relative_path === activeRelPath);
-  const activeOperationalPath =
-    activeEntry?.path ||
-    (activeRepo && activeRelPath
-      ? (activeRepo.includes("\\")
-          ? `${activeRepo}\\${activeRelPath.replace(/\//g, "\\")}`
-          : `${activeRepo}/${activeRelPath}`)
-      : activeRelPath || "");
-  const activeDisplayPath = normalizeDisplayPath(activeOperationalPath);
-  const localizedStatusLabel = getLocalizedStatusLabel(activeEntry?.status, t);
-  const openPlanAriaLabel = activeEntry?.title
-    ? `${activeDisplayPath} — ${activeEntry.title}`
-    : activeDisplayPath;
-  const openPlanTitle = activeEntry?.title
-    ? `${activeDisplayPath} — ${activeEntry.title} (${t("planManager.openPlanTooltip") || "エディタで開く"})`
-    : `${activeDisplayPath} (${t("planManager.openPlanTooltip") || "エディタで開く"})`;
+  // Operational slot details for header chip
+  const primaryRelPath = matchedSlot?.plan_path || (operationalSlotId === "primary" ? details?.active_plan_relative_path : null) || activePlanPath;
+  const primaryDetails = slotDetails[operationalSlotId] || details;
+  const primaryEntry = primaryDetails?.plans?.find((p) => p.relative_path === primaryRelPath);
+  const primaryLocalizedStatusLabel = getLocalizedStatusLabel(primaryEntry?.status, t);
 
   return (
     <div
@@ -483,6 +678,30 @@ export default function PlanFileManagerCard({
           {error}
         </div>
       )}
+      {isUnmatchedWorkspace && (
+        <div
+          data-testid="unmatched-workspace-warning"
+          style={{
+            padding: "8px 12px",
+            marginBottom: 8,
+            backgroundColor: "#fff8c5",
+            border: "1px solid #d4a72c",
+            borderRadius: 6,
+            fontSize: 12,
+            color: "#573a08",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <span aria-hidden="true">⚠️</span>
+          <span>
+            {t("planManager.unmatchedWorkspaceWarning") ||
+              `現在の作業フォルダ (${repoPath}) に対応するスロットがありません。プランファイルを選択して関連付けてください。`}
+          </span>
+        </div>
+      )}
+
       {/* ── ROW 1: Heading, Concise Localized Status Chip & Refresh ── */}
       <div
         style={{
@@ -490,7 +709,7 @@ export default function PlanFileManagerCard({
           justifyContent: "space-between",
           alignItems: "center",
           gap: 8,
-          marginBottom: 8,
+          marginBottom: 10,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
@@ -498,7 +717,7 @@ export default function PlanFileManagerCard({
             {t("planManager.title") || "プランファイル"}
           </h3>
 
-          {activeRelPath ? (
+          {primaryRelPath ? (
             <span
               className="badge badge-success"
               data-testid="active-plan-badge"
@@ -513,10 +732,10 @@ export default function PlanFileManagerCard({
                 flexShrink: 0,
                 whiteSpace: "nowrap",
               }}
-              title={localizedStatusLabel}
-              aria-label={localizedStatusLabel}
+              title={primaryLocalizedStatusLabel}
+              aria-label={primaryLocalizedStatusLabel}
             >
-              [{localizedStatusLabel}]
+              [{primaryLocalizedStatusLabel}]
             </span>
           ) : (
             <span
@@ -542,128 +761,206 @@ export default function PlanFileManagerCard({
         </button>
       </div>
 
-      {/* ── ROW 2: Active Path Display, Plan File Picker & Open Plan File ── */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          marginBottom: 12,
-        }}
-      >
-        {/* Bordered Read-Only Static Path Field (not a link, selectable text) */}
-        <div
-          data-testid="active-plan-path-container"
-          style={{
-            flex: 1,
-            minWidth: 0,
-            display: "flex",
-            alignItems: "center",
-          }}
-        >
-          {activeDisplayPath ? (
+      {/* ── PROJECT-PLAN SLOTS (Permanent Row 1, Optional Row 2) ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
+        {slots.map((slot) => {
+          const isPrimary = slot.slot_id === "primary";
+          const slotRepo = slot.repo_path || (isPrimary ? activeRepo : null);
+          const slotRel = slot.plan_path || (isPrimary ? primaryRelPath : null);
+          const slotDet = slotDetails[slot.slot_id] || (isPrimary ? details : null);
+          const slotEntry = isPrimary
+            ? primaryEntry
+            : slotDet?.plans?.find(
+                (p) =>
+                  p.relative_path === slotRel ||
+                  (slotRel && p.relative_path.replace(/\\/g, "/") === slotRel.replace(/\\/g, "/"))
+              );
+          const slotOperational = getSlotOperationalPath(slot.slot_id);
+          const slotDisplay = normalizeDisplayPath(slotOperational);
+          const slotRepoDisplay = normalizeDisplayPath(slotRepo);
+          const slotOpenPlanAriaLabel = slotEntry?.title
+            ? `${slotDisplay} — ${slotEntry.title}`
+            : slotDisplay;
+          const slotOpenPlanTitle = slotEntry?.title
+            ? `${slotDisplay} — ${slotEntry.title} (${t("planManager.openPlanTooltip") || "エディタで開く"})`
+            : `${slotDisplay} (${t("planManager.openPlanTooltip") || "エディタで開く"})`;
+          const slotLabel = isPrimary
+            ? (t("planManager.slotPrimary") || "プロジェクト 1")
+            : (t("planManager.slotSecondary") || "プロジェクト 2");
+
+          return (
             <div
-              data-testid="active-plan-path-display"
-              title={activeDisplayPath}
-              aria-label={openPlanAriaLabel}
+              key={slot.slot_id}
+              data-testid={`project-plan-slot-${slot.slot_id}`}
               style={{
-                width: "100%",
-                display: "block",
-                padding: "4px 10px",
-                fontSize: 12,
-                fontFamily: "monospace",
-                color: "var(--color-text-primary, #111827)",
-                backgroundColor: "#ffffff",
-                border: "1px solid #d0d7de",
-                borderRadius: 6,
-                textAlign: "left",
-                textDecoration: "none",
-                overflowX: "auto",
-                whiteSpace: "nowrap",
-                userSelect: "text",
-                cursor: "text",
-                lineHeight: "1.5",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                minWidth: 0,
               }}
             >
-              {activeDisplayPath}
+              {/* Slot Label */}
+              <span
+                data-testid={`slot-label-${slot.slot_id}`}
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "var(--color-text-secondary, #4b5563)",
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
+                }}
+              >
+                {slotLabel}:
+              </span>
+
+              {/* Bordered Read-Only Static Path Field */}
+              <div
+                data-testid={isPrimary ? "active-plan-path-container" : `active-plan-path-container-${slot.slot_id}`}
+                style={{
+                  flex: "1 1 0%",
+                  minWidth: 0,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                {slotDisplay ? (
+                  <div
+                    data-testid={isPrimary ? "active-plan-path-display" : `active-plan-path-display-${slot.slot_id}`}
+                    title={slotRepoDisplay ? `${slotRepoDisplay}/${slotDisplay}` : slotDisplay}
+                    aria-label={slotOpenPlanAriaLabel}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      maxWidth: "100%",
+                      boxSizing: "border-box",
+                      display: "block",
+                      padding: "4px 10px",
+                      fontSize: 12,
+                      fontFamily: "monospace",
+                      color: "var(--color-text-primary, #111827)",
+                      backgroundColor: "#ffffff",
+                      border: "1px solid #d0d7de",
+                      borderRadius: 6,
+                      textAlign: "left",
+                      textDecoration: "none",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      userSelect: "text",
+                      cursor: "text",
+                      lineHeight: "1.5",
+                    }}
+                  >
+                    {slotDisplay}
+                  </div>
+                ) : (
+                  <div
+                    data-testid={isPrimary ? "empty-plan-path-field" : `empty-plan-path-field-${slot.slot_id}`}
+                    title={slotRepoDisplay || undefined}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      maxWidth: "100%",
+                      boxSizing: "border-box",
+                      padding: "4px 10px",
+                      fontSize: 12,
+                      color: "#8c959f",
+                      backgroundColor: "#f6f8fa",
+                      border: "1px solid #d0d7de",
+                      borderRadius: 6,
+                      fontStyle: "italic",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      lineHeight: "1.5",
+                    }}
+                  >
+                    {t("planManager.emptyPlanPlaceholder") || "計画書が選択されていません"}
+                  </div>
+                )}
+              </div>
+
+              {/* Plan File Picker Button (no leading icon) */}
+              <button
+                type="button"
+                className="btn btn-small"
+                onClick={() => void handleSelectPlanFile(slot.slot_id)}
+                data-testid={isPrimary ? "btn-select-plan-file" : `btn-select-plan-file-${slot.slot_id}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  flexShrink: 0,
+                  padding: "4px 10px",
+                  fontSize: 12,
+                  whiteSpace: "nowrap",
+                }}
+                title={t("planManager.selectPlanFile") || "プランファイルを選択"}
+              >
+                <span>
+                  {t("planManager.planFileButtonLabel") || "プランファイル選択"}
+                </span>
+              </button>
+
+              {/* Dedicated Open Plan File Button */}
+              <button
+                type="button"
+                className="btn btn-small"
+                onClick={() => void handleOpenPlan(slot.slot_id)}
+                disabled={!slotDisplay}
+                data-testid={isPrimary ? "btn-open-plan" : `btn-open-plan-${slot.slot_id}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  flexShrink: 0,
+                  padding: "4px 12px",
+                  fontSize: 12,
+                  whiteSpace: "nowrap",
+                }}
+                title={slotOpenPlanTitle}
+                aria-label={slotOpenPlanAriaLabel}
+              >
+                <span>{t("planManager.btnOpenPlanFile") || "プランファイルを開く"}</span>
+              </button>
+
+              {/* Secondary slot removal button */}
+              {!isPrimary && (
+                <button
+                  type="button"
+                  className="btn btn-small"
+                  onClick={() => handleRemoveSecondarySlot()}
+                  data-testid="btn-remove-slot-secondary"
+                  title={t("planManager.removeSlotTooltip") || "この行の関連付けのみを解除します（実ファイルは削除されません）"}
+                  style={{
+                    fontSize: 12,
+                    padding: "4px 10px",
+                    whiteSpace: "nowrap",
+                    color: "#dc2626",
+                    flexShrink: 0,
+                  }}
+                >
+                  {t("planManager.removeSlot") || "削除"}
+                </button>
+              )}
             </div>
-          ) : (
-            <div
-              data-testid="empty-plan-path-field"
-              style={{
-                width: "100%",
-                padding: "4px 10px",
-                fontSize: 12,
-                color: "#8c959f",
-                backgroundColor: "#f6f8fa",
-                border: "1px solid #d0d7de",
-                borderRadius: 6,
-                fontStyle: "italic",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                lineHeight: "1.5",
-              }}
+          );
+        })}
+
+        {/* Add Slot Button (Max 2 rows) */}
+        {slots.length < 2 && (
+          <div style={{ marginTop: 2 }}>
+            <button
+              type="button"
+              className="btn btn-small"
+              onClick={() => handleAddSlot()}
+              data-testid="btn-add-slot"
+              style={{ fontSize: 11, padding: "2px 8px", whiteSpace: "nowrap" }}
             >
-              {!activeRepo
-                ? t("planManager.placeholderSelectFolderFirst") || "プランフォルダを選択してください"
-                : t("planManager.warningTitle") || "計画書が選択されていません"}
-            </div>
-          )}
-        </div>
-
-        {/* Plan File Picker Button */}
-        <button
-          type="button"
-          className="btn btn-small"
-          onClick={() => void handleSelectFolder()}
-          data-testid="btn-select-folder"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            flexShrink: 0,
-            padding: "4px 10px",
-            fontSize: 12,
-            whiteSpace: "nowrap",
-          }}
-          title={
-            !activeRepo
-              ? t("planManager.btnSelectFolder") || "プランフォルダを選択"
-              : selectedFolder
-                ? `${t("planManager.selectPlanFile") || "プランファイルを選択"} (${t("planManager.folderLabel") || "プランフォルダ"}: ${selectedFolder})`
-                : t("planManager.selectPlanFile") || "プランファイルを選択"
-          }
-        >
-          <span aria-hidden="true">{activeRepo ? "📄" : "📁"}</span>
-          <span>
-            {!activeRepo
-              ? t("planManager.defaultPlanFolderLabel") || "プランフォルダ"
-              : t("planManager.planFileButtonLabel") || "プランファイル選択"}
-          </span>
-        </button>
-
-        {/* Dedicated Open Plan File Button */}
-        <button
-          type="button"
-          className="btn btn-small"
-          onClick={() => void handleOpenPlan()}
-          disabled={!activeDisplayPath}
-          data-testid="btn-open-plan"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            flexShrink: 0,
-            padding: "4px 12px",
-            fontSize: 12,
-            whiteSpace: "nowrap",
-          }}
-          title={openPlanTitle}
-          aria-label={openPlanAriaLabel}
-        >
-          <span>{t("planManager.btnOpenPlanFile") || "プランファイルを開く"}</span>
-        </button>
+              + {t("planManager.addSlot") || "プロジェクトを追加"}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Role Assignment Section */}

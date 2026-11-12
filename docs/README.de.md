@@ -15,7 +15,7 @@ Poverello Coding Tools (in der App als **Poverello** angezeigt) ist eine Windows
 > [!TIP]
 > **Neuigkeiten:** Versionsbezogene Funktionen, Implementierungsdetails und Änderungsprotokolle findest du in den [Release Notes (NEWS.md)](../NEWS.md).
 
-Die aktuelle Version ist **v0.27.2**. Antigravity Autocode und Codex Autocode haben jeweils einen eigenen Speicherort für den Planordner, der in den jeweiligen Skills-&-Rules-Einstellungen konfiguriert wird. Der Pfad kann bearbeitet, über den Ordnerdialog ausgewählt oder zurückgesetzt werden. Ist kein Speicherort konfiguriert, wird nicht stillschweigend das Arbeitsverzeichnis der App verwendet. Markdown-Plan-Dateien (.md) können direkt ausgewählt und im Editor geöffnet werden. Der vollständige absolute Pfad und der Status des aktiven Plans werden angezeigt; der Dateiauswahldialog öffnet sich im Ordner dieses Plans.
+Das nächste Release-Ziel ist **v0.27.3** (noch nicht veröffentlicht). Jede Autocode-Oberfläche hat einen festen Projekt-Plan-Eintrag und kann bei Bedarf einen zweiten hinzufügen. Bei der Auswahl einer Markdown-Plan-Datei wird sie dem Repository zugeordnet, das diese Datei enthält. Antigravity und Codex speichern ihre Auswahl unabhängig voneinander. Die Einstellung für den Planordner dient nur als Startordner des Dateiauswahldialogs, wenn kein Active Plan vorhanden ist. Beim Entfernen des optionalen zweiten Eintrags wird nur die Poverello-Zuordnung aufgehoben; Projekt- und Plan-Dateien werden nicht gelöscht. Der vollständige Pfad und Status des ausgewählten Plans werden angezeigt; eine separate Aktion öffnet die Datei.
 
 ---
 

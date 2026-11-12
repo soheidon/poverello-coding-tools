@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import PlanFolderLocationCard from "./PlanFolderLocationCard";
+import PlanFolderLocationCard, { normalizePlanRootDisplayPath } from "./PlanFolderLocationCard";
 import * as tauriBridge from "@tauri-apps/api/core";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -13,10 +13,29 @@ describe("PlanFolderLocationCard Component", () => {
     vi.clearAllMocks();
   });
 
-  it("renders Antigravity plan folder location card and fetches location into input box", async () => {
+  describe("normalizePlanRootDisplayPath unit tests", () => {
+    it("strips \\\\?\\ prefix and normalizes drive letters", () => {
+      expect(normalizePlanRootDisplayPath("\\\\?\\C:\\dev\\repo")).toBe("C:\\dev\\repo");
+      expect(normalizePlanRootDisplayPath("//?/C:/dev/repo")).toBe("C:\\dev\\repo");
+      expect(normalizePlanRootDisplayPath("C:/dev/repo")).toBe("C:\\dev\\repo");
+    });
+
+    it("normalizes extended UNC paths", () => {
+      expect(normalizePlanRootDisplayPath("\\\\?\\UNC\\server\\share\\repo")).toBe("\\\\server\\share\\repo");
+      expect(normalizePlanRootDisplayPath("//?/UNC/server/share/repo")).toBe("\\\\server\\share\\repo");
+    });
+
+    it("handles null and empty strings safely", () => {
+      expect(normalizePlanRootDisplayPath(null)).toBe("");
+      expect(normalizePlanRootDisplayPath("")).toBe("");
+      expect(normalizePlanRootDisplayPath("   ")).toBe("");
+    });
+  });
+
+  it("renders Antigravity plan folder location card and fetches location into input box with normalized display", async () => {
     vi.mocked(tauriBridge.invoke).mockImplementation(async (cmd, args: any) => {
       if (cmd === "get_plan_manager_location" && args?.surface === "antigravity") {
-        return "C:/dev/my-antigravity-project";
+        return "\\\\?\\C:\\dev\\my-antigravity-project";
       }
       return null;
     });
@@ -28,7 +47,7 @@ describe("PlanFolderLocationCard Component", () => {
     expect(screen.getByRole("heading", { level: 3 }).textContent).not.toMatch(/Antigravity Autocode/);
     await waitFor(() => {
       const input = screen.getByTestId<HTMLInputElement>("input-plan-folder-location");
-      expect(input.value).toBe("C:/dev/my-antigravity-project");
+      expect(input.value).toBe("C:\\dev\\my-antigravity-project");
     });
     expect(screen.getByTestId("btn-select-plan-root")).toBeInTheDocument();
     expect(screen.getByTestId("btn-reset-plan-root")).toBeInTheDocument();
@@ -63,10 +82,10 @@ describe("PlanFolderLocationCard Component", () => {
     vi.mocked(tauriBridge.invoke).mockImplementation(async (cmd, args: any) => {
       if (cmd === "get_plan_manager_location") return null;
       if (cmd === "select_plan_root_dialog" && args?.surface === "antigravity") {
-        return "C:/dev/new-selected-project";
+        return "\\\\?\\C:\\dev\\new-selected-project";
       }
-      if (cmd === "set_plan_manager_location" && args?.path === "C:/dev/new-selected-project") {
-        return "C:/dev/new-selected-project";
+      if (cmd === "set_plan_manager_location" && args?.path === "\\\\?\\C:\\dev\\new-selected-project") {
+        return "\\\\?\\C:\\dev\\new-selected-project";
       }
       return null;
     });
@@ -84,9 +103,9 @@ describe("PlanFolderLocationCard Component", () => {
       expect(tauriBridge.invoke).toHaveBeenCalledWith("select_plan_root_dialog", { surface: "antigravity" });
       expect(tauriBridge.invoke).toHaveBeenCalledWith("set_plan_manager_location", {
         surface: "antigravity",
-        path: "C:/dev/new-selected-project",
+        path: "\\\\?\\C:\\dev\\new-selected-project",
       });
-      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:/dev/new-selected-project");
+      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:\\dev\\new-selected-project");
       const statusEl = screen.getByRole("status");
       expect(statusEl).toHaveTextContent(/設定を保存しました|savedMessage/i);
     });
@@ -103,21 +122,21 @@ describe("PlanFolderLocationCard Component", () => {
     render(<PlanFolderLocationCard surface="antigravity" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:/dev/existing-folder");
+      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:\\dev\\existing-folder");
     });
 
     const selectBtn = screen.getByTestId("btn-select-plan-root");
     await user.click(selectBtn);
 
-    expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:/dev/existing-folder");
+    expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:\\dev\\existing-folder");
     expect(tauriBridge.invoke).not.toHaveBeenCalledWith("set_plan_manager_location", expect.anything());
     expect(screen.queryByTestId("saved-message")).not.toBeInTheDocument();
   });
 
-  it("displays error and maintains previous value if saving picked folder fails", async () => {
+  it("displays error and maintains normalized previous value if saving picked folder fails", async () => {
     const user = userEvent.setup();
     vi.mocked(tauriBridge.invoke).mockImplementation(async (cmd, args: any) => {
-      if (cmd === "get_plan_manager_location") return "C:/dev/existing-folder";
+      if (cmd === "get_plan_manager_location") return "\\\\?\\C:\\dev\\existing-folder";
       if (cmd === "select_plan_root_dialog") return "C:/dev/corrupt-target";
       if (cmd === "set_plan_manager_location") {
         throw new Error("Target folder is invalid");
@@ -128,7 +147,7 @@ describe("PlanFolderLocationCard Component", () => {
     render(<PlanFolderLocationCard surface="codex" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:/dev/existing-folder");
+      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:\\dev\\existing-folder");
     });
 
     const selectBtn = screen.getByTestId("btn-select-plan-root");
@@ -137,8 +156,8 @@ describe("PlanFolderLocationCard Component", () => {
     await waitFor(() => {
       const alertEl = screen.getByRole("alert");
       expect(alertEl).toHaveTextContent("Target folder is invalid");
-      // Reverted to previous valid persisted value
-      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:/dev/existing-folder");
+      // Reverted to previous valid persisted value without \\?\ prefix
+      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:\\dev\\existing-folder");
     });
   });
 
@@ -147,7 +166,7 @@ describe("PlanFolderLocationCard Component", () => {
     vi.mocked(tauriBridge.invoke).mockImplementation(async (cmd, args: any) => {
       if (cmd === "get_plan_manager_location") return null;
       if (cmd === "set_plan_manager_location" && args?.path === "D:/my/typed/repo") {
-        return "D:/my/typed/repo";
+        return "D:\\my\\typed\\repo";
       }
       return null;
     });
@@ -167,7 +186,7 @@ describe("PlanFolderLocationCard Component", () => {
         path: "D:/my/typed/repo",
       });
       expect(screen.getByRole("status")).toBeInTheDocument();
-      expect(input.value).toBe("D:/my/typed/repo");
+      expect(input.value).toBe("D:\\my\\typed\\repo");
     });
   });
 
@@ -176,7 +195,7 @@ describe("PlanFolderLocationCard Component", () => {
     vi.mocked(tauriBridge.invoke).mockImplementation(async (cmd, args: any) => {
       if (cmd === "get_plan_manager_location") return "C:/initial/path";
       if (cmd === "set_plan_manager_location" && args?.path === "C:/updated/path") {
-        return "C:/updated/path";
+        return "C:\\updated\\path";
       }
       return null;
     });
@@ -184,7 +203,7 @@ describe("PlanFolderLocationCard Component", () => {
     render(<PlanFolderLocationCard surface="codex" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:/initial/path");
+      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:\\initial\\path");
     });
 
     const input = screen.getByTestId<HTMLInputElement>("input-plan-folder-location");
@@ -198,8 +217,28 @@ describe("PlanFolderLocationCard Component", () => {
         path: "C:/updated/path",
       });
       expect(screen.getByRole("status")).toBeInTheDocument();
-      expect(input.value).toBe("C:/updated/path");
+      expect(input.value).toBe("C:\\updated\\path");
     });
+  });
+
+  it("does not call save if blur or Enter has only extended prefix representation difference", async () => {
+    const user = userEvent.setup();
+    vi.mocked(tauriBridge.invoke).mockImplementation(async (cmd) => {
+      if (cmd === "get_plan_manager_location") return "\\\\?\\C:\\dev\\project";
+      return null;
+    });
+
+    render(<PlanFolderLocationCard surface="codex" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:\\dev\\project");
+    });
+
+    const input = screen.getByTestId<HTMLInputElement>("input-plan-folder-location");
+    await user.click(input);
+    await user.keyboard("{Enter}");
+
+    expect(tauriBridge.invoke).not.toHaveBeenCalledWith("set_plan_manager_location", expect.anything());
   });
 
   it("clearing input to empty saves null (reset)", async () => {
@@ -215,7 +254,7 @@ describe("PlanFolderLocationCard Component", () => {
     render(<PlanFolderLocationCard surface="antigravity" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:/old/path");
+      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:\\old\\path");
     });
 
     const input = screen.getByTestId<HTMLInputElement>("input-plan-folder-location");
@@ -234,7 +273,7 @@ describe("PlanFolderLocationCard Component", () => {
   it("reverts input and displays accessible alert when backend validation fails", async () => {
     const user = userEvent.setup();
     vi.mocked(tauriBridge.invoke).mockImplementation(async (cmd, args: any) => {
-      if (cmd === "get_plan_manager_location") return "C:/valid/existing";
+      if (cmd === "get_plan_manager_location") return "\\\\?\\C:\\valid\\existing";
       if (cmd === "set_plan_manager_location") {
         throw new Error("Target folder does not exist: 'Z:/invalid/path'");
       }
@@ -244,7 +283,7 @@ describe("PlanFolderLocationCard Component", () => {
     render(<PlanFolderLocationCard surface="antigravity" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:/valid/existing");
+      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:\\valid\\existing");
     });
 
     const input = screen.getByTestId<HTMLInputElement>("input-plan-folder-location");
@@ -254,7 +293,7 @@ describe("PlanFolderLocationCard Component", () => {
     await waitFor(() => {
       const alertEl = screen.getByRole("alert");
       expect(alertEl).toHaveTextContent("Target folder does not exist");
-      expect(input.value).toBe("C:/valid/existing");
+      expect(input.value).toBe("C:\\valid\\existing");
     });
   });
 
@@ -271,7 +310,7 @@ describe("PlanFolderLocationCard Component", () => {
     render(<PlanFolderLocationCard surface="codex" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:/dev/current-project");
+      expect(screen.getByTestId<HTMLInputElement>("input-plan-folder-location").value).toBe("C:\\dev\\current-project");
     });
 
     const resetBtn = screen.getByTestId("btn-reset-plan-root");

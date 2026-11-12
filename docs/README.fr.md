@@ -15,7 +15,7 @@ Poverello Coding Tools (affiché dans l’application sous le nom **Poverello**)
 > [!TIP]
 > **Nouveautés :** Consultez [NEWS.md (notes de version)](../NEWS.md) pour les fonctionnalités, détails d'implémentation et changements de chaque version.
 
-La version actuelle est **v0.27.2**. Antigravity Autocode et Codex Autocode disposent chacun d’un emplacement de dossier de plans indépendant, réglable dans leurs paramètres Skills & Rules. Le chemin peut être saisi, choisi avec le sélecteur de dossiers ou réinitialisé ; aucun repli implicite vers le répertoire de travail de l’application n’a lieu si l’emplacement n’est pas configuré. Les fichiers Markdown (.md) peuvent être sélectionnés directement comme Active Plan et ouverts dans l’éditeur. Le chemin absolu complet et le statut du plan actif sont affichés ; le sélecteur de fichiers s’ouvre dans le dossier de ce plan.
+La prochaine version cible est **v0.27.3** (pas encore publiée). Chaque interface Autocode dispose d’une ligne projet-plan permanente et peut en ajouter une deuxième, facultative. La sélection d’un plan Markdown l’associe au dépôt qui contient ce fichier. Antigravity et Codex enregistrent leurs sélections séparément. Le dossier de plans configuré sert uniquement de dossier de départ au sélecteur lorsqu’aucun Active Plan n’est défini. La suppression de la deuxième ligne facultative retire uniquement l’association Poverello ; les fichiers du projet et du plan ne sont pas supprimés. Le chemin complet et le statut du plan sélectionné sont affichés ; une action distincte permet d’ouvrir le fichier.
 
 ---
 

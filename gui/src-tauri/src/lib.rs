@@ -6429,10 +6429,16 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 fn select_project_folder_dialog() -> Result<Option<String>, String> {
     #[cfg(target_os = "windows")]
     {
-        Ok(rfd::FileDialog::new()
-            .set_title("Select Project Folder")
-            .pick_folder()
-            .map(|path| path.to_string_lossy().into_owned()))
+        if let Some(path) = rfd::FileDialog::new().set_title("Select Project Folder").pick_folder() {
+            let canonical = path.canonicalize().map_err(|e| format!("Cannot canonicalize path: {e}"))?;
+            let repo = match plan_manager::find_enclosing_repo_root(&canonical) {
+                Ok(r) => r,
+                Err(_) => canonical,
+            };
+            Ok(Some(repo.to_string_lossy().into_owned()))
+        } else {
+            Ok(None)
+        }
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -7477,9 +7483,11 @@ fn record_reviewer_diagnostic_event(event: reviewer_diagnostics::ReviewerDiagnos
 fn list_available_plans(
     repo_path: Option<String>,
     folder_path: Option<String>,
+    surface: Option<String>,
+    slot_id: Option<String>,
 ) -> Result<plan_manager::PlanOverview, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
-    plan_manager::get_plan_overview(&repo_root, folder_path.as_deref())
+    plan_manager::get_plan_overview(&repo_root, folder_path.as_deref(), surface.as_deref(), slot_id.as_deref())
 }
 
 #[tauri::command]
@@ -7546,6 +7554,44 @@ fn replace_file_win(temp: &std::path::Path, target: &std::path::Path) -> std::io
         Err(std::io::Error::last_os_error())
     } else {
         Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn move_file_win_no_replace(source: &std::path::Path, target: &std::path::Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    unsafe extern "system" {
+        fn MoveFileW(existing: *const u16, new: *const u16) -> i32;
+    }
+    let source_w = source
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let target_w = target
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let ok = unsafe { MoveFileW(source_w.as_ptr(), target_w.as_ptr()) };
+    if ok == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn commit_staged_settings_file_win(
+    staged: &std::path::Path,
+    target: &std::path::Path,
+    target_existed_at_snapshot: bool,
+) -> std::io::Result<()> {
+    if target_existed_at_snapshot {
+        replace_file_win(staged, target)
+    } else {
+        // Never replace a target that appeared after the caller captured an absent snapshot.
+        move_file_win_no_replace(staged, target)
     }
 }
 
@@ -7902,75 +7948,103 @@ pub(crate) fn normalize_dialog_directory(path: &std::path::Path) -> std::path::P
     }
 }
 
-pub(crate) fn resolve_plan_dialog_starting_dir(repo_root: &std::path::Path) -> std::path::PathBuf {
-    let fallback = if repo_root.join(plan_manager::PLAN_DIR_NAME).is_dir() {
-        repo_root.join(plan_manager::PLAN_DIR_NAME)
-    } else {
-        repo_root.to_path_buf()
-    };
-
-    if let Ok(Some(active_details)) = plan_manager::get_active_plan(repo_root) {
-        let active_path = std::path::PathBuf::from(active_details.abs_path);
-        if let Some(parent) = active_path.parent() {
-            if parent.is_dir() {
-                return normalize_dialog_directory(parent);
+pub(crate) fn resolve_plan_dialog_starting_dir(
+    repo_root: Option<&std::path::Path>,
+    surface: Option<&str>,
+    slot_id: Option<&str>,
+) -> Option<std::path::PathBuf> {
+    // 1. If an active plan exists for this slot/surface in repo_root, start in that active plan's containing folder
+    if let Some(root) = repo_root {
+        if let Ok(Some(active_details)) = plan_manager::get_active_plan(root, surface, slot_id) {
+            let active_path = std::path::PathBuf::from(active_details.abs_path);
+            if let Some(parent) = active_path.parent() {
+                if parent.is_dir() {
+                    return Some(normalize_dialog_directory(parent));
+                }
             }
         }
     }
 
-    normalize_dialog_directory(&fallback)
+    // 2. Otherwise start in the configured picker preference
+    if let Some(s) = surface {
+        if let Ok(Some(configured)) = get_plan_manager_location(s.to_string()) {
+            let pref_path = std::path::PathBuf::from(configured);
+            if pref_path.is_dir() {
+                return Some(normalize_dialog_directory(&pref_path));
+            }
+        }
+    }
+
+    None
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SelectedPlanResult {
+    pub repo_path: String,
+    pub relative_path: String,
+    pub surface: Option<String>,
+    pub slot_id: Option<String>,
 }
 
 #[tauri::command]
 fn select_plan_file_dialog(
     repo_path: Option<String>,
     surface: Option<String>,
+    slot_id: Option<String>,
     dialog_title: Option<String>,
-) -> Result<Option<String>, String> {
-    let target_repo = if let Some(p) = repo_path.filter(|p| !p.trim().is_empty()) {
-        Some(p)
-    } else if let Some(s) = surface {
-        get_plan_manager_location(s)?
-    } else {
-        None
-    };
+) -> Result<Option<SelectedPlanResult>, String> {
+    let root_ref = repo_path.as_deref().map(std::path::Path::new);
+    let starting_dir = resolve_plan_dialog_starting_dir(root_ref, surface.as_deref(), slot_id.as_deref());
 
-    let effective_target = match target_repo {
-        Some(p) => p,
-        None => {
-            return Err("Plan folder location is not configured. Please set the plan folder location in Skill & Rules settings first.".to_string());
-        }
-    };
+    let title = dialog_title
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| "Select Plan File".to_string());
 
-    let repo_root = plan_manager::resolve_repo_root(Some(&effective_target))?;
-    let canonical_repo = repo_root
-        .canonicalize()
-        .map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
+    let mut dialog = rfd::FileDialog::new()
+        .set_title(&title)
+        .add_filter("Markdown Plan File", &["md"]);
 
-    #[cfg(target_os = "windows")]
-    {
-        let starting_dir = resolve_plan_dialog_starting_dir(&repo_root);
-
-        let title = dialog_title
-            .filter(|t| !t.trim().is_empty())
-            .unwrap_or_else(|| "Select Plan File".to_string());
-
-        let picked = rfd::FileDialog::new()
-            .set_title(&title)
-            .set_directory(&starting_dir)
-            .add_filter("Markdown Plan File", &["md"])
-            .pick_file();
-
-        if let Some(path) = picked {
-            let rel_str = validate_selected_plan_file(&canonical_repo, &path)?;
-            Ok(Some(rel_str))
-        } else {
-            Ok(None)
-        }
+    if let Some(ref dir) = starting_dir {
+        dialog = dialog.set_directory(dir);
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = dialog_title;
+
+    let picked = dialog.pick_file();
+
+    if let Some(path) = picked {
+        if !path.is_file() {
+            return Err("Selected path is not a file".to_string());
+        }
+
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !ext.eq_ignore_ascii_case("md") {
+            return Err("Selected file must have a .md extension".to_string());
+        }
+
+        let enclosing_repo = plan_manager::find_enclosing_repo_root(&path)?;
+        let canonical_repo = enclosing_repo
+            .canonicalize()
+            .map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
+        let canonical_picked = path
+            .canonicalize()
+            .map_err(|e| format!("Cannot canonicalize picked file: {e}"))?;
+
+        let rel = canonical_picked
+            .strip_prefix(&canonical_repo)
+            .map_err(|e| e.to_string())?;
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        if rel_str.is_empty() {
+            return Err("Selected file path is invalid".to_string());
+        }
+
+        plan_manager::validate_plan_path(&canonical_repo, &rel_str)?;
+
+        Ok(Some(SelectedPlanResult {
+            repo_path: canonical_repo.to_string_lossy().to_string(),
+            relative_path: rel_str,
+            surface,
+            slot_id,
+        }))
+    } else {
         Ok(None)
     }
 }
@@ -7978,26 +8052,384 @@ fn select_plan_file_dialog(
 #[tauri::command]
 fn get_active_plan(
     repo_path: Option<String>,
+    surface: Option<String>,
+    slot_id: Option<String>,
 ) -> Result<Option<plan_manager::PlanFileDetails>, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
-    plan_manager::get_active_plan(&repo_root)
+    plan_manager::get_active_plan(&repo_root, surface.as_deref(), slot_id.as_deref())
 }
 
 #[tauri::command]
 fn set_active_plan(
     relative_path: String,
     repo_path: Option<String>,
+    surface: Option<String>,
+    slot_id: Option<String>,
 ) -> Result<plan_manager::PlanOverview, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
     let parent_folder = std::path::Path::new(&relative_path).parent().and_then(|p| p.to_str());
-    plan_manager::set_active_plan(&repo_root, &relative_path)?;
-    plan_manager::get_plan_overview(&repo_root, parent_folder)
+    plan_manager::set_active_plan(&repo_root, &relative_path, surface.as_deref(), slot_id.as_deref())?;
+
+    if let (Some(surf), Some(slot_name)) = (surface.as_deref(), slot_id.as_deref()) {
+        if matches!(surf, "codex" | "antigravity") {
+            let mut slots = get_project_plan_slots(surf.to_string())?;
+            let mut matched = false;
+            for s in slots.iter_mut() {
+                if s.slot_id == slot_name {
+                    s.repo_path = Some(repo_root.to_string_lossy().to_string());
+                    s.plan_path = Some(relative_path.clone());
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched && slots.len() < 2 {
+                slots.push(plan_manager::ProjectPlanSlot {
+                    slot_id: slot_name.to_string(),
+                    repo_path: Some(repo_root.to_string_lossy().to_string()),
+                    plan_path: Some(relative_path.clone()),
+                });
+            }
+            set_project_plan_slots(surf.to_string(), slots)?;
+        }
+    }
+
+    plan_manager::get_plan_overview(&repo_root, parent_folder, surface.as_deref(), slot_id.as_deref())
+}
+
+fn resolve_project_plan_slots_settings_file(surface: &str) -> Result<std::path::PathBuf, String> {
+    match surface {
+        "antigravity" => paths::antigravity_reviewer_policy_path(),
+        "codex" => {
+            let codex_home = codex_global_rules::resolve_codex_home()?;
+            Ok(codex_home.join(codex_review_settings::REVIEW_SETTINGS_FILE_NAME))
+        }
+        _ => Err(format!("Unsupported surface: '{surface}'")),
+    }
+}
+
+fn get_project_plan_slots_from_file(
+    target_file: &std::path::Path,
+) -> Result<Vec<plan_manager::ProjectPlanSlot>, String> {
+    if !target_file.exists() {
+        return Ok(vec![plan_manager::ProjectPlanSlot {
+            slot_id: "primary".to_string(),
+            repo_path: None,
+            plan_path: None,
+        }]);
+    }
+
+    let content = std::fs::read_to_string(&target_file).map_err(|e| e.to_string())?;
+    let val: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+
+    if let Some(slots_arr) = val.get("slots") {
+        if let Ok(mut slots) = serde_json::from_value::<Vec<plan_manager::ProjectPlanSlot>>(slots_arr.clone()) {
+            if !slots.is_empty() {
+                slots.truncate(2);
+                // Keep only recognized valid slot IDs; if an ID is missing, only assign primary
+                // if there is no primary slot yet.
+                let has_primary = slots.iter().any(|s| s.slot_id.trim() == "primary");
+                let mut assigned_primary = has_primary;
+                for slot in slots.iter_mut() {
+                    let trimmed = slot.slot_id.trim();
+                    if trimmed != "primary" && trimmed != "secondary" {
+                        if !assigned_primary {
+                            slot.slot_id = "primary".to_string();
+                            assigned_primary = true;
+                        } else {
+                            slot.slot_id = "secondary".to_string();
+                        }
+                    }
+                }
+                slots.sort_by_key(|s| match s.slot_id.as_str() {
+                    "primary" => 0,
+                    _ => 1,
+                });
+                return Ok(slots);
+            }
+        }
+    }
+
+    let active_plan = val.get("active_plan_path").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let mut resolved_repo: Option<String> = None;
+    let mut resolved_plan: Option<String> = active_plan.clone();
+
+    // Resolving legacy scalar:
+    // If the path is absolute and within an enclosing repo, resolve both repo and relative plan.
+    // If the path is relative, attempt to resolve against configured plan_root_path if present.
+    // If it cannot be established unambiguously, preserve the legacy relative value
+    // and report an actionable unresolved state (repo_path: None) instead of guessing.
+    if let Some(ref plan_str) = active_plan {
+        let plan_p = std::path::Path::new(plan_str);
+        if plan_p.is_absolute() && plan_p.exists() {
+            if let Ok(repo) = plan_manager::find_enclosing_repo_root(plan_p) {
+                if let Ok(rel) = plan_p.strip_prefix(&repo) {
+                    resolved_repo = Some(repo.to_string_lossy().to_string());
+                    resolved_plan = Some(rel.to_string_lossy().replace('\\', "/"));
+                }
+            }
+        } else if plan_p.is_relative() {
+            // Attempt to resolve against established repository root if it can be established unambiguously
+            if let Ok(repo) = plan_manager::resolve_repo_root(None) {
+                if repo.join(plan_p).is_file() {
+                    resolved_repo = Some(repo.to_string_lossy().to_string());
+                    resolved_plan = Some(plan_p.to_string_lossy().replace('\\', "/"));
+                } else {
+                    resolved_plan = Some(plan_str.clone());
+                    resolved_repo = None;
+                }
+            } else {
+                resolved_plan = Some(plan_str.clone());
+                resolved_repo = None;
+            }
+        }
+    }
+
+    Ok(vec![plan_manager::ProjectPlanSlot {
+        slot_id: "primary".to_string(),
+        repo_path: resolved_repo,
+        plan_path: resolved_plan,
+    }])
 }
 
 #[tauri::command]
-fn get_plan_role_assignment(surface: String, repo_path: Option<String>) -> Result<plan_manager::RoleAssignment, String> {
+fn get_project_plan_slots(surface: String) -> Result<Vec<plan_manager::ProjectPlanSlot>, String> {
+    let target_file = resolve_project_plan_slots_settings_file(&surface)?;
+    get_project_plan_slots_from_file(&target_file)
+}
+
+fn save_project_plan_slots_to_file(
+    target_file: &std::path::Path,
+    backups_subfolder: &str,
+    slots: &[plan_manager::ProjectPlanSlot],
+) -> Result<(), String> {
+    let parent = target_file
+        .parent()
+        .ok_or_else(|| format!("Target file has no parent directory: {}", target_file.display()))?;
+    ensure_no_link_or_reparse_components(parent)?;
+    ensure_no_link_or_reparse_components(target_file)?;
+
+    let original_bytes = if target_file.exists() {
+        Some(std::fs::read(target_file)
+            .map_err(|e| format!("Failed to read target file {}: {e}", target_file.display()))?)
+    } else {
+        None
+    };
+
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("Failed to create parent directory for {}: {e}", target_file.display()))?;
+    ensure_no_link_or_reparse_components(parent)?;
+    ensure_no_link_or_reparse_components(target_file)?;
+
+    if original_bytes.is_some() {
+        let backups_root = parent.join(".poverello_backups");
+        ensure_no_link_or_reparse_components(&backups_root)?;
+        std::fs::create_dir_all(&backups_root)
+            .map_err(|e| format!("Failed to create backup root: {e}"))?;
+        ensure_no_link_or_reparse_components(&backups_root)?;
+        let backups_dir = backups_root.join(backups_subfolder);
+        std::fs::create_dir_all(&backups_dir)
+            .map_err(|e| format!("Failed to create backup dir: {e}"))?;
+        ensure_no_link_or_reparse_components(&backups_dir)?;
+        let file_name = target_file
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("config.json");
+        let backup_file = backups_dir.join(format!(
+            "{}.backup-{}",
+            file_name,
+            uuid::Uuid::new_v4()
+        ));
+        ensure_no_link_or_reparse_components(&backup_file)?;
+        std::fs::copy(target_file, &backup_file)
+            .map_err(|e| format!("Failed to create backup file: {e}"))?;
+    }
+
+    let mut value: serde_json::Value = if let Some(content) = &original_bytes {
+        let content = std::str::from_utf8(content)
+            .map_err(|e| format!("Existing configuration is not valid UTF-8: {e}"))?;
+        serde_json::from_str(&content).map_err(|e| {
+            format!(
+                "Existing configuration file is corrupted ({e}) and cannot be safely updated without losing data. File preserved at {}",
+                target_file.display()
+            )
+        })?
+    } else {
+        serde_json::json!({})
+    };
+
+    if !value.is_object() {
+        return Err(format!(
+            "Configuration root is not a JSON object: {}",
+            target_file.display()
+        ));
+    }
+
+    if let Some(obj) = value.as_object_mut() {
+        let slots_val = serde_json::to_value(slots).map_err(|e| e.to_string())?;
+        obj.insert("slots".to_string(), slots_val);
+        // Write active_plan_path strictly from the "primary" slot.
+        // Never write secondary slot's plan to legacy scalar active_plan_path!
+        if let Some(primary) = slots.iter().find(|s| s.slot_id == "primary") {
+            if let Some(ref p) = primary.plan_path {
+                obj.insert("active_plan_path".to_string(), serde_json::Value::String(p.clone()));
+            } else {
+                obj.remove("active_plan_path");
+            }
+        } else {
+            obj.remove("active_plan_path");
+        }
+    }
+
+    let serialized = serde_json::to_string_pretty(&value)
+        .map_err(|e| format!("Failed to serialize configuration: {e}"))?
+        + "\n";
+
+    let file_stem = target_file
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("config");
+    let staged = parent.join(format!(
+        ".{}.staged-{}",
+        file_stem,
+        uuid::Uuid::new_v4()
+    ));
+
+    std::fs::write(&staged, serialized.as_bytes())
+        .map_err(|e| format!("Failed to write staged configuration to {}: {e}", staged.display()))?;
+
+    #[cfg(windows)]
+    {
+        if let Err(e) = commit_staged_settings_file_win(&staged, target_file, original_bytes.is_some()) {
+            let _ = std::fs::remove_file(&staged);
+            return Err(format!("Atomic settings write failed for {}: {e}", target_file.display()));
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        if let Err(e) = std::fs::rename(&staged, target_file) {
+            let _ = std::fs::remove_file(&staged);
+            return Err(format!("Atomic rename failed for {}: {e}", target_file.display()));
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn set_project_plan_slots(surface: String, slots: Vec<plan_manager::ProjectPlanSlot>) -> Result<Vec<plan_manager::ProjectPlanSlot>, String> {
+    if !matches!(surface.as_str(), "codex" | "antigravity") {
+        return Err(format!("Unsupported surface: '{surface}'"));
+    }
+    if slots.is_empty() {
+        return Err("Slots list cannot be empty: primary slot is permanent".to_string());
+    }
+    if slots.len() > 2 {
+        return Err("Maximum of 2 project plan slots allowed".to_string());
+    }
+    let settings_file = resolve_project_plan_slots_settings_file(&surface)?;
+    set_project_plan_slots_at_file(&surface, slots, &settings_file)
+}
+
+fn set_project_plan_slots_at_file(
+    surface: &str,
+    slots: Vec<plan_manager::ProjectPlanSlot>,
+    settings_file: &std::path::Path,
+) -> Result<Vec<plan_manager::ProjectPlanSlot>, String> {
+    if !matches!(surface, "codex" | "antigravity") {
+        return Err(format!("Unsupported surface: '{surface}'"));
+    }
+    if slots.is_empty() {
+        return Err("Slots list cannot be empty: primary slot is permanent".to_string());
+    }
+    if slots.len() > 2 {
+        return Err("Maximum of 2 project plan slots allowed".to_string());
+    }
+    // Clean up repo-local secondary slot state if secondary slot was removed
+    if !slots.iter().any(|s| s.slot_id == "secondary") {
+        let existing_slots = get_project_plan_slots_from_file(settings_file)?;
+        if let Some(sec) = existing_slots.iter().find(|s| s.slot_id == "secondary") {
+            let has_repo = sec.repo_path.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+            let has_plan = sec.plan_path.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+            if has_repo || has_plan {
+                let candidate_repo: Option<std::path::PathBuf> = sec
+                    .repo_path
+                    .as_ref()
+                    .filter(|s| !s.trim().is_empty())
+                    .map(std::path::PathBuf::from)
+                    .or_else(|| {
+                        sec.plan_path
+                            .as_ref()
+                            .filter(|s| !s.trim().is_empty())
+                            .and_then(|p| {
+                                let path = std::path::Path::new(p);
+                                if path.is_absolute() {
+                                    plan_manager::find_enclosing_repo_root(path).ok()
+                                } else {
+                                    plan_manager::resolve_repo_root(None).ok()
+                                }
+                            })
+                    });
+
+                match candidate_repo {
+                    Some(repo_root) if repo_root.is_dir() => {
+                        plan_manager::clear_active_plan_slot(&repo_root, surface, "secondary")?;
+                    }
+                    Some(repo_root) => {
+                        return Err(format!(
+                            "Cannot clear secondary active plan: repository path '{}' does not exist or is not a directory",
+                            repo_root.display()
+                        ));
+                    }
+                    None => {
+                        return Err(format!(
+                            "Cannot clear secondary active plan: repository could not be resolved for removed secondary slot (repo: {:?}, plan: {:?})",
+                            sec.repo_path, sec.plan_path
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut normalized = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
+    for s in slots {
+        if !matches!(s.slot_id.as_str(), "primary" | "secondary") {
+            return Err(format!("Invalid slot_id: '{}'", s.slot_id));
+        }
+        if !seen_ids.insert(s.slot_id.clone()) {
+            return Err(format!("Duplicate slot_id: '{}'", s.slot_id));
+        }
+        normalized.push(s);
+    }
+
+    let backups_subfolder = match surface {
+        "antigravity" => "reviewer-policy",
+        "codex" => "codex-review-settings",
+        _ => unreachable!(),
+    };
+    save_project_plan_slots_to_file(settings_file, backups_subfolder, &normalized)?;
+    Ok(normalized)
+}
+
+#[tauri::command]
+fn clear_active_plan_slot(
+    repo_path: String,
+    surface: String,
+    slot_id: String,
+) -> Result<(), String> {
+    let repo_root = plan_manager::resolve_repo_root(Some(&repo_path))?;
+    plan_manager::clear_active_plan_slot(&repo_root, &surface, &slot_id)
+}
+
+#[tauri::command]
+fn get_plan_role_assignment(
+    surface: String,
+    repo_path: Option<String>,
+    slot_id: Option<String>,
+) -> Result<plan_manager::RoleAssignment, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
-    plan_manager::get_role_assignment_for_active_plan(&repo_root, &surface)
+    plan_manager::get_role_assignment_for_active_plan(&repo_root, &surface, slot_id.as_deref())
 }
 
 #[tauri::command]
@@ -8014,7 +8446,7 @@ fn create_plan_file(
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
     let folder = request.folder.clone();
     plan_manager::create_plan_file(&repo_root, &request)?;
-    plan_manager::get_plan_overview(&repo_root, folder.as_deref())
+    plan_manager::get_plan_overview(&repo_root, folder.as_deref(), None, None)
 }
 
 #[tauri::command]
@@ -8071,9 +8503,11 @@ fn verify_plan_resumption(
     relative_path: String,
     checkpoint: plan_manager::ExecutionCheckpoint,
     repo_path: Option<String>,
+    surface: Option<String>,
+    slot_id: Option<String>,
 ) -> Result<plan_manager::ResumptionPreflightResult, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
-    plan_manager::verify_resumption_preflight(&repo_root, &relative_path, &checkpoint)
+    plan_manager::verify_resumption_preflight(&repo_root, &relative_path, &checkpoint, surface.as_deref(), slot_id.as_deref())
 }
 
 #[tauri::command]
@@ -11083,8 +11517,12 @@ pub fn run() {
             select_plan_root_dialog,
             select_plan_folder_dialog,
             select_plan_file_dialog,
+            select_project_folder_dialog,
+            get_project_plan_slots,
+            set_project_plan_slots,
             get_active_plan,
             set_active_plan,
+            clear_active_plan_slot,
             get_plan_role_assignment,
             set_plan_role_assignment,
             create_plan_file,
@@ -20747,15 +21185,12 @@ mod tests {
     }
 
     #[test]
-    fn test_select_plan_file_dialog_rejects_unconfigured_location_without_cwd_fallback() {
-        let res = select_plan_file_dialog(None, None, None);
-        assert!(res.is_err());
-        assert!(res.unwrap_err().contains("not configured"));
+    fn test_resolve_plan_dialog_starting_dir_is_none_when_unconfigured() {
+        // None lets the native picker use its OS-provided default; it does not bind a plan root to cwd.
+        assert_eq!(resolve_plan_dialog_starting_dir(None, None, None), None);
 
-        let empty_repo = Some("   ".to_string());
-        let res2 = select_plan_file_dialog(empty_repo, None, None);
-        assert!(res2.is_err());
-        assert!(res2.unwrap_err().contains("not configured"));
+        let empty_repo = std::path::Path::new("");
+        assert_eq!(resolve_plan_dialog_starting_dir(Some(empty_repo), None, None), None);
     }
 
     #[test]
@@ -20828,19 +21263,19 @@ mod tests {
         let plan_dir = repo_root.join(".plan");
         std::fs::create_dir_all(&plan_dir).unwrap();
 
-        // 1. With .plan present and no active plan set -> falls back to repo/.plan
-        let dir = resolve_plan_dialog_starting_dir(repo_root);
-        assert_eq!(dir, normalize_dialog_directory(&plan_dir));
+        // 1. With no active plan or configured preference, None lets the native picker use its OS default.
+        let dir = resolve_plan_dialog_starting_dir(Some(repo_root), None, None);
+        assert_eq!(dir, None);
 
         // 2. With active plan set in custom subfolder -> uses active plan parent
         let custom_dir = repo_root.join("plans").join("nested");
         std::fs::create_dir_all(&custom_dir).unwrap();
         let plan_file = custom_dir.join("test.md");
         std::fs::write(&plan_file, "# Test").unwrap();
-        plan_manager::set_active_plan(repo_root, "plans/nested/test.md").unwrap();
+        plan_manager::set_active_plan(repo_root, "plans/nested/test.md", None, None).unwrap();
 
-        let dir_active = resolve_plan_dialog_starting_dir(repo_root);
-        assert_eq!(dir_active, normalize_dialog_directory(&custom_dir));
+        let dir_active = resolve_plan_dialog_starting_dir(Some(repo_root), None, None);
+        assert_eq!(dir_active, Some(normalize_dialog_directory(&custom_dir)));
     }
 
     #[test]
@@ -21055,5 +21490,108 @@ mod tests {
         } else {
             assert_eq!(std::fs::read(&external).unwrap(), br#"{"keep":"external"}"#);
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_project_plan_slots_first_write_does_not_overwrite_concurrent_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let staged = temp.path().join("settings.staged");
+        let target = temp.path().join("settings.json");
+        std::fs::write(&staged, br#"{"new":true}"#).unwrap();
+        std::fs::write(&target, br#"{"existing":true}"#).unwrap();
+
+        let result = commit_staged_settings_file_win(&staged, &target, false);
+        assert!(result.is_err(), "first-write move must not overwrite an existing target");
+        assert_eq!(std::fs::read(&target).unwrap(), br#"{"existing":true}"#);
+        assert!(staged.exists(), "a failed no-replace move must leave staged data available for cleanup");
+    }
+
+    #[test]
+    fn test_project_plan_slots_lifecycle() {
+        assert!(get_project_plan_slots("invalid_surface".to_string()).is_err());
+        assert!(set_project_plan_slots("invalid_surface".to_string(), vec![]).is_err());
+
+        // Empty slots list rejected
+        assert!(set_project_plan_slots("codex".to_string(), vec![]).is_err());
+
+        // More than 2 slots rejected
+        let three_slots = vec![
+            plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: None, plan_path: None },
+            plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: None, plan_path: None },
+            plan_manager::ProjectPlanSlot { slot_id: "tertiary".into(), repo_path: None, plan_path: None },
+        ];
+        assert!(set_project_plan_slots("codex".to_string(), three_slots).is_err());
+
+        // Use a synthetic settings file; never touch the real CODEX_HOME configuration.
+        let settings_temp = tempfile::tempdir().unwrap();
+        let settings_file = settings_temp.path().join(codex_review_settings::REVIEW_SETTINGS_FILE_NAME);
+
+        // Initial slots has primary
+        let initial = get_project_plan_slots_from_file(&settings_file).unwrap();
+        assert!(!initial.is_empty());
+        assert_eq!(initial[0].slot_id, "primary");
+
+        // Test slot removal cleanup in mock repository
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        let plan_dir = repo.join(".plan");
+        std::fs::create_dir_all(&plan_dir).unwrap();
+        let plan_file = plan_dir.join("test-plan.md");
+        std::fs::write(&plan_file, "# Test Plan").unwrap();
+
+        // Set secondary active plan in repo
+        plan_manager::set_active_plan(repo, ".plan/test-plan.md", Some("codex"), Some("secondary")).unwrap();
+        let active = plan_manager::get_active_plan(repo, Some("codex"), Some("secondary")).unwrap();
+        assert!(active.is_some());
+        assert_eq!(active.unwrap().rel_path, ".plan/test-plan.md");
+
+        // Persist slots with secondary
+        let repo_str = repo.to_string_lossy().to_string();
+        let slots_with_secondary = vec![
+            plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: None, plan_path: None },
+            plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: Some(repo_str.clone()), plan_path: Some(".plan/test-plan.md".into()) },
+        ];
+        let saved = set_project_plan_slots_at_file("codex", slots_with_secondary, &settings_file).unwrap();
+        assert_eq!(saved.len(), 2);
+
+        // Remove secondary slot via set_project_plan_slots
+        let slots_only_primary = vec![
+            plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: None, plan_path: None },
+        ];
+        let remaining = set_project_plan_slots_at_file("codex", slots_only_primary.clone(), &settings_file).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].slot_id, "primary");
+
+        // Verify secondary slot was cleared in repository state
+        let cleared_active = plan_manager::get_active_plan(repo, Some("codex"), Some("secondary")).unwrap();
+        assert!(cleared_active.is_none(), "Secondary slot must be cleared in repository state");
+
+        // Verify physical plan file was NOT deleted!
+        assert!(plan_file.exists(), "Plan file must not be deleted on slot removal");
+
+        // Test empty string repo_path falls back to plan_path enclosing repo
+        plan_manager::set_active_plan(repo, ".plan/test-plan.md", Some("codex"), Some("secondary")).unwrap();
+        let slots_with_empty_repo = vec![
+            plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: None, plan_path: None },
+            plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: Some("   ".into()), plan_path: Some(plan_file.to_string_lossy().to_string()) },
+        ];
+        let saved_fallback = set_project_plan_slots_at_file("codex", slots_with_empty_repo, &settings_file).unwrap();
+        assert_eq!(saved_fallback.len(), 2);
+        // Removing secondary now should use plan_path fallback to clear repo-local state
+        let remaining_fallback = set_project_plan_slots_at_file("codex", slots_only_primary.clone(), &settings_file).unwrap();
+        assert_eq!(remaining_fallback.len(), 1);
+        let fallback_cleared = plan_manager::get_active_plan(repo, Some("codex"), Some("secondary")).unwrap();
+        assert!(fallback_cleared.is_none());
+
+        // Test that removing secondary fails when repo cannot be resolved
+        let slots_unresolvable = vec![
+            plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: None, plan_path: None },
+            plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: Some("C:\\nonexistent_missing_dir_12345".into()), plan_path: None },
+        ];
+        let _ = set_project_plan_slots_at_file("codex", slots_unresolvable, &settings_file);
+        let remove_attempt = set_project_plan_slots_at_file("codex", slots_only_primary, &settings_file);
+        assert!(remove_attempt.is_err(), "Must fail explicitly when secondary repository cannot be resolved or accessed");
     }
 }
