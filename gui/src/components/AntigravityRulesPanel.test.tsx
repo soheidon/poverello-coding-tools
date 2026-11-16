@@ -222,6 +222,7 @@ describe("AntigravityRulesPanel Component", () => {
   });
 
   it("renders Direct Coding panel in Japanese when ja locale is active", async () => {
+    const user = userEvent.setup();
     vi.spyOn(i18n, "useTranslation").mockImplementation(() => ({
       t: (key: string, params?: Record<string, string | number>) => {
         let text = (ja as Record<string, string>)[key] ?? key;
@@ -249,15 +250,24 @@ describe("AntigravityRulesPanel Component", () => {
     expect(screen.getByRole("button", { name: "ルールフォルダを開く" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "デフォルトに戻す" })).toBeInTheDocument();
     expect(screen.getByText("プリセット")).toBeInTheDocument();
+    expect(screen.queryByText("自動適用")).not.toBeInTheDocument();
+    expect(screen.queryByText("Web検索")).not.toBeInTheDocument();
+    expect(screen.queryByText("応答の冗長性")).not.toBeInTheDocument();
+    expect(screen.queryByText("コード探索")).not.toBeInTheDocument();
+    expect(screen.queryByText("検証範囲")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /詳細情報/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "カスタム" }));
+
     expect(screen.getByText("自動適用")).toBeInTheDocument();
     expect(screen.getByText("Web検索")).toBeInTheDocument();
     expect(screen.getByText("応答の冗長性")).toBeInTheDocument();
     expect(screen.getByText("コード探索")).toBeInTheDocument();
     expect(screen.getByText("検証範囲")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /詳細情報/i })).toBeInTheDocument();
   });
 
   it("renders Direct Coding panel in English when en locale is active", async () => {
+    const user = userEvent.setup();
     vi.spyOn(i18n, "useTranslation").mockImplementation(() => ({
       t: (key: string, params?: Record<string, string | number>) => {
         let text = (en as Record<string, string>)[key] ?? key;
@@ -285,11 +295,100 @@ describe("AntigravityRulesPanel Component", () => {
     expect(screen.getByRole("button", { name: "Open Rules Folder" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reset to Defaults" })).toBeInTheDocument();
     expect(screen.getByText("Preset")).toBeInTheDocument();
+    expect(screen.queryByText("Auto Activation")).not.toBeInTheDocument();
+    expect(screen.queryByText("Web Research")).not.toBeInTheDocument();
+    expect(screen.queryByText("Response Verbosity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Repository Exploration")).not.toBeInTheDocument();
+    expect(screen.queryByText("Verification")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Advanced Details/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Custom" }));
+
     expect(screen.getByText("Auto Activation")).toBeInTheDocument();
     expect(screen.getByText("Web Research")).toBeInTheDocument();
     expect(screen.getByText("Response Verbosity")).toBeInTheDocument();
     expect(screen.getByText("Repository Exploration")).toBeInTheDocument();
     expect(screen.getByText("Verification")).toBeInTheDocument();
+  });
+
+  it("shows Rows 1-5 only in Custom mode, preserves Custom while editing, and hides on built-in presets or Reset Defaults", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <AntigravityRulesPanel />
+      </LanguageProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Preset")).toBeInTheDocument();
+    });
+
+    const assertRowsHidden = () => {
+      expect(screen.queryByText("Auto Activation")).not.toBeInTheDocument();
+      expect(screen.queryByText("Web Research")).not.toBeInTheDocument();
+      expect(screen.queryByText("Response Verbosity")).not.toBeInTheDocument();
+      expect(screen.queryByText("Repository Exploration")).not.toBeInTheDocument();
+      expect(screen.queryByText("Verification")).not.toBeInTheDocument();
+    };
+
+    const assertRowsVisible = () => {
+      expect(screen.getByText("Auto Activation")).toBeInTheDocument();
+      expect(screen.getByText("Web Research")).toBeInTheDocument();
+      expect(screen.getByText("Response Verbosity")).toBeInTheDocument();
+      expect(screen.getByText("Repository Exploration")).toBeInTheDocument();
+      expect(screen.getByText("Verification")).toBeInTheDocument();
+    };
+
+    // 1. Gemini 3.8 Standard (initial): Rows 1-5 hidden, chrome & Advanced Details visible
+    assertRowsHidden();
     expect(screen.getByRole("button", { name: /Advanced Details/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save & Apply" })).toBeInTheDocument();
+
+    // 2. Gemini 3.7 Equivalent (Lightweight): Rows 1-5 hidden
+    await user.click(screen.getByRole("button", { name: "Gemini 3.7 Equivalent (Lightweight)" }));
+    assertRowsHidden();
+    expect(screen.getByRole("button", { name: /Advanced Details/i })).toBeInTheDocument();
+
+    // 3. Custom selected: Rows 1-5 visible, Custom button active, Custom description shown
+    const customBtn = screen.getByRole("button", { name: "Custom" });
+    await user.click(customBtn);
+    assertRowsVisible();
+    expect(customBtn).toHaveClass("active");
+    expect(
+      screen.getByText(
+        "Customized configuration with individual settings for web search, verbosity, exploration, verification, and auto-activation."
+      )
+    ).toBeInTheDocument();
+
+    // 4. Editing individual settings while Custom is explicitly selected keeps Custom active
+    //    even when edited to match a built-in preset's exact values (Gemini 3.8 Standard)
+    await user.click(screen.getByRole("button", { name: "Disabled" }));
+    await user.click(screen.getByRole("button", { name: "Unrestricted" }));
+    const standardButtons = screen.getAllByRole("button", { name: "Standard" });
+    expect(standardButtons).toHaveLength(3);
+    for (const btn of standardButtons) {
+      await user.click(btn);
+    }
+    expect(customBtn).toHaveClass("active");
+    expect(screen.getByRole("button", { name: "Gemini 3.8 Standard" })).not.toHaveClass("active");
+    expect(
+      screen.getByText(
+        "Customized configuration with individual settings for web search, verbosity, exploration, verification, and auto-activation."
+      )
+    ).toBeInTheDocument();
+    assertRowsVisible();
+
+    // 5. Selecting built-in preset clears Custom and hides Rows 1-5
+    await user.click(screen.getByRole("button", { name: "Gemini 3.8 Standard" }));
+    expect(customBtn).not.toHaveClass("active");
+    assertRowsHidden();
+
+    // 6. Re-open Custom, then Reset to Defaults -> returns to Standard and hides Rows 1-5
+    await user.click(customBtn);
+    assertRowsVisible();
+    await user.click(screen.getByRole("button", { name: "Reset to Defaults" }));
+    expect(screen.getByRole("button", { name: "Gemini 3.8 Standard" })).toHaveClass("active");
+    expect(customBtn).not.toHaveClass("active");
+    assertRowsHidden();
   });
 });

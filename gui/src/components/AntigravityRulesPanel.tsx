@@ -112,7 +112,6 @@ export default function AntigravityRulesPanel() {
   };
 
   const updateDraft = (newDraft: PovDirectSettings) => {
-    setCustomExplicit(false);
     setDraft(newDraft);
   };
 
@@ -338,6 +337,9 @@ export default function AntigravityRulesPanel() {
           {currentMode === "custom" && t("antigravityRules.mode.descCustom")}
         </div>
 
+        {/* Rows 1-5: Individual settings shown only when Custom preset is selected */}
+        {currentMode === "custom" && (
+          <>
         {/* Row 1: Auto Activation */}
         <div id="axis-1" className="pov-setting-row">
           <div className="pov-setting-label">
@@ -512,6 +514,8 @@ export default function AntigravityRulesPanel() {
             </div>
           </div>
         </div>
+          </>
+        )}
       </div>
 
       {/* Advanced Details Accordion */}
