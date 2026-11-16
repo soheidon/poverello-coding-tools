@@ -1788,4 +1788,123 @@ describe("PlanFileManagerCard Component", () => {
       expect(screen.getByTestId("empty-plan-path-field-secondary")).toHaveTextContent("planManager.emptyPlanPlaceholder");
     });
   });
+
+  describe("Antigravity unconfigured surface role-assignment error suppression", () => {
+    it("suppresses exact generic missing-surface error on antigravity while keeping empty-plan warning and controls", async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "list_available_plans") {
+          return Promise.resolve(mockPlanDetailsEmpty);
+        }
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: null },
+          ]);
+        }
+        if (cmd === "get_plan_role_assignment") {
+          return Promise.reject("No active plan file is configured for antigravity surface");
+        }
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="antigravity" />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("no-active-plan-warning")).toBeInTheDocument();
+      });
+
+      expect(screen.getByTestId("btn-select-plan-file")).toBeInTheDocument();
+      expect(
+        screen.queryByText(/No active plan file is configured for antigravity surface/)
+      ).not.toBeInTheDocument();
+    });
+
+    it("keeps generic missing-surface error visible on codex surface", async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "list_available_plans") {
+          return Promise.resolve(mockPlanDetailsEmpty);
+        }
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: null },
+          ]);
+        }
+        if (cmd === "get_plan_role_assignment") {
+          return Promise.reject("No active plan file is configured for codex surface");
+        }
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText("No active plan file is configured for codex surface")
+        ).toBeInTheDocument();
+      });
+    });
+
+    it("keeps slot-specific missing-plan error and genuine load errors visible on antigravity", async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "list_available_plans") {
+          return Promise.resolve(mockPlanDetailsEmpty);
+        }
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: null },
+          ]);
+        }
+        if (cmd === "get_plan_role_assignment") {
+          return Promise.reject('No active plan file is configured for antigravity surface slot "primary"');
+        }
+        return Promise.resolve();
+      });
+
+      const { unmount } = render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="antigravity" />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('No active plan file is configured for antigravity surface slot "primary"')
+        ).toBeInTheDocument();
+      });
+
+      unmount();
+
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "list_available_plans") {
+          return Promise.resolve(mockPlanDetailsEmpty);
+        }
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: null },
+          ]);
+        }
+        if (cmd === "get_plan_role_assignment") {
+          return Promise.reject(new Error("Failed to parse .plan/.active-plan.json"));
+        }
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="antigravity" />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/Failed to parse \.plan\/\.active-plan\.json/)).toBeInTheDocument();
+      });
+    });
+  });
 });

@@ -1,5 +1,12 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.27.4 — 2026-11-16
+
+### Antigravity Plan Notice & Workflow Reliability
+
+- Suppressed the red error banner in Antigravity Autocode when role assignments are loaded before an Antigravity active plan is configured (`No active plan file is configured for antigravity surface`), while preserving the empty-plan warning, plan selection controls, Codex surface behavior, and all actionable slot/load/parse errors.
+- Added a bounded one-retry policy for confirmed Codex CLI execution stalls in the Poverello workflow skills (`pov-build-review`, `pov-full-cycle`, `pov-plan-only`), requiring confirmed no-progress observations, targeted task cancellation, and verified process termination before a single retry.
+
 ## v0.27.3 — 2026-11-13
 
 ### Independent Project-Plan Slots

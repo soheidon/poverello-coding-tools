@@ -291,7 +291,17 @@ export default function PlanFileManagerCard({
           reviserRole: assignment.reviser_id,
         });
       })
-      .catch((e) => { if (!cancelled) setError(String(e)); });
+      .catch((e) => {
+        if (cancelled) return;
+        const message = e instanceof Error ? e.message : String(e);
+        if (
+          surface === "antigravity" &&
+          message === "No active plan file is configured for antigravity surface"
+        ) {
+          return;
+        }
+        setError(String(e));
+      });
     return () => { cancelled = true; };
   }, [surface, activeRepo, locationLoaded]);
 
