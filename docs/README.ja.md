@@ -15,7 +15,7 @@ Poverello Coding Tools（アプリ内表示名 **Poverello**）は、AI 支援�
 > [!TIP]
 > **新実装の詳細はこちら**: バージョンごとの新機能や詳細な実装仕様・変更履歴については、[NEWS.md (リリースノート)](../NEWS.md) をご覧ください。
 
-次期リリース対象は **v0.27.3** です（未公開）。各Autocode画面には常設のプロジェクト・プラン枠が1つあり、必要に応じて2つ目を追加できます。Markdownプランを選択すると、そのファイルを含むリポジトリに紐付きます。AntigravityとCodexの選択内容は独立して保存されます。プランフォルダー設定は、Active Planがない場合にファイル選択ダイアログを開く初期フォルダーとしてのみ使われます。2つ目の枠を削除するとPoverello内の紐付けだけが解除され、プロジェクトやプランファイルは削除されません。 選択中のプランはフルパスと状態を表示し、別の操作でファイルを開けます。
+この作業ツリーでは、未公開の **v0.28.0** を準備しています。Antigravityの各プロジェクト枠に個別のAgentOpt操作を追加し、FAST / BALANCED / STRICTプリセットとカスタム編集を選べます。PoverelloのAntigravityルールは設定からインストール・修復できます。GPT-6.2 SolをCodex CLI Reviewerに、GPT-6.2 Sol / Sol Pro / Astra / Astra ProをOpenRouterに追加します。AntigravityとCodexの2つのプラン枠はそれぞれ独立して動作します。詳細は[NEWS.md](../NEWS.md)をご覧ください。
 
 ---
 
@@ -128,7 +128,7 @@ v0.26.2では、優先Reviewerは有効な判定が食い違う場合にのみ�
 
 [Releases](https://github.com/soheidon/poverello-coding-tools/releases) ページから最新の公開済み Windows インストーラーをダウンロードして実行してください。
 
-Windowsインストーラーは8言語に対応しています。Poverelloは既存のアプリケーションIDを維持し、Anthro Bridgeからの上書きアップグレードをサポートします。初回起動時には、`%APPDATA%\Anthro Bridge`（開発版では`%APPDATA%\Anthro Bridge Dev`）の設定と実行データを対応するPoverelloデータフォルダーへコピーし、元のフォルダーを復旧用コピーとして保持する設計です。実際のWindows環境でのインストール、データ移行、アップグレード、再インストール、キャンセル、アンインストールは未検証のため、アップグレード前に重要なデータをバックアップしてください。
+Windowsインストーラーは8言語に対応しています。正式版ビルドでは **設定 > 一般 > アプリの更新** からGitHub Releasesの署名済み更新を確認・インストールできます。開発版ではUpdaterを使用しません。更新には、対応する署名済みリリースとUpdaterマニフェストの公開が必要です。Poverelloは既存のアプリケーションIDを維持し、Anthro Bridgeからの上書きアップグレードをサポートします。初回起動時には、`%APPDATA%\Anthro Bridge`（開発版では`%APPDATA%\Anthro Bridge Dev`）の設定と実行データを対応するPoverelloデータフォルダーへコピーし、元のフォルダーを復旧用コピーとして保持する設計です。実際のWindows環境でのインストール、データ移行、アップグレード、再インストール、キャンセル、アンインストールは未検証のため、アップグレード前に重要なデータをバックアップしてください。
 
 ---
 

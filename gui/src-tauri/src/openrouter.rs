@@ -381,3 +381,55 @@ pub fn load_cached_models(app_data_dir: &std::path::Path) -> Vec<OpenRouterModel
         .map(|c| c.models)
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_plan21_gpt62_openrouter_pricing_fields_distinct_and_optional() {
+        let raw_json = serde_json::json!({
+            "id": "openai/gpt-6.2-sol-pro",
+            "name": "OpenAI: GPT-6.2 Sol Pro",
+            "context_length": 1050000,
+            "architecture": {
+                "input_modalities": ["file", "image", "text"],
+                "output_modalities": ["text"]
+            },
+            "top_provider": {
+                "context_length": 1050000,
+                "max_completion_tokens": 128000
+            },
+            "supported_parameters": ["reasoning", "reasoning_effort", "tools", "tool_choice"],
+            "pricing": {
+                "prompt": "0.000002",
+                "completion": "0.00001",
+                "input_cache_read": "0.0000001",
+                "input_cache_write": "0.0000025",
+                "internal_reasoning": "0.00001",
+                "web_search": "0.01"
+            }
+        });
+        let api_model: OpenRouterApiModel = serde_json::from_value(raw_json).unwrap();
+        let model = OpenRouterModel::from(api_model);
+        assert_eq!(model.id, "openai/gpt-6.2-sol-pro");
+        assert_eq!(model.context_length, Some(1_050_000));
+        assert_eq!(model.max_completion_tokens, Some(128_000));
+        assert_eq!(model.pricing.prompt.as_deref(), Some("0.000002"));
+        assert_eq!(model.pricing.completion.as_deref(), Some("0.00001"));
+        assert_eq!(model.pricing.input_cache_read.as_deref(), Some("0.0000001"));
+        assert_eq!(model.pricing.input_cache_write.as_deref(), Some("0.0000025"));
+        assert_eq!(model.pricing.internal_reasoning.as_deref(), Some("0.00001"));
+
+        // Unavailable pricing parses cleanly as None without failing model resolution
+        let no_price_json = serde_json::json!({
+            "id": "openai/gpt-6.2-astra",
+            "name": "OpenAI: GPT-6.2 Astra"
+        });
+        let no_price_model = OpenRouterModel::from(
+            serde_json::from_value::<OpenRouterApiModel>(no_price_json).unwrap(),
+        );
+        assert!(no_price_model.pricing.prompt.is_none());
+        assert!(no_price_model.pricing.completion.is_none());
+    }
+}

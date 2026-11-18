@@ -15,7 +15,7 @@ Poverello Coding Tools（应用内显示名称为 **Poverello**）是一款面�
 > [!TIP]
 > **最新动态：** 请参阅 [NEWS.md（发行说明）](../NEWS.md)，了解各版本的功能、实现细节和变更记录。
 
-下一版目标为 **v0.27.3**（尚未发布）。每个 Autocode 界面始终有一个项目-计划行，并可按需添加第二行。选择 Markdown 计划文件时，会将其关联到包含该文件的仓库。Antigravity 和 Codex 分别保存各自的选择。计划文件夹设置仅在没有 Active Plan 时用作文件选择器的起始目录。移除可选的第二行只会清除 Poverello 中的关联，不会删除项目或计划文件。界面会显示所选计划的完整路径和状态，并提供单独的打开操作。
+此工作副本正在准备 **v0.28.0**（尚未发布）。为 Antigravity 的两个项目-计划行分别添加 AgentOpt 控制，可直接选择 FAST / BALANCED / STRICT 预设或打开 Custom 编辑器。Poverello 的 Antigravity 规则可在设置中安装和修复。新增 GPT-6.2 Sol 作为 Codex CLI Reviewer，并将 GPT-6.2 Sol / Sol Pro / Astra / Astra Pro 加入 OpenRouter 目录。Antigravity 与 Codex 的两条计划行继续独立工作。详情请参阅 [NEWS.md](../NEWS.md)。
 
 ---
 
@@ -130,7 +130,7 @@ Gemini CLI 是可在 Settings > CLI Tools 中启用的可选审查器。启用�
 
 从 [Releases](https://github.com/soheidon/poverello-coding-tools/releases) 页面下载当前最新已发布的 Windows 安装程序并运行。
 
-Windows 安装程序支持 8 种语言。Poverello 保留现有应用标识，并支持从 Anthro Bridge 原位升级。首次启动时，程序设计为将 `%APPDATA%\Anthro Bridge`（开发版为 `%APPDATA%\Anthro Bridge Dev`）中的设置和运行数据复制到对应的 Poverello 数据目录，同时保留原目录作为恢复副本。真实 Windows 环境中的安装、数据迁移、升级、重新安装、取消和卸载流程尚未验证；升级前请备份重要数据。
+Windows 安装程序支持 8 种语言。稳定版可在**设置 > 常规 > 应用更新**中检查并安装来自 GitHub Releases 的签名更新；开发版不使用更新器。必须先发布兼容的签名版本和更新清单，应用内更新才可用。Poverello 保留现有应用标识，并支持从 Anthro Bridge 原位升级。首次启动时，程序设计为将 `%APPDATA%\Anthro Bridge`（开发版为 `%APPDATA%\Anthro Bridge Dev`）中的设置和运行数据复制到对应的 Poverello 数据目录，同时保留原目录作为恢复副本。真实 Windows 环境中的安装、数据迁移、升级、重新安装、取消和卸载流程尚未验证；升级前请备份重要数据。
 
 ---
 

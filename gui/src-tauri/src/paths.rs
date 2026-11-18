@@ -479,6 +479,38 @@ pub(crate) fn antigravity_reviewer_policy_path() -> Result<PathBuf, String> {
     Ok(antigravity_reviewer_policy_path_for(Path::new(&home)))
 }
 
+pub(crate) fn antigravity_nerf_engine_settings_path_for(home: &Path) -> PathBuf {
+    home.join(".gemini")
+        .join("antigravity-ide")
+        .join("antigravity-nerf-engine.json")
+}
+
+pub(crate) fn antigravity_nerf_engine_settings_path() -> Result<PathBuf, String> {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map_err(|_| {
+            "Could not resolve user home directory (neither USERPROFILE nor HOME is set)"
+                .to_string()
+        })?;
+    Ok(antigravity_nerf_engine_settings_path_for(Path::new(&home)))
+}
+
+pub(crate) fn antigravity_agent_opt_cli_dir_for(home: &Path) -> PathBuf {
+    home.join(".gemini")
+        .join("antigravity-ide")
+        .join("agent-opt-cli")
+}
+
+pub(crate) fn antigravity_agent_opt_cli_dir() -> Result<PathBuf, String> {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map_err(|_| {
+            "Could not resolve user home directory (neither USERPROFILE nor HOME is set)"
+                .to_string()
+        })?;
+    Ok(antigravity_agent_opt_cli_dir_for(Path::new(&home)))
+}
+
 pub(crate) fn antigravity_global_rules_dir_for(home: &Path) -> PathBuf {
     home.join(".gemini").join("config").join("rules")
 }

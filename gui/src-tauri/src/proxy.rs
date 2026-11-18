@@ -7363,6 +7363,337 @@ mod tests {
         }
     }
 
+    #[test]
+    fn plan21_gpt62_serialization_no_none_and_pro_effort_independent() {
+        for model_id in [
+            "openai/gpt-6.2-sol",
+            "openai/gpt-6.2-sol-pro",
+            "openai/gpt-6.2-astra",
+            "openai/gpt-6.2-astra-pro",
+        ] {
+            for effort in ["low", "medium", "high", "xhigh", "max"] {
+                let mut body = json!({"thinking": {"type": "enabled"}});
+                apply_openai_reasoning(
+                    body.as_object_mut().unwrap(),
+                    model_id,
+                    Some("thinking"),
+                    Some(effort),
+                );
+                assert_eq!(body.get("thinking"), None);
+                assert_eq!(body.get("reasoning_effort"), None);
+                assert_eq!(body.get("reasoning"), Some(&json!({"effort": effort})));
+            }
+
+            // Never sends "none"; maps "none"/"normal"/"off" to "medium"
+            for (mode, eff) in [(Some("thinking"), Some("none")), (Some("normal"), None), (Some("off"), None)] {
+                let mut body = json!({"thinking": {"type": "disabled"}});
+                apply_openai_reasoning(body.as_object_mut().unwrap(), model_id, mode, eff);
+                assert_eq!(body.get("reasoning"), Some(&json!({"effort": "medium"})));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn plan21_gpt62_openrouter_gateway_roundtrip_tools_streaming_and_media_guard() {
+        use axum::{extract::State, http::HeaderMap as AxumHeaders, response::IntoResponse, routing::post, Router};
+
+        #[derive(Clone)]
+        struct MockState {
+            captured_bodies: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        }
+
+        async fn mock_openrouter_messages(
+            State(state): State<MockState>,
+            _headers: AxumHeaders,
+            axum::Json(body): axum::Json<serde_json::Value>,
+        ) -> impl IntoResponse {
+            state.captured_bodies.lock().unwrap().push(body.clone());
+            let is_stream = body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+            let has_tool_result = body
+                .get("messages")
+                .and_then(|v| v.as_array())
+                .map(|msgs| {
+                    msgs.iter().any(|m| {
+                        m.get("content")
+                            .and_then(|c| c.as_array())
+                            .map(|arr| arr.iter().any(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_result")))
+                            .unwrap_or(false)
+                    })
+                })
+                .unwrap_or(false);
+
+            if is_stream {
+                let sse = concat!(
+                    "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_s1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"openai/gpt-6.2-astra-pro\",\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n",
+                    "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n",
+                    "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"step 1 \"}}\n\n",
+                    "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+                    "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+                    "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"hel\"}}\n\n",
+                    "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n",
+                    "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
+                    "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\n\n",
+                    "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+                );
+                return (
+                    StatusCode::OK,
+                    [("content-type", "text/event-stream")],
+                    sse.to_string(),
+                )
+                    .into_response();
+            }
+
+            let resp_json = if !has_tool_result {
+                json!({
+                    "id": "msg_1",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "openai/gpt-6.2-sol-pro",
+                    "content": [
+                        {"type": "thinking", "thinking": "checking weather"},
+                        {"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {"city": "Tokyo"}}
+                    ],
+                    "stop_reason": "tool_use",
+                    "usage": {"input_tokens": 20, "output_tokens": 12}
+                })
+            } else {
+                json!({
+                    "id": "msg_2",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "openai/gpt-6.2-sol-pro",
+                    "content": [
+                        {"type": "text", "text": "Tokyo is 22C."}
+                    ],
+                    "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 35, "output_tokens": 8}
+                })
+            };
+            (
+                StatusCode::OK,
+                [("content-type", "application/json")],
+                resp_json.to_string(),
+            )
+                .into_response()
+        }
+
+        let captured_bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mock_app = Router::new()
+            .route("/v1/messages", post(mock_openrouter_messages))
+            .with_state(MockState {
+                captured_bodies: captured_bodies.clone(),
+            });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mock_addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, mock_app).await.unwrap();
+        });
+        let mock_url = format!("http://{mock_addr}");
+
+        // Build OpenRouter Gateway config with empty openrouter_models (simulating price lookup failure/unavailable)
+        std::env::set_var("OPENROUTER_API_KEY", "test-or-key");
+        let mut models = HashMap::new();
+        models.insert(
+            "claude-opus-5".to_string(),
+            crate::ModelEntry {
+                upstream_model: "openai/gpt-6.2-sol-pro".to_string(),
+                canonical: None,
+                thinking: None,
+                supports_vision: Some(false), // verify explicit unsupported image guard
+                supports_video: Some(false),
+                visible: true,
+                force_thinking: Some(true),
+                supports_non_thinking: Some(false),
+                supports_image_url: Some(false),
+                supports_image_base64: Some(false),
+                supports_video_url: Some(false),
+                supports_video_base64: Some(false),
+                thinking_mode: Some("thinking".to_string()),
+                reasoning_effort: Some("high".to_string()),
+            },
+        );
+        models.insert(
+            "claude-sonnet-5".to_string(),
+            crate::ModelEntry {
+                upstream_model: "openai/gpt-6.2-astra-pro".to_string(),
+                canonical: None,
+                thinking: None,
+                supports_vision: Some(true),
+                supports_video: Some(false),
+                visible: true,
+                force_thinking: Some(true),
+                supports_non_thinking: Some(false),
+                supports_image_url: Some(true),
+                supports_image_base64: Some(true),
+                supports_video_url: Some(false),
+                supports_video_base64: Some(false),
+                thinking_mode: Some("thinking".to_string()),
+                reasoning_effort: Some("xhigh".to_string()),
+            },
+        );
+        models.insert(
+            "claude-haiku-5".to_string(),
+            crate::ModelEntry {
+                upstream_model: "poolside/laguna-s-2.1".to_string(),
+                canonical: None,
+                thinking: None,
+                supports_vision: Some(false),
+                supports_video: Some(false),
+                visible: true,
+                force_thinking: Some(false),
+                supports_non_thinking: Some(true),
+                supports_image_url: Some(false),
+                supports_image_base64: Some(false),
+                supports_video_url: Some(false),
+                supports_video_base64: Some(false),
+                thinking_mode: Some("normal".to_string()),
+                reasoning_effort: None,
+            },
+        );
+        let mut providers = indexmap::IndexMap::new();
+        providers.insert(
+            "openrouter".to_string(),
+            crate::ProviderConfig {
+                display_name: "OpenRouter".to_string(),
+                upstream_url: mock_url.clone(),
+                api_key_env: "OPENROUTER_API_KEY".to_string(),
+                default_model: "openai/gpt-6.2-sol".to_string(),
+                force_anthropic_version: None,
+                supports_count_tokens: false,
+                supports_vision: true,
+                supports_video: false,
+                supports_thinking: true,
+                model_map: HashMap::new(),
+                visible_models: vec![
+                    "claude-opus-5".to_string(),
+                    "claude-sonnet-5".to_string(),
+                    "claude-haiku-5".to_string(),
+                ],
+                models: Some(models),
+                openrouter_profiles: vec![],
+                claude_code: None,
+                zai: None,
+                hidden: false,
+            },
+        );
+        let cfg = crate::GatewayConfigResponse {
+            config_version: "1.0".to_string(),
+            active_provider: Some("openrouter".to_string()),
+            active_openrouter_profile_id: None,
+            active_gateway_profile_id: None,
+            gateway_profiles: vec![],
+            providers,
+            server: crate::ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 0,
+                enable_cors: false,
+            },
+            non_vision_image_policy: "reject".to_string(),
+            normalize_response_model_identity: true,
+            claude_code: None,
+            mcp: None,
+            orchestrator: None,
+            orchestrator_provider_seed_version: None,
+        };
+        let proxy_cfg = resolve_proxy_config(&cfg, &[], Arc::new(AtomicBool::new(true))).unwrap();
+        let base = serve_gateway(Arc::new(proxy_cfg)).await;
+        let client = reqwest::Client::new();
+
+        // 1. Round-trip tool call + tool_result reinjection on openai/gpt-6.2-sol-pro
+        let turn1 = client
+            .post(format!("{base}/v1/messages"))
+            .header("content-type", "application/json")
+            .json(&json!({
+                "model": "claude-opus-5",
+                "max_tokens": 256,
+                "tools": [{
+                    "name": "get_weather",
+                    "description": "Get weather",
+                    "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}
+                }],
+                "messages": [{"role": "user", "content": "Weather in Tokyo?"}]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(turn1.status(), StatusCode::OK);
+        let turn1_json: serde_json::Value = turn1.json().await.unwrap();
+        assert_eq!(turn1_json["stop_reason"], "tool_use");
+        assert_eq!(turn1_json["content"][1]["name"], "get_weather");
+
+        let turn2 = client
+            .post(format!("{base}/v1/messages"))
+            .header("content-type", "application/json")
+            .json(&json!({
+                "model": "claude-opus-5",
+                "max_tokens": 256,
+                "tools": [{
+                    "name": "get_weather",
+                    "description": "Get weather",
+                    "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}
+                }],
+                "messages": [
+                    {"role": "user", "content": "Weather in Tokyo?"},
+                    {"role": "assistant", "content": turn1_json["content"]},
+                    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "22C"}]}
+                ]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(turn2.status(), StatusCode::OK);
+        let turn2_json: serde_json::Value = turn2.json().await.unwrap();
+        assert_eq!(turn2_json["stop_reason"], "end_turn");
+        assert_eq!(turn2_json["content"][0]["text"], "Tokyo is 22C.");
+
+        // 2. Split streaming SSE + thinking_delta on openai/gpt-6.2-astra-pro
+        let stream_resp = client
+            .post(format!("{base}/v1/messages"))
+            .header("content-type", "application/json")
+            .json(&json!({
+                "model": "claude-sonnet-5",
+                "max_tokens": 256,
+                "stream": true,
+                "messages": [{"role": "user", "content": "Say hello"}]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(stream_resp.status(), StatusCode::OK);
+        let stream_text = stream_resp.text().await.unwrap();
+        assert!(stream_text.contains("thinking_delta"));
+        assert!(stream_text.contains("\"text\":\"hel\""));
+        assert!(stream_text.contains("\"text\":\"lo\""));
+
+        // 3. Unsupported video input rejected for GPT-6.2 (input_modalities: text, image, file only)
+        let vid_resp = client
+            .post(format!("{base}/v1/messages"))
+            .header("content-type", "application/json")
+            .json(&json!({
+                "model": "claude-opus-5",
+                "max_tokens": 128,
+                "messages": [{
+                    "role": "user",
+                    "content": [{
+                        "type": "video",
+                        "source": {"type": "base64", "media_type": "video/mp4", "data": "AAAA"}
+                    }]
+                }]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(vid_resp.status(), StatusCode::BAD_REQUEST);
+
+        // Verify outbound payload carried exact model IDs and canonical reasoning.effort
+        let bodies = captured_bodies.lock().unwrap();
+        assert_eq!(bodies.len(), 3);
+        assert_eq!(bodies[0]["model"], "openai/gpt-6.2-sol-pro");
+        assert_eq!(bodies[0]["reasoning"], json!({"effort": "high"}));
+        assert_eq!(bodies[2]["model"], "openai/gpt-6.2-astra-pro");
+        assert_eq!(bodies[2]["reasoning"], json!({"effort": "xhigh"}));
+    }
+
     // ── OpenRouter multi-profile route tests ──────────────────────────────
 
     fn make_openrouter_profile_config(

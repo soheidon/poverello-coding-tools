@@ -82,11 +82,12 @@ describe("AntigravitySkillsRulesPanel Component", () => {
       if (command === "remove_antigravity_command") return dummyCommandsInfo;
       if (command === "get_cli_tools_status") return [];
       if (command === "get_antigravity_global_rules_status") return dummyGlobalRules;
+      if (command === "get_antigravity_nerf_engine_overview") return { cli: { installed: false, supported_version: false, node_version: "v24", node_supported: true, npm_available: true, pinned_version: "0.1.0", version: null, cli_path: null, error: null } };
       return null;
     });
   });
 
-  it("renders 2 distribution cards (Workflow Skills & Global Rules) and excludes nerf slash commands, external review & direct coding", async () => {
+  it("renders AgentOpt CLI management in settings with Workflow Skills and Global Rules", async () => {
     render(
       <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
         <AntigravitySkillsRulesPanel />
@@ -103,6 +104,7 @@ describe("AntigravitySkillsRulesPanel Component", () => {
 
     // 2. CLI Tools Card must NOT be in Antigravity Skills & Rules panel (relocated to dedicated CLI Tools panel)
     expect(screen.queryByTestId("cli-tools-card")).not.toBeInTheDocument();
+    expect(screen.getByTestId("agentopt-cli-settings-card")).toBeInTheDocument();
 
     // 3. Task Presets Card (Nerf) must NOT be in panel (decommissioned)
     expect(screen.queryByText("antigravity.taskPresetsHeader")).not.toBeInTheDocument();
@@ -197,5 +199,119 @@ describe("AntigravitySkillsRulesPanel Component", () => {
 
     const removeBtn = screen.getByRole("button", { name: "antigravity.globalRulesBtnRemove" });
     expect(removeBtn).toBeDisabled();
+  });
+
+  it("renders pov-direct.md card for absent rule with missing skill and invokes install_pov_direct_rule", async () => {
+    const user = userEvent.setup();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_antigravity_commands_status") return dummyCommandsInfo;
+      if (cmd === "get_antigravity_global_rules_status") return [];
+      if (cmd === "get_pov_direct_rule_management_status") {
+        return {
+          rulePath: "C:\\Users\\Test\\.gemini\\config\\rules\\pov-direct.md",
+          skillPath: "C:\\Users\\Test\\.gemini\\config\\skills\\pov-direct\\SKILL.md",
+          skillPresent: false,
+          ruleState: "absent",
+          protectedReason: null,
+          schemaId: null,
+          canInstall: true,
+          canRepair: false,
+          contentHash: "absent",
+        };
+      }
+      if (cmd === "install_pov_direct_rule") {
+        return {
+          rulePath: "C:\\Users\\Test\\.gemini\\config\\rules\\pov-direct.md",
+          skillPath: "C:\\Users\\Test\\.gemini\\config\\skills\\pov-direct\\SKILL.md",
+          skillPresent: false,
+          ruleState: "managed_current",
+          protectedReason: null,
+          schemaId: "pov-direct:settings:v1",
+          canInstall: false,
+          canRepair: false,
+          contentHash: "abc123",
+        };
+      }
+      return null;
+    });
+
+    render(
+      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+        <AntigravitySkillsRulesPanel />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pov-direct-rule-card")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("pov-direct-rule-path")).toHaveTextContent("pov-direct.md");
+    expect(screen.getByTestId("pov-direct-skill-dependency-status")).toHaveTextContent(
+      "antigravity.povRuleSkillMissingNotExecutable"
+    );
+    const installBtn = screen.getByTestId("pov-direct-rule-install-btn");
+    await user.click(installBtn);
+
+    expect(invokeMock).toHaveBeenCalledWith("install_pov_direct_rule");
+    await waitFor(() => {
+      expect(screen.queryByTestId("pov-direct-rule-install-btn")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("pov-direct-rule-repair-btn")).not.toBeInTheDocument();
+  });
+
+  it("renders repair button for drifted pov-direct.md and protected guidance for protected files", async () => {
+    const user = userEvent.setup();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_antigravity_commands_status") return dummyCommandsInfo;
+      if (cmd === "get_antigravity_global_rules_status") return [];
+      if (cmd === "get_pov_direct_rule_management_status") {
+        return {
+          rulePath: "/tmp/.gemini/config/rules/pov-direct.md",
+          skillPath: "/tmp/.gemini/config/skills/pov-direct/SKILL.md",
+          skillPresent: true,
+          ruleState: "managed_drifted",
+          protectedReason: null,
+          schemaId: "pov-direct:settings:v1",
+          canInstall: false,
+          canRepair: true,
+          contentHash: "drifted",
+        };
+      }
+      if (cmd === "repair_pov_direct_rule") {
+        return {
+          rulePath: "/tmp/.gemini/config/rules/pov-direct.md",
+          skillPath: "/tmp/.gemini/config/skills/pov-direct/SKILL.md",
+          skillPresent: true,
+          ruleState: "protected",
+          protectedReason: "malformed_markers",
+          schemaId: null,
+          canInstall: false,
+          canRepair: false,
+          contentHash: "prot",
+        };
+      }
+      return null;
+    });
+
+    render(
+      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+        <AntigravitySkillsRulesPanel />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pov-direct-rule-repair-btn")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("pov-direct-rule-repair-btn"));
+    expect(invokeMock).toHaveBeenCalledWith("repair_pov_direct_rule");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pov-direct-rule-protected-guidance")).toHaveTextContent(
+        "antigravity.povRuleProtectedReason.malformed_markers"
+      );
+    });
+    expect(screen.queryByTestId("pov-direct-rule-repair-btn")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pov-direct-rule-install-btn")).not.toBeInTheDocument();
   });
 });

@@ -599,4 +599,36 @@ describe("ExternalReviewCard Component", () => {
       expect(finalConfig.build_reviewers).toEqual(["antigravity", "codex"]);
     });
   });
+
+  it("shows GPT-6.2 Sol in Codex reviewer selector, excludes Off/none for all 4 Codex models, and displays migrated low", async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "get_reviewer_policy") {
+        return {
+          schema_version: 6,
+          policy: "codex_only",
+          build_review_policy: "codex_only",
+          build_reviewers: ["codex"],
+          codex: { model: "gpt-6.2-sol", reasoning_effort: "low" },
+          content_hash: "hash-migrated",
+        };
+      }
+      if (command === "get_workflow_skills_policy_status") return dummyPolicyStatusCompliant;
+      return undefined;
+    });
+
+    render(
+      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+        <ExternalReviewCard />
+      </LanguageContext.Provider>
+    );
+
+    await screen.findByTestId("codex-model-settings");
+
+    expect(screen.getByTestId("codex-model-gpt-6.2-sol")).toHaveClass("active");
+    expect(screen.getByTestId("codex-effort-low")).toHaveClass("active");
+    expect(screen.queryByTestId("codex-effort-none")).not.toBeInTheDocument();
+    for (const effort of ["low", "medium", "high", "xhigh", "max"]) {
+      expect(screen.getByTestId(`codex-effort-${effort}`)).toBeInTheDocument();
+    }
+  });
 });

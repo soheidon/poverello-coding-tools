@@ -115,7 +115,7 @@ OpenRouter acts as a multi-profile gateway supporting hundreds of upstream model
 - **Poolside**: Laguna S / XS models.
 - **InclusionAI**: Ring and Ling model families (Thinking and reasoning controls).
 - **StepFun**: Step 3.5 and Step 3.7 (Low / Medium / High reasoning effort).
-- **OpenAI**: GPT-6.1 Sol / Sol Pro, GPT-6.1 Terra / Terra Pro, GPT-6 Sol / Sol Pro, GPT-6 Luna / Luna Pro, GPT-6 Astra / Astra Pro, GPT Astra Latest, and GPT-5.6 Sol / Sol Pro, Terra / Terra Pro, Luna / Luna Pro. Reasoning options are model-specific and follow the shared catalog; GPT-6 Astra Pro uses always-on Pro reasoning without a selectable effort value.
+- **OpenAI**: GPT-6.2 Sol / Sol Pro and GPT-6.2 Astra / Astra Pro; GPT-6.1 Sol / Sol Pro and Terra / Terra Pro; GPT-6 Sol / Sol Pro, GPT-6 Luna / Luna Pro, GPT-6 Astra / Astra Pro, GPT Astra Latest, and GPT-5.6 Sol / Sol Pro, Terra / Terra Pro, Luna / Luna Pro. Reasoning options are model-specific and follow the shared catalog; the GPT-6.2 models expose Low through Max, and GPT-6 Astra Pro uses always-on Pro reasoning without a selectable effort value. Pro tiers represented as separate OpenRouter model IDs are listed separately from the base model.
 - **Google**: Gemini 3.1 Pro Preview and Gemini 3.7 Flash.
 
 ### Tencent model catalog

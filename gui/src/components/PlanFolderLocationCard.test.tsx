@@ -49,7 +49,10 @@ describe("PlanFolderLocationCard Component", () => {
       const input = screen.getByTestId<HTMLInputElement>("input-plan-folder-location");
       expect(input.value).toBe("C:\\dev\\my-antigravity-project");
     });
-    expect(screen.getByTestId("btn-select-plan-root")).toBeInTheDocument();
+    const selectFolderButton = screen.getByTestId("btn-select-plan-root");
+    expect(selectFolderButton).toBeInTheDocument();
+    expect(selectFolderButton).toHaveClass("btn");
+    expect(selectFolderButton).not.toHaveClass("btn-primary");
     expect(screen.getByTestId("btn-reset-plan-root")).toBeInTheDocument();
 
     const controlsRow = screen.getByTestId("plan-folder-controls-row");
@@ -74,6 +77,9 @@ describe("PlanFolderLocationCard Component", () => {
       expect(input.value).toBe("");
       expect(input.placeholder).toMatch(/planFolder\.inputPlaceholder|未設定|Unconfigured/i);
     });
+    const selectFolderButton = screen.getByTestId("btn-select-plan-root");
+    expect(selectFolderButton).toHaveClass("btn");
+    expect(selectFolderButton).not.toHaveClass("btn-primary");
     expect(screen.queryByTestId("btn-reset-plan-root")).not.toBeInTheDocument();
   });
 

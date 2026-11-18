@@ -104,6 +104,10 @@ export const PROVIDER_MODELS: Record<string, string[]> = Object.fromEntries(
 );
 
 export const OPENAI_REASONING_MODEL_IDS = new Set([
+  "openai/gpt-6.2-sol",
+  "openai/gpt-6.2-sol-pro",
+  "openai/gpt-6.2-astra",
+  "openai/gpt-6.2-astra-pro",
   "openai/gpt-6.1-sol",
   "openai/gpt-6.1-sol-pro",
   "openai/gpt-6.1-terra",

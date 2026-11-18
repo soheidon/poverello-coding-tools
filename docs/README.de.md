@@ -15,7 +15,7 @@ Poverello Coding Tools (in der App als **Poverello** angezeigt) ist eine Windows
 > [!TIP]
 > **Neuigkeiten:** Versionsbezogene Funktionen, Implementierungsdetails und Änderungsprotokolle findest du in den [Release Notes (NEWS.md)](../NEWS.md).
 
-Das nächste Release-Ziel ist **v0.27.3** (noch nicht veröffentlicht). Jede Autocode-Oberfläche hat einen festen Projekt-Plan-Eintrag und kann bei Bedarf einen zweiten hinzufügen. Bei der Auswahl einer Markdown-Plan-Datei wird sie dem Repository zugeordnet, das diese Datei enthält. Antigravity und Codex speichern ihre Auswahl unabhängig voneinander. Die Einstellung für den Planordner dient nur als Startordner des Dateiauswahldialogs, wenn kein Active Plan vorhanden ist. Beim Entfernen des optionalen zweiten Eintrags wird nur die Poverello-Zuordnung aufgehoben; Projekt- und Plan-Dateien werden nicht gelöscht. Der vollständige Pfad und Status des ausgewählten Plans werden angezeigt; eine separate Aktion öffnet die Datei.
+Dieser Checkout bereitet **v0.28.0** vor (noch nicht veröffentlicht). Für beide Antigravity-Projekt-Plan-Einträge gibt es eigene AgentOpt-Steuerungen mit direkt wählbaren FAST- / BALANCED- / STRICT-Voreinstellungen und einem Editor für benutzerdefinierte Einstellungen. Die Poverello-Antigravity-Regel lässt sich in den Einstellungen installieren und reparieren. GPT-6.2 Sol ist als Codex-CLI-Reviewer verfügbar; GPT-6.2 Sol / Sol Pro / Astra / Astra Pro sind im OpenRouter-Katalog enthalten. Die zwei Plan-Einträge für Antigravity und Codex bleiben voneinander unabhängig. Details stehen in [NEWS.md](../NEWS.md).
 
 ---
 
@@ -128,7 +128,7 @@ Seit v0.26.2 entscheidet der Prioritäts-Reviewer nur bei widersprüchlichen gü
 
 ## Installation
 
-Lade das neueste derzeit veröffentlichte Windows-Installationsprogramm von der [Releases](https://github.com/soheidon/poverello-coding-tools/releases)-Seite herunter und führe es aus.
+Lade das neueste derzeit veröffentlichte Windows-Installationsprogramm von der [Releases](https://github.com/soheidon/poverello-coding-tools/releases)-Seite herunter und führe es aus. Stabile Builds können signierte Updates aus GitHub Releases unter **Einstellungen > Allgemein > Anwendungsupdates** suchen und installieren; Entwicklungs-Builds verwenden den Updater nicht. Dafür muss eine kompatible signierte Version samt Updater-Manifest veröffentlicht sein.
 
 Das Windows-Installationsprogramm unterstützt 8 Sprachen. Poverello behält die bestehende Anwendungsidentität bei und unterstützt ein In-Place-Upgrade von Anthro Bridge. Beim ersten Start soll es vorhandene Einstellungen und Laufdaten aus `%APPDATA%\Anthro Bridge` (bei Entwicklungs-Builds `%APPDATA%\Anthro Bridge Dev`) in den entsprechenden Poverello-Datenordner kopieren und den ursprünglichen Ordner als Wiederherstellungskopie behalten. Die tatsächliche Windows-Installation, Migration, Aktualisierung, Neuinstallation, Abbruch- und Deinstallationsabläufe wurden nicht überprüft; sichern Sie wichtige Daten vor einem Upgrade.
 

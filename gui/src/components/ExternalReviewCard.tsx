@@ -7,6 +7,7 @@ import type {
   AntigravityPriorityReviewer,
   WorkflowSkillsPolicyStatus,
   CodexAccountInfo,
+  ActivePlanContext,
 } from "../types";
 import {
   getCodexReviewerModels,
@@ -50,7 +51,11 @@ export function policyToReviewers(policy: ReviewerPolicy | undefined | null): st
   }
 }
 
-export default function ExternalReviewCard() {
+export default function ExternalReviewCard({
+  onActivePlanContextChanged,
+}: {
+  onActivePlanContextChanged?: (context: ActivePlanContext | null) => void;
+}) {
   const { t } = useTranslation();
 
   const [reviewerPolicy, setReviewerPolicy] = useState<ReviewerPolicyConfig | null>(null);
@@ -444,6 +449,7 @@ export default function ExternalReviewCard() {
           planReviewPolicy={reviewerPolicy?.plan_review_policy ?? reviewerPolicy?.policy}
           planReviewers={reviewerPolicy?.plan_reviewers ?? null}
           onActivePlanChanged={handleActivePlanChanged}
+          onActivePlanContextChanged={onActivePlanContextChanged}
           onRolesChanged={handleRolesChanged}
           onPlanReviewPolicyChanged={handlePlanReviewPolicyChanged}
         />

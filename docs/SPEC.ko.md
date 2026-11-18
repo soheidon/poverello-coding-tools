@@ -8,6 +8,7 @@
 > **v0.27.0:** 저장소별 Active Plan 선택, 화면별 Planner / Reviser 지정, 재개 전에 식별 정보와 미해결 문제를 fail-closed 방식으로 검사하는 체크포인트 기능을 추가합니다. OpenRouter Tencent Hy4 모델 및 가격 메타데이터를 추가하고 Antigravity Nerf 설정을 GUI로 통합하며 기존 슬래시 명령을 종료합니다. 앱 자동 업데이트는 활성화되어 있지 않습니다.
 > **v0.27.2:** Antigravity Autocode와 Codex Autocode에 서로 독립적인 계획 폴더 위치 설정을 추가했습니다. 각 위치를 계획 작업 전반에서 일관되게 사용하며, 미설정 시 앱 작업 디렉터리로 암묵적으로 대체하지 않습니다. 기존 Markdown 계획 파일을 직접 선택해 편집기에서 열 수 있습니다. 활성 계획의 절대 경로와 상태가 표시되고, 파일 선택기는 해당 계획 폴더에서 시작합니다.
 > **v0.27.3(릴리스 대상, 미공개):** Antigravity Autocode와 Codex Autocode에 서로 독립적인 프로젝트-계획 행을 추가합니다. 각 화면에는 기본 행이 항상 있으며 선택적으로 두 번째 행을 추가할 수 있습니다. 선택한 `.md` 계획은 해당 파일을 포함하는 Git 저장소와 연결되고 두 화면은 각자의 선택을 독립적으로 저장합니다. 계획 폴더 설정은 Active Plan이 없을 때 파일 선택기의 시작 폴더만 지정하며, 선택 범위를 제한하거나 프로젝트 루트를 정하지 않습니다. 선택적 행을 제거해도 Poverello 연결 정보만 해제되고 파일은 삭제되지 않습니다.
+> **v0.28.0 (릴리스 준비 중, 미공개):** 기본 및 보조 프로젝트 계획 슬롯을 동등하게 선택할 수 있게 하고, Antigravity 프로젝트별 AgentOpt 제어, FAST / BALANCED / STRICT 직접 프리셋, 사용자 지정 설정 편집기를 추가합니다. 관리되는 `pov-direct.md` 규칙을 설정에서 설치하거나 복구할 수 있습니다. GPT-6.2 Sol을 Codex CLI Reviewer로 추가하고 GPT-6.2 Sol / Sol Pro / Astra / Astra Pro를 OpenRouter 카탈로그에 추가합니다. 지원되는 Windows 정식 빌드는 GitHub Releases의 서명된 업데이트를 지원하며 개발 빌드에서는 업데이트 기능을 사용하지 않습니다.
 
 ## 개요
 
@@ -90,7 +91,7 @@
 - **Claude Code 컨텍스트 관리**: Claude Code용 모델 인식 자동 압축. `resolve_effective_auto_compact`는 각 표준 라우트(claude-opus-5, claude-sonnet-5, claude-haiku-4-5)를 업스트림 모델로 확인하고, 정적 `model_catalog.json` 레지스트리에서 각 모델의 컨텍스트 용량을 조회하며, Auto 모드에서는 알려진 가장 작은 용량을 안전한 컨텍스트 창으로 사용합니다. 컨텍스트 제어는 세 용량이 모두 알려진 경우에만 적용됩니다(그렇지 않으면 상태는 Incomplete). 헤더 토글로 컨텍스트 관리를 켜거나 끕니다. 고급 모드와 임계값은 `config.json`의 `claude_code.auto_compact` 아래에 설정됩니다. 모드: `auto`, `manual` (`window_tokens`), `claude_default`.
 - **Claude Code 실행 명령 생성**: `build_claude_code_launch_command`는 게이트웨이 연결 변수(`ANTHROPIC_BASE_URL`은 로컬 게이트웨이를 가리킴, `ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`)와 Claude Code 컨텍스트 제어 변수(`CLAUDE_CODE_AUTO_COMPACT_WINDOW`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`)를 결합한 완전한 PowerShell 명령을 생성합니다. 컨텍스트 관리가 비활성화되거나, 불완전하거나, Claude 기본값으로 설정된 경우 명령은 `Remove-Item Env:... -ErrorAction SilentlyContinue`로 오래된 컨텍스트 변수를 제거하여 이전에 설정된 세션 값이 새 실행에 누출되지 않도록 합니다. Claude 설정 패널의 "Claude Code 실행 명령 복사" 버튼은 명령을 클립보드에 복사합니다. Poverello는 명령을 생성하고 복사만 합니다 — 실행하지는 않습니다.
 - **공유 모델 라우팅 모듈**: `model_routing.rs`는 라우트-업스트림 확인을 `proxy.rs`와 컨텍스트 리졸버가 공유하는 순수 함수로 추출하여, 컨텍스트 창이 프록시가 실제로 전달하는 것과 동일한 업스트림 모델로 확인되도록 보장합니다.
-- **컨텍스트 용량 레지스트리**: `model_catalog.json`은 내장된 직접 제공자 모델(DeepSeek, MiniMax, Kimi, MiMo V2.6 및 V2.5)과 내장된 OpenRouter 모델(Poolside, Tencent, InclusionAI, StepFun, OpenAI GPT-6.1, GPT-6, GPT Astra Latest, GPT-5.6 및 Google Gemini)을 포함하는 알려진 컨텍스트 용량의 정적 레지스트리입니다. 알 수 없는 사용자 지정 OpenRouter 모델은 유효한 라우트 대상으로 유지되지만, 메타데이터가 추가되거나 수동 모드가 구성될 때까지 컨텍스트 관리를 Incomplete로 보고합니다.
+- **컨텍스트 용량 레지스트리**: `model_catalog.json`은 내장된 직접 제공자 모델(DeepSeek, MiniMax, Kimi, MiMo V2.6 및 V2.5)과 내장된 OpenRouter 모델(Poolside, Tencent, InclusionAI, StepFun, OpenAI GPT-6.2, GPT-6.1, GPT-6, GPT Astra Latest, GPT-5.6 및 Google Gemini)을 포함하는 알려진 컨텍스트 용량의 정적 레지스트리입니다. 알 수 없는 사용자 지정 OpenRouter 모델은 유효한 라우트 대상으로 유지되지만, 메타데이터가 추가되거나 수동 모드가 구성될 때까지 컨텍스트 관리를 Incomplete로 보고합니다.
 - **Google Gemini 모델 지원**: OpenRouter 프로필은 가격 및 기능 데이터가 내장된 Gemini 3.1 Pro Preview와 Gemini 3.7 Flash를 지원합니다. Gemini 3.7 Flash는 프로모션 가격과 취소선으로 표시된 일반 가격을 함께 보여줍니다.
 - **GLM(Z.ai) 직접 제공자 지원**: 설정된 `ZAI_API_KEY`(또는 Poverello 키 설정)를 사용해 Z.ai의 Anthropic 호환 엔드포인트로 요청합니다. Poverello는 키 종류, Coding Plan 구매 이력, 계정 허용 여부 또는 결제 자격을 판별하지 않습니다. 사용 전 [Z.ai 최신 설정 안내](https://zcode.z.ai/en/docs/configuration)를 확인하세요. 모델은 `glm-5.3`, `glm-5.3-flash`, `glm-5.3-flashx`, `glm-5.2`입니다. GLM-5.3 계열은 항상 Thinking이며 추론 강도(`low`, `high`, `max`)를 선택할 수 있고, GLM-5.2는 Normal/Thinking 전환을 지원합니다. 빈 응답 또는 Thinking만 있는 응답은 Orchestrator와 MCP에서 명시적 제공자 오류로 fail-closed 처리됩니다.
 - **v0.25.3 모델 및 Thinking 안전 제어**: MiniMax M3.1 Flash, Kimi K3.1 Pro / Highspeed, GLM-5.3 Direct 모델을 추가하고 Kimi Code K3.1 ID를 분리합니다. 8개 ID는 Thinking 전용이며 비활성화 요청은 upstream 전송 전에 거부됩니다. Kimi Code medium은 high, xhigh는 max로 정규화됩니다. 가격 기준일은 2026-10-31이며 Kimi USD 값은 CNY 참고 환산값이고 OpenRouter 런타임 가격이 우선합니다.
@@ -144,11 +145,26 @@ Tauri v2 + React 19 + TypeScript. 상단 탐색: Gateway (Dashboard), MCP, Antig
 - Antigravity와 Codex는 프로젝트-계획 행을 서로 독립적으로 저장합니다. 별도의 계획 폴더 설정은 Active Plan이 없을 때 파일 선택기의 시작 폴더만 지정하며, 선택 범위나 실제 저장소 루트를 제한하지 않습니다. 선택한 계획이 다른 Git 저장소에 있으면 해당 파일을 기준으로 저장소 루트를 확인합니다.
 - Active Plan이 있으면 파일 선택기는 해당 계획 파일이 있는 폴더에서 열립니다. 없으면 설정된 시작 폴더를 사용하고, 설정도 없으면 네이티브 파일 선택기가 운영체제 기본 폴더를 사용합니다. 앱 작업 디렉터리를 계획 루트로 취급하지 않습니다. 각 행의 계획 및 저장소 연결은 화면별로 저장됩니다. 선택적 행을 제거해도 연결된 파일은 변경되지 않습니다.
 
+### Antigravity AgentOpt 및 Poverello 규칙 관리
+
+- Antigravity의 두 프로젝트-계획 슬롯은 AgentOpt 대상 폴더, 활성화/비활성화 상태, 설정을 각각 독립적으로 보유합니다. 기본적으로 각 슬롯은 계획에서 선택한 프로젝트를 따르며, 수동 대상 경로는 해당 슬롯에만 적용되는 예외입니다.
+- FAST, BALANCED, STRICT는 각 프리셋이 관리하는 검증 값을 즉시 적용하고 다시 읽어 확인합니다. Custom은 상세 편집기를 엽니다. 그 외의 알려진 필드와 알 수 없는 필드는 보존됩니다.
+- Settings > Antigravity Skills & Rules에서 관리되는 전역 `pov-direct.md` 규칙을 설치하거나 안전하게 복구할 수 있습니다. 인식되지 않거나 사용자가 관리하는 내용은 덮어쓰지 않고 보호합니다.
+
+### OpenAI GPT-6.2 카탈로그 및 Reviewer 지원
+
+- OpenRouter 카탈로그에 `openai/gpt-6.2-sol`, `openai/gpt-6.2-sol-pro`, `openai/gpt-6.2-astra`, `openai/gpt-6.2-astra-pro`가 모델별 기능 및 추론 메타데이터와 함께 포함됩니다. Pro 변형은 별도의 모델 ID를 사용합니다.
+- GPT-6.2 Sol을 Codex CLI Reviewer로 사용할 수 있습니다. 지원되는 Reviewer 모델은 지원되는 추론 강도만 표시하며, 저장된 레거시 `none` 값은 다른 설정을 바꾸지 않고 `low`로 마이그레이션됩니다.
+
+### 서명된 애플리케이션 업데이트
+
+- 지원되는 Windows 정식 빌드는 Tauri Updater를 사용해 GitHub Releases를 확인하고 운영 `latest.json` 엔드포인트에서 서명된 업데이트를 다운로드하고 설치합니다. 개발 빌드에서는 업데이트 기능을 비활성화합니다. 릴리스에는 버전이 표시된 설치 프로그램, 해당 `.sig` 서명, `latest.json`이 포함되어야 하며 버전, 서명, 매니페스트, 태그 및 에셋이 서로 일치해야 합니다. 초안 릴리스는 `latest` 엔드포인트에서 제공되지 않습니다.
+
 ### Tencent Hy4 및 Antigravity Nerf 설정
 
 - OpenRouter 선별 카탈로그에 `tencent/hy4`를 추가했습니다. 1,048,576-token 컨텍스트, 이미지 URL/base64 입력, Thinking / High 추론 설정을 지원합니다. 기본 `OpenRouter: Tencent` 프로필은 Opus 경로에 Hy4를 사용하며 General 가격표에는 2026-11-08 기준 참고 가격을 표시합니다.
 - Nerf 설정은 Antigravity Autocode에서 관리합니다. 기존 `/pov-nerf-balanced` 및 `/pov-nerf-lightweight` 명령은 종료되었습니다.
-- v0.27.0에는 앱 자동 업데이트가 구성되어 있지 않으며 서명 업데이트 산출물과 프로덕션 서명 키가 포함되지 않습니다.
+- v0.27.0에는 앱 자동 업데이트가 구성되어 있지 않았습니다. v0.28.0부터 지원되는 Windows 정식 빌드는 서명된 GitHub Releases 업데이트를 사용하며 개발 빌드에서는 업데이트 기능이 계속 비활성화됩니다.
 
 ### Tauri 명령
 

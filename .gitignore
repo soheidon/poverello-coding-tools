@@ -45,3 +45,7 @@ icon/*
 
 # Auto-Converge runtime state
 .poverello/runs/
+
+# AgentOpt workspace runtime data
+.agent-opt/
+.agents/plugins/agent-opt/

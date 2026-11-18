@@ -224,7 +224,7 @@ export default function PlanFolderLocationCard({ surface }: PlanFolderLocationCa
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <button
             type="button"
-            className="btn btn-primary"
+            className="btn"
             style={{ fontSize: 11, padding: "6px 12px", whiteSpace: "nowrap", flexShrink: 0 }}
             onClick={handleSelectFolder}
             disabled={loading || saving}

@@ -15,7 +15,7 @@ Poverello Coding Tools (affiché dans l’application sous le nom **Poverello**)
 > [!TIP]
 > **Nouveautés :** Consultez [NEWS.md (notes de version)](../NEWS.md) pour les fonctionnalités, détails d'implémentation et changements de chaque version.
 
-La prochaine version cible est **v0.27.3** (pas encore publiée). Chaque interface Autocode dispose d’une ligne projet-plan permanente et peut en ajouter une deuxième, facultative. La sélection d’un plan Markdown l’associe au dépôt qui contient ce fichier. Antigravity et Codex enregistrent leurs sélections séparément. Le dossier de plans configuré sert uniquement de dossier de départ au sélecteur lorsqu’aucun Active Plan n’est défini. La suppression de la deuxième ligne facultative retire uniquement l’association Poverello ; les fichiers du projet et du plan ne sont pas supprimés. Le chemin complet et le statut du plan sélectionné sont affichés ; une action distincte permet d’ouvrir le fichier.
+Cette copie de travail prépare **v0.28.0** (pas encore publiée). Elle ajoute des commandes AgentOpt indépendantes pour les deux lignes de projet Antigravity, avec les préréglages FAST / BALANCED / STRICT et un éditeur Custom. La règle Antigravity de Poverello peut être installée et réparée dans les Paramètres. GPT-6.2 Sol est disponible comme évaluateur Codex CLI, et GPT-6.2 Sol / Sol Pro / Astra / Astra Pro sont ajoutés au catalogue OpenRouter. Les deux lignes de plan Antigravity et Codex restent indépendantes. Consultez [NEWS.md](../NEWS.md) pour les détails.
 
 ---
 
@@ -128,7 +128,7 @@ Depuis v0.26.2, le réviseur prioritaire ne tranche qu’entre des verdicts vali
 
 ## Installation
 
-Téléchargez le dernier installateur Windows actuellement publié depuis la page [Releases](https://github.com/soheidon/poverello-coding-tools/releases) et exécutez-le.
+Téléchargez le dernier installateur Windows actuellement publié depuis la page [Releases](https://github.com/soheidon/poverello-coding-tools/releases) et exécutez-le. Les versions stables peuvent rechercher et installer les mises à jour signées de GitHub Releases dans **Paramètres > Général > Mises à jour de l’application** ; les versions de développement n’utilisent pas le programme de mise à jour. Une version compatible signée et son manifeste doivent être publiés pour que cette option soit disponible.
 
 L’installateur Windows prend en charge 8 langues. Poverello conserve l’identité existante de l’application et prend en charge la mise à niveau sur place depuis Anthro Bridge. Au premier lancement, il est conçu pour copier les paramètres et données d’exécution de `%APPDATA%\Anthro Bridge` (ou `%APPDATA%\Anthro Bridge Dev` pour les versions de développement) vers le dossier Poverello correspondant, tout en conservant le dossier d’origine comme copie de récupération. L’installation, la migration, la mise à niveau, la réinstallation, l’annulation et la désinstallation réelles sous Windows n’ont pas été vérifiées ; sauvegardez les données importantes avant la mise à niveau.
 

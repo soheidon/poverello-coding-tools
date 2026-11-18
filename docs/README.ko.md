@@ -15,7 +15,7 @@ Poverello Coding Tools(앱 표시 이름 **Poverello**)는 AI 기반 소프트�
 > [!TIP]
 > **새 소식:** 버전별 기능, 구현 세부 정보 및 변경 내역은 [NEWS.md(릴리스 노트)](../NEWS.md)를 참조하세요.
 
-다음 릴리스 대상은 **v0.27.3**입니다(아직 공개되지 않음). 각 Autocode 화면에는 프로젝트-계획 행이 하나 항상 표시되며, 선택적으로 두 번째 행을 추가할 수 있습니다. Markdown 계획 파일을 선택하면 해당 파일이 있는 저장소와 연결됩니다. Antigravity와 Codex의 선택은 서로 독립적으로 저장됩니다. 계획 폴더 설정은 Active Plan이 없을 때 파일 선택기의 시작 폴더로만 사용됩니다. 선택적 두 번째 행을 제거하면 Poverello의 연결 정보만 지우며 프로젝트나 계획 파일은 삭제하지 않습니다. 선택한 계획의 전체 경로와 상태를 표시하고 별도의 작업으로 파일을 엽니다.
+이 체크아웃은 아직 공개되지 않은 **v0.28.0**을 준비 중입니다. Antigravity의 두 프로젝트-계획 행에 각각 AgentOpt 제어를 제공하고 FAST / BALANCED / STRICT 프리셋과 Custom 편집기를 추가합니다. Poverello Antigravity Rule은 설정에서 설치하고 복구할 수 있습니다. GPT-6.2 Sol을 Codex CLI Reviewer로 추가하고 GPT-6.2 Sol / Sol Pro / Astra / Astra Pro를 OpenRouter 카탈로그에 추가합니다. Antigravity와 Codex의 두 계획 행은 계속 독립적으로 동작합니다. 자세한 내용은 [NEWS.md](../NEWS.md)를 참조하세요.
 
 ---
 
@@ -130,7 +130,7 @@ v0.26.2부터 우선 리뷰어는 유효한 판정이 서로 다를 때만 조�
 
 [Releases](https://github.com/soheidon/poverello-coding-tools/releases) 페이지에서 최신 공개 Windows 설치 프로그램을 다운로드하여 실행하세요.
 
-Windows 설치 프로그램은 8개 언어를 지원합니다. Poverello는 기존 애플리케이션 ID를 유지하며 Anthro Bridge에서 같은 설치 위치로 업그레이드하는 기능을 지원합니다. 첫 실행 시 `%APPDATA%\Anthro Bridge`(개발 빌드는 `%APPDATA%\Anthro Bridge Dev`)의 설정과 실행 데이터를 해당 Poverello 데이터 폴더로 복사하고 원래 폴더를 복구용 사본으로 보존하도록 설계되었습니다. 실제 Windows 환경에서의 설치, 데이터 마이그레이션, 업그레이드, 재설치, 취소 및 제거는 검증되지 않았으므로 업그레이드 전에 중요한 데이터를 백업하세요.
+Windows 설치 프로그램은 8개 언어를 지원합니다. 안정화 빌드는 **설정 > 일반 > 애플리케이션 업데이트**에서 GitHub Releases의 서명된 업데이트를 확인하고 설치할 수 있으며, 개발 빌드에서는 업데이트 기능을 사용하지 않습니다. 업데이트를 제공하려면 호환되는 서명 릴리스와 업데이트 매니페스트를 공개해야 합니다. Poverello는 기존 애플리케이션 ID를 유지하며 Anthro Bridge에서 같은 설치 위치로 업그레이드하는 기능을 지원합니다. 첫 실행 시 `%APPDATA%\Anthro Bridge`(개발 빌드는 `%APPDATA%\Anthro Bridge Dev`)의 설정과 실행 데이터를 해당 Poverello 데이터 폴더로 복사하고 원래 폴더를 복구용 사본으로 보존하도록 설계되었습니다. 실제 Windows 환경에서의 설치, 데이터 마이그레이션, 업그레이드, 재설치, 취소 및 제거는 검증되지 않았으므로 업그레이드 전에 중요한 데이터를 백업하세요.
 
 ---
 

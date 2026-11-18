@@ -359,6 +359,17 @@ pub fn is_openai_astra_pro_model(model: &str) -> bool {
     model == "openai/gpt-6-astra-pro"
 }
 
+/// Check if an OpenRouter upstream model is the OpenAI GPT-6.2 Sol/Astra family.
+pub fn is_openai_gpt62_model(model: &str) -> bool {
+    matches!(
+        model,
+        "openai/gpt-6.2-sol"
+            | "openai/gpt-6.2-sol-pro"
+            | "openai/gpt-6.2-astra"
+            | "openai/gpt-6.2-astra-pro"
+    )
+}
+
 /// Check if an OpenRouter upstream model is the OpenAI GPT-6.1 Sol family.
 pub fn is_openai_gpt61_sol(model: &str) -> bool {
     matches!(model, "openai/gpt-6.1-sol" | "openai/gpt-6.1-sol-pro")
@@ -380,6 +391,7 @@ pub fn is_openai_model(model: &str) -> bool {
     is_openai_gpt56_model(model)
         || is_openai_astra_model(model)
         || is_openai_astra_pro_model(model)
+        || is_openai_gpt62_model(model)
         || is_openai_gpt61_sol(model)
         || is_openai_gpt6_sol_luna(model)
 }
@@ -1339,4 +1351,38 @@ mod tests {
         }
     }
 
+    #[test]
+    fn plan21_gpt62_models_matrix_and_context_window() {
+        for id in [
+            "openai/gpt-6.2-sol",
+            "openai/gpt-6.2-sol-pro",
+            "openai/gpt-6.2-astra",
+            "openai/gpt-6.2-astra-pro",
+        ] {
+            assert!(is_openai_gpt62_model(id), "{id} must match is_openai_gpt62_model");
+            assert!(is_openai_model(id), "{id} must match is_openai_model");
+
+            let caps = try_resolve_static_model_capabilities(id)
+                .unwrap_or_else(|| panic!("missing static caps for {id}"));
+            assert!(caps.force_thinking);
+            assert!(caps.supports_image_url);
+            assert!(caps.supports_image_base64);
+            assert!(!caps.supports_video_url);
+            assert!(!caps.supports_video_base64);
+
+            let reasoning = lookup_catalog_reasoning(id)
+                .unwrap_or_else(|| panic!("missing reasoning metadata for {id}"));
+            assert_eq!(reasoning.default_effort, "medium");
+            assert_eq!(
+                reasoning.supported_efforts,
+                vec!["low", "medium", "high", "xhigh", "max"]
+            );
+            assert!(!reasoning.supported_efforts.iter().any(|e| e == "none"));
+
+            assert_eq!(
+                try_resolve_static_context_window("openrouter", id).map(|w| w.context_length),
+                Some(1_050_000)
+            );
+        }
+    }
 }

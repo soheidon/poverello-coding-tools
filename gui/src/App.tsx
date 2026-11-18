@@ -249,6 +249,11 @@ function AppContent() {
     setMainTab(tab);
   }, []);
 
+  const openAgentOptSettings = useCallback(() => {
+    setSettingsTab("antigravitySkillsRules");
+    setMainTab("settings");
+  }, []);
+
   // Show full-screen language picker on first run
   if (firstRun === null) {
     // Loading — wait for is_first_run check
@@ -394,7 +399,7 @@ function AppContent() {
       ) : mainTab === "mcp" ? (
         <McpPanel config={config} refreshConfig={refreshConfig} />
       ) : mainTab === "antigravityAutocode" || mainTab === "poverello" ? (
-        <PoverelloPanel />
+        <PoverelloPanel onOpenAgentOptSettings={openAgentOptSettings} />
       ) : mainTab === "codexAutocode" ? (
         <CodexAutocodePanel
           onNavigateToCliTools={() => {

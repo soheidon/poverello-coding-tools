@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n";
+import AgentOptPanel from "./AgentOptPanel";
+import { getAgentOptErrorPresentation, unregisteredWorkspaceErrorMatchesPath } from "./agentOptErrorPresentation";
 import type {
   PovDirectStatus,
   PovDirectSettings,
@@ -10,6 +12,10 @@ import type {
   VerificationPolicy,
   PovDirectApplyOperation,
   PovDirectApplyRequest,
+  NerfEngine,
+  NerfEngineOverview,
+  EngineTransitionResult,
+  ActivePlanContext,
 } from "../types";
 
 export function formatDisplayPath(path?: string | null): string {
@@ -17,7 +23,13 @@ export function formatDisplayPath(path?: string | null): string {
   return path.replace(/\\/g, "/");
 }
 
-export default function AntigravityRulesPanel() {
+export default function AntigravityRulesPanel({
+  activePlanContext,
+  onOpenAgentOptSettings,
+}: {
+  activePlanContext?: ActivePlanContext | null;
+  onOpenAgentOptSettings?: () => void;
+}) {
   const { t } = useTranslation();
   const [status, setStatus] = useState<PovDirectStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,6 +38,11 @@ export default function AntigravityRulesPanel() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [customExplicit, setCustomExplicit] = useState(false);
+  const [draftDirty, setDraftDirty] = useState(false);
+  const [engineOverview, setEngineOverview] = useState<NerfEngineOverview | null>(null);
+  const [engineBusy, setEngineBusy] = useState(false);
+  const [viewTab, setViewTab] = useState<NerfEngine>("poverello_rules");
+  const lastPlanContextKey = useRef<string | null>(null);
 
   // Form draft settings
   const [draft, setDraft] = useState<PovDirectSettings>({
@@ -41,25 +58,205 @@ export default function AntigravityRulesPanel() {
   // Modal for legacy poverello migration confirmation
   const [showMigrateModal, setShowMigrateModal] = useState(false);
 
+  const fetchEngineOverview = useCallback(async (syncTab = true) => {
+    try {
+      const res = await invoke<NerfEngineOverview | undefined>("get_antigravity_nerf_engine_overview");
+      if (res) {
+        setEngineOverview(res);
+        if (syncTab) setViewTab(res.persisted_engine);
+        if (res.pov_direct_status) setStatus(res.pov_direct_status);
+      }
+    } catch (e) {
+      setError(typeof e === "string" ? e : (e as Error).message || "Failed to load engine overview");
+    }
+  }, []);
   const fetchStatus = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       const res = await invoke<PovDirectStatus>("get_pov_direct_status");
       setStatus(res);
-      if (res.settings) {
+      if (res?.settings && !draftDirty) {
         setDraft(res.settings);
       }
+      await fetchEngineOverview();
     } catch (e) {
       setError(typeof e === "string" ? e : (e as Error).message || "Failed to load status");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [draftDirty, fetchEngineOverview]);
 
   useEffect(() => {
     void fetchStatus();
   }, [fetchStatus]);
+
+  useEffect(() => {
+    if (
+      !activePlanContext?.resolved ||
+      !activePlanContext.repoRoot ||
+      !activePlanContext.planPath ||
+      !engineOverview
+    ) return;
+    const key = [
+      activePlanContext.surface,
+      activePlanContext.repoRoot.toLowerCase(),
+    ].join("|");
+    if (lastPlanContextKey.current === key) return;
+    lastPlanContextKey.current = key;
+    if (engineOverview.persisted_engine !== "agentopt") return;
+    let cancelled = false;
+    setEngineBusy(true);
+    setError(null);
+    void invoke<EngineTransitionResult>("apply_selected_antigravity_nerf_engine")
+      .then((res) => {
+        if (cancelled || !res?.overview) return;
+        setEngineOverview(res.overview);
+        if (res.overview.pov_direct_status) setStatus(res.overview.pov_direct_status);
+        if (res.overview.mismatch?.has_mismatch) {
+          setError(res.overview.mismatch.reason || res.message);
+          setSuccessMessage(null);
+        } else {
+          setSuccessMessage(res.message);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(typeof e === "string" ? e : (e as Error).message || "Failed to follow the selected Antigravity plan");
+          setSuccessMessage(null);
+          void fetchEngineOverview(false);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setEngineBusy(false);
+      });
+    return () => { cancelled = true; };
+  }, [activePlanContext, engineOverview?.persisted_engine, engineOverview?.workspace_mode, fetchEngineOverview]);
+
+  const activeEngine: NerfEngine = engineOverview?.persisted_engine ?? "poverello_rules";
+  const presentedError = error ? getAgentOptErrorPresentation(error, t) : null;
+  const targetInspectionExplainsError = viewTab === "agentopt"
+    && !!error
+    && !!engineOverview?.workspace_targets.some(({ inspection }) => unregisteredWorkspaceErrorMatchesPath(error, inspection.workspace_path)
+      && !inspection.registered
+      && (inspection.unregistered_files_detected || inspection.state === "not_initialized"));
+  const presentedMismatchReason = engineOverview?.mismatch.reason
+    ? getAgentOptErrorPresentation(engineOverview.mismatch.reason, t)
+    : null;
+
+  const handleSwitchEngine = async (targetEngine: NerfEngine) => {
+    if (engineBusy) return;
+    if (targetEngine === activeEngine && viewTab === targetEngine) return;
+    setEngineBusy(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const res = await invoke<EngineTransitionResult>("switch_antigravity_nerf_engine", {
+        targetEngine,
+      });
+      if (res?.overview) {
+        setEngineOverview(res.overview);
+        setViewTab(res.overview.persisted_engine);
+        if (res.overview.pov_direct_status) {
+          setStatus(res.overview.pov_direct_status);
+        }
+        if (res.overview.mismatch?.has_mismatch) {
+          setError(res.overview.mismatch.reason || res.message);
+        } else {
+          setSuccessMessage(res.message);
+        }
+      }
+    } catch (e) {
+      setError(typeof e === "string" ? e : (e as Error).message || "Failed to switch engine");
+      if (targetEngine === "agentopt") {
+        // Keep persisted engine unchanged; the CLI installer lives in Settings.
+        setViewTab("agentopt");
+        await fetchEngineOverview(false);
+        const message = typeof e === "string" ? e : (e as Error).message;
+        setError(message?.includes("Cannot switch to AgentOpt: select and prepare a target workspace first.")
+          ? t("agentOpt.unavailableWorkspace")
+          : message || t("agentOpt.unavailableWorkspace"));
+      } else {
+        setError(typeof e === "string" ? e : (e as Error).message || t("agentOpt.switchFailed"));
+        await fetchEngineOverview();
+      }
+    } finally {
+      setEngineBusy(false);
+    }
+  };
+
+  const handleEngineTabKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    const currentIndex = tabs.indexOf(document.activeElement as HTMLButtonElement);
+    if (currentIndex < 0 || tabs.length === 0) return;
+    event.preventDefault();
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    const nextTab = tabs[nextIndex];
+    nextTab.focus();
+    nextTab.click();
+  };
+
+  const handleApplySelectedEngine = async () => {
+    if (engineBusy) return;
+    setEngineBusy(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const res = await invoke<EngineTransitionResult>("apply_selected_antigravity_nerf_engine", {
+      });
+      if (res?.overview) {
+        setEngineOverview(res.overview);
+        setViewTab(res.overview.persisted_engine);
+        if (res.overview.pov_direct_status) {
+          setStatus(res.overview.pov_direct_status);
+        }
+        if (res.overview.mismatch?.has_mismatch) {
+          setError(res.overview.mismatch.reason || res.message);
+        } else {
+          setSuccessMessage(res.message);
+        }
+      }
+    } catch (e) {
+      setError(typeof e === "string" ? e : (e as Error).message || "Failed to apply selected engine");
+      await fetchEngineOverview();
+    } finally {
+      setEngineBusy(false);
+    }
+  };
+
+  const handleWorkspacePrepared = async (): Promise<boolean> => {
+    if (engineOverview?.persisted_engine !== "agentopt") {
+      return true;
+    }
+    setEngineBusy(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const res = await invoke<EngineTransitionResult>("apply_selected_antigravity_nerf_engine");
+      if (res?.overview) {
+        setEngineOverview(res.overview);
+        if (res.overview.pov_direct_status) setStatus(res.overview.pov_direct_status);
+        if (res.overview.mismatch?.has_mismatch) {
+          setError(res.overview.mismatch.reason || res.message);
+          return false;
+        } else {
+          setSuccessMessage(res.message);
+        }
+      }
+      return true;
+    } catch (e) {
+      setError(typeof e === "string" ? e : (e as Error).message || "Failed to activate the prepared AgentOpt workspace");
+      await fetchEngineOverview(false);
+      return false;
+    } finally {
+      setEngineBusy(false);
+    }
+  };
 
   // Determine current operation mode
   const currentMode = useMemo((): "gemini_38_standard" | "gemini_37_lightweight" | "custom" => {
@@ -112,6 +309,7 @@ export default function AntigravityRulesPanel() {
   };
 
   const updateDraft = (newDraft: PovDirectSettings) => {
+    setDraftDirty(true);
     setDraft(newDraft);
   };
 
@@ -132,6 +330,7 @@ export default function AntigravityRulesPanel() {
       const updated = await invoke<PovDirectStatus>("save_pov_direct_settings", { request });
       setStatus(updated);
       setDraft(updated.settings);
+      setDraftDirty(false);
       setSuccessMessage("Settings saved and applied successfully.");
       setTimeout(() => setSuccessMessage(null), 3500);
     } catch (e) {
@@ -204,11 +403,14 @@ export default function AntigravityRulesPanel() {
   return (
     <div className="settings-tile" data-testid="antigravity-rules-panel">
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+        <div data-testid="antigravity-rules-heading" style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
             {t("antigravityRules.panelTitle")}
           </h3>
+          <span style={{ fontSize: 12, color: "#656d76" }}>
+            {t("antigravityRules.panelSubtitle")}
+          </span>
           {saving && <span style={{ fontSize: 11, color: "#656d76" }}>...</span>}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -217,41 +419,100 @@ export default function AntigravityRulesPanel() {
               ✓ {successMessage}
             </span>
           )}
-          <button
-            type="button"
-            className="btn"
-            style={{ fontSize: 11, padding: "4px 10px" }}
-            onClick={handleOpenFolder}
-          >
-            {t("antigravityRules.actions.openFolder")}
-          </button>
-          <button
-            type="button"
-            className="btn"
-            style={{ fontSize: 11, padding: "4px 10px" }}
-            onClick={handleResetDefaults}
-          >
-            {t("antigravityRules.actions.resetDefaults")}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ fontSize: 11, padding: "4px 12px", fontWeight: 600 }}
-            disabled={saving || (status ? !status.can_apply : false)}
-            onClick={handleSaveClick}
-          >
-            {t("antigravityRules.actions.apply")}
-          </button>
         </div>
       </div>
 
-      <p style={{ margin: "0 0 14px 0", fontSize: 12, color: "#656d76" }}>
-        {t("antigravityRules.panelSubtitle")}
-      </p>
+      {/* Engine pages */}
+      <div
+        data-testid="nerf-engine-selector"
+        className="pov-engine-tabs"
+        role="tablist"
+        aria-label={t("agentOpt.engine")}
+        onKeyDown={handleEngineTabKeyDown}
+      >
+        <button
+          type="button"
+          data-testid="engine-btn-poverello_rules"
+          id="engine-tab-poverello-rules"
+          role="tab"
+          aria-selected={viewTab === "poverello_rules"}
+          aria-controls="engine-tabpanel"
+          tabIndex={viewTab === "poverello_rules" ? 0 : -1}
+          className={`pov-engine-tab ${viewTab === "poverello_rules" ? "active" : ""}`}
+          disabled={engineBusy}
+          onClick={() => void handleSwitchEngine("poverello_rules")}
+        >
+          {t("agentOpt.enginePoverello")}
+        </button>
+        <button
+          type="button"
+          data-testid="engine-btn-agentopt"
+          id="engine-tab-agentopt"
+          role="tab"
+          aria-selected={viewTab === "agentopt"}
+          aria-controls="engine-tabpanel"
+          tabIndex={viewTab === "agentopt" ? 0 : -1}
+          className={`pov-engine-tab ${viewTab === "agentopt" ? "active" : ""}`}
+          disabled={engineBusy}
+          onClick={() => void handleSwitchEngine("agentopt")}
+        >
+          AgentOpt
+        </button>
+      </div>
+
+      {/* Mismatch Recovery Banner */}
+      {engineOverview?.mismatch.has_mismatch && (
+        <div
+          data-testid="engine-mismatch-banner"
+          style={{
+            padding: "10px 12px",
+            marginBottom: 12,
+            backgroundColor: "#fff8c5",
+            border: "1px solid #d4a72c",
+            borderRadius: 6,
+            color: "#6e4a00",
+            fontSize: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+          }}
+        >
+          <div style={{ fontWeight: 600 }}>
+            {t("agentOpt.mismatchTitle")}
+          </div>
+          <div>
+            {t("agentOpt.mismatchSelected")} <code>{engineOverview.persisted_engine}</code> / {t("agentOpt.mismatchRuleState")}{" "}
+            <code>{engineOverview.mismatch.observed_rule_state}</code> / {t("agentOpt.mismatchEnabledWorkspaces")}{" "}
+            <code>
+              {engineOverview.mismatch.enabled_workspaces.length > 0
+                ? engineOverview.mismatch.enabled_workspaces.join(", ")
+                : t("agentOpt.none")}
+            </code>
+          </div>
+          {presentedMismatchReason && (
+            <div>
+              {presentedMismatchReason.message}
+              {presentedMismatchReason.guidance && <div style={{ marginTop: 5 }}>{presentedMismatchReason.guidance}</div>}
+            </div>
+          )}
+          <div>
+            <button
+              type="button"
+              data-testid="apply-selected-engine-btn"
+              className="btn btn-primary"
+              disabled={engineBusy}
+              onClick={() => void handleApplySelectedEngine()}
+            >
+              {t("agentOpt.applySelectedEngine")}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Global Alerts / Messages */}
-      {error && (
+      {error && !targetInspectionExplainsError && (
         <div
+          role="alert"
           style={{
             padding: "8px 12px",
             marginBottom: 12,
@@ -262,7 +523,12 @@ export default function AntigravityRulesPanel() {
             fontSize: 12,
           }}
         >
-          {error}
+          {presentedError?.guidance ? (
+            <>
+              <div>{presentedError.message}</div>
+              <div style={{ marginTop: 5 }}>{presentedError.guidance}</div>
+            </>
+          ) : presentedError?.message}
         </div>
       )}
 
@@ -298,6 +564,56 @@ export default function AntigravityRulesPanel() {
         </div>
       )}
 
+      <div
+        id="engine-tabpanel"
+        data-testid="engine-tabpanel"
+        role="tabpanel"
+        tabIndex={0}
+        aria-labelledby={viewTab === "agentopt" ? "engine-tab-agentopt" : "engine-tab-poverello-rules"}
+      >
+      {viewTab === "agentopt" ? (
+        <AgentOptPanel
+          overview={engineOverview}
+          busy={engineBusy}
+          onRefreshOverview={() => fetchEngineOverview(false)}
+          onWorkspacePrepared={handleWorkspacePrepared}
+          onError={setError}
+          onSuccess={setSuccessMessage}
+          onOpenAgentOptSettings={onOpenAgentOptSettings}
+        />
+      ) : (
+      <>
+      <div
+        data-testid="poverello-rules-actions"
+        style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 12 }}
+      >
+        <button
+          type="button"
+          className="btn"
+          style={{ fontSize: 11, padding: "4px 10px" }}
+          onClick={handleOpenFolder}
+        >
+          {t("antigravityRules.actions.openFolder")}
+        </button>
+        <button
+          type="button"
+          className="btn"
+          style={{ fontSize: 11, padding: "4px 10px" }}
+          disabled={activeEngine !== "poverello_rules"}
+          onClick={handleResetDefaults}
+        >
+          {t("antigravityRules.actions.resetDefaults")}
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ fontSize: 11, padding: "4px 12px", fontWeight: 600 }}
+          disabled={activeEngine !== "poverello_rules" || saving || (status ? !status.can_apply : false)}
+          onClick={handleSaveClick}
+        >
+          {t("antigravityRules.actions.apply")}
+        </button>
+      </div>
       {/* 6 Settings Rows (§10.3) */}
       <div className="pov-settings-grid">
         {/* Row 0: Mode Preset */}
@@ -580,6 +896,9 @@ export default function AntigravityRulesPanel() {
             )}
           </div>
         )}
+      </div>
+      </>
+      )}
       </div>
 
       {/* Confirmation Modal for Unmanaged Custom */}

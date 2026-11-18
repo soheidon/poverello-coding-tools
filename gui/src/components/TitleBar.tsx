@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type MouseEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "../i18n";
 import { version } from "../../package.json";
@@ -97,17 +97,31 @@ export default function TitleBar({
     void handleToggleMaximize();
   }, [handleToggleMaximize]);
 
+  const handleBrandMouseDown = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    void getCurrentWindow().startDragging().catch((error: unknown) => {
+      console.error("Failed to start dragging window from app branding:", error);
+    });
+  }, []);
+
   return (
     <div className="custom-titlebar">
-      {/* 1. App Branding & Workspace Index Tabs (Strictly NO drag-region) */}
+      {/* 1. App Branding & Workspace Index Tabs */}
       <div className="titlebar-left">
-        <div className="titlebar-brand">
+        <div
+          className="titlebar-brand"
+          data-tauri-drag-region
+          onMouseDown={handleBrandMouseDown}
+        >
           <img
             src="/app-icon.png"
             alt="App Icon"
             className="titlebar-icon"
           />
-          <span className="titlebar-title">
+          <span className="titlebar-title" data-tauri-drag-region>
             {title}
           </span>
         </div>

@@ -2327,6 +2327,48 @@ body {
 
 
 /* Poverello Segment Control Styles */
+.pov-engine-tabs {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 18px;
+  margin: 0 0 14px;
+  border-bottom: 1px solid var(--border-color, #d0d7de);
+}
+
+.pov-engine-tab {
+  appearance: none;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  margin: 0 0 -1px;
+  padding: 9px 12px 8px;
+  background: transparent;
+  color: var(--text-secondary, #57606a);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pov-engine-tab:hover:not(:disabled) {
+  color: var(--text-primary, #24292f);
+}
+
+.pov-engine-tab.active {
+  border-bottom-color: #0969da;
+  color: #0969da;
+}
+
+.pov-engine-tab:focus-visible {
+  outline: 2px solid #0969da;
+  outline-offset: 2px;
+}
+
+.pov-engine-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .pov-segment-group {
   display: inline-flex;
   background-color: var(--bg-secondary, #f6f8fa);

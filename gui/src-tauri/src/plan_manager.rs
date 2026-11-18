@@ -61,9 +61,13 @@ pub struct ProjectPlanSlot {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct SurfacePlanState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_slot_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_plan_path: Option<String>,
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub slots: std::collections::HashMap<String, String>,
+    #[serde(flatten, default)]
+    pub extra: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -75,6 +79,34 @@ pub struct ActivePlanState {
     pub role_assignments: std::collections::HashMap<String, RoleAssignment>,
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub surfaces: std::collections::HashMap<String, SurfacePlanState>,
+    #[serde(flatten, default)]
+    pub extra: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SurfacePlanSlotsView {
+    pub repo_root: String,
+    pub surface: String,
+    pub active_slot_id: Option<String>,
+    pub active_plan_path: Option<String>,
+    pub slots: std::collections::HashMap<String, String>,
+    pub is_unresolved: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PinnedWorkflowTarget {
+    pub repository: String,
+    pub surface: String,
+    pub slot_id: String,
+    pub plan_path: String,
+    pub sha256_hash: String,
+    pub file_identity: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PinnedWorkflowLaunch {
+    pub role_assignment: RoleAssignment,
+    pub pinned_target: PinnedWorkflowTarget,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -107,6 +139,64 @@ pub fn find_enclosing_repo_root(file_path: &Path) -> Result<PathBuf, String> {
     ))
 }
 
+pub fn validate_slot_id(slot_id: &str) -> Result<&str, String> {
+    let trimmed = slot_id.trim();
+    match trimmed {
+        "primary" => Ok("primary"),
+        "secondary" => Ok("secondary"),
+        _ => Err(format!("Invalid plan slot ID: '{slot_id}' (expected 'primary' or 'secondary')")),
+    }
+}
+
+fn normalize_rel_path(path: &str) -> String {
+    path.trim().replace('\\', "/")
+}
+
+fn migrate_surface_state_in_memory(surf_state: &mut SurfacePlanState) -> Result<(), String> {
+    if let Some(ref sid) = surf_state.active_slot_id {
+        let valid = validate_slot_id(sid)?.to_string();
+        surf_state.active_slot_id = Some(valid);
+        return Ok(());
+    }
+
+    if surf_state.slots.is_empty() {
+        if let Some(ref legacy) = surf_state.active_plan_path {
+            let norm = normalize_rel_path(legacy);
+            if !norm.is_empty() {
+                surf_state.slots.insert("primary".to_string(), norm);
+                surf_state.active_slot_id = Some("primary".to_string());
+            }
+        }
+        return Ok(());
+    }
+
+    if let Some(ref legacy) = surf_state.active_plan_path {
+        let norm_legacy = normalize_rel_path(legacy);
+        if !norm_legacy.is_empty() {
+            let primary_matches = surf_state
+                .slots
+                .get("primary")
+                .map(|p| normalize_rel_path(p) == norm_legacy)
+                .unwrap_or(false);
+            let secondary_matches = surf_state
+                .slots
+                .get("secondary")
+                .map(|p| normalize_rel_path(p) == norm_legacy)
+                .unwrap_or(false);
+
+            if primary_matches && secondary_matches {
+                surf_state.active_slot_id = Some("primary".to_string());
+            } else if primary_matches {
+                surf_state.active_slot_id = Some("primary".to_string());
+            } else if secondary_matches {
+                surf_state.active_slot_id = Some("secondary".to_string());
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn load_active_plan_state(repo_root: &Path) -> Result<ActivePlanState, String> {
     let path = repo_root.join(PLAN_DIR_NAME).join(ACTIVE_PLAN_FILE_NAME);
     if !path.exists() {
@@ -115,18 +205,14 @@ fn load_active_plan_state(repo_root: &Path) -> Result<ActivePlanState, String> {
             last_updated_unix: 0,
             role_assignments: Default::default(),
             surfaces: Default::default(),
+            extra: Default::default(),
         });
     }
     let raw = std::fs::read_to_string(path).map_err(|e| format!("Failed to read active plan state: {e}"))?;
     let mut state: ActivePlanState = serde_json::from_str(&raw).map_err(|e| format!("Failed to parse active plan state: {e}"))?;
 
-    // Migrate per-surface legacy active_plan_path to primary slot if slots is empty
     for surf_state in state.surfaces.values_mut() {
-        if surf_state.slots.is_empty() {
-            if let Some(ref legacy) = surf_state.active_plan_path {
-                surf_state.slots.insert("primary".to_string(), legacy.clone());
-            }
-        }
+        migrate_surface_state_in_memory(surf_state)?;
     }
 
     Ok(state)
@@ -159,23 +245,35 @@ pub fn get_role_assignment_for_active_plan(
     surface: &str,
     slot_id: Option<&str>,
 ) -> Result<RoleAssignment, String> {
+    if !matches!(surface, "codex" | "antigravity") {
+        return Err(format!("Unsupported Autocode surface: '{surface}'"));
+    }
     let state = load_active_plan_state(repo_root)?;
     let surf_state = state
         .surfaces
         .get(surface)
         .ok_or_else(|| format!("No active plan file is configured for {surface} surface"))?;
-    let sid = slot_id.unwrap_or("primary");
+    let active_sid = surf_state
+        .active_slot_id
+        .as_deref()
+        .ok_or_else(|| format!("No active plan slot is selected for {surface} surface"))?;
+    validate_slot_id(active_sid)?;
+    if let Some(explicit_sid) = slot_id {
+        let valid_explicit = validate_slot_id(explicit_sid)?;
+        if valid_explicit != active_sid {
+            return Err(format!(
+                "Requested slot '{valid_explicit}' does not match canonical active slot '{active_sid}' for {surface} surface"
+            ));
+        }
+    }
     let active = surf_state
         .slots
-        .get(sid)
+        .get(active_sid)
         .map(|s| s.as_str())
-        .ok_or_else(|| format!("No active plan file is configured for {surface} surface slot {sid:?}"))?;
+        .ok_or_else(|| format!("No active plan file is configured for {surface} surface slot {active_sid:?}"))?;
     let path = validate_plan_path(repo_root, active)?;
     if !path.is_file() {
         return Err(format!("Active plan file does not exist: '{active}'"));
-    }
-    if !matches!(surface, "codex" | "antigravity") {
-        return Err(format!("Unsupported Autocode surface: '{surface}'"));
     }
     Ok(state.role_assignments.get(surface).cloned().unwrap_or_default())
 }
@@ -224,6 +322,7 @@ pub struct ExecutionCheckpoint {
     pub plan_revision: String,
     #[serde(default)]
     pub plan_file_identity: String,
+    #[serde(default)]
     pub workflow_run_id: String,
     #[serde(default)]
     pub completed_work: Vec<String>,
@@ -474,19 +573,24 @@ pub fn get_active_plan(
     surface: Option<&str>,
     slot_id: Option<&str>,
 ) -> Result<Option<PlanFileDetails>, String> {
+    if let Some(explicit_sid) = slot_id {
+        validate_slot_id(explicit_sid)?;
+    }
     let active_plan_file = repo_root.join(PLAN_DIR_NAME).join(ACTIVE_PLAN_FILE_NAME);
     let rel_path = if active_plan_file.exists() {
-        if let Ok(st) = load_active_plan_state(repo_root) {
-            if let Some(surf) = surface {
-                st.surfaces.get(surf).and_then(|s| {
-                    let sid = slot_id.unwrap_or("primary");
-                    s.slots.get(sid).cloned()
-                })
-            } else {
-                st.active_plan_path
-            }
+        let st = load_active_plan_state(repo_root)?;
+        if let Some(surf) = surface {
+            st.surfaces.get(surf).and_then(|s| {
+                if let Some(explicit_sid) = slot_id {
+                    s.slots.get(explicit_sid).cloned()
+                } else {
+                    s.active_slot_id
+                        .as_deref()
+                        .and_then(|sid| s.slots.get(sid).cloned())
+                }
+            })
         } else {
-            None
+            st.active_plan_path
         }
     } else {
         None
@@ -630,23 +734,38 @@ pub fn set_active_plan(
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
+    if let Some(explicit_sid) = slot_id {
+        validate_slot_id(explicit_sid)?;
+    }
+
     let mut state = load_active_plan_state(repo_root)?;
-    let sid = slot_id.unwrap_or("primary");
     if let Some(surf) = surface {
         let entry = state.surfaces.entry(surf.to_string()).or_default();
-        entry.slots.insert(sid.to_string(), normalized_rel.clone());
-        if sid == "primary" {
-            entry.active_plan_path = Some(normalized_rel.clone());
-        }
+        let sid = match slot_id {
+            Some(s) => validate_slot_id(s)?.to_string(),
+            None => entry
+                .active_slot_id
+                .clone()
+                .unwrap_or_else(|| "primary".to_string()),
+        };
+        entry.slots.insert(sid.clone(), normalized_rel.clone());
+        entry.active_slot_id = Some(sid);
+        entry.active_plan_path = Some(normalized_rel.clone());
         // Do NOT populate or overwrite the shared scalar with a surface-specific plan
     } else {
         state.active_plan_path = Some(normalized_rel.clone());
         for surf in ["antigravity", "codex"] {
             let entry = state.surfaces.entry(surf.to_string()).or_default();
-            entry.slots.insert(sid.to_string(), normalized_rel.clone());
-            if sid == "primary" {
-                entry.active_plan_path = Some(normalized_rel.clone());
-            }
+            let sid = match slot_id {
+                Some(s) => validate_slot_id(s)?.to_string(),
+                None => entry
+                    .active_slot_id
+                    .clone()
+                    .unwrap_or_else(|| "primary".to_string()),
+            };
+            entry.slots.insert(sid.clone(), normalized_rel.clone());
+            entry.active_slot_id = Some(sid);
+            entry.active_plan_path = Some(normalized_rel.clone());
         }
     }
     state.last_updated_unix = now_unix;
@@ -670,12 +789,44 @@ pub fn clear_active_plan_slot(
     surface: &str,
     slot_id: &str,
 ) -> Result<(), String> {
+    clear_active_plan_slot_with_fallback(repo_root, surface, slot_id, None)
+}
+
+pub fn clear_active_plan_slot_with_fallback(
+    repo_root: &Path,
+    surface: &str,
+    slot_id: &str,
+    fallback_slot_id: Option<&str>,
+) -> Result<(), String> {
+    if !matches!(surface, "codex" | "antigravity") {
+        return Err(format!("Unsupported Autocode surface: '{surface}'"));
+    }
+    let valid_slot = validate_slot_id(slot_id)?;
+    if let Some(fb) = fallback_slot_id {
+        let valid_fb = validate_slot_id(fb)?;
+        if valid_fb == valid_slot {
+            return Err("Fallback slot cannot be the same as the removed slot".to_string());
+        }
+    }
+
     let _state_lock = ACTIVE_PLAN_STATE_LOCK.lock().map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
     let mut state = load_active_plan_state(repo_root)?;
     if let Some(surf_state) = state.surfaces.get_mut(surface) {
-        surf_state.slots.remove(slot_id);
-        if slot_id == "primary" {
-            surf_state.active_plan_path = None;
+        surf_state.slots.remove(valid_slot);
+        if surf_state.active_slot_id.as_deref() == Some(valid_slot) {
+            if let Some(fb) = fallback_slot_id {
+                let valid_fb = validate_slot_id(fb)?;
+                let fb_path = surf_state
+                    .slots
+                    .get(valid_fb)
+                    .cloned()
+                    .ok_or_else(|| format!("Cannot fall back to '{valid_fb}' slot: no plan is configured in that slot"))?;
+                surf_state.active_slot_id = Some(valid_fb.to_string());
+                surf_state.active_plan_path = Some(fb_path);
+            } else {
+                surf_state.active_slot_id = None;
+                surf_state.active_plan_path = None;
+            }
         }
         let now_unix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -685,6 +836,221 @@ pub fn clear_active_plan_slot(
         write_active_plan_state_unlocked(repo_root, &state)?;
     }
     Ok(())
+}
+
+pub fn get_surface_plan_slots(
+    repo_root: &Path,
+    surface: &str,
+) -> Result<SurfacePlanSlotsView, String> {
+    if !matches!(surface, "codex" | "antigravity") {
+        return Err(format!("Unsupported Autocode surface: '{surface}'"));
+    }
+    let state = load_active_plan_state(repo_root)?;
+    let surf_state = state.surfaces.get(surface).cloned().unwrap_or_default();
+    let active_slot_id = surf_state.active_slot_id.clone();
+    let active_plan_path = active_slot_id
+        .as_deref()
+        .and_then(|sid| surf_state.slots.get(sid).cloned());
+    let is_unresolved = !surf_state.slots.is_empty() && active_slot_id.is_none();
+
+    Ok(SurfacePlanSlotsView {
+        repo_root: repo_root.to_string_lossy().to_string(),
+        surface: surface.to_string(),
+        active_slot_id,
+        active_plan_path,
+        slots: surf_state.slots,
+        is_unresolved,
+    })
+}
+
+pub fn set_active_plan_slot(
+    repo_root: &Path,
+    surface: &str,
+    slot_id: &str,
+) -> Result<PlanFileDetails, String> {
+    if !matches!(surface, "codex" | "antigravity") {
+        return Err(format!("Unsupported Autocode surface: '{surface}'"));
+    }
+    let valid_slot = validate_slot_id(slot_id)?;
+
+    let _state_lock = ACTIVE_PLAN_STATE_LOCK.lock().map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
+    let mut state = load_active_plan_state(repo_root)?;
+    let surf_state = state
+        .surfaces
+        .get_mut(surface)
+        .ok_or_else(|| format!("No plan slots are configured for {surface} surface"))?;
+
+    let rel_path = surf_state
+        .slots
+        .get(valid_slot)
+        .cloned()
+        .ok_or_else(|| format!("No plan file is configured for {surface} surface slot '{valid_slot}'"))?;
+
+    let abs_path = validate_plan_path(repo_root, &rel_path)?;
+    if !abs_path.exists() || !abs_path.is_file() {
+        return Err(format!("Plan file for slot '{valid_slot}' does not exist: '{rel_path}'"));
+    }
+
+    let normalized_rel = normalize_rel_path(&rel_path);
+    surf_state.active_slot_id = Some(valid_slot.to_string());
+    surf_state.active_plan_path = Some(normalized_rel.clone());
+    state.last_updated_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    write_active_plan_state_unlocked(repo_root, &state)?;
+
+    plan_details(&normalized_rel, abs_path)
+}
+
+pub fn resolve_and_pin_workflow_target(
+    repo_root: &Path,
+    surface: &str,
+    explicit_slot_id: Option<&str>,
+) -> Result<PinnedWorkflowTarget, String> {
+    if !matches!(surface, "codex" | "antigravity") {
+        return Err(format!("Unsupported Autocode surface: '{surface}'"));
+    }
+    let canonical_repo = repo_root
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
+    let state = load_active_plan_state(&canonical_repo)?;
+    let surf_state = state
+        .surfaces
+        .get(surface)
+        .ok_or_else(|| format!("No active plan file is configured for {surface} surface"))?;
+    let active_sid = surf_state
+        .active_slot_id
+        .as_deref()
+        .ok_or_else(|| format!("No active plan slot is selected for {surface} surface"))?;
+    validate_slot_id(active_sid)?;
+    if let Some(explicit_sid) = explicit_slot_id {
+        let valid_explicit = validate_slot_id(explicit_sid)?;
+        if valid_explicit != active_sid {
+            return Err(format!(
+                "Requested slot '{valid_explicit}' does not match canonical active slot '{active_sid}' for {surface} surface"
+            ));
+        }
+    }
+    let rel_path = surf_state
+        .slots
+        .get(active_sid)
+        .map(|s| normalize_rel_path(s))
+        .ok_or_else(|| format!("No active plan file is configured for {surface} surface slot '{active_sid}'"))?;
+    let abs_path = validate_plan_path(&canonical_repo, &rel_path)?;
+    if !abs_path.is_file() {
+        return Err(format!("Active plan file does not exist: '{rel_path}'"));
+    }
+    let details = plan_details(&rel_path, abs_path)?;
+    let revision_digest = checkpoint_revision_digest(&details.content);
+    Ok(PinnedWorkflowTarget {
+        repository: canonical_repo.to_string_lossy().to_string(),
+        surface: surface.to_string(),
+        slot_id: active_sid.to_string(),
+        plan_path: details.rel_path,
+        sha256_hash: revision_digest,
+        file_identity: details.file_identity,
+    })
+}
+
+pub fn verify_pinned_workflow_target(target: &PinnedWorkflowTarget) -> Result<(), String> {
+    let repo_root = PathBuf::from(&target.repository);
+    let abs_path = validate_plan_path(&repo_root, &target.plan_path)?;
+    if !abs_path.is_file() {
+        return Err(format!(
+            "Pinned workflow plan '{}' (slot '{}', surface '{}') no longer exists on disk",
+            target.plan_path, target.slot_id, target.surface
+        ));
+    }
+    let current = plan_details(&target.plan_path, abs_path)?;
+    let current_revision = checkpoint_revision_digest(&current.content);
+    if !current_revision.eq_ignore_ascii_case(&target.sha256_hash) {
+        return Err(format!(
+            "Pinned workflow plan '{}' (slot '{}', surface '{}') changed on disk (expected revision {}, got {})",
+            target.plan_path, target.slot_id, target.surface, target.sha256_hash, current_revision
+        ));
+    }
+    if let Some(ref expected_id) = target.file_identity {
+        if current.file_identity.as_deref() != Some(expected_id.as_str()) {
+            return Err(format!(
+                "Pinned workflow plan '{}' (slot '{}', surface '{}') file identity changed",
+                target.plan_path, target.slot_id, target.surface
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub fn verify_pinned_target_for_repo_plan(
+    target: &PinnedWorkflowTarget,
+    repo_root: &Path,
+    rel_path: &str,
+) -> Result<(), String> {
+    let canonical_repo = repo_root
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
+    let canonical_pin_repo = PathBuf::from(&target.repository)
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize pinned repo root: {e}"))?;
+    if canonical_repo != canonical_pin_repo {
+        return Err(format!(
+            "Pinned workflow repository '{}' does not match requested repository '{}'",
+            canonical_pin_repo.display(),
+            canonical_repo.display()
+        ));
+    }
+    if normalize_rel_path(&target.plan_path) != normalize_rel_path(rel_path) {
+        return Err(format!(
+            "Pinned workflow plan '{}' does not match requested plan '{}'",
+            target.plan_path, rel_path
+        ));
+    }
+    verify_pinned_workflow_target(target)
+}
+
+pub fn launch_pinned_plan_workflow(
+    repo_root: &Path,
+    surface: &str,
+    explicit_slot_id: Option<&str>,
+) -> Result<PinnedWorkflowLaunch, String> {
+    let role_assignment = get_role_assignment_for_active_plan(repo_root, surface, explicit_slot_id)?;
+    let pinned_target = resolve_and_pin_workflow_target(repo_root, surface, explicit_slot_id)?;
+    Ok(PinnedWorkflowLaunch {
+        role_assignment,
+        pinned_target,
+    })
+}
+
+pub fn advance_pinned_workflow_target(
+    previous: &PinnedWorkflowTarget,
+    updated_details: &PlanFileDetails,
+) -> Result<PinnedWorkflowTarget, String> {
+    let repo_root = PathBuf::from(&previous.repository)
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize pinned repo root: {e}"))?;
+    let canonical_plan = PathBuf::from(&updated_details.abs_path)
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize updated plan: {e}"))?;
+    let canonical_plan_repo = find_enclosing_repo_root(&canonical_plan)?;
+    if canonical_plan_repo != repo_root {
+        return Err("Updated plan belongs to a different repository than the pinned workflow".to_string());
+    }
+    if normalize_rel_path(&previous.plan_path) != normalize_rel_path(&updated_details.rel_path) {
+        return Err(format!(
+            "Updated plan '{}' does not match pinned workflow plan '{}'",
+            updated_details.rel_path, previous.plan_path
+        ));
+    }
+    let next = PinnedWorkflowTarget {
+        repository: previous.repository.clone(),
+        surface: previous.surface.clone(),
+        slot_id: previous.slot_id.clone(),
+        plan_path: updated_details.rel_path.clone(),
+        sha256_hash: checkpoint_revision_digest(&updated_details.content),
+        file_identity: updated_details.file_identity.clone(),
+    };
+    verify_pinned_workflow_target(&next)?;
+    Ok(next)
 }
 
 pub fn create_plan_file(repo_root: &Path, req: &CreatePlanRequest) -> Result<PlanFileDetails, String> {
@@ -1516,18 +1882,52 @@ pub fn verify_resumption_preflight(
     }
     let state = load_active_plan_state(repo_root)?;
     let matches_active = if let Some(s) = surface {
-        let sid = slot_id.unwrap_or("primary");
-        state
-            .surfaces
-            .get(s)
-            .and_then(|st| st.slots.get(sid))
-            .map(|p| p.replace('\\', "/"))
-            == Some(normalized_rel.clone())
+        if let Some(st) = state.surfaces.get(s) {
+            if let Some(explicit_sid) = slot_id {
+                match validate_slot_id(explicit_sid) {
+                    Ok(valid_explicit) => match st.active_slot_id.as_deref() {
+                        Some(canonical_sid) if canonical_sid == valid_explicit => st
+                            .slots
+                            .get(canonical_sid)
+                            .map(|p| normalize_rel_path(p) == normalized_rel)
+                            .unwrap_or(false),
+                        Some(canonical_sid) => {
+                            is_resumable = false;
+                            reasons.push(format!(
+                                "Slot mismatch: requested slot '{valid_explicit}' differs from canonical active slot '{canonical_sid}'"
+                            ));
+                            false
+                        }
+                        None => false,
+                    },
+                    Err(e) => {
+                        is_resumable = false;
+                        reasons.push(e);
+                        false
+                    }
+                }
+            } else {
+                st.active_slot_id
+                    .as_deref()
+                    .and_then(|sid| st.slots.get(sid))
+                    .map(|p| normalize_rel_path(p) == normalized_rel)
+                    .unwrap_or(false)
+            }
+        } else {
+            false
+        }
     } else {
-        state.active_plan_path.as_deref().map(|p| p.replace('\\', "/")) == Some(normalized_rel.clone())
-            || state.surfaces.values().any(|s| {
-                s.active_plan_path.as_deref().map(|p| p.replace('\\', "/")) == Some(normalized_rel.clone())
-                    || s.slots.values().any(|p| p.replace('\\', "/") == normalized_rel)
+        state
+            .active_plan_path
+            .as_deref()
+            .map(|p| normalize_rel_path(p) == normalized_rel)
+            .unwrap_or(false)
+            || state.surfaces.values().any(|st| {
+                st.active_slot_id
+                    .as_deref()
+                    .and_then(|sid| st.slots.get(sid))
+                    .map(|p| normalize_rel_path(p) == normalized_rel)
+                    .unwrap_or(false)
             })
     };
     if !matches_active {
@@ -1535,7 +1935,7 @@ pub fn verify_resumption_preflight(
         reasons.push("Requested plan does not match the repository's configured Active Plan File".to_string());
     }
 
-    // Unknown checkpoint fields cannot safely select a workflow stage.
+    // Unknown checkpoint fields or missing run identity cannot safely select a workflow stage.
     if checkpoint.checkpoint_version != 1
         || checkpoint.workflow.trim().is_empty()
         || checkpoint.status.trim().is_empty()
@@ -1543,6 +1943,10 @@ pub fn verify_resumption_preflight(
     {
         is_resumable = false;
         reasons.push("Checkpoint workflow state is incomplete or uses an unsupported version".to_string());
+    }
+    if checkpoint.workflow_run_id.trim().is_empty() {
+        is_resumable = false;
+        reasons.push("Checkpoint workflow run identity is missing".to_string());
     }
 
     // 3. Verify plan file exists
@@ -2411,5 +2815,345 @@ Some description here...
             plan_p1.rel_path
         );
         assert!(get_active_plan(repo, Some("codex"), Some("secondary")).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_primary_secondary_slot_parity_switching_and_reload() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+
+        let p1 = create_plan_file(repo, &CreatePlanRequest {
+            name: "plan-one".into(),
+            folder: None,
+            title: Some("Plan One".into()),
+            set_as_active: Some(false),
+        }).unwrap();
+        let p2 = create_plan_file(repo, &CreatePlanRequest {
+            name: "plan-two".into(),
+            folder: None,
+            title: Some("Plan Two".into()),
+            set_as_active: Some(false),
+        }).unwrap();
+
+        set_active_plan(repo, &p1.rel_path, Some("codex"), Some("primary")).unwrap();
+        set_active_plan(repo, &p2.rel_path, Some("codex"), Some("secondary")).unwrap();
+
+        // Secondary is now canonical active slot; get_active_plan with None must resolve secondary
+        let active = get_active_plan(repo, Some("codex"), None).unwrap().unwrap();
+        assert_eq!(active.rel_path, p2.rel_path);
+        let view = get_surface_plan_slots(repo, "codex").unwrap();
+        assert_eq!(view.active_slot_id.as_deref(), Some("secondary"));
+        assert_eq!(view.active_plan_path.as_deref(), Some(p2.rel_path.as_str()));
+
+        // Switch back to primary symmetrically
+        let switched_p1 = set_active_plan_slot(repo, "codex", "primary").unwrap();
+        assert_eq!(switched_p1.rel_path, p1.rel_path);
+        assert_eq!(get_active_plan(repo, Some("codex"), None).unwrap().unwrap().rel_path, p1.rel_path);
+        assert_eq!(get_surface_plan_slots(repo, "codex").unwrap().active_slot_id.as_deref(), Some("primary"));
+
+        // Switch to secondary again
+        let switched_p2 = set_active_plan_slot(repo, "codex", "secondary").unwrap();
+        assert_eq!(switched_p2.rel_path, p2.rel_path);
+        assert_eq!(get_active_plan(repo, Some("codex"), None).unwrap().unwrap().rel_path, p2.rel_path);
+
+        // Antigravity surface remains isolated
+        assert!(get_active_plan(repo, Some("antigravity"), None).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_duplicate_paths_explicit_secondary_and_legacy_migration() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+
+        let shared = create_plan_file(repo, &CreatePlanRequest {
+            name: "shared-plan".into(),
+            folder: None,
+            title: Some("Shared Plan".into()),
+            set_as_active: Some(false),
+        }).unwrap();
+
+        // Explicit secondary selection with identical paths in primary and secondary
+        set_active_plan(repo, &shared.rel_path, Some("antigravity"), Some("primary")).unwrap();
+        set_active_plan(repo, &shared.rel_path, Some("antigravity"), Some("secondary")).unwrap();
+        let view = get_surface_plan_slots(repo, "antigravity").unwrap();
+        assert_eq!(view.active_slot_id.as_deref(), Some("secondary"));
+        assert_eq!(view.slots.get("primary"), Some(&shared.rel_path));
+        assert_eq!(view.slots.get("secondary"), Some(&shared.rel_path));
+
+        // Legacy migration: no active_slot_id, both slots match legacy active_plan_path -> chooses primary
+        let plan_dir = repo.join(PLAN_DIR_NAME);
+        let legacy_dup = format!(
+            r#"{{
+  "custom_unknown_root": "keep_me",
+  "last_updated_unix": 100,
+  "surfaces": {{
+    "antigravity": {{
+      "active_plan_path": "{}",
+      "custom_surface_field": 42,
+      "slots": {{
+        "primary": "{}",
+        "secondary": "{}"
+      }}
+    }},
+    "codex": {{
+      "active_plan_path": "{}",
+      "slots": {{
+        "primary": ".plan/other.md",
+        "secondary": "{}"
+      }}
+    }}
+  }}
+}}"#,
+            shared.rel_path, shared.rel_path, shared.rel_path, shared.rel_path, shared.rel_path
+        );
+        std::fs::write(plan_dir.join(ACTIVE_PLAN_FILE_NAME), legacy_dup).unwrap();
+
+        let ag_view = get_surface_plan_slots(repo, "antigravity").unwrap();
+        assert_eq!(ag_view.active_slot_id.as_deref(), Some("primary"));
+        assert!(!ag_view.is_unresolved);
+
+        let codex_view = get_surface_plan_slots(repo, "codex").unwrap();
+        assert_eq!(codex_view.active_slot_id.as_deref(), Some("secondary"));
+        assert!(!codex_view.is_unresolved);
+
+        // Saving role assignment preserves unknown JSON fields
+        set_role_assignment(repo, "codex", RoleAssignment {
+            planner_id: Some("codex_session".into()),
+            reviser_id: Some("codex_session".into()),
+        }).unwrap();
+        let saved_raw = std::fs::read_to_string(plan_dir.join(ACTIVE_PLAN_FILE_NAME)).unwrap();
+        assert!(saved_raw.contains("custom_unknown_root"));
+        assert!(saved_raw.contains("custom_surface_field"));
+
+        // Unmatched legacy active_plan_path preserves unresolved state
+        let unmatched_json = r#"{
+  "last_updated_unix": 100,
+  "surfaces": {
+    "codex": {
+      "active_plan_path": ".plan/missing.md",
+      "slots": {
+        "primary": ".plan/a.md",
+        "secondary": ".plan/b.md"
+      }
+    }
+  }
+}"#;
+        std::fs::write(plan_dir.join(ACTIVE_PLAN_FILE_NAME), unmatched_json).unwrap();
+        let unresolved = get_surface_plan_slots(repo, "codex").unwrap();
+        assert!(unresolved.is_unresolved);
+        assert!(unresolved.active_slot_id.is_none());
+        assert!(get_active_plan(repo, Some("codex"), None).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_stale_mirror_cannot_override_explicit_active_slot_id() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+
+        let p1 = create_plan_file(repo, &CreatePlanRequest {
+            name: "p1".into(),
+            folder: None,
+            title: None,
+            set_as_active: Some(false),
+        }).unwrap();
+        let p2 = create_plan_file(repo, &CreatePlanRequest {
+            name: "p2".into(),
+            folder: None,
+            title: None,
+            set_as_active: Some(false),
+        }).unwrap();
+
+        let stale_json = format!(
+            r#"{{
+  "active_plan_path": "{}",
+  "last_updated_unix": 100,
+  "surfaces": {{
+    "codex": {{
+      "active_slot_id": "secondary",
+      "active_plan_path": "{}",
+      "slots": {{
+        "primary": "{}",
+        "secondary": "{}"
+      }}
+    }}
+  }}
+}}"#,
+            p1.rel_path, p1.rel_path, p1.rel_path, p2.rel_path
+        );
+        std::fs::create_dir_all(repo.join(PLAN_DIR_NAME)).unwrap();
+        std::fs::write(repo.join(PLAN_DIR_NAME).join(ACTIVE_PLAN_FILE_NAME), stale_json).unwrap();
+
+        let active = get_active_plan(repo, Some("codex"), None).unwrap().unwrap();
+        assert_eq!(active.rel_path, p2.rel_path);
+    }
+
+    #[test]
+    fn test_role_preflight_uses_canonical_slot_and_rejects_mismatch() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+
+        let p1 = create_plan_file(repo, &CreatePlanRequest {
+            name: "role-p1".into(),
+            folder: None,
+            title: None,
+            set_as_active: Some(false),
+        }).unwrap();
+        let p2 = create_plan_file(repo, &CreatePlanRequest {
+            name: "role-p2".into(),
+            folder: None,
+            title: None,
+            set_as_active: Some(false),
+        }).unwrap();
+
+        let assignment = RoleAssignment {
+            planner_id: Some("codex_session".into()),
+            reviser_id: Some("codex_session".into()),
+        };
+        set_role_assignment(repo, "codex", assignment.clone()).unwrap();
+        set_active_plan(repo, &p1.rel_path, Some("codex"), Some("primary")).unwrap();
+        set_active_plan(repo, &p2.rel_path, Some("codex"), Some("secondary")).unwrap();
+
+        // Omitted slot_id consults canonical active_slot_id ("secondary")
+        assert_eq!(get_role_assignment_for_active_plan(repo, "codex", None).unwrap(), assignment);
+        assert_eq!(get_role_assignment_for_active_plan(repo, "codex", Some("secondary")).unwrap(), assignment);
+        // Conflicting explicit slot_id fails closed
+        let err = get_role_assignment_for_active_plan(repo, "codex", Some("primary")).unwrap_err();
+        assert!(err.contains("does not match canonical active slot"));
+
+        // Switching slots leaves role assignments unchanged
+        set_active_plan_slot(repo, "codex", "primary").unwrap();
+        assert_eq!(get_role_assignment_for_active_plan(repo, "codex", Some("primary")).unwrap(), assignment);
+        assert!(get_role_assignment_for_active_plan(repo, "codex", Some("secondary")).is_err());
+    }
+
+    #[test]
+    fn test_pinned_workflow_and_checkpoint_resumption_after_slot_switch_and_legacy() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+
+        let p1 = create_plan_file(repo, &CreatePlanRequest {
+            name: "pin-p1".into(),
+            folder: None,
+            title: None,
+            set_as_active: Some(false),
+        }).unwrap();
+        let p2 = create_plan_file(repo, &CreatePlanRequest {
+            name: "pin-p2".into(),
+            folder: None,
+            title: None,
+            set_as_active: Some(false),
+        }).unwrap();
+
+        set_active_plan(repo, &p1.rel_path, Some("codex"), Some("primary")).unwrap();
+        set_active_plan(repo, &p2.rel_path, Some("codex"), Some("secondary")).unwrap();
+
+        // Save checkpoint for p2
+        let cp = ExecutionCheckpoint {
+            checkpoint_version: 1,
+            workflow: "pov-build-review".into(),
+            status: "IMPLEMENTATION".into(),
+            last_completed: "IMPLEMENTED".into(),
+            next_action: "REVIEW".into(),
+            repository: repo.to_string_lossy().into_owned(),
+            active_plan: p2.rel_path.clone(),
+            plan_revision: checkpoint_revision_digest(&p2.content),
+            plan_file_identity: p2.file_identity.clone().unwrap(),
+            workflow_run_id: "run-p2".into(),
+            completed_work: vec![],
+            modified_files: vec![],
+            validation: vec![],
+            reviewer: "Codex".into(),
+            review_result: "PENDING".into(),
+            unresolved_findings: vec![],
+            pending_work: vec![],
+            timestamp: "now".into(),
+        };
+        let saved_p2 = save_execution_checkpoint(
+            repo,
+            &p2.rel_path,
+            &cp,
+            p2.file_identity.as_deref().unwrap(),
+            &p2.sha256_hash,
+        ).unwrap();
+        let stored_cp = get_execution_checkpoint(repo, &p2.rel_path).unwrap().unwrap();
+
+        // Pin workflow while secondary is active (after checkpoint section is established)
+        let pinned = resolve_and_pin_workflow_target(repo, "codex", None).unwrap();
+        assert_eq!(pinned.slot_id, "secondary");
+        assert_eq!(pinned.plan_path, p2.rel_path);
+
+        // Resumption succeeds while secondary is active
+        assert!(verify_resumption_preflight(repo, &p2.rel_path, &stored_cp, Some("codex"), None).unwrap().is_resumable);
+
+        // Switch active slot to primary; pinned target still verifies against p2 (not retargeted to p1)
+        set_active_plan_slot(repo, "codex", "primary").unwrap();
+        assert!(verify_pinned_workflow_target(&pinned).is_ok());
+
+        // Resumption of p2 checkpoint fails closed when primary is now active
+        let switched_res = verify_resumption_preflight(repo, &p2.rel_path, &stored_cp, Some("codex"), None).unwrap();
+        assert!(!switched_res.is_resumable);
+
+        // Legacy checkpoint: deserialize pre-change JSON without workflow_run_id -> fails closed without schema migration
+        set_active_plan_slot(repo, "codex", "secondary").unwrap();
+        let legacy_no_run_json = serde_json::json!({
+            "checkpoint_version": 1,
+            "workflow": "pov-build-review",
+            "status": "IMPLEMENTATION",
+            "last_completed": "IMPLEMENTED",
+            "next_action": "REVIEW",
+            "repository": repo.to_string_lossy().to_string(),
+            "active_plan": p2.rel_path,
+            "plan_revision": stored_cp.plan_revision,
+            "plan_file_identity": stored_cp.plan_file_identity,
+            "completed_work": [],
+            "modified_files": [],
+            "validation": [],
+            "reviewer": "Codex",
+            "review_result": "PENDING",
+            "unresolved_findings": [],
+            "pending_work": [],
+            "timestamp": "now"
+        });
+        let legacy_missing_run: ExecutionCheckpoint = serde_json::from_value(legacy_no_run_json).unwrap();
+        let missing_run_res = verify_resumption_preflight(repo, &p2.rel_path, &legacy_missing_run, Some("codex"), None).unwrap();
+        assert!(!missing_run_res.is_resumable);
+        assert!(missing_run_res.reasons.iter().any(|r| r.contains("run identity")));
+
+        // Proven legacy checkpoint JSON (has workflow_run_id + repository + plan + revision + identity, no slot fields) resumes
+        let legacy_proven_json = serde_json::json!({
+            "checkpoint_version": 1,
+            "workflow": "pov-build-review",
+            "status": "IMPLEMENTATION",
+            "last_completed": "IMPLEMENTED",
+            "next_action": "REVIEW",
+            "repository": repo.to_string_lossy().to_string(),
+            "active_plan": p2.rel_path,
+            "plan_revision": stored_cp.plan_revision,
+            "plan_file_identity": stored_cp.plan_file_identity,
+            "workflow_run_id": "legacy-run-123",
+            "completed_work": [],
+            "modified_files": [],
+            "validation": [],
+            "reviewer": "Codex",
+            "review_result": "PENDING",
+            "unresolved_findings": [],
+            "pending_work": [],
+            "timestamp": "now"
+        });
+        let legacy_proven: ExecutionCheckpoint = serde_json::from_value(legacy_proven_json).unwrap();
+        let proven_res = verify_resumption_preflight(repo, &p2.rel_path, &legacy_proven, Some("codex"), None).unwrap();
+        assert!(proven_res.is_resumable, "{:?}", proven_res.reasons);
+
+        // Mutating the pinned file causes verify_pinned_workflow_target to fail
+        std::fs::write(repo.join(&p2.rel_path), "# Mutated P2\n").unwrap();
+        assert!(verify_pinned_workflow_target(&pinned).is_err());
+
+        // Removing active secondary slot with confirmed fallback to primary
+        let _ = saved_p2;
+        clear_active_plan_slot_with_fallback(repo, "codex", "secondary", Some("primary")).unwrap();
+        let after_remove = get_surface_plan_slots(repo, "codex").unwrap();
+        assert_eq!(after_remove.active_slot_id.as_deref(), Some("primary"));
+        assert_eq!(after_remove.active_plan_path.as_deref(), Some(p1.rel_path.as_str()));
+        assert!(!after_remove.slots.contains_key("secondary"));
     }
 }

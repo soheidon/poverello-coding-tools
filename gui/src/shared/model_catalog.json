@@ -96,6 +96,10 @@
         "google/gemini-3.8-flash",
         "stepfun/step-3.7-flash",
         "stepfun/step-3.5-flash",
+        "openai/gpt-6.2-sol",
+        "openai/gpt-6.2-sol-pro",
+        "openai/gpt-6.2-astra",
+        "openai/gpt-6.2-astra-pro",
         "openai/gpt-6.1-sol",
         "openai/gpt-6.1-sol-pro",
         "openai/gpt-6.1-terra",
@@ -1142,6 +1146,152 @@
         ]
       }
     },
+    "openai/gpt-6.2-sol": {
+      "providerId": "openrouter",
+      "displayName": "GPT-6.2 Sol",
+      "vendor": "OpenAI",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": true,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": true,
+        "reasoning": {
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "codexReviewerEligible": true,
+        "cliModelId": "gpt-6.2-sol",
+        "reviewerReasoningEfforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "reviewerDefaultEffort": "low"
+      }
+    },
+    "openai/gpt-6.2-sol-pro": {
+      "providerId": "openrouter",
+      "displayName": "GPT-6.2 Sol Pro",
+      "vendor": "OpenAI",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": true,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": true,
+        "reasoning": {
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    },
+    "openai/gpt-6.2-astra": {
+      "providerId": "openrouter",
+      "displayName": "GPT-6.2 Astra",
+      "vendor": "OpenAI",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": true,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": true,
+        "reasoning": {
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    },
+    "openai/gpt-6.2-astra-pro": {
+      "providerId": "openrouter",
+      "displayName": "GPT-6.2 Astra Pro",
+      "vendor": "OpenAI",
+      "capabilities": {
+        "supportsVision": true,
+        "supportsVideo": false,
+        "supportsImageUrl": true,
+        "supportsImageBase64": true,
+        "supportsVideoUrl": false,
+        "supportsVideoBase64": false,
+        "forceThinking": true,
+        "thinkingDefault": "default",
+        "thinkingPolicy": "thinking_only",
+        "supportsReasoningEffort": true,
+        "reasoning": {
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultEffort": "medium"
+        },
+        "reasoningEffortOptions": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    },
     "openai/gpt-6.1-sol": {
       "providerId": "openrouter",
       "displayName": "GPT-6.1 Sol",
@@ -1257,7 +1407,6 @@
         "codexReviewerEligible": true,
         "cliModelId": "gpt-6.1-terra",
         "reviewerReasoningEfforts": [
-          "none",
           "low",
           "medium",
           "high",
@@ -1399,7 +1548,6 @@
         "codexReviewerEligible": true,
         "cliModelId": "gpt-6-luna",
         "reviewerReasoningEfforts": [
-          "none",
           "low",
           "medium",
           "high",
@@ -2198,6 +2346,26 @@
       "context_length": 1050000,
       "source": "official",
       "verified_at": "2026-09-12"
+    },
+    "openai/gpt-6.2-sol": {
+      "context_length": 1050000,
+      "source": "official",
+      "verified_at": "2026-11-18"
+    },
+    "openai/gpt-6.2-sol-pro": {
+      "context_length": 1050000,
+      "source": "official",
+      "verified_at": "2026-11-18"
+    },
+    "openai/gpt-6.2-astra": {
+      "context_length": 1050000,
+      "source": "official",
+      "verified_at": "2026-11-18"
+    },
+    "openai/gpt-6.2-astra-pro": {
+      "context_length": 1050000,
+      "source": "official",
+      "verified_at": "2026-11-18"
     },
     "openai/gpt-6-astra-pro": {
       "context_length": 1050000,

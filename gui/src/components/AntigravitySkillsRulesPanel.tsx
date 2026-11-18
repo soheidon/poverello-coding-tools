@@ -2,13 +2,26 @@ import React, { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n";
 import PlanFolderLocationCard from "./PlanFolderLocationCard";
+import AgentOptCliSettingsCard from "./AgentOptCliSettingsCard";
 import type {
   AntigravityCommandsInfo,
   AntigravityCommandItemInfo,
   GlobalRuleItemInfo,
+  PovDirectRuleManagementStatus,
 } from "../types";
 
 const WORKFLOW_COMMAND_NAMES = ["pov-plan-only", "pov-build-review", "pov-full-cycle"];
+
+const KNOWN_PROTECTED_REASONS = new Set([
+  "symlink_or_reparse",
+  "unreadable",
+  "legacy_sidecar",
+  "invalid_frontmatter",
+  "malformed_markers",
+  "invalid_or_unknown_metadata",
+  "legacy_poverello",
+  "unmanaged_custom",
+]);
 
 export default function AntigravitySkillsRulesPanel() {
   const { t } = useTranslation();
@@ -25,6 +38,12 @@ export default function AntigravitySkillsRulesPanel() {
   const [globalRulesLoading, setGlobalRulesLoading] = useState(false);
   const [globalRulesError, setGlobalRulesError] = useState<string | null>(null);
   const [globalRulesSavedMessage, setGlobalRulesSavedMessage] = useState(false);
+
+  // ── 3. Poverello Rule (pov-direct.md) Management State ──
+  const [povRuleStatus, setPovRuleStatus] = useState<PovDirectRuleManagementStatus | null>(null);
+  const [povRuleLoading, setPovRuleLoading] = useState(false);
+  const [povRuleError, setPovRuleError] = useState<string | null>(null);
+  const [povRuleSavedMessage, setPovRuleSavedMessage] = useState(false);
 
   // ── Fetchers ──
   const fetchCommands = useCallback(async () => {
@@ -53,10 +72,54 @@ export default function AntigravitySkillsRulesPanel() {
     }
   }, []);
 
+  const fetchPovRuleStatus = useCallback(async () => {
+    try {
+      setPovRuleLoading(true);
+      setPovRuleError(null);
+      const res = await invoke<PovDirectRuleManagementStatus>("get_pov_direct_rule_management_status");
+      setPovRuleStatus(res);
+    } catch (e: unknown) {
+      setPovRuleError(String(e));
+    } finally {
+      setPovRuleLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void fetchCommands();
     void fetchGlobalRules();
-  }, [fetchCommands, fetchGlobalRules]);
+    void fetchPovRuleStatus();
+  }, [fetchCommands, fetchGlobalRules, fetchPovRuleStatus]);
+
+  const handleInstallPovRule = async () => {
+    try {
+      setPovRuleLoading(true);
+      setPovRuleError(null);
+      const res = await invoke<PovDirectRuleManagementStatus>("install_pov_direct_rule");
+      setPovRuleStatus(res);
+      setPovRuleSavedMessage(true);
+      setTimeout(() => setPovRuleSavedMessage(false), 3000);
+    } catch (e: unknown) {
+      setPovRuleError(String(e));
+    } finally {
+      setPovRuleLoading(false);
+    }
+  };
+
+  const handleRepairPovRule = async () => {
+    try {
+      setPovRuleLoading(true);
+      setPovRuleError(null);
+      const res = await invoke<PovDirectRuleManagementStatus>("repair_pov_direct_rule");
+      setPovRuleStatus(res);
+      setPovRuleSavedMessage(true);
+      setTimeout(() => setPovRuleSavedMessage(false), 3000);
+    } catch (e: unknown) {
+      setPovRuleError(String(e));
+    } finally {
+      setPovRuleLoading(false);
+    }
+  };
 
   // ── Workflow Commands Handlers ──
   const handleOpenSkillsFolder = async () => {
@@ -185,6 +248,8 @@ export default function AntigravitySkillsRulesPanel() {
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {/* ── CARD 0: Plan Folder Location ── */}
       <PlanFolderLocationCard surface="antigravity" />
+
+      <AgentOptCliSettingsCard />
 
       {/* ── CARD 1: Workflow Commands ── */}
       <div className="settings-tile">
@@ -439,6 +504,126 @@ export default function AntigravitySkillsRulesPanel() {
             );
           })}
         </div>
+
+        {/* Poverello Rule (pov-direct.md) Install / Repair Card */}
+        {povRuleStatus && (
+          <div
+            data-testid="pov-direct-rule-card"
+            style={{
+              marginTop: 12,
+              background: "#fff",
+              border: "1px solid #d0d7de",
+              borderRadius: 6,
+              padding: "10px 12px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 700, color: "#1f2937" }}>
+                  pov-direct.md
+                </span>
+                <span
+                  data-testid="pov-direct-rule-state-badge"
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color:
+                      povRuleStatus.ruleState === "managed_current"
+                        ? "#1a7f37"
+                        : povRuleStatus.ruleState === "protected"
+                        ? "#cf222e"
+                        : povRuleStatus.ruleState === "absent"
+                        ? "#656d76"
+                        : "#9a6700",
+                  }}
+                >
+                  {povRuleStatus.ruleState === "absent" && t("antigravity.povRuleStateAbsent")}
+                  {povRuleStatus.ruleState === "managed_current" && t("antigravity.povRuleStateManagedCurrent")}
+                  {povRuleStatus.ruleState === "managed_outdated" && t("antigravity.povRuleStateManagedOutdated")}
+                  {povRuleStatus.ruleState === "managed_drifted" && t("antigravity.povRuleStateManagedDrifted")}
+                  {povRuleStatus.ruleState === "protected" && t("antigravity.povRuleStateProtected")}
+                </span>
+                {povRuleStatus.schemaId && (
+                  <span style={{ fontSize: 10, color: "#57606a", background: "#f6f8fa", padding: "1px 6px", borderRadius: 4, border: "1px solid #d0d7de" }}>
+                    {t("antigravity.povRuleSchemaLabel")}: {povRuleStatus.schemaId}
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {povRuleSavedMessage && (
+                  <span style={{ fontSize: 11, color: "#1a7f37", fontWeight: 600 }}>
+                    ✓ {t("antigravity.savedMessage")}
+                  </span>
+                )}
+                {povRuleStatus.canInstall && (
+                  <button
+                    type="button"
+                    data-testid="pov-direct-rule-install-btn"
+                    className="btn btn-primary"
+                    style={{ fontSize: 11, padding: "4px 10px" }}
+                    onClick={() => void handleInstallPovRule()}
+                    disabled={povRuleLoading}
+                  >
+                    {t("antigravity.globalRulesBtnInstall")}
+                  </button>
+                )}
+                {povRuleStatus.canRepair && (
+                  <button
+                    type="button"
+                    data-testid="pov-direct-rule-repair-btn"
+                    className="btn btn-primary"
+                    style={{ fontSize: 11, padding: "4px 10px" }}
+                    onClick={() => void handleRepairPovRule()}
+                    disabled={povRuleLoading}
+                  >
+                    {t("antigravity.povRuleBtnRepair")}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div data-testid="pov-direct-rule-path" style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "#57606a" }}>
+              {povRuleStatus.rulePath}
+            </div>
+
+            <div
+              data-testid="pov-direct-skill-dependency-status"
+              style={{
+                fontSize: 11,
+                color: povRuleStatus.skillPresent ? "#1a7f37" : "#9a6700",
+                fontWeight: 500,
+              }}
+            >
+              {povRuleStatus.skillPresent
+                ? t("antigravity.povRuleSkillPresent")
+                : t("antigravity.povRuleSkillMissingNotExecutable")}
+            </div>
+
+            {povRuleStatus.ruleState === "protected" && (
+              <div
+                data-testid="pov-direct-rule-protected-guidance"
+                style={{ fontSize: 11, color: "#cf222e", background: "#ffebe9", padding: "6px 8px", borderRadius: 4, border: "1px solid #ff8182" }}
+              >
+                {t("antigravity.povRuleProtectedGuidance")}
+                {povRuleStatus.protectedReason
+                  ? ` (${
+                      KNOWN_PROTECTED_REASONS.has(povRuleStatus.protectedReason)
+                        ? t(`antigravity.povRuleProtectedReason.${povRuleStatus.protectedReason}` as Parameters<typeof t>[0])
+                        : t("antigravity.povRuleProtectedReason.unknown")
+                    })`
+                  : ""}
+              </div>
+            )}
+
+            {povRuleError && (
+              <div style={{ fontSize: 11, color: "#cf222e" }}>{povRuleError}</div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Skill Repair Confirmation Modal */}

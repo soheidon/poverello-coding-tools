@@ -24,6 +24,7 @@ mod antigravity_global_rules;
 pub mod reviewer_policy;
 pub mod pov_direct;
 pub mod pov_nerf;
+pub mod agent_opt;
 pub mod cli_tools;
 pub mod codex_skills;
 pub mod codex_global_rules;
@@ -378,6 +379,8 @@ fn ensure_config_initialized_at(
         migrate_minimax_m3_thinking_only(path);
         // Idempotent: migrate legacy DeepSeek V4 Pro low/medium effort to high
         migrate_deepseek_pro_legacy_reasoning_effort(path);
+        // Idempotent: migrate any persisted Off/'none' on OpenRouter GPT-6.2 models to 'medium'
+        migrate_gpt62_legacy_reasoning_effort(path)?;
         // Idempotent: migrate legacy DeepSeek V4 Flash exact-match defaults to deepseek-flash (V4.1 Flash)
         migrate_deepseek_legacy_flash_to_v4_1(path);
         // Idempotent: migrate legacy MiMo V2.5 exact-match defaults to MiMo V2.6 series
@@ -1501,6 +1504,189 @@ fn migrate_deepseek_pro_legacy_reasoning_effort(config_path: &Path) -> bool {
         return false;
     };
     std::fs::write(config_path, serialized).is_ok()
+}
+
+fn patch_gpt62_slot_if_none(obj: &mut serde_json::Map<String, serde_json::Value>, model_key: &str) -> bool {
+    let Some(model) = obj.get(model_key).and_then(serde_json::Value::as_str) else {
+        return false;
+    };
+    if !model_capabilities::is_openai_gpt62_model(model) {
+        return false;
+    }
+    let mut changed = false;
+    if obj.get("reasoning_effort").and_then(serde_json::Value::as_str) == Some("none") {
+        obj.insert("reasoning_effort".into(), serde_json::json!("medium"));
+        changed = true;
+    }
+    if matches!(
+        obj.get("thinking_mode").and_then(serde_json::Value::as_str),
+        Some("normal" | "off")
+    ) {
+        obj.insert("thinking_mode".into(), serde_json::json!("thinking"));
+        changed = true;
+    }
+    changed
+}
+
+fn migrate_gpt62_legacy_reasoning_effort(config_path: &Path) -> Result<bool, String> {
+    migrate_gpt62_legacy_reasoning_effort_with_hook(config_path, || Ok(()))
+}
+
+fn migrate_gpt62_legacy_reasoning_effort_with_hook<F>(
+    config_path: &Path,
+    pre_replace_hook: F,
+) -> Result<bool, String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    let original_bytes = match std::fs::read(config_path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(format!("Failed to read config for GPT-6.2 migration: {e}")),
+    };
+    let expected_hash = {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(&original_bytes))
+    };
+
+    let Ok(mut config) = serde_json::from_slice::<serde_json::Value>(&original_bytes) else {
+        return Ok(false);
+    };
+
+    let mut changed = false;
+    if let Some(models) = config
+        .pointer_mut("/providers/openrouter/models")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for entry in models.values_mut() {
+            if let Some(obj) = entry.as_object_mut() {
+                if patch_gpt62_slot_if_none(obj, "upstream_model") {
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    if let Some(profiles) = config
+        .pointer_mut("/providers/openrouter/profiles")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for profile in profiles.iter_mut() {
+            for slot_name in ["opus", "sonnet", "haiku"] {
+                if let Some(slot_obj) = profile.get_mut(slot_name).and_then(serde_json::Value::as_object_mut) {
+                    if patch_gpt62_slot_if_none(slot_obj, "model") {
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    if !changed {
+        return Ok(false);
+    }
+
+    let serialized = serde_json::to_vec_pretty(&config)
+        .map_err(|e| format!("Failed to serialize migrated GPT-6.2 config: {e}"))?;
+    let parent = config_path
+        .parent()
+        .ok_or_else(|| "Config path has no parent directory".to_string())?;
+    let temp_path = parent.join(format!(".config.gpt62.tmp-{}", uuid::Uuid::new_v4()));
+    std::fs::write(&temp_path, &serialized)
+        .map_err(|e| format!("Failed to write temporary migrated config: {e}"))?;
+
+    let current_bytes = std::fs::read(config_path)
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&temp_path);
+            format!("Failed to re-read config before GPT-6.2 migration write: {e}")
+        })?;
+    let current_hash = {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(&current_bytes))
+    };
+    if current_hash != expected_hash {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err("Concurrent modification conflict: config.json changed before GPT-6.2 migration replacement. Aborted with zero writes.".to_string());
+    }
+
+    // Hook runs right before OS atomic replacement (after pre-check) so tests can inject
+    // a concurrent modification in the window between hash check and replacement.
+    if let Err(e) = pre_replace_hook() {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(e);
+    }
+
+    #[cfg(windows)]
+    {
+        let backup_path = parent.join(format!(".config.gpt62.bak-{}", uuid::Uuid::new_v4()));
+        if let Err(e) = reviewer_policy::replace_file_with_backup_win(&temp_path, config_path, &backup_path) {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(format!("Failed to atomically replace config during GPT-6.2 migration: {e}"));
+        }
+        verify_and_restore_gpt62_backup_win(
+            &backup_path,
+            config_path,
+            &expected_hash,
+            |p| std::fs::read(p),
+            replace_file_win,
+        )?;
+        let _ = std::fs::remove_file(&backup_path);
+    }
+    #[cfg(not(windows))]
+    {
+        if let Err(e) = reviewer_policy::replace_file_conditional_unix(&temp_path, config_path, &expected_hash) {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(format!("Concurrent modification conflict during GPT-6.2 migration: {e}"));
+        }
+    }
+
+    Ok(true)
+}
+
+#[cfg(windows)]
+fn verify_and_restore_gpt62_backup_win<R, F>(
+    backup_path: &Path,
+    config_path: &Path,
+    expected_hash: &str,
+    read_fn: R,
+    restore_fn: F,
+) -> Result<(), String>
+where
+    R: FnOnce(&Path) -> std::io::Result<Vec<u8>>,
+    F: FnOnce(&Path, &Path) -> std::io::Result<()>,
+{
+    let replaced_bytes = match read_fn(backup_path) {
+        Ok(b) => b,
+        Err(e) => {
+            if let Err(restore_err) = restore_fn(backup_path, config_path) {
+                return Err(format!(
+                    "Recovery required: failed to verify replaced backup hash during GPT-6.2 migration ({e}), and rollback failed ({restore_err}). Backup preserved at {}",
+                    backup_path.display()
+                ));
+            }
+            let _ = std::fs::remove_file(backup_path);
+            return Err(format!(
+                "Failed to verify replaced backup hash during GPT-6.2 migration ({e}). Original content restored from backup."
+            ));
+        }
+    };
+    let replaced_hash = {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(&replaced_bytes))
+    };
+    if !replaced_hash.eq_ignore_ascii_case(expected_hash) {
+        if let Err(restore_err) = restore_fn(backup_path, config_path) {
+            return Err(format!(
+                "Recovery required: concurrent modification conflict (replaced config hash {replaced_hash} differed from expected {expected_hash}), and rollback failed ({restore_err}). Backup preserved at {}",
+                backup_path.display()
+            ));
+        }
+        let _ = std::fs::remove_file(backup_path);
+        return Err(format!(
+            "Concurrent modification conflict: replaced config hash ({replaced_hash}) differed from expected ({expected_hash}). Intervening content restored."
+        ));
+    }
+    Ok(())
 }
 
 /// Expected historical model_map entries for untouched built-in DeepSeek provider.
@@ -7328,6 +7514,27 @@ fn save_pov_direct_settings(
 }
 
 #[tauri::command]
+fn get_pov_direct_rule_management_status() -> Result<pov_direct::PovDirectRuleManagementStatus, String> {
+    let rules_dir = paths::antigravity_global_rules_dir()?;
+    let skill_file = paths::poverello_direct_skill_file()?;
+    pov_direct::inspect_pov_direct_rule_management_at(&rules_dir, &skill_file)
+}
+
+#[tauri::command]
+fn install_pov_direct_rule() -> Result<pov_direct::PovDirectRuleManagementStatus, String> {
+    let rules_dir = paths::antigravity_global_rules_dir()?;
+    let skill_file = paths::poverello_direct_skill_file()?;
+    pov_direct::install_pov_direct_rule_at(&rules_dir, &skill_file)
+}
+
+#[tauri::command]
+fn repair_pov_direct_rule() -> Result<pov_direct::PovDirectRuleManagementStatus, String> {
+    let rules_dir = paths::antigravity_global_rules_dir()?;
+    let skill_file = paths::poverello_direct_skill_file()?;
+    pov_direct::repair_pov_direct_rule_at(&rules_dir, &skill_file)
+}
+
+#[tauri::command]
 fn open_antigravity_rules_folder() -> Result<(), String> {
     let dir = paths::antigravity_global_rules_dir()?;
     if !dir.exists() {
@@ -7335,6 +7542,197 @@ fn open_antigravity_rules_folder() -> Result<(), String> {
             .map_err(|e| format!("Failed to create global rules directory: {e}"))?;
     }
     open_path(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn get_antigravity_nerf_engine_overview(
+) -> Result<agent_opt::NerfEngineOverview, String> {
+    let settings_file = paths::antigravity_nerf_engine_settings_path()?;
+    let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
+    let rules_dir = paths::antigravity_global_rules_dir()?;
+    let skill_file = paths::poverello_direct_skill_file()?;
+    let runner = agent_opt::RealAgentOptCliRunner;
+    let project_slots_file = resolve_project_plan_slots_settings_file("antigravity")?;
+    let project_slots = get_project_plan_slots_from_file(&project_slots_file)?;
+    agent_opt::inspect_nerf_engine_overview_for_projects_at(
+        &settings_file,
+        &cli_dir,
+        &rules_dir,
+        &skill_file,
+        &project_slots,
+        &runner,
+    )
+}
+
+#[tauri::command]
+fn install_agent_opt_cli() -> Result<agent_opt::AgentOptCliInfo, String> {
+    let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
+    let runner = agent_opt::RealAgentOptCliRunner;
+    agent_opt::install_agent_opt_cli_at(&cli_dir, &runner)
+}
+
+#[tauri::command]
+fn init_agent_opt_workspace(
+    workspace_path: String,
+    mode: Option<String>,
+) -> Result<agent_opt::AgentOptWorkspaceInspection, String> {
+    let settings_file = paths::antigravity_nerf_engine_settings_path()?;
+    let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
+    let runner = agent_opt::RealAgentOptCliRunner;
+    agent_opt::init_agent_opt_workspace_at(
+        &settings_file,
+        &cli_dir,
+        &workspace_path,
+        mode.as_deref(),
+        &runner,
+    )
+}
+
+#[tauri::command]
+fn adopt_agent_opt_workspace(
+    workspace_path: String,
+) -> Result<agent_opt::AgentOptWorkspaceInspection, String> {
+    let settings_file = paths::antigravity_nerf_engine_settings_path()?;
+    let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
+    let runner = agent_opt::RealAgentOptCliRunner;
+    agent_opt::adopt_agent_opt_workspace_at(&settings_file, &cli_dir, &workspace_path, &runner)
+}
+
+#[tauri::command]
+fn enable_agent_opt_workspace(
+    workspace_path: String,
+) -> Result<agent_opt::AgentOptWorkspaceInspection, String> {    let _ = workspace_path;
+    Err("Per-workspace AgentOpt enable is disabled. Apply the selected engine to all configured projects.".to_string())
+}
+#[tauri::command]
+fn set_agent_opt_mode(
+    workspace_path: String,
+    mode: String,
+) -> Result<agent_opt::AgentOptWorkspaceInspection, String> {
+    let settings_file = paths::antigravity_nerf_engine_settings_path()?;
+    let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
+    let runner = agent_opt::RealAgentOptCliRunner;
+    agent_opt::set_agent_opt_mode_at(&settings_file, &cli_dir, &workspace_path, &mode, &runner)
+}
+
+#[tauri::command]
+fn update_agent_opt_config(
+    workspace_path: String,
+    patch: serde_json::Value,
+) -> Result<agent_opt::AgentOptWorkspaceInspection, String> {
+    let settings_file = paths::antigravity_nerf_engine_settings_path()?;
+    let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
+    let runner = agent_opt::RealAgentOptCliRunner;
+    agent_opt::update_agent_opt_config_at(&settings_file, &cli_dir, &workspace_path, &patch, &runner)
+}
+
+#[tauri::command]
+fn switch_antigravity_nerf_engine(
+    target_engine: String,
+) -> Result<agent_opt::EngineTransitionResult, String> {
+    let parsed = agent_opt::NerfEngine::parse(&target_engine)?;
+    let settings_file = paths::antigravity_nerf_engine_settings_path()?;
+    let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
+    let rules_dir = paths::antigravity_global_rules_dir()?;
+    let skill_file = paths::poverello_direct_skill_file()?;
+    let runner = agent_opt::RealAgentOptCliRunner;
+    let project_slots_file = resolve_project_plan_slots_settings_file("antigravity")?;
+    let project_slots = get_project_plan_slots_from_file(&project_slots_file)?;
+    agent_opt::switch_nerf_engine_for_projects_at(
+        &settings_file,
+        &cli_dir,
+        &rules_dir,
+        &skill_file,
+        parsed,
+        &project_slots,
+        &runner,
+    )
+}
+
+#[tauri::command]
+fn apply_selected_antigravity_nerf_engine(
+) -> Result<agent_opt::EngineTransitionResult, String> {
+    let settings_file = paths::antigravity_nerf_engine_settings_path()?;
+    let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
+    let rules_dir = paths::antigravity_global_rules_dir()?;
+    let skill_file = paths::poverello_direct_skill_file()?;
+    let runner = agent_opt::RealAgentOptCliRunner;
+    let project_slots_file = resolve_project_plan_slots_settings_file("antigravity")?;
+    let project_slots = get_project_plan_slots_from_file(&project_slots_file)?;
+    agent_opt::apply_selected_nerf_engine_for_projects_at(
+        &settings_file,
+        &cli_dir,
+        &rules_dir,
+        &skill_file,
+        &project_slots,
+        &runner,
+    )
+}
+
+#[tauri::command]
+fn set_antigravity_agent_opt_workspace_selection(
+    mode: String,
+    manual_workspace: Option<String>,
+) -> Result<agent_opt::NerfEngineOverview, String> {
+    let parsed_mode = agent_opt::AgentOptWorkspaceMode::parse(&mode)?;
+    let settings_file = paths::antigravity_nerf_engine_settings_path()?;
+    let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
+    let rules_dir = paths::antigravity_global_rules_dir()?;
+    let skill_file = paths::poverello_direct_skill_file()?;
+    let runner = agent_opt::RealAgentOptCliRunner;
+    let project_slots_file = resolve_project_plan_slots_settings_file("antigravity")?;
+    let project_slots = get_project_plan_slots_from_file(&project_slots_file)?;
+    agent_opt::set_agent_opt_workspace_selection_at(
+        &settings_file,
+        &cli_dir,
+        &rules_dir,
+        &skill_file,
+        parsed_mode,
+        manual_workspace.as_deref(),
+        &project_slots,
+        &runner,
+    )
+}
+
+#[tauri::command]
+fn set_agent_opt_project_preference(
+    slot_id: String,
+    use_agent_opt: bool,
+) -> Result<agent_opt::NerfEngineOverview, String> {
+    update_agent_opt_project_preference(slot_id, Some(use_agent_opt), None)
+}
+
+#[tauri::command]
+fn set_agent_opt_project_manual_workspace(
+    slot_id: String,
+    manual_workspace: Option<String>,
+) -> Result<agent_opt::NerfEngineOverview, String> {
+    update_agent_opt_project_preference(slot_id, None, Some(manual_workspace))
+}
+
+fn update_agent_opt_project_preference(
+    slot_id: String,
+    use_agent_opt: Option<bool>,
+    manual_workspace: Option<Option<String>>,
+) -> Result<agent_opt::NerfEngineOverview, String> {
+    let settings_file = paths::antigravity_nerf_engine_settings_path()?;
+    let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
+    let rules_dir = paths::antigravity_global_rules_dir()?;
+    let skill_file = paths::poverello_direct_skill_file()?;
+    let project_slots_file = resolve_project_plan_slots_settings_file("antigravity")?;
+    let project_slots = get_project_plan_slots_from_file(&project_slots_file)?;
+    let runner = agent_opt::RealAgentOptCliRunner;
+    agent_opt::set_agent_opt_project_preference_at(
+        &settings_file,
+        &cli_dir,
+        &rules_dir,
+        &skill_file,
+        &slot_id,
+        use_agent_opt,
+        manual_workspace.as_ref().map(|path| path.as_deref()),
+        &project_slots,
+        &runner,
+    )
 }
 
 #[tauri::command]
@@ -7770,30 +8168,7 @@ fn set_plan_manager_location(surface: String, path: Option<String>) -> Result<Op
         return Err(format!("Unsupported surface: '{surface}'"));
     }
 
-    let normalized_path: Option<String> = if let Some(raw_p) = path {
-        let trimmed = raw_p.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            let p = std::path::PathBuf::from(trimmed);
-            if !p.exists() {
-                return Err(format!("Specified path does not exist: '{trimmed}'"));
-            }
-            if !p.is_dir() {
-                return Err(format!("Specified path is not a directory: '{trimmed}'"));
-            }
-            let canonical = p.canonicalize().map_err(|e| format!("Cannot canonicalize path: {e}"))?;
-            // If the user selected the .plan folder directly, resolve its parent as repo_root
-            let effective = if canonical.file_name().and_then(|n| n.to_str()) == Some(plan_manager::PLAN_DIR_NAME) {
-                canonical.parent().unwrap_or(&canonical).to_path_buf()
-            } else {
-                canonical
-            };
-            Some(effective.to_string_lossy().to_string())
-        }
-    } else {
-        None
-    };
+    let normalized_path = normalize_plan_manager_location(path.as_deref())?;
 
     match surface.as_str() {
         "antigravity" => {
@@ -7820,6 +8195,34 @@ fn set_plan_manager_location(surface: String, path: Option<String>) -> Result<Op
         _ => unreachable!(),
     }
 
+    Ok(normalized_path)
+}
+
+fn normalize_plan_manager_location(path: Option<&str>) -> Result<Option<String>, String> {
+    let normalized_path = if let Some(raw_p) = path {
+        let trimmed = raw_p.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            let p = std::path::PathBuf::from(trimmed);
+            if !p.exists() {
+                return Err(format!("Specified path does not exist: '{trimmed}'"));
+            }
+            if !p.is_dir() {
+                return Err(format!("Specified path is not a directory: '{trimmed}'"));
+            }
+            let canonical = p.canonicalize().map_err(|e| format!("Cannot canonicalize path: {e}"))?;
+            // If the user selected the .plan folder directly, resolve its parent as repo_root
+            let effective = if canonical.file_name().and_then(|n| n.to_str()) == Some(plan_manager::PLAN_DIR_NAME) {
+                canonical.parent().unwrap_or(&canonical).to_path_buf()
+            } else {
+                canonical
+            };
+            Some(effective.to_string_lossy().to_string())
+        }
+    } else {
+        None
+    };
     Ok(normalized_path)
 }
 
@@ -8059,6 +8462,94 @@ fn get_active_plan(
     plan_manager::get_active_plan(&repo_root, surface.as_deref(), slot_id.as_deref())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SetActivePlanSlotResult {
+    pub overview: plan_manager::PlanOverview,
+    pub active_slot_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mirror_warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivePlanContextView {
+    pub surface: String,
+    pub repo_root: Option<String>,
+    pub slot_id: Option<String>,
+    pub plan_path: Option<String>,
+    pub resolved: bool,
+}
+
+fn normalize_repo_for_mirror_match(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if let Ok(canon) = std::path::Path::new(trimmed).canonicalize() {
+        return canon.to_string_lossy().to_lowercase();
+    }
+    trimmed.replace('\\', "/").to_lowercase()
+}
+
+fn update_active_plan_compatibility_mirror(
+    value: &mut serde_json::Value,
+    derived_active_plan_path: Option<&str>,
+    derived_active_plan_repo_path: Option<&str>,
+) -> Result<(), String> {
+    let obj = value
+        .as_object_mut()
+        .ok_or_else(|| "Configuration root is not a JSON object".to_string())?;
+    if let Some(path) = derived_active_plan_path {
+        obj.insert(
+            "active_plan_path".to_string(),
+            serde_json::Value::String(path.to_string()),
+        );
+        if let Some(repo) = derived_active_plan_repo_path {
+            obj.insert(
+                "active_plan_repo_path".to_string(),
+                serde_json::Value::String(repo.to_string()),
+            );
+        } else {
+            obj.remove("active_plan_repo_path");
+        }
+    } else {
+        // Without a canonical selection, there is no safe compatibility value.
+        // In particular, never infer one from the primary slot's position.
+        obj.remove("active_plan_path");
+        obj.remove("active_plan_repo_path");
+    }
+    Ok(())
+}
+
+fn sync_global_active_plan_mirror_at_file(
+    surface: &str,
+    repo_root: &std::path::Path,
+    relative_path: &str,
+    _slot_id: &str,
+    settings_file: &std::path::Path,
+) -> Result<(), String> {
+    let mut slots = get_project_plan_slots_from_file(settings_file)?;
+    let target_repo_norm = normalize_repo_for_mirror_match(&repo_root.to_string_lossy());
+    // Update only the global registration that already belongs to this repository;
+    // never overwrite another repository's registration or slot_id.
+    for s in slots.iter_mut() {
+        if let Some(ref rp) = s.repo_path {
+            if normalize_repo_for_mirror_match(rp) == target_repo_norm {
+                s.plan_path = Some(relative_path.to_string());
+            }
+        }
+    }
+    let backups_subfolder = match surface {
+        "antigravity" => "reviewer-policy",
+        "codex" => "codex-review-settings",
+        _ => return Err(format!("Unsupported surface: '{surface}'")),
+    };
+    save_project_plan_slots_to_file(
+        settings_file,
+        backups_subfolder,
+        &slots,
+        Some(relative_path),
+        Some(&repo_root.to_string_lossy()),
+    )
+}
+
 #[tauri::command]
 fn set_active_plan(
     relative_path: String,
@@ -8068,32 +8559,96 @@ fn set_active_plan(
 ) -> Result<plan_manager::PlanOverview, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
     let parent_folder = std::path::Path::new(&relative_path).parent().and_then(|p| p.to_str());
-    plan_manager::set_active_plan(&repo_root, &relative_path, surface.as_deref(), slot_id.as_deref())?;
+    // Write canonical repo-local state first.
+    let details = plan_manager::set_active_plan(&repo_root, &relative_path, surface.as_deref(), slot_id.as_deref())?;
 
+    // Refresh derived global compatibility mirror; mirror failures must not overwrite canonical state.
     if let (Some(surf), Some(slot_name)) = (surface.as_deref(), slot_id.as_deref()) {
         if matches!(surf, "codex" | "antigravity") {
-            let mut slots = get_project_plan_slots(surf.to_string())?;
-            let mut matched = false;
-            for s in slots.iter_mut() {
-                if s.slot_id == slot_name {
-                    s.repo_path = Some(repo_root.to_string_lossy().to_string());
-                    s.plan_path = Some(relative_path.clone());
-                    matched = true;
-                    break;
-                }
+            if let Ok(settings_file) = resolve_project_plan_slots_settings_file(surf) {
+                let _ = sync_global_active_plan_mirror_at_file(
+                    surf,
+                    &repo_root,
+                    &details.rel_path,
+                    slot_name,
+                    &settings_file,
+                );
             }
-            if !matched && slots.len() < 2 {
-                slots.push(plan_manager::ProjectPlanSlot {
-                    slot_id: slot_name.to_string(),
-                    repo_path: Some(repo_root.to_string_lossy().to_string()),
-                    plan_path: Some(relative_path.clone()),
-                });
-            }
-            set_project_plan_slots(surf.to_string(), slots)?;
         }
     }
 
     plan_manager::get_plan_overview(&repo_root, parent_folder, surface.as_deref(), slot_id.as_deref())
+}
+
+#[tauri::command]
+fn get_surface_plan_slots(
+    repo_path: Option<String>,
+    surface: String,
+) -> Result<plan_manager::SurfacePlanSlotsView, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::get_surface_plan_slots(&repo_root, &surface)
+}
+
+#[tauri::command]
+fn set_active_plan_slot(
+    repo_path: Option<String>,
+    surface: String,
+    slot_id: String,
+) -> Result<SetActivePlanSlotResult, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    let details = plan_manager::set_active_plan_slot(&repo_root, &surface, &slot_id)?;
+    let mut warnings = Vec::new();
+    if let Err(e) = match resolve_project_plan_slots_settings_file(&surface) {
+        Ok(settings_file) => sync_global_active_plan_mirror_at_file(
+            &surface,
+            &repo_root,
+            &details.rel_path,
+            &slot_id,
+            &settings_file,
+        ),
+        Err(e) => Err(e),
+    } {
+        warnings.push(e);
+    }
+    let parent_folder = std::path::Path::new(&details.rel_path)
+        .parent()
+        .and_then(|p| p.to_str());
+    let overview = match plan_manager::get_plan_overview(
+        &repo_root,
+        parent_folder,
+        Some(&surface),
+        Some(&slot_id),
+    ) {
+        Ok(ov) => ov,
+        Err(e) => {
+            warnings.push(format!("Overview refresh failed after canonical save: {e}"));
+            plan_manager::PlanOverview {
+                repo_root: repo_root.to_string_lossy().to_string(),
+                plans_dir: repo_root.join(plan_manager::PLAN_DIR_NAME).to_string_lossy().to_string(),
+                selected_folder: parent_folder.map(|s| s.to_string()),
+                active_plan_path: Some(details.abs_path.clone()),
+                active_plan_relative_path: Some(details.rel_path.clone()),
+                plans: vec![plan_manager::PlanFileItem {
+                    path: details.abs_path,
+                    relative_path: details.rel_path,
+                    title: Some(details.title),
+                    status: details.status,
+                    last_modified_ms: details.last_modified_unix * 1000,
+                    is_active: true,
+                }],
+            }
+        }
+    };
+    let mirror_warning = if warnings.is_empty() {
+        None
+    } else {
+        Some(warnings.join("; "))
+    };
+    Ok(SetActivePlanSlotResult {
+        overview,
+        active_slot_id: slot_id,
+        mirror_warning,
+    })
 }
 
 fn resolve_project_plan_slots_settings_file(surface: &str) -> Result<std::path::PathBuf, String> {
@@ -8197,10 +8752,112 @@ fn get_project_plan_slots(surface: String) -> Result<Vec<plan_manager::ProjectPl
     get_project_plan_slots_from_file(&target_file)
 }
 
+#[tauri::command]
+fn get_selected_project_plan_context(surface: String) -> Result<ActivePlanContextView, String> {
+    if surface != "antigravity" {
+        return Ok(ActivePlanContextView {
+            surface,
+            repo_root: None,
+            slot_id: None,
+            plan_path: None,
+            resolved: false,
+        });
+    }
+    let settings_file = resolve_project_plan_slots_settings_file(&surface)?;
+    let selected = get_selected_antigravity_plan_slot_from_file(&settings_file)?;
+    let resolved = selected.len() == 1
+        && selected[0].repo_path.as_deref().is_some_and(|path| !path.trim().is_empty())
+        && matches!(selected[0].slot_id.as_str(), "primary" | "secondary");
+    let slot = selected.first();
+    Ok(ActivePlanContextView {
+        surface,
+        repo_root: if resolved { slot.and_then(|item| item.repo_path.clone()) } else { None },
+        slot_id: if resolved { slot.map(|item| item.slot_id.clone()) } else { None },
+        plan_path: slot.and_then(|item| item.plan_path.clone()),
+        resolved,
+    })
+}
+
+/// Resolve the one Antigravity project whose plan is currently selected.
+/// The global active_plan_path is a legacy compatibility mirror; the repo root
+/// disambiguates projects that use the same relative plan filename.
+fn get_selected_antigravity_plan_slot_from_file(
+    target_file: &std::path::Path,
+) -> Result<Vec<plan_manager::ProjectPlanSlot>, String> {
+    if !target_file.exists() {
+        return Ok(Vec::new());
+    }
+    let content = std::fs::read_to_string(target_file).map_err(|e| e.to_string())?;
+    let value: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    let active_plan = value
+        .get("active_plan_path")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        ;
+    let Some(active_plan) = active_plan else {
+        return Ok(Vec::new());
+    };
+    let slots = get_project_plan_slots_from_file(target_file)?;
+
+    if let Some(repo) = value
+        .get("active_plan_repo_path")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let key = normalize_repo_for_mirror_match(repo);
+        let matched = slots.iter().find(|slot| {
+            slot.repo_path
+                .as_deref()
+                .map(normalize_repo_for_mirror_match)
+                .as_deref()
+                == Some(key.as_str())
+        });
+        if let Some(slot) = matched {
+            if slot.plan_path.as_deref() == Some(active_plan) {
+                return Ok(vec![plan_manager::ProjectPlanSlot {
+                    slot_id: slot.slot_id.clone(),
+                    repo_path: slot.repo_path.clone(),
+                    plan_path: Some(active_plan.to_string()),
+                }]);
+            }
+            return Ok(vec![plan_manager::ProjectPlanSlot {
+                slot_id: "active-plan-unresolved".to_string(),
+                repo_path: None,
+                plan_path: Some(active_plan.to_string()),
+            }]);
+        }
+        // Keep the selected root visible to preflight so it can report that
+        // this project must first be registered with AgentOpt.
+        return Ok(vec![plan_manager::ProjectPlanSlot {
+            slot_id: "active-plan".to_string(),
+            repo_path: Some(repo.to_string()),
+            plan_path: Some(active_plan.to_string()),
+        }]);
+    }
+
+    let matches: Vec<_> = slots
+        .iter()
+        .filter(|slot| slot.plan_path.as_deref() == Some(active_plan))
+        .cloned()
+        .collect();
+    match matches.as_slice() {
+        [slot] => Ok(vec![slot.clone()]),
+        [] | [_, _, ..] => Ok(vec![plan_manager::ProjectPlanSlot {
+            slot_id: "active-plan-unresolved".to_string(),
+            repo_path: None,
+            plan_path: Some(active_plan.to_string()),
+        }]),
+    }
+}
+
 fn save_project_plan_slots_to_file(
     target_file: &std::path::Path,
     backups_subfolder: &str,
     slots: &[plan_manager::ProjectPlanSlot],
+    derived_active_plan_path: Option<&str>,
+    derived_active_plan_repo_path: Option<&str>,
 ) -> Result<(), String> {
     let parent = target_file
         .parent()
@@ -8267,17 +8924,11 @@ fn save_project_plan_slots_to_file(
     if let Some(obj) = value.as_object_mut() {
         let slots_val = serde_json::to_value(slots).map_err(|e| e.to_string())?;
         obj.insert("slots".to_string(), slots_val);
-        // Write active_plan_path strictly from the "primary" slot.
-        // Never write secondary slot's plan to legacy scalar active_plan_path!
-        if let Some(primary) = slots.iter().find(|s| s.slot_id == "primary") {
-            if let Some(ref p) = primary.plan_path {
-                obj.insert("active_plan_path".to_string(), serde_json::Value::String(p.clone()));
-            } else {
-                obj.remove("active_plan_path");
-            }
-        } else {
-            obj.remove("active_plan_path");
-        }
+        update_active_plan_compatibility_mirror(
+            &mut value,
+            derived_active_plan_path,
+            derived_active_plan_repo_path,
+        )?;
     }
 
     let serialized = serde_json::to_string_pretty(&value)
@@ -8408,7 +9059,59 @@ fn set_project_plan_slots_at_file(
         "codex" => "codex-review-settings",
         _ => unreachable!(),
     };
-    save_project_plan_slots_to_file(settings_file, backups_subfolder, &normalized)?;
+    let existing_value = if settings_file.exists() {
+        std::fs::read_to_string(settings_file)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+            .unwrap_or_else(|| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+    let existing_active_repo = existing_value
+        .get("active_plan_repo_path")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let existing_active_plan = existing_value
+        .get("active_plan_path")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let selected_repo = existing_active_repo
+        .and_then(|active_repo| {
+            let active_key = normalize_repo_for_mirror_match(active_repo);
+            normalized.iter().find(|slot| {
+                slot.repo_path
+                    .as_deref()
+                    .map(normalize_repo_for_mirror_match)
+                    .as_deref()
+                    == Some(active_key.as_str())
+            })
+        })
+        .or_else(|| {
+            let active_plan = existing_active_plan?;
+            let matches: Vec<_> = normalized
+                .iter()
+                .filter(|slot| slot.plan_path.as_deref() == Some(active_plan))
+                .collect();
+            (matches.len() == 1).then(|| matches[0])
+        })
+        .or_else(|| (normalized.len() == 1).then(|| &normalized[0]));
+    let derived_active_plan = selected_repo.and_then(|slot| {
+        let repo_root = plan_manager::resolve_repo_root(slot.repo_path.as_deref()).ok()?;
+        let view = plan_manager::get_surface_plan_slots(&repo_root, surface).ok()?;
+        Some((view.active_plan_path?, repo_root.to_string_lossy().to_string()))
+    });
+    let (derived_active_plan_path, derived_active_plan_repo_path) = derived_active_plan
+        .map(|(path, repo)| (Some(path), Some(repo)))
+        .unwrap_or((None, None));
+    save_project_plan_slots_to_file(
+        settings_file,
+        backups_subfolder,
+        &normalized,
+        derived_active_plan_path.as_deref(),
+        derived_active_plan_repo_path.as_deref(),
+    )?;
     Ok(normalized)
 }
 
@@ -8417,9 +9120,15 @@ fn clear_active_plan_slot(
     repo_path: String,
     surface: String,
     slot_id: String,
+    fallback_slot_id: Option<String>,
 ) -> Result<(), String> {
     let repo_root = plan_manager::resolve_repo_root(Some(&repo_path))?;
-    plan_manager::clear_active_plan_slot(&repo_root, &surface, &slot_id)
+    plan_manager::clear_active_plan_slot_with_fallback(
+        &repo_root,
+        &surface,
+        &slot_id,
+        fallback_slot_id.as_deref(),
+    )
 }
 
 #[tauri::command]
@@ -8453,9 +9162,11 @@ fn create_plan_file(
 fn append_plan_audit_trail(
     relative_path: String,
     event: plan_manager::AuditTrailEvent,
+    pinned_target: plan_manager::PinnedWorkflowTarget,
     repo_path: Option<String>,
 ) -> Result<plan_manager::PlanFileDetails, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::verify_pinned_target_for_repo_plan(&pinned_target, &repo_root, &relative_path)?;
     plan_manager::append_audit_trail_event(&repo_root, &relative_path, &event)
 }
 
@@ -8465,9 +9176,11 @@ fn apply_plan_candidate(
     expected_file_identity: String,
     expected_sha256: String,
     candidate: String,
+    pinned_target: plan_manager::PinnedWorkflowTarget,
     repo_path: Option<String>,
 ) -> Result<plan_manager::PlanFileDetails, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::verify_pinned_target_for_repo_plan(&pinned_target, &repo_root, &relative_path)?;
     plan_manager::apply_plan_candidate_if_unchanged(
         &repo_root,
         &relative_path,
@@ -8483,9 +9196,11 @@ fn save_plan_checkpoint(
     checkpoint: plan_manager::ExecutionCheckpoint,
     expected_file_identity: String,
     expected_sha256: String,
+    pinned_target: plan_manager::PinnedWorkflowTarget,
     repo_path: Option<String>,
 ) -> Result<plan_manager::PlanFileDetails, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::verify_pinned_target_for_repo_plan(&pinned_target, &repo_root, &relative_path)?;
     plan_manager::save_execution_checkpoint(&repo_root, &relative_path, &checkpoint, &expected_file_identity, &expected_sha256)
 }
 
@@ -8499,14 +9214,51 @@ fn get_plan_checkpoint(
 }
 
 #[tauri::command]
+fn launch_pinned_plan_workflow(
+    repo_path: Option<String>,
+    surface: String,
+    slot_id: Option<String>,
+) -> Result<plan_manager::PinnedWorkflowLaunch, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::launch_pinned_plan_workflow(&repo_root, &surface, slot_id.as_deref())
+}
+
+#[tauri::command]
+fn advance_pinned_workflow_target(
+    previous: plan_manager::PinnedWorkflowTarget,
+    updated_details: plan_manager::PlanFileDetails,
+) -> Result<plan_manager::PinnedWorkflowTarget, String> {
+    plan_manager::advance_pinned_workflow_target(&previous, &updated_details)
+}
+
+#[tauri::command]
+fn pin_workflow_target(
+    repo_path: Option<String>,
+    surface: String,
+    slot_id: Option<String>,
+) -> Result<plan_manager::PinnedWorkflowTarget, String> {
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::resolve_and_pin_workflow_target(&repo_root, &surface, slot_id.as_deref())
+}
+
+#[tauri::command]
+fn verify_pinned_workflow_target_cmd(
+    target: plan_manager::PinnedWorkflowTarget,
+) -> Result<(), String> {
+    plan_manager::verify_pinned_workflow_target(&target)
+}
+
+#[tauri::command]
 fn verify_plan_resumption(
     relative_path: String,
     checkpoint: plan_manager::ExecutionCheckpoint,
+    pinned_target: plan_manager::PinnedWorkflowTarget,
     repo_path: Option<String>,
     surface: Option<String>,
     slot_id: Option<String>,
 ) -> Result<plan_manager::ResumptionPreflightResult, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    plan_manager::verify_pinned_target_for_repo_plan(&pinned_target, &repo_root, &relative_path)?;
     plan_manager::verify_resumption_preflight(&repo_root, &relative_path, &checkpoint, surface.as_deref(), slot_id.as_deref())
 }
 
@@ -11519,7 +12271,10 @@ pub fn run() {
             select_plan_file_dialog,
             select_project_folder_dialog,
             get_project_plan_slots,
+            get_selected_project_plan_context,
             set_project_plan_slots,
+            get_surface_plan_slots,
+            set_active_plan_slot,
             get_active_plan,
             set_active_plan,
             clear_active_plan_slot,
@@ -11530,6 +12285,10 @@ pub fn run() {
             apply_plan_candidate,
             save_plan_checkpoint,
             get_plan_checkpoint,
+            launch_pinned_plan_workflow,
+            advance_pinned_workflow_target,
+            pin_workflow_target,
+            verify_pinned_workflow_target_cmd,
             verify_plan_resumption,
             get_node_prerequisites_status,
             get_cli_auth_status,
@@ -11539,7 +12298,22 @@ pub fn run() {
             install_all_antigravity_mcp_commands,
             get_pov_direct_status,
             save_pov_direct_settings,
+            get_pov_direct_rule_management_status,
+            install_pov_direct_rule,
+            repair_pov_direct_rule,
             open_antigravity_rules_folder,
+            get_antigravity_nerf_engine_overview,
+            install_agent_opt_cli,
+            init_agent_opt_workspace,
+            adopt_agent_opt_workspace,
+            enable_agent_opt_workspace,
+            set_agent_opt_mode,
+            update_agent_opt_config,
+            switch_antigravity_nerf_engine,
+            apply_selected_antigravity_nerf_engine,
+            set_antigravity_agent_opt_workspace_selection,
+            set_agent_opt_project_preference,
+            set_agent_opt_project_manual_workspace,
             get_antigravity_global_rules_status,
             install_antigravity_global_rule,
             remove_antigravity_global_rule,
@@ -21161,14 +21935,12 @@ mod tests {
         let plan_dir = temp_dir.path().join(".plan");
         std::fs::create_dir_all(&plan_dir).unwrap();
 
-        // Pass .plan folder directly
-        let res = set_plan_manager_location("codex".to_string(), Some(plan_dir.to_string_lossy().to_string())).unwrap();
+        // Test normalization without reading or modifying the user's Codex settings.
+        let plan_dir_str = plan_dir.to_string_lossy();
+        let res = normalize_plan_manager_location(Some(plan_dir_str.as_ref())).unwrap();
         let canonical_parent = temp_dir.path().canonicalize().unwrap().to_string_lossy().to_string();
         assert_eq!(res, Some(canonical_parent));
-
-        // Reset
-        let reset_res = set_plan_manager_location("codex".to_string(), None).unwrap();
-        assert_eq!(reset_res, None);
+        assert_eq!(normalize_plan_manager_location(None).unwrap(), None);
     }
 
     #[test]
@@ -21449,6 +22221,97 @@ mod tests {
         assert_eq!(std::fs::read(&target).unwrap(), br#"{"keep":"original"}"#);
     }
 
+    #[test]
+    fn test_plan21_gpt62_none_migration_preserves_unknown_fields_and_aborts_on_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_path = dir.path().join("config.json");
+        let initial = serde_json::json!({
+            "active_provider": "openrouter",
+            "custom_top_level_unknown": {"nested": [1, 2, 3]},
+            "providers": {
+                "openrouter": {
+                    "api_key": "sk-or-preserve",
+                    "models": {
+                        "claude-opus-5": {
+                            "upstream_model": "openai/gpt-6.2-sol-pro",
+                            "thinking_mode": "normal",
+                            "reasoning_effort": "none",
+                            "custom_model_field": "keep"
+                        },
+                        "claude-haiku-5": {
+                            "upstream_model": "openai/gpt-6-luna",
+                            "thinking_mode": "normal",
+                            "reasoning_effort": "none"
+                        }
+                    },
+                    "profiles": [
+                        {
+                            "id": "p1",
+                            "opus": {"model": "openai/gpt-6.2-astra", "thinking_mode": "off", "reasoning_effort": "none"},
+                            "sonnet": {"model": "openai/gpt-6.2-astra-pro", "thinking_mode": "thinking", "reasoning_effort": "high"},
+                            "haiku": {"model": "openai/gpt-6-sol", "thinking_mode": "normal", "reasoning_effort": "none"}
+                        }
+                    ]
+                }
+            }
+        });
+        std::fs::write(&cfg_path, serde_json::to_vec_pretty(&initial).unwrap()).unwrap();
+
+        let changed = migrate_gpt62_legacy_reasoning_effort(&cfg_path).unwrap();
+        assert!(changed);
+
+        let after: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&cfg_path).unwrap()).unwrap();
+        assert_eq!(after["custom_top_level_unknown"]["nested"], serde_json::json!([1, 2, 3]));
+        assert_eq!(after["providers"]["openrouter"]["api_key"], "sk-or-preserve");
+        assert_eq!(after["providers"]["openrouter"]["models"]["claude-opus-5"]["reasoning_effort"], "medium");
+        assert_eq!(after["providers"]["openrouter"]["models"]["claude-opus-5"]["thinking_mode"], "thinking");
+        assert_eq!(after["providers"]["openrouter"]["models"]["claude-opus-5"]["custom_model_field"], "keep");
+        // Non-GPT-6.2 model (gpt-6-luna, gpt-6-sol) left untouched
+        assert_eq!(after["providers"]["openrouter"]["models"]["claude-haiku-5"]["reasoning_effort"], "none");
+        assert_eq!(after["providers"]["openrouter"]["profiles"][0]["opus"]["reasoning_effort"], "medium");
+        assert_eq!(after["providers"]["openrouter"]["profiles"][0]["sonnet"]["reasoning_effort"], "high");
+        assert_eq!(after["providers"]["openrouter"]["profiles"][0]["haiku"]["reasoning_effort"], "none");
+
+        // Conflict test: concurrent write aborts with zero overwrite
+        let conflict_path = dir.path().join("config-conflict.json");
+        std::fs::write(&conflict_path, serde_json::to_vec_pretty(&initial).unwrap()).unwrap();
+        let intervening = r#"{"intervening":true}"#;
+        let conflict_clone = conflict_path.clone();
+        let err = migrate_gpt62_legacy_reasoning_effort_with_hook(&conflict_path, move || {
+            std::fs::write(&conflict_clone, intervening).map_err(|e| e.to_string())
+        })
+        .unwrap_err();
+        assert!(err.contains("Concurrent modification conflict"));
+        assert_eq!(std::fs::read_to_string(&conflict_path).unwrap(), intervening);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_plan21_gpt62_backup_read_and_rollback_failure_preserves_backup_and_reports_recovery() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.json");
+        let backup_path = dir.path().join(".config.gpt62.bak-test");
+        std::fs::write(&config_path, b"migrated").unwrap();
+        std::fs::write(&backup_path, b"original-backup").unwrap();
+
+        let err = verify_and_restore_gpt62_backup_win(
+            &backup_path,
+            &config_path,
+            "0000",
+            |_| Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected backup read error")),
+            |_, _| Err(std::io::Error::new(std::io::ErrorKind::Other, "injected rollback error")),
+        )
+        .unwrap_err();
+
+        assert!(err.contains("Recovery required"));
+        assert!(err.contains("injected backup read error"));
+        assert!(err.contains("injected rollback error"));
+        assert!(err.contains(&backup_path.display().to_string()));
+        assert!(backup_path.exists(), "backup file must NOT be deleted when rollback fails");
+        assert_eq!(std::fs::read(&backup_path).unwrap(), b"original-backup");
+    }
+
     #[cfg(windows)]
     #[test]
     fn test_plan_location_update_rejects_staged_reparse_inserted_before_replace_windows() {
@@ -21493,6 +22356,82 @@ mod tests {
     }
 
     #[cfg(windows)]
+    #[test]
+    fn compatibility_active_plan_mirror_never_falls_back_to_primary() {
+        let mut config = json!({
+            "active_plan_path": ".plan/stale-primary.md",
+            "slots": [
+                { "slot_id": "primary", "repo_path": "C:\\repo", "plan_path": ".plan/primary.md" },
+                { "slot_id": "secondary", "repo_path": "C:\\repo", "plan_path": ".plan/secondary.md" }
+            ]
+        });
+
+        update_active_plan_compatibility_mirror(&mut config, None, None).unwrap();
+        assert!(config.get("active_plan_path").is_none());
+        assert!(config.get("active_plan_repo_path").is_none());
+
+        update_active_plan_compatibility_mirror(
+            &mut config,
+            Some(".plan/secondary.md"),
+            Some("C:\\repo"),
+        )
+        .unwrap();
+        assert_eq!(
+            config.get("active_plan_path").and_then(|v| v.as_str()),
+            Some(".plan/secondary.md")
+        );
+        assert_eq!(
+            config.get("active_plan_repo_path").and_then(|v| v.as_str()),
+            Some("C:\\repo")
+        );
+    }
+
+    #[test]
+    fn selected_antigravity_plan_resolves_one_project_by_repository_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let settings_file = temp.path().join("reviewer-policy.json");
+        let repo_a = temp.path().join("repo-a");
+        let repo_b = temp.path().join("repo-b");
+        std::fs::create_dir_all(&repo_a).unwrap();
+        std::fs::create_dir_all(&repo_b).unwrap();
+        let config = serde_json::json!({
+            "active_plan_path": ".plan/current.md",
+            "active_plan_repo_path": repo_b.to_string_lossy(),
+            "slots": [
+                { "slot_id": "primary", "repo_path": repo_a.to_string_lossy(), "plan_path": ".plan/current.md" },
+                { "slot_id": "secondary", "repo_path": repo_b.to_string_lossy(), "plan_path": ".plan/current.md" }
+            ]
+        });
+        std::fs::write(&settings_file, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+
+        let configured = get_project_plan_slots_from_file(&settings_file).unwrap();
+        assert_eq!(configured.len(), 2, "AgentOpt's registered-project source must retain both project rows");
+        assert_eq!(configured[0].repo_path.as_deref(), Some(repo_a.to_string_lossy().as_ref()));
+        assert_eq!(configured[1].repo_path.as_deref(), Some(repo_b.to_string_lossy().as_ref()));
+
+        let selected = get_selected_antigravity_plan_slot_from_file(&settings_file).unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].slot_id, "secondary");
+        assert_eq!(
+            selected[0].repo_path.as_deref(),
+            Some(repo_b.to_string_lossy().as_ref())
+        );
+
+        let mut ambiguous_legacy = config;
+        ambiguous_legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("active_plan_repo_path");
+        std::fs::write(
+            &settings_file,
+            serde_json::to_vec_pretty(&ambiguous_legacy).unwrap(),
+        )
+        .unwrap();
+        let unresolved = get_selected_antigravity_plan_slot_from_file(&settings_file).unwrap();
+        assert_eq!(unresolved.len(), 1);
+        assert_eq!(unresolved[0].repo_path, None);
+    }
+
     #[test]
     fn test_project_plan_slots_first_write_does_not_overwrite_concurrent_file() {
         let temp = tempfile::tempdir().unwrap();
@@ -21593,5 +22532,132 @@ mod tests {
         let _ = set_project_plan_slots_at_file("codex", slots_unresolvable, &settings_file);
         let remove_attempt = set_project_plan_slots_at_file("codex", slots_only_primary, &settings_file);
         assert!(remove_attempt.is_err(), "Must fail explicitly when secondary repository cannot be resolved or accessed");
+
+        // Test global compatibility mirror sync writes secondary active plan when secondary is active
+        // and does NOT overwrite another repository's registration.
+        let other_repo_temp = tempfile::tempdir().unwrap();
+        let other_repo_str = other_repo_temp.path().to_string_lossy().to_string();
+        let multi_repo_slots = vec![
+            plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: Some(other_repo_str.clone()), plan_path: Some(".plan/other-repo.md".into()) },
+            plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: Some(repo_str.clone()), plan_path: Some(".plan/test-plan.md".into()) },
+        ];
+        set_project_plan_slots_at_file("codex", multi_repo_slots, &settings_file).unwrap();
+
+        let plan_p2 = plan_dir.join("secondary-plan.md");
+        std::fs::write(&plan_p2, "# Secondary Plan").unwrap();
+        plan_manager::set_active_plan(repo, ".plan/secondary-plan.md", Some("codex"), Some("secondary")).unwrap();
+        sync_global_active_plan_mirror_at_file("codex", repo, ".plan/secondary-plan.md", "secondary", &settings_file).unwrap();
+        // Switch repo-local active slot to primary in `repo`; other_repo's primary registration must remain intact!
+        plan_manager::set_active_plan(repo, ".plan/test-plan.md", Some("codex"), Some("primary")).unwrap();
+        sync_global_active_plan_mirror_at_file("codex", repo, ".plan/test-plan.md", "primary", &settings_file).unwrap();
+
+        let after_slots = get_project_plan_slots_from_file(&settings_file).unwrap();
+        assert_eq!(after_slots[0].slot_id, "primary");
+        assert_eq!(after_slots[0].repo_path.as_deref(), Some(other_repo_str.as_str()));
+        assert_eq!(after_slots[0].plan_path.as_deref(), Some(".plan/other-repo.md"));
+        assert_eq!(after_slots[1].slot_id, "secondary");
+        assert_eq!(after_slots[1].repo_path.as_deref(), Some(repo_str.as_str()));
+        assert_eq!(after_slots[1].plan_path.as_deref(), Some(".plan/test-plan.md"));
+
+        let raw_mirror = std::fs::read_to_string(&settings_file).unwrap();
+        let mirror_val: serde_json::Value = serde_json::from_str(&raw_mirror).unwrap();
+        assert_eq!(
+            mirror_val.get("active_plan_path").and_then(|v| v.as_str()),
+            Some(".plan/test-plan.md")
+        );
+
+        // Verify pin_workflow_target & verify_pinned_workflow_target_cmd integration
+        let pinned = pin_workflow_target(Some(repo_str.clone()), "codex".into(), None).unwrap();
+        assert_eq!(pinned.slot_id, "primary");
+        assert_eq!(pinned.plan_path, ".plan/test-plan.md");
+        assert!(verify_pinned_workflow_target_cmd(pinned.clone()).is_ok());
+
+        // Launch pinned workflow on secondary slot, switch active slot to primary, and continue against pinned secondary
+        plan_manager::set_role_assignment(repo, "codex", plan_manager::RoleAssignment {
+            planner_id: Some("codex_session".into()),
+            reviser_id: Some("codex_session".into()),
+        }).unwrap();
+        plan_manager::set_active_plan(repo, ".plan/secondary-plan.md", Some("codex"), Some("secondary")).unwrap();
+        let launch = launch_pinned_plan_workflow(Some(repo_str.clone()), "codex".into(), None).unwrap();
+        assert_eq!(launch.pinned_target.slot_id, "secondary");
+        assert_eq!(launch.pinned_target.plan_path, ".plan/secondary-plan.md");
+
+        // Switch active slot to primary
+        plan_manager::set_active_plan_slot(repo, "codex", "primary").unwrap();
+
+        // Continuing workflow with pinned target succeeds on the pinned secondary plan,
+        // and rejects attempting to target the newly active primary plan with the secondary pin.
+        let p2_details = plan_manager::get_active_plan(repo, Some("codex"), Some("secondary")).unwrap().unwrap();
+        let wrong_plan_err = append_plan_audit_trail(
+            ".plan/test-plan.md".into(),
+            plan_manager::AuditTrailEvent {
+                phase: "Build".into(),
+                role_actor: "Antigravity".into(),
+                result: "PASS".into(),
+                notes: "should fail".into(),
+                expected_sha256: p2_details.sha256_hash.clone(),
+                expected_file_identity: p2_details.file_identity.clone(),
+            },
+            launch.pinned_target.clone(),
+            Some(repo_str.clone()),
+        ).unwrap_err();
+        assert!(wrong_plan_err.contains("does not match requested plan"));
+
+        let continued = append_plan_audit_trail(
+            ".plan/secondary-plan.md".into(),
+            plan_manager::AuditTrailEvent {
+                phase: "Build".into(),
+                role_actor: "Antigravity".into(),
+                result: "PASS".into(),
+                notes: "continued against pinned secondary".into(),
+                expected_sha256: p2_details.sha256_hash,
+                expected_file_identity: p2_details.file_identity,
+            },
+            launch.pinned_target.clone(),
+            Some(repo_str.clone()),
+        ).unwrap();
+        assert!(continued.content.contains("continued against pinned secondary"));
+
+        // Advance pin after CAS write and save checkpoint against the pinned secondary plan
+        let mut retargeted_details = continued.clone();
+        retargeted_details.rel_path = ".plan/test-plan.md".into();
+        assert!(plan_manager::advance_pinned_workflow_target(
+            &launch.pinned_target,
+            &retargeted_details,
+        ).is_err());
+        let advanced_pin = plan_manager::advance_pinned_workflow_target(&launch.pinned_target, &continued).unwrap();
+        let cp = plan_manager::ExecutionCheckpoint {
+            checkpoint_version: 1,
+            workflow: "pov-build-review".into(),
+            status: "IMPLEMENTATION".into(),
+            last_completed: "BUILD".into(),
+            next_action: "REVIEW".into(),
+            repository: repo_str.clone(),
+            active_plan: ".plan/secondary-plan.md".into(),
+            plan_revision: advanced_pin.sha256_hash.clone(),
+            plan_file_identity: continued.file_identity.clone().unwrap_or_default(),
+            workflow_run_id: "run-pinned-e2e".into(),
+            completed_work: vec![],
+            modified_files: vec![],
+            validation: vec![],
+            reviewer: "Codex".into(),
+            review_result: "PENDING".into(),
+            unresolved_findings: vec![],
+            pending_work: vec![],
+            timestamp: "now".into(),
+        };
+        let saved_cp = save_plan_checkpoint(
+            ".plan/secondary-plan.md".into(),
+            cp,
+            continued.file_identity.clone().unwrap(),
+            continued.sha256_hash.clone(),
+            advanced_pin,
+            Some(repo_str.clone()),
+        ).unwrap();
+        assert!(saved_cp.content.contains("run-pinned-e2e"));
+
+        // Mutating the pinned file fails verification
+        std::fs::write(&plan_file, "# Mutated Test Plan").unwrap();
+        assert!(verify_pinned_workflow_target_cmd(pinned).is_err());
     }
 }

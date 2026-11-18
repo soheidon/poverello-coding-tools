@@ -15,7 +15,7 @@ Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companio
 > [!TIP]
 > **What's New:** For version-by-version feature updates, implementation details, and changelogs, see [NEWS.md (Release Notes)](NEWS.md).
 
-The next release target is **v0.27.3** (not yet published). Each Autocode surface has its own primary project-plan slot and can add one optional second slot. Selecting a Markdown plan associates it with the repository containing that file; Antigravity and Codex keep their selections independent. The plan-folder setting only supplies the file picker’s starting directory when no plan is active. Removing the optional slot clears its Poverello association without deleting project or plan files. The selected plan's full path and status are shown, with a separate action to open it.
+This checkout is preparing **v0.28.0** (not yet published). It adds equivalent per-project AgentOpt controls for both Antigravity project-plan slots, with direct FAST / BALANCED / STRICT presets and a Custom editor; Poverello's Antigravity Rule can be installed or repaired from Settings; GPT-6.2 Sol is available as a Codex CLI reviewer, and the GPT-6.2 Sol / Astra family is available in OpenRouter. Antigravity and Codex keep their two project-plan slots independent. See [NEWS.md](NEWS.md) for the release details.
 
 ---
 
@@ -129,7 +129,7 @@ Settings > CLI Tools
 
 Download the latest currently published Windows installer from the [Releases](https://github.com/soheidon/poverello-coding-tools/releases) page and run it.
 
-The Windows installer supports 8 languages. Poverello keeps the existing application identity and includes an in-place upgrade path from Anthro Bridge. On first launch, it is designed to copy settings and run data from `%APPDATA%\Anthro Bridge` (or `%APPDATA%\Anthro Bridge Dev` for development builds) to the corresponding Poverello data folder while retaining the original folder as a recovery copy. Real Windows installation, migration, upgrade, reinstall, cancellation, and uninstall flows have not been verified; back up important data before upgrading.
+The Windows installer supports 8 languages. Stable builds can check for and install signed updates from GitHub Releases under **Settings > General > Application Updates**; development builds do not use the updater. An update is available there only after a compatible signed release and its updater manifest have been published. Poverello keeps the existing application identity and includes an in-place upgrade path from Anthro Bridge. On first launch, it is designed to copy settings and run data from `%APPDATA%\Anthro Bridge` (or `%APPDATA%\Anthro Bridge Dev` for development builds) to the corresponding Poverello data folder while retaining the original folder as a recovery copy. Real Windows installation, migration, upgrade, reinstall, cancellation, and uninstall flows have not been verified; back up important data before upgrading.
 
 ---
 

@@ -4072,4 +4072,39 @@ fn main() {
             "relative standalone executable must not set CODEX_MANAGED_PACKAGE_ROOT"
         );
     }
+
+    #[test]
+    fn test_plan20_reviewer_cli_args_forward_four_models_with_low_effort() {
+        let dir = tempdir().unwrap();
+        for (idx, model_id) in ["gpt-6.2-sol", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"].iter().enumerate() {
+            let ws = dir.path().join(format!("ws-{idx}"));
+            let snap = dir.path().join(format!("snap-{idx}"));
+            std::fs::create_dir_all(&ws).unwrap();
+            std::fs::create_dir_all(&snap).unwrap();
+            let plan_file = snap.join("plan.md");
+            std::fs::write(&plan_file, "# Test Plan").unwrap();
+            let req = crate::orchestrator::auto_converge::agent_runner::RoleExecutionRequest {
+                role: crate::orchestrator::auto_converge::isolation::AutoConvergeRole::Reviewer,
+                session_id: format!("test-run-{idx}-reviewer"),
+                workspace_root: ws,
+                snapshot_dir: Some(snap),
+                plan_path: plan_file,
+                runtime_allowlist: vec!["src/lib.rs".to_string()],
+                input_prompt: "Review".to_string(),
+                timeout_seconds: 300,
+                model: Some((*model_id).to_string()),
+                reasoning_effort: Some("low".to_string()),
+                run_id: Some(format!("test-run-{idx}")),
+            };
+            let launch = build_reviewer_launch_configuration(&req)
+                .unwrap_or_else(|e| panic!("failed for {model_id}: {e}"));
+            let args = &launch.invocation.args;
+            assert!(args.windows(2).any(|w| w[0] == "--model" && w[1] == *model_id));
+            assert!(args
+                .windows(2)
+                .any(|w| w[0] == "--config" && w[1] == "model_reasoning_effort=\"low\""));
+            assert!(args.windows(2).any(|w| w[0] == "--profile" && w[1] == "reviewer"));
+            assert!(args.contains(&"--ignore-rules".to_string()));
+        }
+    }
 }

@@ -1906,5 +1906,98 @@ describe("PlanFileManagerCard Component", () => {
         expect(screen.getByText(/Failed to parse \.plan\/\.active-plan\.json/)).toBeInTheDocument();
       });
     });
+
+    it("keeps both project plan rows without active-slot selection buttons", async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "get_project_plan_slots") return Promise.resolve([
+          { slot_id: "primary", repo_path: "C:\\mock\\repo-a", plan_path: ".plan/one.md" },
+          { slot_id: "secondary", repo_path: "C:\\mock\\repo-b", plan_path: ".plan/two.md" },
+        ]);
+        if (cmd === "get_selected_project_plan_context") return Promise.resolve({
+          surface: "codex", repoRoot: "C:\\mock\\repo-a", slotId: "primary", planPath: ".plan/one.md", resolved: true,
+        });
+        if (cmd === "get_surface_plan_slots") return Promise.resolve({
+          repo_root: "C:\\mock\\repo-a", surface: "codex", active_slot_id: "primary", active_plan_path: ".plan/one.md",
+          slots: { primary: ".plan/one.md" }, is_unresolved: false,
+        });
+        if (cmd === "list_available_plans") return Promise.resolve(mockPlanDetailsWithPlans);
+        if (cmd === "get_plan_role_assignment") return Promise.resolve({ planner_id: "codex_session", reviser_id: "codex_session" });
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" repoPath="C:\\mock\\repo-a" />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("project-plan-slot-primary")).toBeInTheDocument();
+        expect(screen.getByTestId("project-plan-slot-secondary")).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId("btn-activate-slot-primary")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("btn-activate-slot-secondary")).not.toBeInTheDocument();
+      expect(screen.getByTestId("btn-select-plan-file")).toBeInTheDocument();
+      expect(screen.getByTestId("btn-select-plan-file-secondary")).toBeInTheDocument();
+      expect(screen.getByTestId("btn-open-plan")).toBeInTheDocument();
+      expect(screen.getByTestId("btn-open-plan-secondary")).toBeInTheDocument();
+    });
+    it("pins the project workflow context through its plan-file picker", async () => {
+      const user = userEvent.setup();
+      const onPinned = vi.fn();
+      const onContextChanged = vi.fn();
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_plan_slots") return Promise.resolve([
+          { slot_id: "primary", repo_path: "C:\\mock\\repo-a", plan_path: ".plan/one.md" },
+          { slot_id: "secondary", repo_path: "C:\\mock\\repo-b", plan_path: ".plan/two.md" },
+        ]);
+        if (cmd === "get_selected_project_plan_context") return Promise.resolve({
+          surface: "codex", repoRoot: "C:\\mock\\repo-a", slotId: "primary", planPath: ".plan/one.md", resolved: true,
+        });
+        if (cmd === "get_surface_plan_slots") return Promise.resolve({
+          repo_root: "C:\\mock\\repo-a", surface: "codex", active_slot_id: "primary", active_plan_path: ".plan/one.md",
+          slots: { primary: ".plan/one.md" }, is_unresolved: false,
+        });
+        if (cmd === "list_available_plans") return Promise.resolve(mockPlanDetailsWithPlans);
+        if (cmd === "get_plan_role_assignment") return Promise.resolve({ planner_id: "codex_session", reviser_id: "codex_session" });
+        if (cmd === "select_plan_file_dialog") return Promise.resolve({
+          relative_path: ".plan/two.md", repo_path: "C:\\mock\\repo-b", slot_id: "secondary", surface: "codex",
+        });
+        if (cmd === "set_active_plan") return Promise.resolve(mockPlanDetailsWithPlans);
+        if (cmd === "pin_workflow_target") return Promise.resolve({
+          repository: args.repoPath, surface: args.surface, slot_id: args.slotId, plan_path: ".plan/two.md",
+          sha256_hash: "abc123", file_identity: "id-2",
+        });
+        if (cmd === "set_project_plan_slots") return Promise.resolve(args.slots);
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "ja", setLang: vi.fn() }}>
+          <PlanFileManagerCard
+            surface="codex"
+            repoPath="C:\\mock\\repo-a"
+            onPinnedWorkflowTargetChanged={onPinned}
+            onActivePlanContextChanged={onContextChanged}
+          />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => expect(screen.getByTestId("btn-select-plan-file-secondary")).toBeInTheDocument());
+      await user.click(screen.getByTestId("btn-select-plan-file-secondary"));
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith("pin_workflow_target", {
+          repoPath: "C:\\mock\\repo-b", surface: "codex", slotId: "secondary",
+        });
+        expect(onPinned).toHaveBeenCalledWith(expect.objectContaining({
+          repository: "C:\\mock\\repo-b", slot_id: "secondary", plan_path: ".plan/two.md",
+        }));
+      });
+      expect(onContextChanged).toHaveBeenCalledWith({
+        surface: "codex", repoRoot: "C:\\mock\\repo-b", slotId: "secondary", planPath: ".plan/two.md", resolved: true,
+      });
+      expect(screen.queryByTestId("btn-activate-slot-primary")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("btn-activate-slot-secondary")).not.toBeInTheDocument();
+    });
   });
 });

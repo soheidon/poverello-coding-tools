@@ -1,7 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n";
-import type { PlanFileDetails, ActivePlanFileDetails, ReviewerPolicy, ProjectPlanSlot, SelectedPlanResult } from "../types";
+import type {
+  PlanFileDetails,
+  ActivePlanFileDetails,
+  ReviewerPolicy,
+  ProjectPlanSlot,
+  SelectedPlanResult,
+  SurfacePlanSlotsView,
+  PinnedWorkflowTarget,
+  ActivePlanContext,
+} from "../types";
 import { reviewersToPolicy } from "./ExternalReviewCard";
 
 export interface PlanFileManagerCardProps {
@@ -14,6 +23,7 @@ export interface PlanFileManagerCardProps {
   planReviewers?: string[] | null;
   embedded?: boolean;
   onActivePlanChanged?: (planRelativePath: string | null) => void;
+  onActivePlanContextChanged?: (context: ActivePlanContext | null) => void;
   onRolesChanged?: (roles: {
     plannerRole?: string | null;
     reviserRole?: string | null;
@@ -22,6 +32,7 @@ export interface PlanFileManagerCardProps {
   }) => void;
   onPlanReviewPolicyChanged?: (policy: ReviewerPolicy) => void;
   onPlanReviewersChanged?: (reviewers: string[] | null) => void;
+  onPinnedWorkflowTargetChanged?: (target: PinnedWorkflowTarget | null) => void;
 }
 
 export function normalizeDisplayPath(rawPath?: string | null): string {
@@ -121,9 +132,11 @@ export default function PlanFileManagerCard({
   planReviewers,
   embedded = false,
   onActivePlanChanged,
+  onActivePlanContextChanged,
   onRolesChanged,
   onPlanReviewPolicyChanged,
   onPlanReviewersChanged,
+  onPinnedWorkflowTargetChanged,
 }: PlanFileManagerCardProps) {
   const { t } = useTranslation();
 
@@ -135,12 +148,23 @@ export default function PlanFileManagerCard({
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [configuredRoot, setConfiguredRoot] = useState<string | null>(repoPath ?? null);
   const [locationLoaded, setLocationLoaded] = useState<boolean>(!!repoPath);
+  const [selectedPlanRepoRoot, setSelectedPlanRepoRoot] = useState<string | null>(null);
+  const [selectedPlanContextResolved, setSelectedPlanContextResolved] = useState(false);
 
   // Surface-scoped project-plan slots state (1 or 2 slots)
   const [slots, setSlots] = useState<ProjectPlanSlot[]>([
     { slot_id: "primary", repo_path: null, plan_path: activePlanPath ?? null },
   ]);
   const [slotDetails, setSlotDetails] = useState<Record<string, PlanFileDetails | null>>({});
+  const [canonicalSlotView, setCanonicalSlotView] = useState<SurfacePlanSlotsView | null>(null);
+  const [selectedActiveSlotId, setSelectedActiveSlotId] = useState<string | null>(null);
+  const [mirrorWarning, setMirrorWarning] = useState<string | null>(null);
+  const [pinnedWorkflowTarget, setPinnedWorkflowTarget] = useState<PinnedWorkflowTarget | null>(null);
+  const [pendingRemoveSlotConfirm, setPendingRemoveSlotConfirm] = useState<{
+    slotId: string;
+    fallbackSlotId: string;
+    fallbackPlanPath: string | null;
+  } | null>(null);
   const activeSlotIdsRef = useRef<Set<string>>(new Set(["primary"]));
   const slotsRef = useRef<ProjectPlanSlot[]>(slots);
   useEffect(() => {
@@ -200,25 +224,71 @@ export default function PlanFileManagerCard({
     return normalizeDisplayPath(p).replace(/\\/g, "/").replace(/\/+/g, "/").toLowerCase();
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    void invoke<ActivePlanContext>("get_selected_project_plan_context", { surface })
+      .then((context) => {
+        if (cancelled) return;
+        const resolved = !!context?.resolved && !!context.repoRoot;
+        setSelectedPlanContextResolved(resolved);
+        setSelectedPlanRepoRoot(resolved ? context.repoRoot : null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSelectedPlanContextResolved(false);
+        setSelectedPlanRepoRoot(null);
+      });
+    return () => { cancelled = true; };
+  }, [surface]);
+
   // Match active workspace (repoPath) to the corresponding slot
   const matchedSlot = useMemo(() => {
     if (!repoPath) {
+      if (selectedPlanRepoRoot) {
+        const planRepoMatch = slots.find(
+          (s) => s.repo_path && normalizePathForCompare(s.repo_path) === normalizePathForCompare(selectedPlanRepoRoot)
+        );
+        if (planRepoMatch) return planRepoMatch;
+      }
+      if (selectedActiveSlotId) {
+        const activeMatch = slots.find((s) => s.slot_id === selectedActiveSlotId);
+        if (activeMatch) return activeMatch;
+      }
       return slots[0] || null;
     }
     const normTarget = normalizePathForCompare(repoPath);
-    const found = slots.find((s) => s.repo_path && normalizePathForCompare(s.repo_path) === normTarget);
-    if (found) return found;
+    const matches = slots.filter((s) => s.repo_path && normalizePathForCompare(s.repo_path) === normTarget);
+    if (matches.length > 0) {
+      if (selectedActiveSlotId) {
+        const activeMatch = matches.find((s) => s.slot_id === selectedActiveSlotId);
+        if (activeMatch) return activeMatch;
+      }
+      return matches[0];
+    }
+    if (selectedPlanRepoRoot) {
+      const planRepoMatch = slots.find(
+        (s) => s.repo_path && normalizePathForCompare(s.repo_path) === normalizePathForCompare(selectedPlanRepoRoot)
+      );
+      if (planRepoMatch) return planRepoMatch;
+    }
     // If primary slot has no repo configured yet, associate with it
     if (slots.length === 1 && !slots[0].repo_path) {
       return slots[0];
     }
     // Ambiguous / unmatched workspace root: do NOT guess another slot's plan!
     return null;
-  }, [repoPath, slots]);
+  }, [repoPath, slots, selectedActiveSlotId, selectedPlanRepoRoot]);
 
   const isUnmatchedWorkspace = !!repoPath && !matchedSlot;
   const activeRepo = matchedSlot ? (matchedSlot.repo_path || repoPath || null) : null;
-  const operationalSlotId = matchedSlot?.slot_id || "primary";
+  const canonicalActiveSlotForRepo =
+    canonicalSlotView &&
+    activeRepo &&
+    normalizePathForCompare(canonicalSlotView.repo_root) === normalizePathForCompare(activeRepo)
+      ? canonicalSlotView.active_slot_id ?? null
+      : null;
+  const operationalSlotId =
+    canonicalActiveSlotForRepo || selectedActiveSlotId || matchedSlot?.slot_id || "primary";
 
   // Notify parent of null plan if workspace is unmatched
   useEffect(() => {
@@ -310,6 +380,32 @@ export default function PlanFileManagerCard({
   useEffect(() => {
     onActivePlanChangedRef.current = onActivePlanChanged;
   });
+  const onActivePlanContextChangedRef = useRef(onActivePlanContextChanged);
+  useEffect(() => {
+    onActivePlanContextChangedRef.current = onActivePlanContextChanged;
+  });
+
+  const reportActivePlanContext = useCallback((
+    repoRoot: string | null,
+    slotId: string | null,
+    planPath: string | null,
+    explicitSelection = false,
+  ) => {
+    if (!selectedPlanContextResolved && !explicitSelection) return;
+    if (!repoRoot || !slotId || !planPath) {
+      onActivePlanContextChangedRef.current?.(null);
+      return;
+    }
+    if (explicitSelection) setSelectedPlanContextResolved(true);
+    setSelectedPlanRepoRoot(repoRoot);
+    onActivePlanContextChangedRef.current?.({
+      surface,
+      repoRoot,
+      slotId: slotId === "primary" || slotId === "secondary" ? slotId : null,
+      planPath,
+      resolved: true,
+    });
+  }, [selectedPlanContextResolved, surface]);
 
   const activePlanPathRef = useRef(activePlanPath);
   useEffect(() => {
@@ -338,8 +434,42 @@ export default function PlanFileManagerCard({
     setCurrentPlanReviewers(planReviewers !== undefined ? planReviewers : null);
   }, [planReviewers]);
 
-  const loadPlans = useCallback(async (folderOverride?: string | null, repoOverride?: string | null) => {
+  // Load canonical repo-local slot state for the active repository and surface
+  useEffect(() => {
+    if (!locationLoaded || !activeRepo) return;
+    let cancelled = false;
+    void invoke<SurfacePlanSlotsView | undefined>("get_surface_plan_slots", {
+      repoPath: activeRepo,
+      surface,
+    })
+      .then((view) => {
+        if (cancelled || !view || typeof view !== "object" || !("slots" in view)) return;
+        setCanonicalSlotView(view);
+        if (view.active_slot_id === "primary" || view.active_slot_id === "secondary") {
+          setSelectedActiveSlotId(view.active_slot_id);
+          reportActivePlanContext(activeRepo, view.active_slot_id, view.active_plan_path ?? null);
+          if (
+            view.active_plan_path &&
+            view.active_plan_path !== activePlanPathRef.current &&
+            onActivePlanChangedRef.current
+          ) {
+            onActivePlanChangedRef.current(view.active_plan_path);
+          }
+        } else if (view.is_unresolved) {
+          setSelectedActiveSlotId(null);
+        }
+      })
+      .catch(() => {
+        // Canonical slot view unavailable; fall back to existing slot state without failing UI load
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [locationLoaded, activeRepo, surface, reportActivePlanContext]);
+
+  const loadPlans = useCallback(async (folderOverride?: string | null, repoOverride?: string | null, slotOverride?: string | null) => {
     const targetRepo = repoOverride ?? activeRepo;
+    const targetSlotId = slotOverride ?? operationalSlotId;
     if (!targetRepo) return;
     try {
       setLoading(true);
@@ -349,10 +479,10 @@ export default function PlanFileManagerCard({
         repoPath: targetRepo,
         folderPath: targetFolder ?? null,
         surface,
-        slotId: operationalSlotId,
+        slotId: targetSlotId,
       });
       setDetails(res);
-      setSlotDetails((prev) => ({ ...prev, primary: res }));
+      setSlotDetails((prev) => ({ ...prev, [targetSlotId]: res }));
 
       const loadedActive = res.active_plan_relative_path ?? null;
       if (loadedActive && !selectedFolderRef.current && folderOverride === undefined) {
@@ -367,12 +497,13 @@ export default function PlanFileManagerCard({
       if (loadedActive !== activePlanPathRef.current && onActivePlanChangedRef.current) {
         onActivePlanChangedRef.current(loadedActive);
       }
+      reportActivePlanContext(targetRepo, targetSlotId, loadedActive);
     } catch (e: unknown) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, [activeRepo, surface]);
+  }, [activeRepo, surface, operationalSlotId, reportActivePlanContext]);
 
   const prevRepoRef = useRef<string | null>(activeRepo);
   useEffect(() => {
@@ -450,7 +581,22 @@ export default function PlanFileManagerCard({
     void persistSlots(nextSlots);
   };
 
-  const handleRemoveSecondarySlot = () => {
+  const executeRemoveSecondarySlot = async (fallbackSlotId?: string | null) => {
+    const secondarySlot = slotsRef.current.find((s) => s.slot_id === "secondary");
+    const secondaryRepo = secondarySlot?.repo_path || activeRepo;
+    if (fallbackSlotId && secondaryRepo) {
+      try {
+        await invoke("clear_active_plan_slot", {
+          repoPath: secondaryRepo,
+          surface,
+          slotId: "secondary",
+          fallbackSlotId,
+        });
+      } catch (e: unknown) {
+        setError(String(e));
+        return;
+      }
+    }
     // Only remove association in settings, do NOT delete or modify underlying project/plan files!
     activeSlotIdsRef.current.delete("secondary");
     const nextSlots = slotsRef.current.filter((s) => s.slot_id !== "secondary");
@@ -461,7 +607,41 @@ export default function PlanFileManagerCard({
       delete copy.secondary;
       return copy;
     });
+    if (fallbackSlotId) {
+      setSelectedActiveSlotId(fallbackSlotId);
+      setCanonicalSlotView((prev) => {
+        if (!prev) return prev;
+        const nextMap = { ...prev.slots };
+        delete nextMap.secondary;
+        return {
+          ...prev,
+          active_slot_id: fallbackSlotId,
+          active_plan_path: nextMap[fallbackSlotId] ?? null,
+          slots: nextMap,
+          is_unresolved: false,
+        };
+      });
+    }
+    setPendingRemoveSlotConfirm(null);
     void persistSlots(nextSlots);
+  };
+
+  const handleRemoveSecondarySlot = () => {
+    const secondarySlot = slotsRef.current.find((s) => s.slot_id === "secondary");
+    const primarySlot = slotsRef.current.find((s) => s.slot_id === "primary");
+    const isSecondaryActive =
+      operationalSlotId === "secondary" &&
+      Boolean(secondarySlot?.plan_path || canonicalSlotView?.slots?.secondary);
+    const primaryFallbackPath = primarySlot?.plan_path || canonicalSlotView?.slots?.primary || null;
+    if (isSecondaryActive && primaryFallbackPath) {
+      setPendingRemoveSlotConfirm({
+        slotId: "secondary",
+        fallbackSlotId: "primary",
+        fallbackPlanPath: primaryFallbackPath,
+      });
+      return;
+    }
+    void executeRemoveSecondarySlot(null);
   };
 
   const handleSelectPlanFile = async (slotId: string) => {
@@ -504,6 +684,23 @@ export default function PlanFileManagerCard({
 
       if (!activeSlotIdsRef.current.has(slotId)) return; // Stale slot check
 
+      // The plan picker is the explicit per-project workflow-context selector.
+      // Capture its pinned identity here now that the separate active-slot buttons
+      // are removed from the project rows.
+      try {
+        const pin = await invoke<PinnedWorkflowTarget>("pin_workflow_target", {
+          repoPath: pickedRepo,
+          surface,
+          slotId,
+        });
+        setPinnedWorkflowTarget(pin);
+        onPinnedWorkflowTargetChanged?.(pin);
+      } catch (pinError: unknown) {
+        setPinnedWorkflowTarget(null);
+        onPinnedWorkflowTargetChanged?.(null);
+        setError(String(pinError));
+      }
+
       const nextSlots = slotsRef.current.map((s) =>
         s.slot_id === slotId
           ? { ...s, repo_path: pickedRepo, plan_path: pickedRel }
@@ -513,8 +710,24 @@ export default function PlanFileManagerCard({
       slotsRef.current = nextSlots;
       void persistSlots(nextSlots);
 
+      setSelectedActiveSlotId(slotId);
+      setMirrorWarning(null);
+      setCanonicalSlotView((prev) => ({
+        repo_root: pickedRepo,
+        surface,
+        active_slot_id: slotId,
+        active_plan_path: pickedRel,
+        slots: {
+          ...(prev && normalizePathForCompare(prev.repo_root) === normalizePathForCompare(pickedRepo)
+            ? prev.slots
+            : {}),
+          [slotId]: pickedRel,
+        },
+        is_unresolved: false,
+      }));
+      reportActivePlanContext(pickedRepo, slotId, pickedRel, true);
       setSlotDetails((prev) => ({ ...prev, [slotId]: res }));
-      if (slotId === operationalSlotId) {
+      if (!repoPath || normalizePathForCompare(pickedRepo) === normalizePathForCompare(repoPath)) {
         const parentFolder = pickedRel.includes("/") ? pickedRel.substring(0, pickedRel.lastIndexOf("/")) : ".";
         setDetails(res);
         setSelectedFolder(parentFolder);
@@ -523,7 +736,7 @@ export default function PlanFileManagerCard({
           onActivePlanChangedRef.current(pickedRel);
         }
         prevRepoRef.current = pickedRepo;
-        await loadPlans(parentFolder, pickedRepo);
+        await loadPlans(parentFolder, pickedRepo, slotId);
       }
 
       setActionMessage(`${t("planManager.planActivated") || "計画書を設定しました"}: ${pickedRel.split("/").pop() || pickedRel}`);
@@ -546,11 +759,21 @@ export default function PlanFileManagerCard({
   const getSlotOperationalPath = (slotId: string): string => {
     const slot = slots.find((s) => s.slot_id === slotId);
     if (!slot) return "";
-    const slotRepo = slot.repo_path || (slotId === "primary" ? activeRepo : null);
-    const slotRel = slot.plan_path || (slotId === "primary" ? (details?.active_plan_relative_path || activePlanPath) : null);
+    const isOperational = slotId === operationalSlotId;
+    const slotRepo = slot.repo_path || (isOperational ? activeRepo : null);
+    const canonicalSlotRel =
+      canonicalSlotView &&
+      slotRepo &&
+      normalizePathForCompare(canonicalSlotView.repo_root) === normalizePathForCompare(slotRepo)
+        ? canonicalSlotView.slots[slotId]
+        : null;
+    const slotRel =
+      canonicalSlotRel ||
+      slot.plan_path ||
+      (isOperational ? (details?.active_plan_relative_path || activePlanPath) : null);
     if (!slotRel) return "";
 
-    const slotDet = slotDetails[slotId] || (slotId === "primary" ? details : null);
+    const slotDet = slotDetails[slotId] || (isOperational ? details : null);
     const entry = slotDet?.plans?.find((p) => p.relative_path === slotRel);
     if (entry?.path) return entry.path;
 
@@ -656,7 +879,11 @@ export default function PlanFileManagerCard({
   };
 
   // Operational slot details for header chip
-  const primaryRelPath = matchedSlot?.plan_path || (operationalSlotId === "primary" ? details?.active_plan_relative_path : null) || activePlanPath;
+  const primaryRelPath =
+    (canonicalActiveSlotForRepo ? canonicalSlotView?.active_plan_path : null) ||
+    matchedSlot?.plan_path ||
+    details?.active_plan_relative_path ||
+    activePlanPath;
   const primaryDetails = slotDetails[operationalSlotId] || details;
   const primaryEntry = primaryDetails?.plans?.find((p) => p.relative_path === primaryRelPath);
   const primaryLocalizedStatusLabel = getLocalizedStatusLabel(primaryEntry?.status, t);
@@ -676,6 +903,7 @@ export default function PlanFileManagerCard({
             }
       }
       data-testid="plan-manager-card"
+      data-pinned-plan={pinnedWorkflowTarget?.plan_path ?? undefined}
     >
       {/* Action / Error Messages */}
       {actionMessage && (
@@ -686,6 +914,65 @@ export default function PlanFileManagerCard({
       {error && (
         <div style={{ padding: "6px 10px", marginBottom: 8, backgroundColor: "#fef2f2", color: "#991b1b", borderRadius: 6, fontSize: 12 }}>
           {error}
+        </div>
+      )}
+      {mirrorWarning && (
+        <div
+          data-testid="stale-mirror-warning"
+          style={{ padding: "6px 10px", marginBottom: 8, backgroundColor: "#fff8c5", color: "#573a08", border: "1px solid #d4a72c", borderRadius: 6, fontSize: 12 }}
+        >
+          {mirrorWarning}
+        </div>
+      )}
+      {canonicalSlotView?.is_unresolved && (
+        <div
+          data-testid="unresolved-slot-warning"
+          style={{ padding: "6px 10px", marginBottom: 8, backgroundColor: "#fff8c5", color: "#573a08", border: "1px solid #d4a72c", borderRadius: 6, fontSize: 12 }}
+        >
+          アクティブスロットが未確定です。プロジェクト 1 またはプロジェクト 2 のいずれかを選択してください。
+        </div>
+      )}
+      {pendingRemoveSlotConfirm && (
+        <div
+          data-testid="active-slot-removal-confirm"
+          style={{
+            padding: "8px 12px",
+            marginBottom: 8,
+            backgroundColor: "#fef2f2",
+            border: "1px solid #fca5a5",
+            borderRadius: 6,
+            fontSize: 12,
+            color: "#7f1d1d",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <span>
+            現在アクティブなスロット ({pendingRemoveSlotConfirm.slotId}) を削除すると、{pendingRemoveSlotConfirm.fallbackSlotId} ({pendingRemoveSlotConfirm.fallbackPlanPath}) へ切り替わります。
+          </span>
+          <div style={{ display: "inline-flex", gap: 6 }}>
+            <button
+              type="button"
+              className="btn btn-small"
+              data-testid="btn-confirm-remove-active-slot"
+              onClick={() => void executeRemoveSecondarySlot(pendingRemoveSlotConfirm.fallbackSlotId)}
+              style={{ fontSize: 11, padding: "2px 8px", color: "#dc2626" }}
+            >
+              確認して削除
+            </button>
+            <button
+              type="button"
+              className="btn btn-small"
+              data-testid="btn-cancel-remove-active-slot"
+              onClick={() => setPendingRemoveSlotConfirm(null)}
+              style={{ fontSize: 11, padding: "2px 8px" }}
+            >
+              キャンセル
+            </button>
+          </div>
         </div>
       )}
       {isUnmatchedWorkspace && (
@@ -775,10 +1062,11 @@ export default function PlanFileManagerCard({
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
         {slots.map((slot) => {
           const isPrimary = slot.slot_id === "primary";
-          const slotRepo = slot.repo_path || (isPrimary ? activeRepo : null);
-          const slotRel = slot.plan_path || (isPrimary ? primaryRelPath : null);
-          const slotDet = slotDetails[slot.slot_id] || (isPrimary ? details : null);
-          const slotEntry = isPrimary
+          const isOperational = slot.slot_id === operationalSlotId;
+          const slotRepo = slot.repo_path || (isOperational ? activeRepo : null);
+          const slotRel = slot.plan_path || (isOperational ? primaryRelPath : null);
+          const slotDet = slotDetails[slot.slot_id] || (isOperational ? details : null);
+          const slotEntry = isOperational
             ? primaryEntry
             : slotDet?.plans?.find(
                 (p) =>

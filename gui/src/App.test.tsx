@@ -80,7 +80,10 @@ vi.mock("./components/Header", () => ({ default: () => <div data-testid="header"
 vi.mock("./components/ProviderTiles", () => ({ default: () => <div data-testid="gateway-content" /> }));
 vi.mock("./components/StatusPanel", () => ({ default: () => null }));
 vi.mock("./components/LogPanel", () => ({ default: () => null }));
-vi.mock("./components/PoverelloPanel", () => ({ default: () => <div data-testid="poverello-panel" /> }));
+vi.mock("./components/PoverelloPanel", () => ({ default: ({ onOpenAgentOptSettings }: { onOpenAgentOptSettings: () => void }) => (
+  <div data-testid="poverello-panel"><button data-testid="open-agentopt-settings" onClick={onOpenAgentOptSettings}>Open AgentOpt settings</button></div>
+)}));
+vi.mock("./components/AntigravitySkillsRulesPanel", () => ({ default: () => <div data-testid="agentopt-cli-settings-card" /> }));
 vi.mock("./components/CodexAutocodePanel", () => ({ default: () => <div data-testid="codex-autocode-panel" /> }));
 
 describe("App navigation", () => {
@@ -106,6 +109,16 @@ describe("App navigation", () => {
     await user.click(screen.getByTestId("titlebar-poverello-btn"));
     expect(screen.getByTestId("poverello-panel")).toBeInTheDocument();
     expect(screen.queryByTestId("gateway-content")).not.toBeInTheDocument();
+  });
+
+  it("opens the Antigravity Skills & Rules settings section from the AgentOpt notice action", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId("gateway-content")).toBeInTheDocument());
+    await user.click(screen.getByTestId("titlebar-poverello-btn"));
+    await user.click(screen.getByTestId("open-agentopt-settings"));
+    expect(screen.getByRole("button", { name: "settings.nav.antigravitySkillsRules" })).toHaveClass("active");
+    expect(screen.getByTestId("agentopt-cli-settings-card")).toBeInTheDocument();
   });
 
   it("navigates to Codex Autocode panel when codexAutocode tab is clicked and does not show Orchestrator", async () => {

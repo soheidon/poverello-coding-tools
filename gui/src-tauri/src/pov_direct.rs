@@ -809,6 +809,107 @@ pub fn save_pov_direct_settings_at(
     save_pov_direct_settings_at_internal(rules_dir, skill_file, request, None)
 }
 
+/// Safely and reversibly disables the managed `pov-direct.md` Rule file.
+/// Refuses to modify or remove `UnmanagedCustom`, `LegacyPoverello`, or `MetadataInvalid` files.
+/// Returns `(captured_settings, original_bytes)` so callers can persist settings and roll back exactly.
+pub fn disable_pov_direct_rule_at(
+    rules_dir: &Path,
+    skill_file: &Path,
+) -> Result<(PovDirectSettings, Option<Vec<u8>>), String> {
+    let _lock = MUTATION_LOCK.lock().map_err(|e| format!("Mutex poisoned: {e}"))?;
+    crate::paths::ensure_path_contained_in_dir(rules_dir, rules_dir)?;
+    let rule_file = rules_dir.join("pov-direct.md");
+    let backup_dir = rules_dir.join("backups");
+
+    let portable_include_str = "~/.gemini/config/skills/pov-direct/SKILL.md";
+    let dummy_expected = render_rule_file(&PovDirectSettings::default(), portable_include_str);
+    let (state, meta_state, settings, _) = classify_rule_file(&rule_file, &dummy_expected);
+
+    if meta_state == PovDirectSettingsState::MetadataInvalid {
+        return Err("Cannot disable Poverello Rule: embedded metadata is malformed or invalid schema. Refusing to modify.".to_string());
+    }
+
+    match state {
+        PovDirectFileState::Absent => Ok((settings, None)),
+        PovDirectFileState::ManagedSynced | PovDirectFileState::ManagedDrifted => {
+            let original_bytes = std::fs::read(&rule_file)
+                .map_err(|e| format!("Failed to read pov-direct.md before disabling: {e}"))?;
+            create_backup_unpruned(&rule_file, &backup_dir)?;
+            std::fs::remove_file(&rule_file)
+                .map_err(|e| format!("Failed to remove pov-direct.md while disabling Poverello Rules: {e}"))?;
+            let (after_state, _, _, _) = classify_rule_file(&rule_file, &dummy_expected);
+            if after_state != PovDirectFileState::Absent {
+                return Err("Verification failed after disabling Poverello Rule: pov-direct.md is still present".to_string());
+            }
+            let _ = skill_file;
+            Ok((settings, Some(original_bytes)))
+        }
+        PovDirectFileState::UnmanagedCustom => Err(
+            "Cannot disable Poverello Rule: pov-direct.md is user-managed (UnmanagedCustom). Refusing to overwrite or remove."
+                .to_string(),
+        ),
+        PovDirectFileState::LegacyPoverello => Err(
+            "Cannot disable Poverello Rule: pov-direct.md is LegacyPoverello. Migrate or back up manually before switching engines."
+                .to_string(),
+        ),
+    }
+}
+
+/// Restores exact `pov-direct.md` bytes during transition rollback.
+pub fn restore_pov_direct_rule_bytes_at(
+    rules_dir: &Path,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let _lock = MUTATION_LOCK.lock().map_err(|e| format!("Mutex poisoned: {e}"))?;
+    crate::paths::ensure_path_contained_in_dir(rules_dir, rules_dir)?;
+    std::fs::create_dir_all(rules_dir)
+        .map_err(|e| format!("Failed to create rules directory during rollback: {e}"))?;
+    let rule_file = rules_dir.join("pov-direct.md");
+    let nonce = uuid::Uuid::new_v4();
+    let temp_file = rules_dir.join(format!(".pov-direct.md.rollback-{nonce}.tmp"));
+    std::fs::write(&temp_file, bytes)
+        .map_err(|e| format!("Failed to write rollback temp file: {e}"))?;
+    if let Err(e) = replace_file_atomically(&temp_file, &rule_file) {
+        let _ = std::fs::remove_file(&temp_file);
+        return Err(format!("Failed to restore pov-direct.md during rollback: {e}"));
+    }
+    Ok(())
+}
+
+/// Re-enables / restores `pov-direct.md` using previously saved `PovDirectSettings`.
+/// Refuses to overwrite `UnmanagedCustom`, `LegacyPoverello`, or `MetadataInvalid`.
+pub fn enable_pov_direct_rule_at(
+    rules_dir: &Path,
+    skill_file: &Path,
+    settings: &PovDirectSettings,
+) -> Result<PovDirectStatus, String> {
+    let status = inspect_pov_direct_status_at(rules_dir, skill_file)?;
+    if status.settings_state == PovDirectSettingsState::MetadataInvalid {
+        return Err("Cannot restore Poverello Rule: embedded metadata is invalid.".to_string());
+    }
+    if !matches!(
+        status.state,
+        PovDirectFileState::Absent
+            | PovDirectFileState::ManagedSynced
+            | PovDirectFileState::ManagedDrifted
+    ) {
+        return Err(format!(
+            "Cannot restore Poverello Rule: pov-direct.md is in state {:?} (refusing to overwrite).",
+            status.state
+        ));
+    }
+    save_pov_direct_settings_at(
+        rules_dir,
+        skill_file,
+        PovDirectApplyRequest {
+            operation: PovDirectApplyOperation::Apply,
+            settings: settings.clone(),
+            expected_state: status.state,
+            expected_content_hash: status.content_hash,
+        },
+    )
+}
+
 #[cfg(test)]
 pub(crate) fn save_pov_direct_settings_at_with_pre_replace_hook<F>(
     rules_dir: &Path,
@@ -1100,6 +1201,469 @@ pub(crate) fn verify_and_recover_post_replace(
     }
 
     Ok(())
+}
+
+/// Classifier table for `pov-direct.md` Rule management in Settings -> Antigravity Skills & Rules:
+/// - `Absent`: `pov-direct.md` does not exist (checked via `symlink_metadata`, so dangling links are NOT Absent).
+///   -> Install enabled; Repair disabled.
+/// - `ManagedCurrent`: Regular file (not symlink/reparse), valid strict frontmatter, unique ordered
+///   `MANAGED_BEGIN_MARKER` / `MANAGED_END_MARKER`, valid `pov-direct:settings:v1` metadata, managed block
+///   matches `render_managed_overrides_block(&settings)`, and canonical include
+///   `@[pov-direct](~/.gemini/config/skills/pov-direct/SKILL.md)` is present.
+///   -> Install disabled; Repair disabled.
+/// - `ManagedOutdated`: Regular file with valid strict frontmatter, unique ordered markers, valid
+///   `pov-direct:settings:v1` metadata, and valid managed block, but an older/non-canonical include path
+///   or recognized older managed wrapper.
+///   -> Install disabled; Repair enabled (replaces only managed block; preserves embedded settings and all
+///   bytes outside markers).
+/// - `ManagedDrifted`: Regular file with valid strict frontmatter, unique ordered markers, and valid
+///   `pov-direct:settings:v1` metadata, where the managed block content differs from
+///   `render_managed_overrides_block(&settings)`.
+///   -> Install disabled; Repair enabled (replaces only managed block; preserves embedded settings and all
+///   bytes outside markers).
+/// - `Protected`: Symlink/reparse point (including dangling), non-regular file, unreadable file,
+///   `legacy_sidecar_present`, invalid/missing strict frontmatter, missing/duplicate/nested/reversed markers,
+///   missing/invalid/unknown metadata schema (e.g. `pov-direct:settings:v2`), `LegacyPoverello` (unmarked),
+///   or `UnmanagedCustom`.
+///   -> Install disabled; Repair disabled; localized explanation and manual recovery guidance shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PovDirectRuleManagementState {
+    Absent,
+    ManagedCurrent,
+    ManagedOutdated,
+    ManagedDrifted,
+    Protected,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PovDirectRuleManagementStatus {
+    pub rule_path: String,
+    pub skill_path: String,
+    pub skill_present: bool,
+    pub rule_state: PovDirectRuleManagementState,
+    pub protected_reason: Option<String>,
+    pub schema_id: Option<String>,
+    pub can_install: bool,
+    pub can_repair: bool,
+    pub content_hash: String,
+}
+
+const CANONICAL_POV_DIRECT_INCLUDE: &str = "@[pov-direct](~/.gemini/config/skills/pov-direct/SKILL.md)";
+const POV_DIRECT_SCHEMA_ID_V1: &str = "pov-direct:settings:v1";
+
+fn is_symlink_or_reparse(path: &Path) -> Result<Option<std::fs::Metadata>, String> {
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component.as_os_str());
+        match std::fs::symlink_metadata(&current) {
+            Ok(meta) => {
+                if meta.file_type().is_symlink() {
+                    return Err("symlink_or_reparse".to_string());
+                }
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+                    if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                        return Err("symlink_or_reparse".to_string());
+                    }
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if current == path {
+                    return Ok(None);
+                }
+            }
+            Err(e) => return Err(format!("unreadable: {e}")),
+        }
+    }
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => Ok(Some(meta)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("unreadable: {e}")),
+    }
+}
+
+struct ClassifiedRuleForManagement {
+    state: PovDirectRuleManagementState,
+    protected_reason: Option<String>,
+    schema_id: Option<String>,
+    content_hash: String,
+    settings: Option<PovDirectSettings>,
+    block: Option<ManagedBlockParse>,
+}
+
+fn classify_rule_for_management(rules_dir: &Path) -> ClassifiedRuleForManagement {
+    let rule_file = rules_dir.join("pov-direct.md");
+
+    let meta_opt = match is_symlink_or_reparse(&rule_file) {
+        Ok(m) => m,
+        Err(reason) => {
+            let code = if reason == "symlink_or_reparse" {
+                "symlink_or_reparse".to_string()
+            } else {
+                "unreadable".to_string()
+            };
+            return ClassifiedRuleForManagement {
+                state: PovDirectRuleManagementState::Protected,
+                protected_reason: Some(code),
+                schema_id: None,
+                content_hash: String::new(),
+                settings: None,
+                block: None,
+            };
+        }
+    };
+
+    let Some(meta) = meta_opt else {
+        return ClassifiedRuleForManagement {
+            state: PovDirectRuleManagementState::Absent,
+            protected_reason: None,
+            schema_id: None,
+            content_hash: "absent".to_string(),
+            settings: None,
+            block: None,
+        };
+    };
+
+    if !meta.is_file() {
+        return ClassifiedRuleForManagement {
+            state: PovDirectRuleManagementState::Protected,
+            protected_reason: Some("symlink_or_reparse".to_string()),
+            schema_id: None,
+            content_hash: String::new(),
+            settings: None,
+            block: None,
+        };
+    }
+
+    let Ok(content) = std::fs::read_to_string(&rule_file) else {
+        return ClassifiedRuleForManagement {
+            state: PovDirectRuleManagementState::Protected,
+            protected_reason: Some("unreadable".to_string()),
+            schema_id: None,
+            content_hash: String::new(),
+            settings: None,
+            block: None,
+        };
+    };
+
+    let content_hash = hash_content(&content);
+    let legacy_sidecar_path = rules_dir.join("pov-direct.settings.json");
+    if legacy_sidecar_path.exists() && legacy_sidecar_path.is_file() {
+        return ClassifiedRuleForManagement {
+            state: PovDirectRuleManagementState::Protected,
+            protected_reason: Some("legacy_sidecar".to_string()),
+            schema_id: None,
+            content_hash,
+            settings: None,
+            block: None,
+        };
+    }
+
+    let fm = match parse_strict_frontmatter(&content) {
+        Ok(fm) => fm,
+        Err(_) => {
+            return ClassifiedRuleForManagement {
+                state: PovDirectRuleManagementState::Protected,
+                protected_reason: Some("invalid_frontmatter".to_string()),
+                schema_id: None,
+                content_hash,
+                settings: None,
+                block: None,
+            };
+        }
+    };
+
+    let mb_opt = match parse_managed_block(&content) {
+        Ok(mb) => mb,
+        Err(_) => {
+            return ClassifiedRuleForManagement {
+                state: PovDirectRuleManagementState::Protected,
+                protected_reason: Some("malformed_markers".to_string()),
+                schema_id: None,
+                content_hash,
+                settings: None,
+                block: None,
+            };
+        }
+    };
+
+    let Some(block) = mb_opt else {
+        let has_include = content.contains("@[pov-direct]");
+        let heading_count = content.matches("# Poverello Direct Coding").count();
+        let include_count = content.matches("@[pov-direct]").count();
+        let reason = if has_include && heading_count == 1 && include_count == 1 {
+            "legacy_poverello"
+        } else {
+            "unmanaged_custom"
+        };
+        return ClassifiedRuleForManagement {
+            state: PovDirectRuleManagementState::Protected,
+            protected_reason: Some(reason.to_string()),
+            schema_id: None,
+            content_hash,
+            settings: None,
+            block: None,
+        };
+    };
+
+    let Some(ref json_str) = block.metadata_json else {
+        return ClassifiedRuleForManagement {
+            state: PovDirectRuleManagementState::Protected,
+            protected_reason: Some("invalid_or_unknown_metadata".to_string()),
+            schema_id: None,
+            content_hash,
+            settings: None,
+            block: None,
+        };
+    };
+
+    let Some(emb) = parse_metadata_v1(json_str) else {
+        return ClassifiedRuleForManagement {
+            state: PovDirectRuleManagementState::Protected,
+            protected_reason: Some("invalid_or_unknown_metadata".to_string()),
+            schema_id: Some(POV_DIRECT_SCHEMA_ID_V1.to_string()),
+            content_hash,
+            settings: None,
+            block: None,
+        };
+    };
+
+    let auto_activation = fm.trigger_value == "model_decision";
+    let parsed_settings = PovDirectSettings {
+        auto_activation,
+        web_research: emb.web_research,
+        response_verbosity: emb.response_verbosity,
+        repository_exploration: emb.repository_exploration,
+        verification: emb.verification,
+    };
+
+    let expected_managed = render_managed_overrides_block(&parsed_settings);
+    let actual_managed = &content[block.block_start..block.block_end];
+    let state = if actual_managed.trim() != expected_managed.trim() {
+        PovDirectRuleManagementState::ManagedDrifted
+    } else if !content.contains(CANONICAL_POV_DIRECT_INCLUDE) {
+        PovDirectRuleManagementState::ManagedOutdated
+    } else {
+        PovDirectRuleManagementState::ManagedCurrent
+    };
+
+    ClassifiedRuleForManagement {
+        state,
+        protected_reason: None,
+        schema_id: Some(POV_DIRECT_SCHEMA_ID_V1.to_string()),
+        content_hash,
+        settings: Some(parsed_settings),
+        block: Some(block),
+    }
+}
+
+pub fn inspect_pov_direct_rule_management_at(
+    rules_dir: &Path,
+    skill_file: &Path,
+) -> Result<PovDirectRuleManagementStatus, String> {
+    let rule_file = rules_dir.join("pov-direct.md");
+    let skill_present = skill_file.exists() && skill_file.is_file();
+    let classified = classify_rule_for_management(rules_dir);
+
+    let can_install = classified.state == PovDirectRuleManagementState::Absent;
+    let can_repair = matches!(
+        classified.state,
+        PovDirectRuleManagementState::ManagedOutdated | PovDirectRuleManagementState::ManagedDrifted
+    );
+
+    Ok(PovDirectRuleManagementStatus {
+        rule_path: rule_file.to_string_lossy().to_string(),
+        skill_path: skill_file.to_string_lossy().to_string(),
+        skill_present,
+        rule_state: classified.state,
+        protected_reason: classified.protected_reason,
+        schema_id: classified.schema_id,
+        can_install,
+        can_repair,
+        content_hash: classified.content_hash,
+    })
+}
+
+pub fn install_pov_direct_rule_at(
+    rules_dir: &Path,
+    skill_file: &Path,
+) -> Result<PovDirectRuleManagementStatus, String> {
+    install_pov_direct_rule_internal(rules_dir, skill_file, None, None)
+}
+
+fn place_new_file_exclusively(temp: &Path, target: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        #[link(name = "Kernel32")]
+        unsafe extern "system" {
+            fn MoveFileExW(
+                existing_file_name: *const u16,
+                new_file_name: *const u16,
+                flags: u32,
+            ) -> i32;
+        }
+        let temp_wide = temp.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        let target_wide = target.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        // dwFlags = 0 (no MOVEFILE_REPLACE_EXISTING) fails atomically if target already exists
+        let ok = unsafe { MoveFileExW(temp_wide.as_ptr(), target_wide.as_ptr(), 0) };
+        if ok == 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let res = std::fs::hard_link(temp, target);
+        let _ = std::fs::remove_file(temp);
+        res
+    }
+}
+
+fn install_pov_direct_rule_internal(
+    rules_dir: &Path,
+    skill_file: &Path,
+    pre_place_hook: Option<Box<dyn FnOnce(&Path)>>,
+    pre_verify_hook: Option<Box<dyn FnOnce(&Path)>>,
+) -> Result<PovDirectRuleManagementStatus, String> {
+    let _lock = MUTATION_LOCK.lock().map_err(|e| format!("Mutex poisoned: {e}"))?;
+
+    crate::paths::ensure_path_contained_in_dir(rules_dir, rules_dir)?;
+    let rule_file = rules_dir.join("pov-direct.md");
+
+    let classified = classify_rule_for_management(rules_dir);
+    if classified.state != PovDirectRuleManagementState::Absent {
+        return Err(format!(
+            "Cannot install pov-direct.md: rule file is already present or protected (state: {:?}).",
+            classified.state
+        ));
+    }
+
+    std::fs::create_dir_all(rules_dir)
+        .map_err(|e| format!("Failed to create rules directory: {e}"))?;
+
+    let final_rule_bytes = render_rule_file(&PovDirectSettings::default(), "~/.gemini/config/skills/pov-direct/SKILL.md");
+    let random_id: u32 = rand::random();
+    let tmp_file = rules_dir.join(format!("pov-direct.install.tmp.{random_id:08x}"));
+    std::fs::write(&tmp_file, &final_rule_bytes)
+        .map_err(|e| format!("Failed to write temporary rule file: {e}"))?;
+
+    if let Some(hook) = pre_place_hook {
+        hook(&rule_file);
+    }
+
+    if is_symlink_or_reparse(&rule_file)?.is_some() {
+        let _ = std::fs::remove_file(&tmp_file);
+        return Err("ConcurrentModificationConflict: Rule file appeared immediately before install. Zero writes.".to_string());
+    }
+
+    if let Err(place_err) = place_new_file_exclusively(&tmp_file, &rule_file) {
+        let _ = std::fs::remove_file(&tmp_file);
+        if place_err.kind() == std::io::ErrorKind::AlreadyExists {
+            return Err("ConcurrentModificationConflict: Rule file was created concurrently before install placement. Zero writes to target.".to_string());
+        }
+        return Err(format!("Failed to install rule file exclusively: {place_err}"));
+    }
+
+    if let Some(hook) = pre_verify_hook {
+        hook(&rule_file);
+    }
+
+    let read_back_result = std::fs::read_to_string(&rule_file);
+    verify_and_recover_post_replace(&rule_file, None, &final_rule_bytes, read_back_result)?;
+
+    inspect_pov_direct_rule_management_at(rules_dir, skill_file)
+}
+
+pub fn repair_pov_direct_rule_at(
+    rules_dir: &Path,
+    skill_file: &Path,
+) -> Result<PovDirectRuleManagementStatus, String> {
+    repair_pov_direct_rule_internal(rules_dir, skill_file, None, None)
+}
+
+fn repair_pov_direct_rule_internal(
+    rules_dir: &Path,
+    skill_file: &Path,
+    pre_replace_hook: Option<Box<dyn FnOnce(&Path)>>,
+    pre_verify_hook: Option<Box<dyn FnOnce(&Path)>>,
+) -> Result<PovDirectRuleManagementStatus, String> {
+    let _lock = MUTATION_LOCK.lock().map_err(|e| format!("Mutex poisoned: {e}"))?;
+
+    crate::paths::ensure_path_contained_in_dir(rules_dir, rules_dir)?;
+    let rule_file = rules_dir.join("pov-direct.md");
+    let backup_dir = rules_dir.join("backups");
+
+    let classified = classify_rule_for_management(rules_dir);
+    if !matches!(
+        classified.state,
+        PovDirectRuleManagementState::ManagedOutdated | PovDirectRuleManagementState::ManagedDrifted
+    ) {
+        return Err(format!(
+            "Cannot repair pov-direct.md: rule is not in a safely repairable managed state (state: {:?}, reason: {:?}).",
+            classified.state, classified.protected_reason
+        ));
+    }
+
+    let settings = classified
+        .settings
+        .ok_or_else(|| "Missing embedded settings for repair".to_string())?;
+    let mb = classified
+        .block
+        .ok_or_else(|| "Missing managed block bounds for repair".to_string())?;
+
+    let existing = std::fs::read_to_string(&rule_file)
+        .map_err(|e| format!("Failed to read rule file for repair: {e}"))?;
+    let expected_hash = hash_content(&existing);
+    let new_managed = render_managed_overrides_block(&settings);
+
+    // Replace ONLY the uniquely identified managed block, preserving all bytes outside it
+    let mut final_rule_bytes = String::with_capacity(existing.len() + 256);
+    final_rule_bytes.push_str(&existing[..mb.block_start]);
+    final_rule_bytes.push_str(&new_managed);
+    final_rule_bytes.push_str(&existing[mb.block_end..]);
+
+    let backup_path = create_backup_unpruned(&rule_file, &backup_dir)?;
+
+    let random_id: u32 = rand::random();
+    let tmp_file = rules_dir.join(format!("pov-direct.repair.tmp.{random_id:08x}"));
+    std::fs::write(&tmp_file, &final_rule_bytes)
+        .map_err(|e| format!("Failed to write temporary repaired rule file: {e}"))?;
+
+    if let Some(hook) = pre_replace_hook {
+        hook(&rule_file);
+    }
+
+    match std::fs::read_to_string(&rule_file) {
+        Ok(current) if hash_content(&current) == expected_hash => {}
+        Ok(_) => {
+            let _ = std::fs::remove_file(&tmp_file);
+            return Err("ConcurrentModificationConflict: Rule file changed externally before repair replacement. Backup retained.".to_string());
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp_file);
+            return Err(format!("ConcurrentModificationConflict: Failed to re-read rule file before repair replacement: {e}"));
+        }
+    }
+
+    if let Err(replace_err) = replace_file_atomically(&tmp_file, &rule_file) {
+        let _ = std::fs::remove_file(&tmp_file);
+        return Err(format!("Failed to atomically replace repaired rule file: {replace_err}"));
+    }
+
+    if let Some(hook) = pre_verify_hook {
+        hook(&rule_file);
+    }
+
+    let read_back_result = std::fs::read_to_string(&rule_file);
+    verify_and_recover_post_replace(&rule_file, Some(&backup_path), &final_rule_bytes, read_back_result)?;
+
+    inspect_pov_direct_rule_management_at(rules_dir, skill_file)
 }
 
 #[cfg(test)]
@@ -1714,5 +2278,191 @@ Extra custom user notes at the bottom.\n";
         let res = save_pov_direct_settings_at(&rules_dir, &skill_file, req).unwrap();
         assert_eq!(res.state, PovDirectFileState::ManagedSynced);
         assert_eq!(res.settings.auto_activation, false);
+    }
+
+    #[test]
+    fn test_rule_management_absent_install_with_missing_and_present_skill() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().join("rules");
+        let skill_file = temp_dir.path().join("skills").join("pov-direct").join("SKILL.md");
+
+        // Inspect on absent directory performs zero writes
+        let initial = inspect_pov_direct_rule_management_at(&rules_dir, &skill_file).unwrap();
+        assert_eq!(initial.rule_state, PovDirectRuleManagementState::Absent);
+        assert!(!initial.skill_present);
+        assert!(initial.can_install);
+        assert!(!initial.can_repair);
+        assert!(!rules_dir.exists());
+
+        // Install succeeds even when SKILL.md is missing, and reports skill_present = false
+        let installed = install_pov_direct_rule_at(&rules_dir, &skill_file).unwrap();
+        assert_eq!(installed.rule_state, PovDirectRuleManagementState::ManagedCurrent);
+        assert!(!installed.skill_present);
+        assert!(!installed.can_install);
+        assert!(!installed.can_repair);
+        assert_eq!(installed.schema_id.as_deref(), Some("pov-direct:settings:v1"));
+
+        // Once SKILL.md is added, inspect reports skill_present = true without modifying rule
+        std::fs::create_dir_all(skill_file.parent().unwrap()).unwrap();
+        std::fs::write(&skill_file, "# Skill").unwrap();
+        let after_skill = inspect_pov_direct_rule_management_at(&rules_dir, &skill_file).unwrap();
+        assert_eq!(after_skill.rule_state, PovDirectRuleManagementState::ManagedCurrent);
+        assert!(after_skill.skill_present);
+        assert_eq!(after_skill.content_hash, installed.content_hash);
+    }
+
+    #[test]
+    fn test_rule_management_repair_preserves_surrounding_bytes_and_embedded_settings() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().join("rules");
+        let skill_file = temp_dir.path().join("skills").join("pov-direct").join("SKILL.md");
+        std::fs::create_dir_all(&rules_dir).unwrap();
+        std::fs::create_dir_all(skill_file.parent().unwrap()).unwrap();
+        std::fs::write(&skill_file, "# Skill").unwrap();
+
+        let custom_settings = PovDirectSettings {
+            auto_activation: false,
+            web_research: WebResearchPolicy::Unrestricted,
+            response_verbosity: ResponseVerbosityPolicy::Detailed,
+            repository_exploration: ExplorationPolicy::Detailed,
+            verification: VerificationPolicy::Broad,
+        };
+        let canonical = render_rule_file(&custom_settings, "~/.gemini/config/skills/pov-direct/SKILL.md");
+        let leading_note = "\n<!-- leading user note -->\n";
+        let trailing_note = "\n## Trailing User Section\nKeep this verbatim.\n";
+        let drifted = canonical.replace(
+            "- Web research: Use normal judgment;",
+            "- Web research: DRIFTED LINE;",
+        );
+        let with_user_text = drifted.replace(
+            MANAGED_BEGIN_MARKER,
+            &format!("{leading_note}{MANAGED_BEGIN_MARKER}"),
+        ) + trailing_note;
+
+        let rule_file = rules_dir.join("pov-direct.md");
+        std::fs::write(&rule_file, &with_user_text).unwrap();
+
+        let status = inspect_pov_direct_rule_management_at(&rules_dir, &skill_file).unwrap();
+        assert_eq!(status.rule_state, PovDirectRuleManagementState::ManagedDrifted);
+        assert!(status.can_repair);
+        assert!(!status.can_install);
+
+        let repaired = repair_pov_direct_rule_at(&rules_dir, &skill_file).unwrap();
+        assert_eq!(repaired.rule_state, PovDirectRuleManagementState::ManagedCurrent);
+        assert!(!repaired.can_repair);
+
+        let on_disk = std::fs::read_to_string(&rule_file).unwrap();
+        assert!(on_disk.contains(leading_note));
+        assert!(on_disk.ends_with(trailing_note));
+        assert!(on_disk.contains("- Web research: Use normal judgment;"));
+        assert!(!on_disk.contains("DRIFTED LINE"));
+        assert!(rules_dir.join("backups").exists());
+    }
+
+    #[test]
+    fn test_rule_management_outdated_include_classification_and_repair() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().join("rules");
+        let skill_file = temp_dir.path().join("skills").join("pov-direct").join("SKILL.md");
+        std::fs::create_dir_all(&rules_dir).unwrap();
+
+        let content = render_rule_file(&PovDirectSettings::default(), "/legacy/path/to/pov-direct/SKILL.md");
+        let rule_file = rules_dir.join("pov-direct.md");
+        std::fs::write(&rule_file, &content).unwrap();
+
+        let status = inspect_pov_direct_rule_management_at(&rules_dir, &skill_file).unwrap();
+        assert_eq!(status.rule_state, PovDirectRuleManagementState::ManagedOutdated);
+        assert!(status.can_repair);
+    }
+
+    #[test]
+    fn test_rule_management_protected_shapes_refuse_repair_and_preserve_bytes() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().join("rules");
+        let skill_file = temp_dir.path().join("skills").join("pov-direct").join("SKILL.md");
+        std::fs::create_dir_all(&rules_dir).unwrap();
+        let rule_file = rules_dir.join("pov-direct.md");
+
+        let valid = render_rule_file(&PovDirectSettings::default(), "~/.gemini/config/skills/pov-direct/SKILL.md");
+        let cases = vec![
+            ("duplicate_begin", valid.replacen(MANAGED_BEGIN_MARKER, &format!("{MANAGED_BEGIN_MARKER}\n{MANAGED_BEGIN_MARKER}"), 1)),
+            ("missing_end", valid.replace(MANAGED_END_MARKER, "")),
+            ("reversed_markers", format!("---\ntrigger: manual\n---\n{MANAGED_END_MARKER}\n{MANAGED_BEGIN_MARKER}\n")),
+            ("unknown_schema_v2", valid.replace("pov-direct:settings:v1", "pov-direct:settings:v2")),
+            ("legacy_unmarked", "---\ntrigger: model_decision\n---\n# Poverello Direct Coding\n\n@[pov-direct](~/.gemini/config/skills/pov-direct/SKILL.md)\n".to_string()),
+            ("unmanaged_custom", "---\ntrigger: manual\n---\n# Custom user rule\n".to_string()),
+        ];
+
+        for (name, body) in cases {
+            std::fs::write(&rule_file, &body).unwrap();
+            let status = inspect_pov_direct_rule_management_at(&rules_dir, &skill_file).unwrap();
+            assert_eq!(status.rule_state, PovDirectRuleManagementState::Protected, "case {name}");
+            assert!(!status.can_install, "case {name}");
+            assert!(!status.can_repair, "case {name}");
+            assert!(status.protected_reason.is_some(), "case {name}");
+            assert!(repair_pov_direct_rule_at(&rules_dir, &skill_file).is_err(), "case {name}");
+            assert_eq!(std::fs::read_to_string(&rule_file).unwrap(), body, "case {name}");
+        }
+    }
+
+    #[test]
+    fn test_rule_management_repair_concurrent_conflict_and_readback_rollback() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().join("rules");
+        let skill_file = temp_dir.path().join("skills").join("pov-direct").join("SKILL.md");
+        std::fs::create_dir_all(&rules_dir).unwrap();
+        let rule_file = rules_dir.join("pov-direct.md");
+
+        let drifted = render_rule_file(&PovDirectSettings::default(), "~/.gemini/config/skills/pov-direct/SKILL.md")
+            .replace("- Web research:", "- Web research: DRIFTED");
+        std::fs::write(&rule_file, &drifted).unwrap();
+
+        let concurrent = "---\ntrigger: manual\n---\n# External change\n";
+        let err = repair_pov_direct_rule_internal(
+            &rules_dir,
+            &skill_file,
+            Some(Box::new(move |p| {
+                std::fs::write(p, concurrent).unwrap();
+            })),
+            None,
+        )
+        .unwrap_err();
+        assert!(err.contains("ConcurrentModificationConflict"));
+        assert_eq!(std::fs::read_to_string(&rule_file).unwrap(), concurrent);
+
+        // Now test read-back verification rollback on repair
+        std::fs::write(&rule_file, &drifted).unwrap();
+        let err_rb = repair_pov_direct_rule_internal(
+            &rules_dir,
+            &skill_file,
+            None,
+            Some(Box::new(|p| {
+                // Corrupt file after replace before readback
+                let _ = std::fs::remove_file(p);
+            })),
+        )
+        .unwrap_err();
+        assert!(err_rb.contains("RecoveryRequired") || err_rb.contains("ReadBackVerificationFailed"));
+    }
+
+    #[test]
+    fn test_rule_management_install_aborts_when_target_created_concurrently() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().join("rules");
+        let skill_file = temp_dir.path().join("skills").join("pov-direct").join("SKILL.md");
+        let rule_file = rules_dir.join("pov-direct.md");
+
+        let concurrent_content = "---\ntrigger: manual\n---\n# Concurrently created rule\n";
+        let err = install_pov_direct_rule_internal(
+            &rules_dir,
+            &skill_file,
+            Some(Box::new(move |p| {
+                std::fs::write(p, concurrent_content).unwrap();
+            })),
+            None,
+        )
+        .unwrap_err();
+        assert!(err.contains("ConcurrentModificationConflict"));
+        assert_eq!(std::fs::read_to_string(&rule_file).unwrap(), concurrent_content);
     }
 }

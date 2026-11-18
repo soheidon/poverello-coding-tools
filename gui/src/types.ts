@@ -434,6 +434,38 @@ export interface ProjectPlanSlot {
   plan_path?: string | null;
 }
 
+export interface SurfacePlanSlotsView {
+  repo_root: string;
+  surface: string;
+  active_slot_id?: string | null;
+  active_plan_path?: string | null;
+  slots: Record<string, string>;
+  is_unresolved: boolean;
+}
+
+export interface SetActivePlanSlotResult {
+  overview: PlanFileDetails;
+  active_slot_id: string;
+  mirror_warning?: string | null;
+}
+
+export interface PinnedWorkflowTarget {
+  repository: string;
+  surface: string;
+  slot_id: string;
+  plan_path: string;
+  sha256_hash: string;
+  file_identity?: string | null;
+}
+
+export interface PinnedWorkflowLaunch {
+  role_assignment: {
+    planner_id?: string | null;
+    reviser_id?: string | null;
+  };
+  pinned_target: PinnedWorkflowTarget;
+}
+
 export interface PlanFileEntry {
   path: string;
   relative_path: string;
@@ -728,4 +760,117 @@ export interface ResumptionPreflightResult {
   workflow: string;
   status: string;
   reasons: string[];
+}
+
+export type NerfEngine = "poverello_rules" | "agentopt";
+
+export type AgentOptWorkspaceMode = "follow_registered_projects" | "manual_override";
+
+export interface ActivePlanContext {
+  surface: "antigravity" | "codex";
+  repoRoot: string | null;
+  slotId: "primary" | "secondary" | null;
+  planPath: string | null;
+  resolved: boolean;
+}
+
+export type AgentOptWorkspaceState =
+  | "not_installed"
+  | "not_initialized"
+  | "disabled"
+  | "enabled"
+  | "invalid_config"
+  | "unsupported_version"
+  | "error";
+
+export interface AgentOptCliInfo {
+  installed: boolean;
+  version: string | null;
+  supported_version: boolean;
+  cli_path: string | null;
+  node_version: string | null;
+  node_supported: boolean;
+  npm_available: boolean;
+  pinned_version: string;
+  error: string | null;
+}
+
+export interface AgentOptConfigView {
+  raw_valid: boolean;
+  schema_supported: boolean;
+  enabled: boolean | null;
+  mode: string | null;
+  raw: Record<string, unknown> | null;
+  error: string | null;
+}
+
+export interface AgentOptWorkspaceInspection {
+  workspace_path: string;
+  registered: boolean;
+  state: AgentOptWorkspaceState;
+  antigravity_plugin_present: boolean;
+  config_present: boolean;
+  hooks_enabled?: boolean | null;
+  config: AgentOptConfigView | null;
+  unregistered_files_detected: boolean;
+  detail: string | null;
+}
+
+export interface AgentOptWorkspaceTarget {
+  project_slot_id: string;
+  repository_path: string;
+  workspace_path: string;
+  plan_path: string | null;
+  use_agent_opt: boolean;
+  manual_workspace: string | null;
+  inspection: AgentOptWorkspaceInspection;
+}
+
+export interface EngineMismatchInfo {
+  has_mismatch: boolean;
+  reason: string | null;
+  observed_rule_state: string;
+  enabled_workspaces: string[];
+  selected_workspace_state: AgentOptWorkspaceState | null;
+}
+
+export interface NerfEngineOverview {
+  persisted_engine: NerfEngine;
+  workspace_mode?: AgentOptWorkspaceMode;
+  manual_workspace?: string | null;
+  active_plan_workspace?: string | null;
+  selected_workspace: string | null;
+  registered_workspaces: string[];
+  cli: AgentOptCliInfo;
+  workspace_inspection: AgentOptWorkspaceInspection | null;
+  workspace_targets: AgentOptWorkspaceTarget[];
+  target_resolution_errors: string[];
+  pov_direct_status: PovDirectStatus;
+  mismatch: EngineMismatchInfo;
+  exclusivity_scope_note: string;
+}
+
+export interface EngineTransitionResult {
+  overview: NerfEngineOverview;
+  changed: boolean;
+  message: string;
+}
+
+export type PovDirectRuleManagementState =
+  | "absent"
+  | "managed_current"
+  | "managed_outdated"
+  | "managed_drifted"
+  | "protected";
+
+export interface PovDirectRuleManagementStatus {
+  rulePath: string;
+  skillPath: string;
+  skillPresent: boolean;
+  ruleState: PovDirectRuleManagementState;
+  protectedReason: string | null;
+  schemaId: string | null;
+  canInstall: boolean;
+  canRepair: boolean;
+  contentHash: string;
 }

@@ -15,7 +15,7 @@ Poverello Coding Tools (que aparece en la aplicación como **Poverello**) es una
 > [!TIP]
 > **Novedades:** Consulta [NEWS.md (Notas de la versión)](../NEWS.md) para ver las funciones, detalles de implementación y cambios de cada versión.
 
-El próximo lanzamiento previsto es **v0.27.3** (aún no publicado). Cada interfaz de Autocode tiene una fila permanente de proyecto y plan, y permite añadir una segunda fila opcional. Al seleccionar un plan Markdown, se asocia con el repositorio que contiene el archivo. Antigravity y Codex guardan sus selecciones por separado. La ubicación de la carpeta de planes solo se usa como carpeta inicial del selector cuando no hay un Active Plan. Al quitar la segunda fila opcional, solo se elimina la asociación de Poverello; no se borran los archivos del proyecto ni del plan. Se muestran la ruta completa y el estado del plan seleccionado, con una acción independiente para abrir el archivo.
+Esta copia de trabajo prepara **v0.28.0** (aún no publicada). Añade controles AgentOpt independientes para las dos filas de proyecto de Antigravity, con preajustes FAST / BALANCED / STRICT y un editor Custom. La regla de Antigravity de Poverello se puede instalar y reparar desde Configuración. GPT-6.2 Sol se incorpora como revisor de Codex CLI, y GPT-6.2 Sol / Sol Pro / Astra / Astra Pro se añaden al catálogo de OpenRouter. Las dos filas de planes de Antigravity y Codex siguen siendo independientes. Consulta [NEWS.md](../NEWS.md) para ver los detalles.
 
 ---
 
@@ -130,7 +130,7 @@ Desde v0.26.2, el revisor prioritario solo resuelve desacuerdos entre veredictos
 
 Descarga el instalador de Windows actualmente publicado más reciente desde la página de [Releases](https://github.com/soheidon/poverello-coding-tools/releases) y ejecútalo.
 
-El instalador de Windows admite 8 idiomas. Poverello conserva la identidad de aplicación existente y admite la actualización en el mismo directorio desde Anthro Bridge. En el primer inicio, está diseñado para copiar la configuración y los datos de ejecución de `%APPDATA%\Anthro Bridge` (o `%APPDATA%\Anthro Bridge Dev` en las compilaciones de desarrollo) a la carpeta de datos de Poverello correspondiente, conservando la carpeta original como copia de recuperación. No se han verificado en Windows real la instalación, migración, actualización, reinstalación, cancelación ni desinstalación; haga una copia de seguridad de los datos importantes antes de actualizar.
+El instalador de Windows admite 8 idiomas. Las compilaciones estables pueden buscar e instalar actualizaciones firmadas de GitHub Releases desde **Configuración > General > Actualizaciones de la aplicación**; las compilaciones de desarrollo no usan el actualizador. Para ello debe publicarse una versión compatible firmada junto con el manifiesto del actualizador. Poverello conserva la identidad de aplicación existente y admite la actualización en el mismo directorio desde Anthro Bridge. En el primer inicio, está diseñado para copiar la configuración y los datos de ejecución de `%APPDATA%\Anthro Bridge` (o `%APPDATA%\Anthro Bridge Dev` en las compilaciones de desarrollo) a la carpeta de datos de Poverello correspondiente, conservando la carpeta original como copia de recuperación. No se han verificado en Windows real la instalación, migración, actualización, reinstalación, cancelación ni desinstalación; haga una copia de seguridad de los datos importantes antes de actualizar.
 
 ---
 

@@ -1301,6 +1301,10 @@ describe("McpSettingPanel - Direct DeepSeek Model Selection & Legacy Compatibili
       }));
 
       expect(options).toEqual([
+        { value: "openai/gpt-6.2-sol", label: "GPT-6.2 Sol" },
+        { value: "openai/gpt-6.2-sol-pro", label: "GPT-6.2 Sol Pro" },
+        { value: "openai/gpt-6.2-astra", label: "GPT-6.2 Astra" },
+        { value: "openai/gpt-6.2-astra-pro", label: "GPT-6.2 Astra Pro" },
         { value: "openai/gpt-6.1-sol", label: "GPT-6.1 Sol" },
         { value: "openai/gpt-6.1-sol-pro", label: "GPT-6.1 Sol Pro" },
         { value: "openai/gpt-6.1-terra", label: "GPT-6.1 Terra" },

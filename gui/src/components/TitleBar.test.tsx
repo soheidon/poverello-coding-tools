@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import TitleBar from "./TitleBar";
 import { version } from "../../package.json";
 import tauriConf from "../../src-tauri/tauri.conf.json";
+
+const { startDragging } = vi.hoisted(() => ({
+  startDragging: vi.fn().mockResolvedValue(undefined),
+}));
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
@@ -13,6 +17,7 @@ vi.mock("@tauri-apps/api/window", () => ({
     minimize: vi.fn().mockResolvedValue(undefined),
     toggleMaximize: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
+    startDragging,
   }),
 }));
 
@@ -31,6 +36,7 @@ describe("TitleBar Component", () => {
 
     // App Branding
     expect(document.querySelector(".titlebar-title")?.textContent).toBe("Poverello");
+    expect(screen.getByText("v0.28.0")).toBeInTheDocument();
 
     // Tabs
     expect(screen.getByRole("button", { name: /Gateway for Claude Desktop/i })).toBeInTheDocument();
@@ -47,6 +53,37 @@ describe("TitleBar Component", () => {
 
     // No old right-side button or close toggle
     expect(screen.queryByRole("button", { name: /header\.settingsClose/i })).not.toBeInTheDocument();
+  });
+
+  it("makes the app brand draggable without including navigation or window controls", () => {
+    render(
+      <TitleBar
+        activeTab="gateway"
+        onTabChange={vi.fn()}
+      />
+    );
+
+    expect(document.querySelector(".titlebar-brand"))
+      .toHaveAttribute("data-tauri-drag-region");
+    expect(document.querySelector(".titlebar-title"))
+      .toHaveAttribute("data-tauri-drag-region");
+    expect(document.querySelector(".titlebar-tabs"))
+      .not.toHaveAttribute("data-tauri-drag-region");
+    expect(document.querySelector(".titlebar-controls"))
+      .not.toHaveAttribute("data-tauri-drag-region");
+  });
+
+  it("starts native window dragging when the app title text is pressed", () => {
+    render(
+      <TitleBar
+        activeTab="gateway"
+        onTabChange={vi.fn()}
+      />
+    );
+
+    fireEvent.mouseDown(screen.getByText("Poverello"), { button: 0 });
+
+    expect(startDragging).toHaveBeenCalledOnce();
   });
 
   it("triggers onTabChange when each tab is clicked", async () => {

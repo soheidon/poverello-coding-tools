@@ -8,6 +8,7 @@
 > **v0.27.0:** リポジトリ単位のActive Plan、画面別Planner / Reviser割当、同一性と指摘をfail-closedで検査するチェックポイント再開を追加します。OpenRouter Tencent Hy4のモデル・料金メタデータを追加し、Antigravity Nerf設定をGUIへ集約して旧スラッシュコマンドを廃止します。自動アップデートは有効化されていません。
 > **v0.27.2:** Antigravity AutocodeとCodex Autocodeに、独立したプランフォルダー基準場所の設定を追加します。プラン操作全体で設定場所を一貫して使い、未設定時にアプリの作業ディレクトリへ暗黙にフォールバックしません。既存のMarkdownプランファイルを直接選択してエディターで開けます。Active Planの絶対パスと状態を表示し、ファイル選択ダイアログはそのプランのフォルダーから開きます。
 > **v0.27.3（リリース候補・未公開）:** Antigravity AutocodeとCodex Autocodeに独立したプロジェクト・プラン枠を追加します。各画面には常設のプライマリ枠があり、任意のセカンダリ枠を1つ追加できます。既存の`.md`プランを選ぶと、そのファイルを含むGitリポジトリに紐付きます。2つの画面の選択内容は独立して保存されます。プランフォルダー設定は、Active Planがない場合のファイル選択ダイアログの初期フォルダー指定であり、選択範囲やプロジェクトルートを制限しません。任意の枠を削除してもPoverello内の紐付けだけが解除され、ファイルは削除されません。
+> **v0.28.0（リリース準備中・未公開）:** プラン枠のprimary / secondaryを対等に選択可能にし、Antigravityの各プロジェクトに独立したAgentOpt操作、FAST / BALANCED / STRICTの直接選択、Custom設定エディターを追加します。`pov-direct.md`ルールを設定からインストール・修復できます。GPT-6.2 SolをCodex CLI Reviewerに追加し、GPT-6.2 Sol / Sol Pro / Astra / Astra ProをOpenRouterカタログに追加します。正式版WindowsビルドではGitHub Releasesの署名済み更新を利用できますが、開発ビルドでは無効です。
 
 ## 概要
 
@@ -90,7 +91,7 @@ Claude Desktop / Claude Code の API リクエストを、複数プロバイダ�
 - **Claude Code コンテキスト管理**: Claude Code 向けのモデル認識型自動圧縮。`resolve_effective_auto_compact` は各標準ルート（claude-opus-5、claude-sonnet-5、claude-haiku-4-5）をその upstream モデルへ解決し、各モデルのコンテキスト容量を静的レジストリ `model_catalog.json` で参照し、Auto モードでは既知の最小容量を安全なコンテキストウィンドウとして使用する。コンテキスト制御は3つすべての容量が既知の場合のみ適用される（それ以外はステータスが Incomplete）。ヘッダーのトグルでコンテキスト管理のオン/オフを切り替える。高度なモードとしきい値は `config.json` の `claude_code.auto_compact` 配下で設定する。モード: `auto`、`manual`（`window_tokens`）、`claude_default`。
 - **Claude Code 起動コマンド生成**: `build_claude_code_launch_command` は、ゲートウェイ接続変数（ローカルゲートウェイを指す `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`）と Claude Code コンテキスト制御変数（`CLAUDE_CODE_AUTO_COMPACT_WINDOW`、`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`）を組み合わせた完全な PowerShell コマンドを生成する。コンテキスト管理が無効、Incomplete、または Claude デフォルト設定の場合、コマンドは `Remove-Item Env:... -ErrorAction SilentlyContinue` で古いコンテキスト変数を削除し、以前設定されたセッション値が新しい起動に漏れないようにする。Claude 設定パネルの「Claude Code起動コマンドをコピー」ボタンがコマンドをクリップボードにコピーする。Poverello はコマンドの生成とコピーのみを行い、実行は一切しない。
 - **共有モデルルーティングモジュール**: `model_routing.rs` は、ルートから upstream への解決を `proxy.rs` とコンテキストリゾルバーが共有する純粋関数に抽出し、コンテキストウィンドウがプロキシが実際に転送する upstream モデルと同一のモデルを解決することを保証する。
-- **コンテキスト容量レジストリ**: `model_catalog.json` は、既知のコンテキスト容量の静的レジストリ。組み込みの直接プロバイダーモデル（DeepSeek、MiniMax、Kimi、MiMo V2.6 および V2.5）と組み込みの OpenRouter モデル（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-6.1、GPT-6、GPT Astra Latest、GPT-5.6、Google Gemini）をカバーする。不明なカスタム OpenRouter モデルは有効なルートターゲットのままであるが、メタデータが追加されるか手動モードが設定されるまで、コンテキスト管理は Incomplete として報告される。
+- **コンテキスト容量レジストリ**: `model_catalog.json` は、既知のコンテキスト容量の静的レジストリ。組み込みの直接プロバイダーモデル（DeepSeek、MiniMax、Kimi、MiMo V2.6 および V2.5）と組み込みの OpenRouter モデル（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-6.2、GPT-6.1、GPT-6、GPT Astra Latest、GPT-5.6、Google Gemini）をカバーする。不明なカスタム OpenRouter モデルは有効なルートターゲットのままであるが、メタデータが追加されるか手動モードが設定されるまで、コンテキスト管理は Incomplete として報告される。
 - **Google Gemini モデル対応**: OpenRouter プロファイルで Gemini 3.1 Pro Preview と Gemini 3.7 Flash を組み込みモデルとして利用でき、料金・機能データも収録。Gemini 3.7 Flash はプロモーション価格と、取り消し線付きの通常価格を併記する。
 - **GLM (Z.ai) ダイレクトプロバイダー対応**: 設定された `ZAI_API_KEY`（または Poverello に入力したキー）を使って Z.ai の Anthropic 互換エンドポイントへリクエストを送信。Poverello はキー種別、Coding Plan の購入履歴、アカウントの許可状態、課金資格を判定しないため、利用前に[Z.ai の現行セットアップガイド](https://zcode.z.ai/en/docs/configuration)でアカウントおよびエンドポイント要件を確認してください。4モデル構成（`glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx`、`glm-5.2`）。GLM-5.3 系列は推論強度（`low`, `high`, `max`）を選択可能な常時思考、GLM-5.2 は Normal/Thinking トグル。厳格な出力検証により、思考ブロックのみで最終テキストが空の場合（思考中の `max_tokens` 到達等）は Orchestrator・MCP の双方で明示的なプロバイダーエラーとしてフェイルクローズする。
 - **v0.25.3モデルとThinking安全制御**: MiniMax M3.1 Flash、Kimi K3.1 Pro / Highspeed、GLM-5.3 Directモデルを追加し、Kimi Code K3.1 IDを分離。8つのIDはThinking専用で、無効化要求は上流送信前に拒否します。Kimi Codeのmediumはhigh、xhighはmaxへ正規化。価格基準日は2026-10-31。Kimi K3.1のUSD表示はCNY料金からの参考換算で、OpenRouterは実行時価格を優先します。
@@ -154,7 +155,22 @@ Tauri v2 + React 19 + TypeScript。トップレベルナビゲーション: Gate
 
 - OpenRouterの厳選カタログに `tencent/hy4` を追加しました。コンテキスト長は1,048,576トークンで、画像URL/base64入力とThinking / High推論設定に対応します。組み込み `OpenRouter: Tencent` プロファイルではOpusルートの既定モデルです。Generalの料金表には2026-11-08基準の参考価格を掲載します。
 - Nerf設定はAntigravity Autocodeで管理します。旧 `/pov-nerf-balanced` と `/pov-nerf-lightweight` コマンドは廃止しました。
-- v0.27.0では自動アップデートを設定していません。署名済みUpdater成果物と本番署名鍵は含まれません。
+- v0.27.0では自動アップデートを設定していません。v0.28.0の正式版WindowsビルドではGitHub Releasesの署名済み更新を利用し、開発ビルドでは無効です。
+
+### Antigravity AgentOpt と Poverello Rule 管理
+
+- Antigravityの2つのプロジェクト・プラン枠は、AgentOptの対象フォルダー、有効/無効設定、構成をそれぞれ独立して保持します。通常は各枠のプランで選択したプロジェクトに追従し、手動対象はその枠だけの例外です。
+- FAST、BALANCED、STRICTは各プリセットが管理する検証値を即時適用し、保存後に読み戻して確認します。Customでは詳細エディターを開きます。その他の既知・未知フィールドは保持されます。
+- Settings > Antigravity Skills & Rulesから、管理対象のグローバル`pov-direct.md`ルールをインストールまたは安全に修復できます。未認識またはユーザー管理の内容は上書きせず保護します。
+
+### OpenAI GPT-6.2 カタログとReviewer対応
+
+- OpenRouterカタログに`openai/gpt-6.2-sol`、`openai/gpt-6.2-sol-pro`、`openai/gpt-6.2-astra`、`openai/gpt-6.2-astra-pro`を追加し、モデル別の能力・推論強度メタデータを提供します。Proは別モデルIDです。
+- GPT-6.2 SolをCodex CLI Reviewerとして使用できます。Codex Reviewer対応モデルでは利用可能な推論強度のみを提示し、保存済みの旧`none`値は他の設定を保持したまま`low`へ移行します。
+
+### 署名済みアプリ更新
+
+- 対応する正式版WindowsビルドはTauri UpdaterでGitHub Releasesを確認し、本番`latest.json`から署名済み更新をダウンロード・インストールします。開発ビルドではUpdaterを無効化します。リリースにはバージョン付きインストーラー、対応する`.sig`署名、`latest.json`が必要です。バージョン、署名、マニフェスト、タグ、アセットが一致しなければなりません。Draftリリースは`latest`エンドポイントでは配信されません。
 
 ### Tauri コマンド一覧
 

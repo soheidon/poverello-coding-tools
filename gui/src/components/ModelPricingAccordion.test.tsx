@@ -45,8 +45,8 @@ describe("ModelPricingAccordion", () => {
   it("renders current and revised standard prices for Sol, Laguna, Step, and Gemini Flash", () => {
     openPricing();
 
-    // Sol / Sol Pro ($2.000 current, $4.000 regular) + GPT-6 Sol/Pro, GPT-6.1 Sol/Pro ($2.000 current)
-    expect(screen.getAllByText("$2.000")).toHaveLength(9);
+    // Sol / Sol Pro ($2.000 current, $4.000 regular) + GPT-6 Sol/Pro, GPT-6.1 Sol/Pro, GPT-6.2 Sol/Pro ($2.000 current)
+    expect(screen.getAllByText("$2.000")).toHaveLength(11);
     // Sol / Sol Pro regular input ($4.000) + Kimi K2.6 & Kimi K2.7 Code output ($4.000)
     expect(screen.getAllByText("$4.000")).toHaveLength(4);
 

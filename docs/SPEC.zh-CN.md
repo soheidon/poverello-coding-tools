@@ -8,6 +8,7 @@
 > **v0.27.0：** 新增按仓库选择 Active Plan、按界面分配 Planner / Reviser，以及在恢复前严格检查身份与未解决问题的检查点机制。新增 OpenRouter Tencent Hy4 模型与价格元数据；Antigravity Nerf 设置集中到 GUI，并停用旧斜杠命令。自动应用更新尚未启用。
 > **v0.27.2：** 为 Antigravity Autocode 和 Codex Autocode 添加相互独立的计划文件夹位置设置。各位置会一致地用于计划操作；未配置时不会默默回退到应用程序的工作目录。还可直接选择现有 Markdown 计划文件并在编辑器中打开；界面显示活动计划的绝对路径和状态，文件选择器从该计划所在文件夹开始。
 > **v0.27.3（发布目标；尚未发布）：** 为 Antigravity Autocode 和 Codex Autocode 添加相互独立的项目-计划行。每个界面始终保留一个主行，并可添加一个可选的第二行。选择 `.md` 计划文件后，会将其关联到包含该文件的 Git 仓库；两个界面分别保存各自的选择。计划文件夹设置仅在没有 Active Plan 时决定文件选择器的起始目录，不限制可选文件，也不定义项目根目录。移除可选行只会清除 Poverello 中的关联，不会删除文件。
+> **v0.28.0（发布准备中；尚未发布）：** 使 primary 与 secondary 项目计划槽位可平等选择，并为每个 Antigravity 项目添加独立的 AgentOpt 控制、FAST / BALANCED / STRICT 直接预设及自定义设置编辑器。可在设置中安装或修复受管理的 `pov-direct.md` 规则。将 GPT-6.2 Sol 加入 Codex CLI Reviewer，并将 GPT-6.2 Sol / Sol Pro / Astra / Astra Pro 加入 OpenRouter 目录。受支持的 Windows 正式版可通过 GitHub Releases 安装签名更新；开发版不使用更新器。
 
 ## 概述
 
@@ -90,7 +91,7 @@
 - **Claude Code 上下文管理**: 针对 Claude Code 的模型感知自动压缩。`resolve_effective_auto_compact` 将每条标准路由（claude-opus-5、claude-sonnet-5、claude-haiku-4-5）解析为其上游模型，在静态的 `model_catalog.json` 注册表中查找每个模型的上下文容量，在 Auto 模式下使用最小已知容量作为安全上下文窗口。上下文控制仅在所有三个容量都已知时应用（否则状态为 Incomplete）。标题栏切换开关可开启/关闭上下文管理；高级模式和阈值在 `config.json` 的 `claude_code.auto_compact` 下设置。模式：`auto`、`manual`（`window_tokens`）、`claude_default`。
 - **Claude Code 启动命令生成**: `build_claude_code_launch_command` 生成一条完整的 PowerShell 命令，结合网关连接变量（`ANTHROPIC_BASE_URL` 指向本地网关，`ANTHROPIC_AUTH_TOKEN` = `sk-local-gateway`）与 Claude Code 上下文控制变量（`CLAUDE_CODE_AUTO_COMPACT_WINDOW`、`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`）。当上下文管理被禁用、不完整或设置为 Claude 默认值时，该命令使用 `Remove-Item Env:... -ErrorAction SilentlyContinue` 移除过期的上下文变量，以避免先前设置的会话值泄漏到新的启动中。Claude 设置面板中的"复制 Claude Code 启动命令"按钮将命令复制到剪贴板。Poverello 仅生成并复制该命令——它从不执行该命令。
 - **共享模型路由模块**: `model_routing.rs` 将路由到上游的解析提取为纯函数，由 `proxy.rs` 和上下文解析器共享，确保上下文窗口解析出的上游模型与代理实际转发的模型一致。
-- **上下文容量注册表**: `model_catalog.json` 是已知上下文容量的静态注册表，涵盖内置直连提供商模型（DeepSeek、MiniMax、Kimi、MiMo V2.6 和 V2.5）和内置 OpenRouter 模型（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-6.1、GPT-6、GPT Astra Latest、GPT-5.6 和 Google Gemini）。未知的自定义 OpenRouter 模型仍是有效的路由目标，但会报告上下文管理为 Incomplete，直到添加元数据或配置手动模式。
+- **上下文容量注册表**: `model_catalog.json` 是已知上下文容量的静态注册表，涵盖内置直连提供商模型（DeepSeek、MiniMax、Kimi、MiMo V2.6 和 V2.5）和内置 OpenRouter 模型（Poolside、Tencent、InclusionAI、StepFun、OpenAI GPT-6.2、GPT-6.1、GPT-6、GPT Astra Latest、GPT-5.6 和 Google Gemini）。未知的自定义 OpenRouter 模型仍是有效的路由目标，但会报告上下文管理为 Incomplete，直到添加元数据或配置手动模式。
 - **Google Gemini 模型支持**：OpenRouter 配置支持内置的 Gemini 3.1 Pro Preview 和 Gemini 3.7 Flash，并提供价格与能力数据。Gemini 3.7 Flash 同时显示促销价和带删除线的常规价格。
 - **GLM（Z.ai）直连提供商支持**：使用配置的 `ZAI_API_KEY`（或 Poverello 中保存的密钥）向 Z.ai 的 Anthropic 兼容端点发送请求。Poverello 不判断密钥类型、Coding Plan 购买记录、账户白名单或计费资格；使用前请查看 [Z.ai 当前配置指南](https://zcode.z.ai/en/docs/configuration)。目录包含 `glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx` 和 `glm-5.2`。GLM-5.3 系列始终启用思考并可选推理强度（`low`、`high`、`max`）；GLM-5.2 提供普通/思考切换。空响应或仅含思考内容的响应会在 Orchestrator 与 MCP 中以明确的提供商错误 fail-closed。
 - **v0.25.3 模型与 Thinking 安全控制**：新增 MiniMax M3.1 Flash、Kimi K3.1 Pro / Highspeed、GLM-5.3 直连模型，并区分 Kimi Code K3.1 ID。8 个 ID 仅支持 Thinking；禁用请求在发送上游前拒绝。Kimi Code medium 转为 high、xhigh 转为 max。价格基准日期为 2026-10-31；Kimi K3.1 USD 为 CNY 参考换算，OpenRouter 运行时价格优先。
@@ -144,11 +145,26 @@ Tauri v2 + React 19 + TypeScript。顶层导航包含 Gateway（仪表板）、M
 - 有 Active Plan 时，文件选择器从该计划所在文件夹打开；否则使用已配置的起始目录；若未配置，则由系统原生文件选择器使用操作系统提供的默认目录，不会将应用程序工作目录视为计划根目录。每行的计划和仓库关联按界面分别保存。移除可选行不会修改关联文件。
 - 路径支持直接编辑、通过文件夹选择器指定或重置。无论选择仓库根目录还是其 `.plan` 文件夹，都会统一规范化项目根路径。
 
+### Antigravity AgentOpt 与 Poverello 规则管理
+
+- Antigravity 的两个项目-计划槽位分别保存独立的 AgentOpt 目标目录、启用/禁用状态和配置。默认情况下，每个槽位跟随其计划中选择的项目；手动目标仅作为该槽位的例外。
+- FAST、BALANCED 和 STRICT 会立即应用各自管理的验证值，并在保存后重新读取验证。Custom 会打开详细编辑器。其他已知和未知配置字段都会保留。
+- 可在 Settings > Antigravity Skills & Rules 中安装或安全修复受管理的全局 `pov-direct.md` 规则。无法识别或由用户管理的内容会受到保护，不会被覆盖。
+
+### OpenAI GPT-6.2 目录与 Reviewer 支持
+
+- OpenRouter 目录包含 `openai/gpt-6.2-sol`、`openai/gpt-6.2-sol-pro`、`openai/gpt-6.2-astra` 和 `openai/gpt-6.2-astra-pro`，并提供各模型对应的能力与推理元数据。Pro 版本使用独立模型 ID。
+- GPT-6.2 Sol 可用作 Codex CLI Reviewer。受支持的 Reviewer 模型仅显示受支持的推理强度；已保存的旧 `none` 值会迁移为 `low`，且不会替换其他设置。
+
+### 应用签名更新
+
+- 受支持的 Windows 正式版使用 Tauri Updater 检查 GitHub Releases，并从生产 `latest.json` 端点下载和安装签名更新。开发版禁用更新器。发布必须包含带版本号的安装程序、对应的 `.sig` 签名和 `latest.json`；版本、签名、清单、标签和资源必须一致。草稿发布不会通过 `latest` 端点提供。
+
 ### Tencent Hy4 与 Antigravity Nerf 设置
 
 - OpenRouter 精选目录加入 `tencent/hy4`，支持 1,048,576-token 上下文、图片 URL/base64 输入及 Thinking / High 推理设置。内置 `OpenRouter: Tencent` 配置默认将 Opus 路由到 Hy4；General 价格表显示基准日为 2026-11-08 的参考快照。
 - Nerf 设置在 Antigravity Autocode 中管理。旧 `/pov-nerf-balanced` 和 `/pov-nerf-lightweight` 命令已停用。
-- v0.27.0 未配置自动应用更新，也不含签名更新产物或生产签名密钥。
+- v0.27.0 未配置自动应用更新。自 v0.28.0 起，受支持的 Windows 正式版使用 GitHub Releases 签名更新；开发版仍禁用更新器。
 
 ### Tauri 命令
 

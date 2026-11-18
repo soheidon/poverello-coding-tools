@@ -1,5 +1,24 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.28.0 — 2026-11-18 (release preparation; not yet published)
+
+### Antigravity AgentOpt and Poverello Rules
+- Added per-project AgentOpt controls for both Antigravity project-plan slots. Each project has its own target folder, manual folder selection, enable/disable control, and effective status; the two slots remain independent.
+- Made FAST, BALANCED, and STRICT presets directly selectable, with immediate validated persistence. Custom opens the detailed settings editor; unrelated and unknown configuration fields are retained.
+- Added install and repair controls for the managed `pov-direct.md` Antigravity Rule under **Settings > Antigravity Skills & Rules**, with protected-file handling and clear status reporting.
+- Localized the updated Antigravity controls and actionable error guidance across all eight supported GUI languages.
+
+### Project Plans and Workflow Safety
+- Treats primary and secondary plan slots equally as selectable plans while keeping Codex and Antigravity selections independent.
+- Pins the repository, surface, slot, and plan identity to workflow operations and checks checkpoint identity before resumption.
+
+### OpenAI GPT-6.2 Models
+- Added GPT-6.2 Sol, Sol Pro, Astra, and Astra Pro to the OpenRouter catalog with model-specific reasoning and capability metadata.
+- Added GPT-6.2 Sol as a Codex CLI Reviewer model. The supported GPT-6.2 and existing Codex Reviewer models expose supported reasoning efforts without the unsupported `none` option; legacy saved `none` values are migrated to a supported effort.
+
+### Application Updates
+- Stable Windows builds can check for and install signed application updates from GitHub Releases in **Settings > General > Application Updates**. Development builds keep the updater disabled. Release publication must include the signed installer, its `.sig` file, and `latest.json` for the updater to discover the release.
+
 ## v0.27.4 — 2026-11-16
 
 ### Antigravity Plan Notice & Workflow Reliability

@@ -611,6 +611,16 @@ fn build_v2_migrated_config(old_policy: ReviewerPolicy) -> ReviewerPolicyConfig 
 }
 
 pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyConfig, String> {
+    inspect_reviewer_policy_at_internal(policy_path, || Ok(()))
+}
+
+pub(crate) fn inspect_reviewer_policy_at_internal<F>(
+    policy_path: &Path,
+    pre_replace_hook: F,
+) -> Result<ReviewerPolicyConfig, String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
     if let Some(parent) = policy_path.parent() {
         if parent.exists() {
             ensure_no_reparse(parent)?;
@@ -824,6 +834,68 @@ pub fn inspect_reviewer_policy_at(policy_path: &Path) -> Result<ReviewerPolicyCo
         return Ok(ReviewerPolicyConfig::default());
     }
 
+    const CODEX_NO_OFF_MODELS: &[&str] = &[
+        "gpt-6.2-sol",
+        "gpt-6.1-sol",
+        "gpt-6.1-terra",
+        "gpt-6-luna",
+    ];
+    let mut parsed = parsed;
+    let mut bytes = bytes;
+    let mut hash = hash;
+
+    let needs_low_migration = parsed
+        .get("codex")
+        .and_then(|c| c.as_object())
+        .and_then(|obj| {
+            let model = obj.get("model")?.as_str()?;
+            let effort = obj.get("reasoning_effort")?.as_str()?;
+            if CODEX_NO_OFF_MODELS.contains(&model) && effort == "none" {
+                Some(model.to_string())
+            } else {
+                None
+            }
+        });
+
+    if let Some(model_id) = needs_low_migration {
+        let catalog = load_reviewer_catalog()?;
+        let model_entry = catalog
+            .codex_models
+            .iter()
+            .find(|m| m.cli_model_id == model_id)
+            .ok_or_else(|| format!("Model '{model_id}' is not eligible for Codex reviewer migration"))?;
+        if !model_entry.reviewer_reasoning_efforts.iter().any(|e| e == "low") {
+            return Err(format!(
+                "Cannot migrate reasoning_effort 'none' to 'low' for '{model_id}': 'low' is not supported."
+            ));
+        }
+
+        let _save_guard = REVIEWER_POLICY_SAVE_LOCK
+            .lock()
+            .map_err(|e| format!("Failed to acquire reviewer policy save lock for migration: {e}"))?;
+
+        let mut patched = parsed.clone();
+        if let Some(codex_obj) = patched.get_mut("codex").and_then(|v| v.as_object_mut()) {
+            codex_obj.insert(
+                "reasoning_effort".to_string(),
+                serde_json::Value::String("low".to_string()),
+            );
+        } else {
+            return Err("Cannot migrate Codex reasoning_effort: 'codex' field is not a JSON object.".to_string());
+        }
+
+        write_value_conflict_checked_atomic(policy_path, &patched, Some(&hash), pre_replace_hook)?;
+
+        bytes = std::fs::read(policy_path)
+            .map_err(|e| format!("Failed to reload migrated reviewer policy: {e}"))?;
+        hash = format!("{:x}", Sha256::digest(&bytes));
+        parsed = serde_json::from_slice(&bytes)
+            .map_err(|e| format!("Failed to parse migrated reviewer policy after write: {e}"))?;
+        let migrated_cfg: ReviewerPolicyConfig = serde_json::from_value(parsed.clone())
+            .map_err(|e| format!("Failed to deserialize migrated reviewer policy after write: {e}"))?;
+        validate_reviewer_policy_config(&migrated_cfg)?;
+    }
+
     let mut config: ReviewerPolicyConfig = match serde_json::from_value(parsed) {
         Ok(c) => c,
         Err(e) => {
@@ -957,7 +1029,74 @@ where
         config_to_write.plan_review_policy = Some(config_to_write.policy);
     }
 
-    let serialized = serde_json::to_vec_pretty(&config_to_write)
+    let mut serialized_value = serde_json::to_value(&config_to_write)
+        .map_err(|e| format!("Failed to serialize reviewer policy: {e}"))?;
+    // Preserve extension fields owned by the project-plan manager, including
+    // project slots and the active repository identity, across unrelated
+    // reviewer-policy saves.
+    if policy_path.exists() {
+        if let Ok(existing_bytes) = std::fs::read(policy_path) {
+            if let Ok(existing_value) = serde_json::from_slice::<serde_json::Value>(&existing_bytes) {
+                if let (Some(existing), Some(output)) =
+                    (existing_value.as_object(), serialized_value.as_object_mut())
+                {
+                    const KNOWN_POLICY_FIELDS: &[&str] = &[
+                        "schema_version",
+                        "policy",
+                        "plan_review_policy",
+                        "plan_priority_reviewer",
+                        "plan_reviewers",
+                        "build_review_policy",
+                        "build_priority_reviewer",
+                        "build_reviewers",
+                        "preset",
+                        "codex",
+                        "deepseek",
+                        "priority_reviewer",
+                        "unconfirmed_migration",
+                        "active_plan_path",
+                        "planner_role",
+                        "reviser_role",
+                        "content_hash",
+                        "plan_root_path",
+                    ];
+                    for (key, value) in existing {
+                        if !KNOWN_POLICY_FIELDS.contains(&key.as_str()) {
+                            output.entry(key.clone()).or_insert_with(|| value.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    write_value_conflict_checked_atomic(policy_path, &serialized_value, expected_hash, pre_replace_hook)?;
+
+    let read_back = inspect_reviewer_policy_at(policy_path)?;
+    if read_back.schema_version != CURRENT_REVIEWER_POLICY_SCHEMA_VERSION
+        || read_back.policy != config.policy
+        || read_back.preset != config_to_write.preset
+        || read_back.codex != config.codex
+        || read_back.deepseek != config.deepseek
+    {
+        return Err("Policy written but read-back verification failed".to_string());
+    }
+
+    Ok(read_back)
+}
+
+fn write_value_conflict_checked_atomic<F>(
+    policy_path: &Path,
+    serialized_value: &serde_json::Value,
+    expected_hash: Option<&str>,
+    pre_replace_hook: F,
+) -> Result<(), String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    let parent = policy_path
+        .parent()
+        .ok_or_else(|| "Policy path has no parent directory".to_string())?;
+    let serialized = serde_json::to_vec_pretty(serialized_value)
         .map_err(|e| format!("Failed to serialize reviewer policy: {e}"))?;
 
     let temp_name = format!(
@@ -1064,17 +1203,7 @@ where
         return Err(format!("Failed to persist reviewer policy: {err_str}"));
     }
 
-    let read_back = inspect_reviewer_policy_at(policy_path)?;
-    if read_back.schema_version != CURRENT_REVIEWER_POLICY_SCHEMA_VERSION
-        || read_back.policy != config.policy
-        || read_back.preset != config_to_write.preset
-        || read_back.codex != config.codex
-        || read_back.deepseek != config.deepseek
-    {
-        return Err("Policy written but read-back verification failed".to_string());
-    }
-
-    Ok(read_back)
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -1102,7 +1231,7 @@ fn move_file_new_only_win(temp: &Path, target: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(windows)]
-fn replace_file_with_backup_win(temp: &Path, target: &Path, backup: &Path) -> std::io::Result<()> {
+pub(crate) fn replace_file_with_backup_win(temp: &Path, target: &Path, backup: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     unsafe extern "system" {
         fn ReplaceFileW(
@@ -1187,7 +1316,7 @@ fn replace_file_win(temp: &Path, target: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(not(windows))]
-fn replace_file_conditional_unix(
+pub(crate) fn replace_file_conditional_unix(
     temp: &Path,
     target: &Path,
     expected_hash: &str,
@@ -1341,13 +1470,14 @@ mod tests {
         assert!(codex_ids.contains(&"gpt-6-luna"));
         assert!(codex_ids.contains(&"gpt-6.1-sol"));
         assert!(codex_ids.contains(&"gpt-6.1-terra"));
+        assert!(codex_ids.contains(&"gpt-6.2-sol"));
 
         let deepseek_ids: Vec<_> = catalog.deepseek_models.iter().map(|m| m.cli_model_id.as_str()).collect();
         assert!(deepseek_ids.contains(&"deepseek-flash"));
         assert!(deepseek_ids.contains(&"deepseek-v4-pro"));
 
         let terra = catalog.codex_models.iter().find(|m| m.cli_model_id == "gpt-6.1-terra").unwrap();
-        assert!(terra.reviewer_reasoning_efforts.contains(&"none".to_string()));
+        assert!(!terra.reviewer_reasoning_efforts.contains(&"none".to_string()));
         assert!(terra.reviewer_reasoning_efforts.contains(&"high".to_string()));
     }
 
@@ -1955,6 +2085,17 @@ mod tests {
         let reloaded = inspect_reviewer_policy_at(&policy_path).unwrap();
         assert_eq!(reloaded, saved);
 
+        // The selected-plan repository identity is written by the plan manager
+        // and must survive unrelated reviewer-policy edits.
+        let mut raw_policy: serde_json::Value = serde_json::from_slice(&std::fs::read(&policy_path).unwrap()).unwrap();
+        raw_policy["active_plan_repo_path"] = serde_json::Value::String("C:\\repo-b".to_string());
+        raw_policy["slots"] = serde_json::json!([
+            { "slot_id": "primary", "repo_path": "C:\\repo-a", "plan_path": ".plan/a.md" },
+            { "slot_id": "secondary", "repo_path": "C:\\repo-b", "plan_path": ".plan/b.md" }
+        ]);
+        std::fs::write(&policy_path, serde_json::to_vec_pretty(&raw_policy).unwrap()).unwrap();
+        let repo_identity_hash = inspect_reviewer_policy_at(&policy_path).unwrap().content_hash;
+
         let codex_config = ReviewerPolicyConfig {
             schema_version: 6,
             policy: ReviewerPolicy::CodexOnly,
@@ -1983,13 +2124,16 @@ mod tests {
             &policy_path,
             &codex_config,
             temp_skills.path(),
-            saved.content_hash.as_deref(),
+            repo_identity_hash.as_deref(),
         )
         .unwrap();
         assert_eq!(saved_codex.policy, ReviewerPolicy::CodexOnly);
         assert_eq!(saved_codex.schema_version, 6);
         assert_eq!(saved_codex.codex, codex_config.codex);
         assert_eq!(saved_codex.priority_reviewer, None);
+        let persisted_value: serde_json::Value = serde_json::from_slice(&std::fs::read(&policy_path).unwrap()).unwrap();
+        assert_eq!(persisted_value["active_plan_repo_path"], "C:\\repo-b");
+        assert_eq!(persisted_value["slots"].as_array().unwrap().len(), 2);
 
         // Also test saving CodexPlusDeepseek with priority_reviewer
         let codex_plus = ReviewerPolicyConfig {
@@ -2713,5 +2857,138 @@ mod tests {
         assert_eq!(reloaded_indiv.plan_reviewers, Some(vec!["antigravity".to_string()]));
         assert_eq!(reloaded_indiv.plan_review_policy, Some(ReviewerPolicy::Antigravity));
         assert_eq!(reloaded_indiv.build_review_policy, Some(ReviewerPolicy::CodexPlusDeepseek));
+    }
+
+    #[test]
+    fn test_plan20_gpt62_sol_catalog_and_no_off_on_four_codex_models() {
+        let catalog = load_reviewer_catalog().unwrap();
+        let sol62 = catalog
+            .codex_models
+            .iter()
+            .find(|m| m.cli_model_id == "gpt-6.2-sol")
+            .expect("gpt-6.2-sol must be in codex_models");
+        assert_eq!(sol62.reviewer_default_effort, "low");
+        assert_eq!(
+            sol62.reviewer_reasoning_efforts,
+            vec!["low", "medium", "high", "xhigh", "max"]
+        );
+
+        for id in ["gpt-6.2-sol", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"] {
+            let entry = catalog
+                .codex_models
+                .iter()
+                .find(|m| m.cli_model_id == id)
+                .unwrap_or_else(|| panic!("missing {id}"));
+            assert!(
+                !entry.reviewer_reasoning_efforts.iter().any(|e| e == "none"),
+                "{id} must not allow 'none'"
+            );
+            assert!(
+                entry.reviewer_reasoning_efforts.iter().any(|e| e == "low"),
+                "{id} must allow 'low'"
+            );
+
+            let invalid_cfg = ReviewerPolicyConfig {
+                schema_version: 6,
+                policy: ReviewerPolicy::CodexOnly,
+                plan_review_policy: Some(ReviewerPolicy::CodexOnly),
+                plan_priority_reviewer: None,
+                plan_reviewers: Some(vec!["codex".to_string()]),
+                build_review_policy: Some(ReviewerPolicy::CodexOnly),
+                build_priority_reviewer: None,
+                build_reviewers: Some(vec!["codex".to_string()]),
+                preset: None,
+                codex: Some(CodexReviewerConfig {
+                    model: id.to_string(),
+                    reasoning_effort: "none".to_string(),
+                }),
+                deepseek: None,
+                priority_reviewer: None,
+                unconfirmed_migration: None,
+                active_plan_path: None,
+                planner_role: None,
+                reviser_role: None,
+                content_hash: None,
+                plan_root_path: None,
+            };
+            assert!(
+                validate_reviewer_policy_config(&invalid_cfg).is_err(),
+                "validate must reject 'none' for {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_plan20_saved_none_migrates_to_low_preserving_fields_and_aborts_on_conflict() {
+        let temp = tempfile::TempDir::new().unwrap();
+
+        for id in ["gpt-6.2-sol", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"] {
+            let policy_path = temp.path().join(format!("policy-{id}.json"));
+            let initial_json = serde_json::json!({
+                "schema_version": 6,
+                "policy": "codex_plus_deepseek",
+                "plan_review_policy": "codex_only",
+                "plan_reviewers": ["codex"],
+                "build_review_policy": "codex_plus_deepseek",
+                "build_priority_reviewer": "codex_cli",
+                "build_reviewers": ["codex", "deepseek"],
+                "priority_reviewer": "codex_cli",
+                "active_plan_path": ".plan/V0.28.0.md",
+                "planner_role": "codex",
+                "reviser_role": "antigravity",
+                "plan_root_path": "C:\\Users\\Test\\dev",
+                "custom_preserved_field_123": "keep_me",
+                "codex": {
+                    "model": id,
+                    "reasoning_effort": "none",
+                    "custom_codex_extra": 42
+                },
+                "deepseek": {
+                    "model": "deepseek-flash",
+                    "reasoning_effort": "high"
+                }
+            });
+            std::fs::write(&policy_path, serde_json::to_vec_pretty(&initial_json).unwrap()).unwrap();
+
+            let loaded = inspect_reviewer_policy_at(&policy_path).unwrap();
+            assert_eq!(loaded.codex.as_ref().unwrap().model, id);
+            assert_eq!(loaded.codex.as_ref().unwrap().reasoning_effort, "low");
+            assert_eq!(loaded.active_plan_path.as_deref(), Some(".plan/V0.28.0.md"));
+            assert_eq!(loaded.planner_role.as_deref(), Some("codex"));
+            assert_eq!(loaded.reviser_role.as_deref(), Some("antigravity"));
+            assert_eq!(loaded.plan_root_path.as_deref(), Some("C:\\Users\\Test\\dev"));
+            assert_eq!(loaded.unconfirmed_migration, None);
+
+            // Verify raw JSON on disk preserved unknown fields and persisted "low"
+            let on_disk: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&policy_path).unwrap()).unwrap();
+            assert_eq!(on_disk["custom_preserved_field_123"], "keep_me");
+            assert_eq!(on_disk["codex"]["custom_codex_extra"], 42);
+            assert_eq!(on_disk["codex"]["reasoning_effort"], "low");
+
+            // Reload survives restart
+            let reloaded = inspect_reviewer_policy_at(&policy_path).unwrap();
+            assert_eq!(reloaded.codex.as_ref().unwrap().reasoning_effort, "low");
+        }
+
+        // Conflict test: concurrent write right before atomic replacement must abort with zero overwrite
+        let conflict_path = temp.path().join("policy-conflict.json");
+        let conflict_initial = serde_json::json!({
+            "schema_version": 6,
+            "policy": "codex_only",
+            "build_review_policy": "codex_only",
+            "build_reviewers": ["codex"],
+            "codex": { "model": "gpt-6.1-terra", "reasoning_effort": "none" }
+        });
+        std::fs::write(&conflict_path, serde_json::to_vec_pretty(&conflict_initial).unwrap()).unwrap();
+
+        let intervening = r#"{"schema_version":6,"policy":"none","custom_concurrent":true}"#;
+        let conflict_path_clone = conflict_path.clone();
+        let err = inspect_reviewer_policy_at_internal(&conflict_path, move || {
+            std::fs::write(&conflict_path_clone, intervening).map_err(|e| e.to_string())
+        })
+        .unwrap_err();
+        assert!(err.contains("Concurrent modification conflict"));
+        assert_eq!(std::fs::read_to_string(&conflict_path).unwrap(), intervening);
     }
 }

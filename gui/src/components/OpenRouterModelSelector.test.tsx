@@ -1365,6 +1365,10 @@ describe("OpenRouterModelSelector — regression tests", () => {
         .filter((t) => t !== "Select a model" && t !== "Select model...");
 
       expect(optionTexts).toEqual([
+        "GPT-6.2 Sol",
+        "GPT-6.2 Sol Pro",
+        "GPT-6.2 Astra",
+        "GPT-6.2 Astra Pro",
         "GPT-6.1 Sol",
         "GPT-6.1 Sol Pro",
         "GPT-6.1 Terra",
@@ -2270,6 +2274,37 @@ describe("OpenRouterModelSelector — regression tests", () => {
       expect(optionValues).toContain("deepseek/deepseek-v4-flash-0731");
       expect(optionValues).toContain("deepseek/deepseek-v4.1-flash");
       expect(optionValues).toContain("deepseek/deepseek-v4-pro-0813");
+    });
+
+    it("plan21_real_catalog_lists_four_gpt62_models_before_gpt61_without_off", async () => {
+      const actualCatalog = await vi.importActual<typeof import("../modelCapabilities")>(
+        "../modelCapabilities",
+      );
+      const openrouterIds = actualCatalog.PROVIDER_MODELS.openrouter;
+      const expectedFour = [
+        "openai/gpt-6.2-sol",
+        "openai/gpt-6.2-sol-pro",
+        "openai/gpt-6.2-astra",
+        "openai/gpt-6.2-astra-pro",
+      ];
+      const idx61 = openrouterIds.indexOf("openai/gpt-6.1-sol");
+      expect(idx61).toBeGreaterThanOrEqual(0);
+      for (const id of expectedFour) {
+        const idx = openrouterIds.indexOf(id);
+        expect(idx).toBeGreaterThanOrEqual(0);
+        expect(idx).toBeLessThan(idx61);
+        expect(actualCatalog.OPENAI_REASONING_MODEL_IDS.has(id)).toBe(true);
+        const caps = actualCatalog.MODEL_CAPABILITIES[id];
+        expect(caps.reasoning?.defaultEffort).toBe("medium");
+        expect(caps.reasoning?.supportedEfforts).toEqual([
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+        ]);
+        expect(caps.reasoning?.supportedEfforts).not.toContain("none");
+      }
     });
   });
 });
