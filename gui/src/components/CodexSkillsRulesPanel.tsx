@@ -22,6 +22,7 @@ export default function CodexSkillsRulesPanel() {
   const [confirmUpdateSkill, setConfirmUpdateSkill] = useState<CodexSkillItemInfo | null>(null);
   const [confirmRemoveSkill, setConfirmRemoveSkill] = useState<CodexSkillItemInfo | null>(null);
   const [confirmRestoreSkill, setConfirmRestoreSkill] = useState<CodexSkillItemInfo | null>(null);
+  const [confirmMigrateQuarantines, setConfirmMigrateQuarantines] = useState(false);
 
   // ── 2. Codex Global Rules State ──
   const [globalRulesStatus, setGlobalRulesStatus] = useState<CodexGlobalRulesStatus | null>(null);
@@ -36,6 +37,8 @@ export default function CodexSkillsRulesPanel() {
   // ── 3. Preview Modal State ──
   const [previewData, setPreviewData] = useState<{ title: string; content: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const legacyQuarantines = skillsStatus?.legacy_quarantines ?? [];
+  const migratableQuarantines = legacyQuarantines.filter((item) => item.can_migrate);
 
   // ── Fetchers ──
   const fetchSkillsStatus = useCallback(async () => {
@@ -137,6 +140,33 @@ export default function CodexSkillsRulesPanel() {
       setTimeout(() => setSkillsSuccessMessage(null), 3500);
     } catch (e: unknown) {
       setSkillsError(String(e));
+    } finally {
+      setSkillsLoading(false);
+    }
+  };
+
+  const handleMigrateQuarantines = async () => {
+    setConfirmMigrateQuarantines(false);
+    try {
+      setSkillsLoading(true);
+      setSkillsError(null);
+      const result = await invoke<{ moved: string[]; skipped: string[]; failures: string[] }>("migrate_codex_skill_quarantines");
+      await fetchSkillsStatus();
+      if (result.failures.length > 0 || result.skipped.length > 0) {
+        setSkillsError(t("codexSkillsRules.quarantineMigrationPartial", {
+          moved: result.moved.length,
+          skipped: result.skipped.length,
+          failed: result.failures.length,
+        }) + (result.failures.length > 0 ? `\n${result.failures.join("\n")}` : ""));
+      } else if (result.moved.length > 0) {
+        setSkillsSuccessMessage(t("codexSkillsRules.quarantineMigrationSuccess", { count: result.moved.length }));
+        setTimeout(() => setSkillsSuccessMessage(null), 5000);
+      } else {
+        setSkillsError(t("codexSkillsRules.quarantineMigrationNoMoves"));
+      }
+    } catch (e: unknown) {
+      setSkillsError(String(e));
+      await fetchSkillsStatus();
     } finally {
       setSkillsLoading(false);
     }
@@ -264,6 +294,24 @@ export default function CodexSkillsRulesPanel() {
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "#57606a", marginBottom: 12 }}>
             {skillsStatus.skills_dir}
           </div>
+        )}
+
+        {(legacyQuarantines.length > 0 || skillsStatus?.quarantine_scan_error) && (
+          <section data-testid="codex-skill-quarantine-section" style={{ marginBottom: 12, padding: 10, border: "1px solid #d4a72c", borderRadius: 6, background: "#fff8c5", display: "flex", flexDirection: "column", gap: 7 }}>
+            <strong style={{ fontSize: 12 }}>{t("codexSkillsRules.quarantineTitle")}</strong>
+            <div style={{ fontSize: 11, color: "#57606a" }}>{t("codexSkillsRules.quarantineDescription")}</div>
+            {skillsStatus?.quarantine_scan_error && <div role="alert" style={{ fontSize: 11, color: "#cf222e" }}>{skillsStatus.quarantine_scan_error}</div>}
+            {legacyQuarantines.map((item) => (
+              <div key={item.folder_name} data-testid={`quarantine-item-${item.folder_name}`} style={{ fontSize: 10, color: item.can_migrate ? "#57606a" : "#9a6700", overflowWrap: "anywhere" }}>
+                {item.folder_name}{item.detail_message ? ` — ${item.detail_message}` : ` — ${t("codexSkillsRules.quarantineVerified")}`}
+              </div>
+            ))}
+            {migratableQuarantines.length > 0 && (
+              <button type="button" className="btn" disabled={skillsLoading} onClick={() => setConfirmMigrateQuarantines(true)} data-testid="btn-migrate-codex-skill-quarantines">
+                {t("codexSkillsRules.quarantineMoveButton", { count: migratableQuarantines.length })}
+              </button>
+            )}
+          </section>
         )}
 
         {skillsError && (
@@ -791,6 +839,24 @@ export default function CodexSkillsRulesPanel() {
               </button>
               <button className="btn btn-primary" onClick={() => handleRestoreSkill(confirmRestoreSkill.name)}>
                 {t("codexSkillsRules.btnRestore") || "Restore"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmMigrateQuarantines && (
+        <div data-testid="modal-migrate-codex-skill-quarantines" style={modalOverlayStyle} role="dialog" aria-modal="true" aria-labelledby="migrate-codex-quarantines-title">
+          <div style={modalContentStyle}>
+            <h4 id="migrate-codex-quarantines-title" style={{ margin: "0 0 10px 0" }}>{t("codexSkillsRules.quarantineConfirmTitle")}</h4>
+            <p style={{ fontSize: 13, color: "#57606a", lineHeight: 1.5 }}>{t("codexSkillsRules.quarantineConfirmDescription", { count: migratableQuarantines.length })}</p>
+            <p style={{ fontSize: 13, color: "#57606a", lineHeight: 1.5 }}>{t("codexSkillsRules.quarantineConfirmProtection")}</p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button type="button" className="btn" disabled={skillsLoading} onClick={() => setConfirmMigrateQuarantines(false)} data-testid="btn-cancel-migrate-codex-skill-quarantines">
+                {t("antigravity.btnCancel") || "Cancel"}
+              </button>
+              <button type="button" className="btn btn-primary" disabled={skillsLoading} onClick={() => void handleMigrateQuarantines()} data-testid="btn-confirm-migrate-codex-skill-quarantines">
+                {t("codexSkillsRules.quarantineConfirmMove")}
               </button>
             </div>
           </div>

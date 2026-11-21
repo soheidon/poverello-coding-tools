@@ -366,7 +366,23 @@ export interface CodexSkillItemInfo {
 export interface CodexSkillsStatus {
   skills_dir: string;
   skills: CodexSkillItemInfo[];
+  legacy_quarantines: CodexSkillQuarantineInfo[];
+  quarantine_scan_error: string | null;
   resolution_error: string | null;
+}
+
+export interface CodexSkillQuarantineInfo {
+  folder_name: string;
+  skill_name: string | null;
+  path: string;
+  can_migrate: boolean;
+  detail_message: string | null;
+}
+
+export interface CodexSkillQuarantineMigrationResult {
+  moved: string[];
+  skipped: string[];
+  failures: string[];
 }
 
 export type CodexGlobalRulesState =
@@ -834,6 +850,22 @@ export interface EngineMismatchInfo {
   selected_workspace_state: AgentOptWorkspaceState | null;
 }
 
+export type AntigravityGlobalHookDiagnosticState =
+  | "unsupported_platform"
+  | "cli_unavailable"
+  | "plugin_absent"
+  | "disabled"
+  | "risk_pattern_detected"
+  | "unverified"
+  | "invalid_plugin_list"
+  | "unsafe_path"
+  | "invalid_manifest";
+
+export interface AntigravityGlobalHookDiagnostic {
+  state: AntigravityGlobalHookDiagnosticState;
+  plugin_version: string | null;
+  event: string | null;
+}
 export interface NerfEngineOverview {
   persisted_engine: NerfEngine;
   workspace_mode?: AgentOptWorkspaceMode;
@@ -848,6 +880,7 @@ export interface NerfEngineOverview {
   pov_direct_status: PovDirectStatus;
   mismatch: EngineMismatchInfo;
   exclusivity_scope_note: string;
+  global_hook_diagnostic?: AntigravityGlobalHookDiagnostic | null;
 }
 
 export interface EngineTransitionResult {

@@ -36,7 +36,7 @@ describe("TitleBar Component", () => {
 
     // App Branding
     expect(document.querySelector(".titlebar-title")?.textContent).toBe("Poverello");
-    expect(screen.getByText("v0.28.0")).toBeInTheDocument();
+    expect(screen.getByText("v0.28.1")).toBeInTheDocument();
 
     // Tabs
     expect(screen.getByRole("button", { name: /Gateway for Claude Desktop/i })).toBeInTheDocument();

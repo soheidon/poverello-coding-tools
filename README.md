@@ -15,7 +15,7 @@ Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companio
 > [!TIP]
 > **What's New:** For version-by-version feature updates, implementation details, and changelogs, see [NEWS.md (Release Notes)](NEWS.md).
 
-This checkout is preparing **v0.28.0** (not yet published). It adds equivalent per-project AgentOpt controls for both Antigravity project-plan slots, with direct FAST / BALANCED / STRICT presets and a Custom editor; Poverello's Antigravity Rule can be installed or repaired from Settings; GPT-6.2 Sol is available as a Codex CLI reviewer, and the GPT-6.2 Sol / Astra family is available in OpenRouter. Antigravity and Codex keep their two project-plan slots independent. See [NEWS.md](NEWS.md) for the release details.
+This checkout is preparing **v0.28.1** (not yet published). It adds a read-only diagnostic for the known Antigravity `wt-agent-hooks` global PreToolUse failure pattern, with manual remediation guidance that leaves the external plugin untouched. It also includes the v0.28.0 AgentOpt, Poverello Rule, workflow, and model updates. See [NEWS.md](NEWS.md) for the release details.
 
 ---
 

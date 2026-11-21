@@ -340,6 +340,56 @@ pub struct EngineMismatchInfo {
     pub selected_workspace_state: Option<AgentOptWorkspaceState>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AntigravityGlobalHookDiagnosticState {
+    UnsupportedPlatform,
+    CliUnavailable,
+    PluginAbsent,
+    Disabled,
+    RiskPatternDetected,
+    Unverified,
+    InvalidPluginList,
+    UnsafePath,
+    InvalidManifest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AntigravityGlobalHookDiagnostic {
+    pub state: AntigravityGlobalHookDiagnosticState,
+    pub plugin_version: Option<String>,
+    pub event: Option<String>,
+}
+
+pub trait AntigravityPluginListRunner: Send + Sync {
+    fn list_plugins(&self, agy_executable: &Path) -> Result<CliExecOutput, String>;
+}
+
+pub struct RealAntigravityPluginListRunner;
+
+impl AntigravityPluginListRunner for RealAntigravityPluginListRunner {
+    fn list_plugins(&self, agy_executable: &Path) -> Result<CliExecOutput, String> {
+        run_simple_command(
+            agy_executable.to_string_lossy().as_ref(),
+            &["plugin", "list", "--json"],
+            5,
+        )
+    }
+}
+
+pub trait AntigravityPluginRemediationRunner: AntigravityPluginListRunner {
+    fn disable_wt_agent_hooks(&self, agy_executable: &Path) -> Result<CliExecOutput, String>;
+}
+
+impl AntigravityPluginRemediationRunner for RealAntigravityPluginListRunner {
+    fn disable_wt_agent_hooks(&self, agy_executable: &Path) -> Result<CliExecOutput, String> {
+        run_simple_command(
+            agy_executable.to_string_lossy().as_ref(),
+            &["plugin", "disable", "wt-agent-hooks"],
+            10,
+        )
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NerfEngineOverview {
     pub persisted_engine: NerfEngine,
@@ -355,6 +405,8 @@ pub struct NerfEngineOverview {
     pub pov_direct_status: PovDirectStatus,
     pub mismatch: EngineMismatchInfo,
     pub exclusivity_scope_note: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_hook_diagnostic: Option<AntigravityGlobalHookDiagnostic>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1009,6 +1061,288 @@ pub fn inspect_workspace_read_only(
     }
 }
 
+pub fn inspect_global_antigravity_hook_diagnostic(
+    home: Option<&Path>,
+    runner: &dyn AntigravityPluginListRunner,
+) -> AntigravityGlobalHookDiagnostic {
+    inspect_global_antigravity_hook_diagnostic_with_platform(home, runner, cfg!(windows))
+}
+
+fn global_hook_diagnostic(
+    state: AntigravityGlobalHookDiagnosticState,
+    plugin_version: Option<String>,
+    event: Option<String>,
+) -> AntigravityGlobalHookDiagnostic {
+    AntigravityGlobalHookDiagnostic {
+        state,
+        plugin_version,
+        event,
+    }
+}
+
+fn inspect_global_antigravity_hook_diagnostic_with_platform(
+    home: Option<&Path>,
+    runner: &dyn AntigravityPluginListRunner,
+    is_windows: bool,
+) -> AntigravityGlobalHookDiagnostic {
+    use AntigravityGlobalHookDiagnosticState as State;
+
+    if !is_windows {
+        return global_hook_diagnostic(State::UnsupportedPlatform, None, None);
+    }
+    let Some(home) = home else {
+        return global_hook_diagnostic(State::CliUnavailable, None, None);
+    };
+    let Ok(home) = home.canonicalize() else {
+        return global_hook_diagnostic(State::CliUnavailable, None, None);
+    };
+
+    let agy_executable = home.join(".gemini").join("bin").join("agy.exe");
+    match inspect_safe_path(&home, &agy_executable) {
+        Ok(true) if agy_executable.is_file() => {}
+        Ok(false) | Ok(true) => {
+            return global_hook_diagnostic(State::CliUnavailable, None, None);
+        }
+        Err(()) => return global_hook_diagnostic(State::UnsafePath, None, None),
+    }
+
+    let output = match runner.list_plugins(&agy_executable) {
+        Ok(output) if output.exit_code == 0 => output,
+        Ok(_) | Err(_) => return global_hook_diagnostic(State::CliUnavailable, None, None),
+    };
+    let plugins: Vec<AntigravityPluginListEntry> = match serde_json::from_str(&output.stdout) {
+        Ok(plugins) => plugins,
+        Err(_) => return global_hook_diagnostic(State::InvalidPluginList, None, None),
+    };
+    let mut matches = plugins
+        .into_iter()
+        .filter(|plugin| plugin.name == "wt-agent-hooks");
+    let Some(plugin) = matches.next() else {
+        return global_hook_diagnostic(State::PluginAbsent, None, None);
+    };
+    if matches.next().is_some() {
+        return global_hook_diagnostic(State::InvalidPluginList, None, None);
+    }
+    if !plugin.enabled {
+        return global_hook_diagnostic(State::Disabled, None, None);
+    }
+    let Some(reported_path) = plugin.path.as_deref().map(Path::new) else {
+        return global_hook_diagnostic(State::Unverified, plugin.version, None);
+    };
+    let expected_plugin_dir = home
+        .join(".gemini")
+        .join("config")
+        .join("plugins")
+        .join("wt-agent-hooks");
+    if !reported_path.is_absolute() || !same_global_path(reported_path, &expected_plugin_dir) {
+        return global_hook_diagnostic(State::UnsafePath, plugin.version, None);
+    }
+    match inspect_safe_path(&home, &expected_plugin_dir) {
+        Ok(true) if expected_plugin_dir.is_dir() => {}
+        Ok(false) | Ok(true) => {
+            return global_hook_diagnostic(State::Unverified, plugin.version, None);
+        }
+        Err(()) => return global_hook_diagnostic(State::UnsafePath, plugin.version, None),
+    }
+
+    let metadata_path = expected_plugin_dir.join("intelligent-terminal.json");
+    let hooks_path = expected_plugin_dir.join("hooks.json");
+    for path in [&metadata_path, &hooks_path] {
+        match inspect_safe_path(&home, path) {
+            Ok(true) if path.is_file() => {}
+            Ok(false) | Ok(true) => {
+                return global_hook_diagnostic(State::InvalidManifest, plugin.version, None);
+            }
+            Err(()) => return global_hook_diagnostic(State::UnsafePath, plugin.version, None),
+        }
+    }
+
+    let metadata: serde_json::Value = match std::fs::read_to_string(&metadata_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+    {
+        Some(metadata) => metadata,
+        None => return global_hook_diagnostic(State::InvalidManifest, plugin.version, None),
+    };
+    let Some(metadata_version) = metadata.get("version").and_then(serde_json::Value::as_str) else {
+        return global_hook_diagnostic(State::Unverified, plugin.version, None);
+    };
+    let version = metadata_version.to_string();
+    if metadata.get("name").and_then(serde_json::Value::as_str) != Some("wt-agent-hooks")
+        || !metadata
+            .get("managed_by")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|managed_by| managed_by.starts_with("Intelligent Terminal"))
+        || plugin
+            .version
+            .as_deref()
+            .is_some_and(|listed| listed != metadata_version)
+    {
+        return global_hook_diagnostic(State::Unverified, Some(version), None);
+    }
+
+    let hooks: serde_json::Value = match std::fs::read_to_string(&hooks_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+    {
+        Some(hooks) => hooks,
+        None => return global_hook_diagnostic(State::InvalidManifest, Some(version), None),
+    };
+    let has_quote_sensitive_pre_tool_use = hooks
+        .get("wt-agent-hooks")
+        .and_then(|plugin| plugin.get("PreToolUse"))
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|groups| {
+            groups.iter().any(|group| {
+                let matcher = group.get("matcher").and_then(serde_json::Value::as_str);
+                if !matches!(matcher, Some("*" | "")) {
+                    return false;
+                }
+                group
+                    .get("hooks")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|handlers| {
+                        handlers.iter().any(|handler| {
+                            handler.get("type").and_then(serde_json::Value::as_str)
+                                == Some("command")
+                                && handler
+                                    .get("command")
+                                    .and_then(serde_json::Value::as_str)
+                                    .is_some_and(|command| {
+                                        command.contains(
+                                            r#"[Console]::Out.WriteLine('{"decision":"ask"}')"#,
+                                        )
+                                    })
+                        })
+                    })
+            })
+        });
+    if has_quote_sensitive_pre_tool_use && metadata_version == "0.1.2" {
+        global_hook_diagnostic(
+            State::RiskPatternDetected,
+            Some(version),
+            Some("PreToolUse".to_string()),
+        )
+    } else {
+        global_hook_diagnostic(State::Unverified, Some(version), None)
+    }
+}
+
+pub fn disable_global_wt_agent_hooks(
+    home: Option<&Path>,
+    runner: &dyn AntigravityPluginRemediationRunner,
+) -> Result<AntigravityGlobalHookDiagnostic, String> {
+    disable_global_wt_agent_hooks_with_platform(home, runner, cfg!(windows))
+}
+
+fn disable_global_wt_agent_hooks_with_platform(
+    home: Option<&Path>,
+    runner: &dyn AntigravityPluginRemediationRunner,
+    is_windows: bool,
+) -> Result<AntigravityGlobalHookDiagnostic, String> {
+    use AntigravityGlobalHookDiagnosticState as State;
+
+    if !is_windows {
+        return Err("Global wt-agent-hooks remediation is supported only on Windows.".to_string());
+    }
+
+    let current = inspect_global_antigravity_hook_diagnostic_with_platform(home, runner, is_windows);
+    if current.state == State::Disabled {
+        return Ok(current);
+    }
+    if current.state != State::RiskPatternDetected {
+        return Err(format!(
+            "Refusing to disable wt-agent-hooks because its current state is {:?}.",
+            current.state
+        ));
+    }
+
+    let home = home.ok_or_else(|| "Unable to determine the Windows user home directory.".to_string())?
+        .canonicalize()
+        .map_err(|e| format!("Unable to resolve the Windows user home directory: {e}"))?;
+    let agy_executable = home.join(".gemini").join("bin").join("agy.exe");
+    match inspect_safe_path(&home, &agy_executable) {
+        Ok(true) if agy_executable.is_file() => {}
+        Ok(false) | Ok(true) => return Err("The canonical Antigravity CLI is unavailable.".to_string()),
+        Err(()) => return Err("The canonical Antigravity CLI path is unsafe.".to_string()),
+    }
+
+    let output = runner.disable_wt_agent_hooks(&agy_executable)?;
+    if output.exit_code != 0 {
+        return Err(format!(
+            "Antigravity could not disable wt-agent-hooks (exit code {}).{}",
+            output.exit_code,
+            if output.stderr.trim().is_empty() {
+                String::new()
+            } else {
+                format!(" {}", output.stderr.trim())
+            }
+        ));
+    }
+
+    let after = inspect_global_antigravity_hook_diagnostic_with_platform(Some(home.as_path()), runner, is_windows);
+    if after.state != State::Disabled {
+        return Err(format!(
+            "The command completed, but a fresh Antigravity plugin list did not confirm wt-agent-hooks disabled (state: {:?}).",
+            after.state
+        ));
+    }
+    Ok(after)
+}
+
+#[derive(serde::Deserialize)]
+struct AntigravityPluginListEntry {
+    name: String,
+    enabled: bool,
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+}
+
+fn same_global_path(left: &Path, right: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let normalize = |path: &Path| {
+            normalize_workspace_path_for_display(&path.to_string_lossy()).replace('/', "\\")
+        };
+        normalize(left).eq_ignore_ascii_case(&normalize(right))
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
+}
+
+fn inspect_safe_path(root: &Path, target: &Path) -> Result<bool, ()> {
+    let root = root.canonicalize().map_err(|_| ())?;
+    let relative = target.strip_prefix(&root).map_err(|_| ())?;
+    let mut current = root;
+    for component in relative.components() {
+        current.push(component);
+        let metadata = match std::fs::symlink_metadata(&current) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(_) => return Err(()),
+        };
+        if is_symlink_or_reparse_point(&metadata) {
+            return Err(());
+        }
+    }
+    Ok(true)
+}
+
+fn is_symlink_or_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    metadata.file_type().is_symlink()
+}
 pub fn inspect_nerf_engine_overview_at(
     settings_file: &Path,
     cli_dir: &Path,
@@ -1236,6 +1570,7 @@ pub fn inspect_nerf_engine_overview_for_projects_at(
             selected_workspace_state: selected_ws_state,
         },
         exclusivity_scope_note: "Exclusivity is enforced across the global Poverello Rule (pov-direct.md) and Poverello-registered AgentOpt workspaces. Unregistered workspaces are never modified automatically.".to_string(),
+        global_hook_diagnostic: None,
     })
 }
 
@@ -3961,4 +4296,328 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod global_hook_diagnostic_tests {
+    use super::*;
+    use serde_json::json;
+    use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+    use tempfile::TempDir;
+
+    struct StaticPluginListRunner {
+        response: Result<CliExecOutput, String>,
+        calls: AtomicUsize,
+    }
+
+    impl StaticPluginListRunner {
+        fn with_stdout(stdout: &str) -> Self {
+            Self {
+                response: Ok(CliExecOutput {
+                    exit_code: 0,
+                    stdout: stdout.to_string(),
+                    stderr: String::new(),
+                }),
+                calls: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl AntigravityPluginListRunner for StaticPluginListRunner {
+        fn list_plugins(&self, _agy_executable: &Path) -> Result<CliExecOutput, String> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.response.clone()
+        }
+    }
+
+    fn risky_hooks_json() -> String {
+        let command = r#"powershell.exe -NoLogo -NoProfile -NonInteractive -Command [Console]::Out.WriteLine('{"decision":"ask"}')"#;
+        json!({
+            "wt-agent-hooks": {
+                "PreToolUse": [{
+                    "matcher": "*",
+                    "hooks": [{
+                        "type": "command",
+                        "command": command
+                    }]
+                }]
+            }
+        })
+        .to_string()
+    }
+
+    fn setup_home(temp: &TempDir, hooks_json: &str, version: &str) -> PathBuf {
+        let home = temp.path().to_path_buf();
+        let cli_dir = home.join(".gemini").join("bin");
+        let plugin_dir = home
+            .join(".gemini")
+            .join("config")
+            .join("plugins")
+            .join("wt-agent-hooks");
+        std::fs::create_dir_all(&cli_dir).unwrap();
+        std::fs::create_dir_all(&plugin_dir).unwrap();
+        std::fs::write(cli_dir.join("agy.exe"), b"mock executable").unwrap();
+        std::fs::write(
+            plugin_dir.join("intelligent-terminal.json"),
+            json!({
+                "name": "wt-agent-hooks",
+                "managed_by": "Intelligent Terminal: wt-agent-hooks",
+                "version": version
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(plugin_dir.join("hooks.json"), hooks_json).unwrap();
+        home
+    }
+
+    fn plugin_list(path: &Path, enabled: bool) -> String {
+        json!([{
+            "name": "wt-agent-hooks",
+            "enabled": enabled,
+            "version": null,
+            "source": "local-install",
+            "path": path.to_string_lossy()
+        }])
+        .to_string()
+    }
+
+    fn inspect(home: &Path, runner: &StaticPluginListRunner) -> AntigravityGlobalHookDiagnostic {
+        inspect_global_antigravity_hook_diagnostic_with_platform(Some(home), runner, true)
+    }
+
+    #[test]
+    fn detects_known_quote_sensitive_pre_tool_use_pattern_without_running_it() {
+        let temp = TempDir::new().unwrap();
+        let home = setup_home(&temp, &risky_hooks_json(), "0.1.2");
+        let plugin_dir = home.join(".gemini/config/plugins/wt-agent-hooks");
+        let runner = StaticPluginListRunner::with_stdout(&plugin_list(&plugin_dir, true));
+
+        let result = inspect(&home, &runner);
+
+        assert_eq!(
+            result.state,
+            AntigravityGlobalHookDiagnosticState::RiskPatternDetected
+        );
+        assert_eq!(result.plugin_version.as_deref(), Some("0.1.2"));
+        assert_eq!(result.event.as_deref(), Some("PreToolUse"));
+        assert_eq!(runner.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn distinguishes_disabled_and_absent_global_plugin_states() {
+        let temp = TempDir::new().unwrap();
+        let home = setup_home(&temp, &risky_hooks_json(), "0.1.2");
+        let plugin_dir = home.join(".gemini/config/plugins/wt-agent-hooks");
+        let disabled_runner = StaticPluginListRunner::with_stdout(&plugin_list(&plugin_dir, false));
+        assert_eq!(
+            inspect(&home, &disabled_runner).state,
+            AntigravityGlobalHookDiagnosticState::Disabled
+        );
+
+        let absent_runner = StaticPluginListRunner::with_stdout("[]");
+        assert_eq!(
+            inspect(&home, &absent_runner).state,
+            AntigravityGlobalHookDiagnosticState::PluginAbsent
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_plugin_list_and_hook_manifest() {
+        let temp = TempDir::new().unwrap();
+        let home = setup_home(&temp, "{", "0.1.2");
+        let plugin_dir = home.join(".gemini/config/plugins/wt-agent-hooks");
+
+        let malformed_list = StaticPluginListRunner::with_stdout("not json");
+        assert_eq!(
+            inspect(&home, &malformed_list).state,
+            AntigravityGlobalHookDiagnosticState::InvalidPluginList
+        );
+
+        let valid_list = StaticPluginListRunner::with_stdout(&plugin_list(&plugin_dir, true));
+        assert_eq!(
+            inspect(&home, &valid_list).state,
+            AntigravityGlobalHookDiagnosticState::InvalidManifest
+        );
+    }
+
+    #[test]
+    fn unknown_managed_version_is_not_reported_as_confirmed_risk() {
+        let temp = TempDir::new().unwrap();
+        let home = setup_home(&temp, &risky_hooks_json(), "0.1.3");
+        let plugin_dir = home.join(".gemini/config/plugins/wt-agent-hooks");
+        let runner = StaticPluginListRunner::with_stdout(&plugin_list(&plugin_dir, true));
+
+        let result = inspect(&home, &runner);
+
+        assert_eq!(
+            result.state,
+            AntigravityGlobalHookDiagnosticState::Unverified
+        );
+        assert_eq!(result.plugin_version.as_deref(), Some("0.1.3"));
+        assert_eq!(result.event, None);
+    }
+
+    #[test]
+    fn rejects_a_plugin_list_path_outside_the_expected_global_plugin_directory() {
+        let temp = TempDir::new().unwrap();
+        let home = setup_home(&temp, &risky_hooks_json(), "0.1.2");
+        let unexpected = temp.path().join("outside-plugin");
+        let runner = StaticPluginListRunner::with_stdout(&plugin_list(&unexpected, true));
+
+        let result = inspect(&home, &runner);
+
+        assert_eq!(
+            result.state,
+            AntigravityGlobalHookDiagnosticState::UnsafePath
+        );
+        assert_eq!(result.event, None);
+    }
+
+    #[test]
+    fn does_not_call_cli_when_platform_or_executable_is_unavailable() {
+        let temp = TempDir::new().unwrap();
+        let runner = StaticPluginListRunner::with_stdout("[]");
+        let unsupported = inspect_global_antigravity_hook_diagnostic_with_platform(
+            Some(temp.path()),
+            &runner,
+            false,
+        );
+        assert_eq!(
+            unsupported.state,
+            AntigravityGlobalHookDiagnosticState::UnsupportedPlatform
+        );
+        assert_eq!(runner.calls.load(Ordering::SeqCst), 0);
+
+        let unavailable = inspect_global_antigravity_hook_diagnostic_with_platform(
+            Some(temp.path()),
+            &runner,
+            true,
+        );
+        assert_eq!(
+            unavailable.state,
+            AntigravityGlobalHookDiagnosticState::CliUnavailable
+        );
+        assert_eq!(runner.calls.load(Ordering::SeqCst), 0);
+    }
+
+    struct RemediationRunner {
+        lists: Mutex<VecDeque<String>>,
+        disable_result: Result<CliExecOutput, String>,
+        list_calls: AtomicUsize,
+        disable_calls: AtomicUsize,
+        executable: Mutex<Option<PathBuf>>,
+    }
+
+    impl RemediationRunner {
+        fn new(lists: Vec<String>, disable_result: Result<CliExecOutput, String>) -> Self {
+            Self {
+                lists: Mutex::new(lists.into()),
+                disable_result,
+                list_calls: AtomicUsize::new(0),
+                disable_calls: AtomicUsize::new(0),
+                executable: Mutex::new(None),
+            }
+        }
+    }
+
+    impl AntigravityPluginListRunner for RemediationRunner {
+        fn list_plugins(&self, _agy_executable: &Path) -> Result<CliExecOutput, String> {
+            self.list_calls.fetch_add(1, Ordering::SeqCst);
+            let stdout = self.lists.lock().unwrap().pop_front().unwrap_or_default();
+            Ok(CliExecOutput {
+                exit_code: 0,
+                stdout,
+                stderr: String::new(),
+            })
+        }
+    }
+
+    impl AntigravityPluginRemediationRunner for RemediationRunner {
+        fn disable_wt_agent_hooks(&self, agy_executable: &Path) -> Result<CliExecOutput, String> {
+            self.disable_calls.fetch_add(1, Ordering::SeqCst);
+            *self.executable.lock().unwrap() = Some(agy_executable.to_path_buf());
+            self.disable_result.clone()
+        }
+    }
+
+    fn disable_output(exit_code: i32) -> Result<CliExecOutput, String> {
+        Ok(CliExecOutput {
+            exit_code,
+            stdout: String::new(),
+            stderr: String::new(),
+        })
+    }
+
+    #[test]
+    fn confirmed_disable_revalidates_risk_uses_canonical_cli_and_checks_disabled_state() {
+        let temp = TempDir::new().unwrap();
+        let home = setup_home(&temp, &risky_hooks_json(), "0.1.2");
+        let plugin_dir = home.join(".gemini/config/plugins/wt-agent-hooks");
+        let runner = RemediationRunner::new(
+            vec![plugin_list(&plugin_dir, true), plugin_list(&plugin_dir, false)],
+            disable_output(0),
+        );
+
+        let result = disable_global_wt_agent_hooks_with_platform(Some(&home), &runner, true).unwrap();
+
+        assert_eq!(result.state, AntigravityGlobalHookDiagnosticState::Disabled);
+        assert_eq!(runner.list_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(runner.disable_calls.load(Ordering::SeqCst), 1);
+        let expected_executable = home.join(".gemini/bin/agy.exe").canonicalize().unwrap();
+        assert_eq!(
+            runner.executable.lock().unwrap().as_deref(),
+            Some(expected_executable.as_path())
+        );
+    }
+
+    #[test]
+    fn already_disabled_is_idempotent_and_unverified_state_never_disables() {
+        let temp = TempDir::new().unwrap();
+        let home = setup_home(&temp, &risky_hooks_json(), "0.1.2");
+        let plugin_dir = home.join(".gemini/config/plugins/wt-agent-hooks");
+        let disabled = RemediationRunner::new(vec![plugin_list(&plugin_dir, false)], disable_output(0));
+        assert_eq!(
+            disable_global_wt_agent_hooks_with_platform(Some(&home), &disabled, true)
+                .unwrap()
+                .state,
+            AntigravityGlobalHookDiagnosticState::Disabled
+        );
+        assert_eq!(disabled.disable_calls.load(Ordering::SeqCst), 0);
+
+        let unknown_home = setup_home(&temp, &risky_hooks_json(), "0.1.3");
+        let unknown_dir = unknown_home.join(".gemini/config/plugins/wt-agent-hooks");
+        let unknown = RemediationRunner::new(vec![plugin_list(&unknown_dir, true)], disable_output(0));
+        assert!(disable_global_wt_agent_hooks_with_platform(Some(&unknown_home), &unknown, true).is_err());
+        assert_eq!(unknown.disable_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn failed_disable_or_unverified_postcheck_never_reports_success() {
+        let temp = TempDir::new().unwrap();
+        let home = setup_home(&temp, &risky_hooks_json(), "0.1.2");
+        let plugin_dir = home.join(".gemini/config/plugins/wt-agent-hooks");
+        let nonzero = RemediationRunner::new(
+            vec![plugin_list(&plugin_dir, true)],
+            disable_output(1),
+        );
+        assert!(disable_global_wt_agent_hooks_with_platform(Some(&home), &nonzero, true).is_err());
+        assert_eq!(nonzero.list_calls.load(Ordering::SeqCst), 1);
+
+        let remains_enabled = RemediationRunner::new(
+            vec![plugin_list(&plugin_dir, true), plugin_list(&plugin_dir, true)],
+            disable_output(0),
+        );
+        assert!(disable_global_wt_agent_hooks_with_platform(Some(&home), &remains_enabled, true).is_err());
+        assert_eq!(remains_enabled.list_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(remains_enabled.disable_calls.load(Ordering::SeqCst), 1);
+
+        let timeout = RemediationRunner::new(
+            vec![plugin_list(&plugin_dir, true)],
+            Err("timed out".to_string()),
+        );
+        assert!(disable_global_wt_agent_hooks_with_platform(Some(&home), &timeout, true).is_err());
+        assert_eq!(timeout.disable_calls.load(Ordering::SeqCst), 1);
+    }
+}
 

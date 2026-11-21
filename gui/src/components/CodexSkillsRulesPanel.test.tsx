@@ -44,6 +44,8 @@ const dummySkillsStatus: CodexSkillsStatus = {
       has_backup: false,
     },
   ],
+  legacy_quarantines: [],
+  quarantine_scan_error: null,
   resolution_error: null,
 };
 
@@ -139,6 +141,88 @@ description: Skill description
     expect(screen.getByTestId("skill-item-pov-full-cycle").textContent).toMatch(/Not Installed|stateNotInstalled/i);
 
     expect(screen.getByTestId("rules-status").textContent).toMatch(/Active|rulesStateInstalled/i);
+  });
+
+  it("moves only verified legacy quarantines after explicit confirmation", async () => {
+    let migrationCompleted = false;
+    const verified = {
+      folder_name: "pov-plan-only.quarantined-3673e6c0-1df5-4cf0-82b5-b2e0bd37febc",
+      skill_name: "pov-plan-only",
+      path: "C:\\Users\\Sohei\\.agents\\skills\\pov-plan-only.quarantined-3673e6c0-1df5-4cf0-82b5-b2e0bd37febc",
+      can_migrate: true,
+      detail_message: null,
+    };
+    const modified = {
+      folder_name: "pov-full-cycle.quarantined-user-copy",
+      skill_name: null,
+      path: "C:\\Users\\Sohei\\.agents\\skills\\pov-full-cycle.quarantined-user-copy",
+      can_migrate: false,
+      detail_message: "Files do not match a known managed version.",
+    };
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === "get_codex_skills_status") {
+        return { ...dummySkillsStatus, legacy_quarantines: migrationCompleted ? [modified] : [verified, modified] };
+      }
+      if (command === "get_codex_global_rules_status") return dummyRulesStatus;
+      if (command === "migrate_codex_skill_quarantines") {
+        migrationCompleted = true;
+        return { moved: [verified.folder_name], skipped: [], failures: [] };
+      }
+      return undefined;
+    });
+
+    const user = userEvent.setup();
+    render(
+      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+        <CodexSkillsRulesPanel />
+      </LanguageContext.Provider>
+    );
+
+    await waitFor(() => expect(screen.getByTestId("codex-skill-quarantine-section")).toBeInTheDocument());
+    expect(screen.getByTestId(`quarantine-item-${modified.folder_name}`)).toBeInTheDocument();
+    expect(screen.getByTestId("btn-migrate-codex-skill-quarantines")).toBeInTheDocument();
+    expect(mockInvoke).not.toHaveBeenCalledWith("migrate_codex_skill_quarantines");
+
+    await user.click(screen.getByTestId("btn-migrate-codex-skill-quarantines"));
+    expect(screen.getByTestId("modal-migrate-codex-skill-quarantines")).toBeInTheDocument();
+    await user.click(screen.getByTestId("btn-cancel-migrate-codex-skill-quarantines"));
+    expect(mockInvoke).not.toHaveBeenCalledWith("migrate_codex_skill_quarantines");
+
+    await user.click(screen.getByTestId("btn-migrate-codex-skill-quarantines"));
+    await user.click(screen.getByTestId("btn-confirm-migrate-codex-skill-quarantines"));
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("migrate_codex_skill_quarantines");
+      expect(screen.getByTestId("skills-success-msg")).toHaveTextContent("codexSkillsRules.quarantineMigrationSuccess");
+      expect(screen.queryByTestId(`quarantine-item-${verified.folder_name}`)).toBeNull();
+    });
+  });
+
+  it("does not offer migration when all legacy quarantine copies are unverified", async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === "get_codex_skills_status") {
+        return {
+          ...dummySkillsStatus,
+          legacy_quarantines: [{
+            folder_name: "pov-plan-only.quarantined-modified",
+            skill_name: null,
+            path: "C:\\Users\\Sohei\\.agents\\skills\\pov-plan-only.quarantined-modified",
+            can_migrate: false,
+            detail_message: "Unknown files",
+          }],
+        };
+      }
+      if (command === "get_codex_global_rules_status") return dummyRulesStatus;
+      return undefined;
+    });
+
+    render(
+      <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+        <CodexSkillsRulesPanel />
+      </LanguageContext.Provider>
+    );
+    await waitFor(() => expect(screen.getByTestId("codex-skill-quarantine-section")).toBeInTheDocument());
+    expect(screen.queryByTestId("btn-migrate-codex-skill-quarantines")).toBeNull();
+    expect(mockInvoke).not.toHaveBeenCalledWith("migrate_codex_skill_quarantines");
   });
 
   it("opens skills folder and codex home on button clicks", async () => {

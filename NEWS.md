@@ -1,5 +1,20 @@
 # Poverello Coding Tools — Release Notes
 
+## v0.28.1 — 2026-11-22
+
+### Global Hook Diagnostics & Remediation
+- Added a read-only status card for the globally installed `wt-agent-hooks` plugin, independent of project-level AgentOpt switches.
+- Detects the known quote-sensitive `PreToolUse` JSON output pattern without executing plugin commands, and provides manual guidance alongside a user-confirmed **Resolve now (disable wt-agent-hooks)** action that revalidates plugin state, invokes `agy.exe plugin disable wt-agent-hooks`, and verifies the disabled status.
+- Reports incomplete or unsupported plugin information as unverified and never disables or modifies external plugins automatically.
+
+### Skill Backups & Quarantine Migration
+- Moved Poverello Skill update snapshots and removal recovery copies outside `.agents/skills` into `.agents/backups/poverello/` (`updates/` and `quarantined/`) so backup directories are no longer discovered as active skills.
+- Preserved update transaction rollback for both new external backup paths and preexisting `.poverello_backups` paths.
+- Added an explicit, user-confirmed migration action to move verified legacy `.quarantined-*` Poverello Skill folders out of `.agents/skills`, leaving unknown, modified, or unsafe directories untouched.
+
+### Windows Installer
+- Updated the Stable Windows NSIS build helper to suppress redundant `choowHowToInstall` language fallback warnings for standard bundled locales while preserving custom-language compatibility.
+
 ## v0.28.0 — 2026-11-18 (release preparation; not yet published)
 
 ### Antigravity AgentOpt and Poverello Rules

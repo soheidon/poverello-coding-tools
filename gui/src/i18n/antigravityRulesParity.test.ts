@@ -18,6 +18,20 @@ const ALL_LOCALES = [
   { code: "ko", map: ko },
 ];
 
+const POV_QUARANTINE_KEYS = [
+  "codexSkillsRules.quarantineTitle",
+  "codexSkillsRules.quarantineDescription",
+  "codexSkillsRules.quarantineVerified",
+  "codexSkillsRules.quarantineMoveButton",
+  "codexSkillsRules.quarantineConfirmTitle",
+  "codexSkillsRules.quarantineConfirmDescription",
+  "codexSkillsRules.quarantineConfirmProtection",
+  "codexSkillsRules.quarantineConfirmMove",
+  "codexSkillsRules.quarantineMigrationSuccess",
+  "codexSkillsRules.quarantineMigrationPartial",
+  "codexSkillsRules.quarantineMigrationNoMoves",
+];
+
 describe("Antigravity Rules and Reviewer Policy i18n Key Parity", () => {
   const jaKeys = Object.keys(ja).filter(
     (k) => k.startsWith("antigravityRules.") || k.startsWith("antigravity.reviewerPolicy")
@@ -43,6 +57,15 @@ describe("Antigravity Rules and Reviewer Policy i18n Key Parity", () => {
 
       expect(missingKeys, `Missing keys in ${code}: ${missingKeys.join(", ")}`).toHaveLength(0);
       expect(emptyKeys, `Empty keys in ${code}: ${emptyKeys.join(", ")}`).toHaveLength(0);
+    });
+  });
+
+  [{ code: "ja", map: ja }, ...ALL_LOCALES].forEach(({ code, map }) => {
+    it(`should define all quarantine migration messages in ${code}`, () => {
+      const targetMap = map as Record<string, string>;
+      for (const key of POV_QUARANTINE_KEYS) {
+        expect(targetMap[key], `Missing or empty ${key} in ${code}`).toBeTruthy();
+      }
     });
   });
 });

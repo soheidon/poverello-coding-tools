@@ -7554,13 +7554,33 @@ fn get_antigravity_nerf_engine_overview(
     let runner = agent_opt::RealAgentOptCliRunner;
     let project_slots_file = resolve_project_plan_slots_settings_file("antigravity")?;
     let project_slots = get_project_plan_slots_from_file(&project_slots_file)?;
-    agent_opt::inspect_nerf_engine_overview_for_projects_at(
+    let mut overview = agent_opt::inspect_nerf_engine_overview_for_projects_at(
         &settings_file,
         &cli_dir,
         &rules_dir,
         &skill_file,
         &project_slots,
         &runner,
+    )?;
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(std::path::PathBuf::from);
+    overview.global_hook_diagnostic = Some(agent_opt::inspect_global_antigravity_hook_diagnostic(
+        home.as_deref(),
+        &agent_opt::RealAntigravityPluginListRunner,
+    ));
+    Ok(overview)
+}
+
+#[tauri::command]
+fn disable_wt_agent_hooks_global(
+) -> Result<agent_opt::AntigravityGlobalHookDiagnostic, String> {
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(std::path::PathBuf::from);
+    agent_opt::disable_global_wt_agent_hooks(
+        home.as_deref(),
+        &agent_opt::RealAntigravityPluginListRunner,
     )
 }
 
@@ -7810,6 +7830,12 @@ fn remove_codex_skill(name: String) -> Result<codex_skills::CodexSkillItemInfo, 
 fn restore_codex_skill_backup(name: String) -> Result<codex_skills::CodexSkillItemInfo, String> {
     let dir = codex_skills::resolve_codex_user_skills_dir()?;
     codex_skills::restore_codex_skill_backup_at(&dir, &name)
+}
+
+#[tauri::command]
+fn migrate_codex_skill_quarantines() -> Result<codex_skills::CodexSkillQuarantineMigrationResult, String> {
+    let dir = codex_skills::resolve_codex_user_skills_dir()?;
+    codex_skills::migrate_legacy_skill_quarantines_at(&dir)
 }
 
 #[tauri::command]
@@ -12253,6 +12279,7 @@ pub fn run() {
             update_codex_skill,
             remove_codex_skill,
             restore_codex_skill_backup,
+            migrate_codex_skill_quarantines,
             open_codex_skills_folder,
             get_codex_global_rules_status,
             install_or_update_codex_global_rules,
@@ -12303,6 +12330,7 @@ pub fn run() {
             repair_pov_direct_rule,
             open_antigravity_rules_folder,
             get_antigravity_nerf_engine_overview,
+            disable_wt_agent_hooks_global,
             install_agent_opt_cli,
             init_agent_opt_workspace,
             adopt_agent_opt_workspace,

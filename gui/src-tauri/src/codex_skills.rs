@@ -42,7 +42,27 @@ pub struct CodexSkillItemInfo {
 pub struct CodexSkillsStatus {
     pub skills_dir: String,
     pub skills: Vec<CodexSkillItemInfo>,
+    #[serde(default)]
+    pub legacy_quarantines: Vec<CodexSkillQuarantineInfo>,
+    #[serde(default)]
+    pub quarantine_scan_error: Option<String>,
     pub resolution_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CodexSkillQuarantineInfo {
+    pub folder_name: String,
+    pub skill_name: Option<String>,
+    pub path: String,
+    pub can_migrate: bool,
+    pub detail_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CodexSkillQuarantineMigrationResult {
+    pub moved: Vec<String>,
+    pub skipped: Vec<String>,
+    pub failures: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -414,7 +434,19 @@ pub fn resolve_codex_user_skills_dir() -> Result<PathBuf, String> {
 }
 
 pub fn get_backups_dir(skills_dir: &Path) -> PathBuf {
-    skills_dir.join(".poverello_backups")
+    get_poverello_backup_root(skills_dir).join("updates")
+}
+
+pub fn get_quarantined_backups_dir(skills_dir: &Path) -> PathBuf {
+    get_poverello_backup_root(skills_dir).join("quarantined")
+}
+
+pub fn get_poverello_backup_root(skills_dir: &Path) -> PathBuf {
+    skills_dir
+        .parent()
+        .unwrap_or(skills_dir)
+        .join("backups")
+        .join("poverello")
 }
 
 pub fn get_journal_path(skill_dir: &Path) -> PathBuf {
@@ -435,6 +467,50 @@ fn check_symlink_or_reparse(path: &Path) -> bool {
     } else {
         false
     }
+}
+
+fn validate_no_reparse_components(path: &Path) -> Result<(), String> {
+    let components: Vec<_> = path.ancestors().collect();
+    for component in components.into_iter().rev() {
+        match std::fs::symlink_metadata(component) {
+            Ok(metadata) if is_symlink_or_reparse(&metadata) => {
+                return Err(format!("Path contains a symlink or reparse point: {}", component.display()));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("Cannot inspect path {}: {error}", component.display())),
+        }
+    }
+    Ok(())
+}
+
+fn create_dir_all_checked(path: &Path) -> Result<(), String> {
+    validate_no_reparse_components(path)?;
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() && !is_symlink_or_reparse(&metadata) => Ok(()),
+        Ok(_) => Err(format!("Backup path is not a safe directory: {}", path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let parent = path
+                .parent()
+                .ok_or_else(|| format!("Backup path has no parent: {}", path.display()))?;
+            create_dir_all_checked(parent)?;
+            std::fs::create_dir(path).map_err(|e| format!("Failed to create directory {}: {e}", path.display()))?;
+            validate_no_reparse_components(path)
+        }
+        Err(error) => Err(format!("Cannot inspect backup path {}: {error}", path.display())),
+    }
+}
+
+#[cfg(windows)]
+fn is_symlink_or_reparse(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x00000400;
+    (metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || metadata.file_type().is_symlink()
+}
+
+#[cfg(not(windows))]
+fn is_symlink_or_reparse(metadata: &std::fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
 }
 
 pub fn inspect_codex_skill_status(skills_dir: &Path, skill_name: &str) -> CodexSkillItemInfo {
@@ -666,9 +742,15 @@ pub fn get_codex_skills_status_at(skills_dir: &Path) -> CodexSkillsStatus {
     for name in SKILL_NAMES {
         skills.push(inspect_codex_skill_status(skills_dir, name));
     }
+    let (legacy_quarantines, quarantine_scan_error) = match inspect_legacy_skill_quarantines_at(skills_dir) {
+        Ok(items) => (items, None),
+        Err(error) => (Vec::new(), Some(error)),
+    };
     CodexSkillsStatus {
         skills_dir: skills_dir.to_string_lossy().to_string(),
         skills,
+        legacy_quarantines,
+        quarantine_scan_error,
         resolution_error: None,
     }
 }
@@ -679,9 +761,203 @@ pub fn get_codex_skills_status() -> CodexSkillsStatus {
         Err(e) => CodexSkillsStatus {
             skills_dir: String::new(),
             skills: Vec::new(),
+            legacy_quarantines: Vec::new(),
+            quarantine_scan_error: None,
             resolution_error: Some(e),
         },
     }
+}
+
+fn parse_managed_quarantine_name(folder_name: &str) -> Option<&'static str> {
+    SKILL_NAMES.iter().copied().find(|skill_name| {
+        folder_name
+            .strip_prefix(&format!("{skill_name}.quarantined-"))
+            .is_some_and(|id| Uuid::parse_str(id).is_ok())
+    })
+}
+
+fn skill_folder_matches_known_manifest(skill_dir: &Path, skill_name: &str) -> Result<bool, String> {
+    validate_no_reparse_components(skill_dir)?;
+    let current = get_template_manifest(skill_name)?;
+    let mut known = get_known_historical_manifests(skill_name);
+    known.push(current);
+    let expected_files: std::collections::HashSet<String> = known
+        .iter()
+        .flat_map(|manifest| manifest.iter().map(|file| file.relative_path.clone()))
+        .collect();
+    let mut expected_dirs = std::collections::HashSet::new();
+    for relative in &expected_files {
+        let mut parent = Path::new(relative).parent();
+        while let Some(path) = parent {
+            if path.as_os_str().is_empty() {
+                break;
+            }
+            expected_dirs.insert(path.to_string_lossy().replace('\\', "/"));
+            parent = path.parent();
+        }
+    }
+
+    const MAX_MANAGED_FILE_BYTES: u64 = 8 * 1024 * 1024;
+    const MAX_TREE_ENTRIES: usize = 128;
+    let mut actual_files = HashMap::new();
+    let mut dirs_to_visit = vec![skill_dir.to_path_buf()];
+    let mut entries_seen = 0usize;
+
+    while let Some(current_dir) = dirs_to_visit.pop() {
+        for entry in std::fs::read_dir(&current_dir)
+            .map_err(|e| format!("Cannot inspect quarantined Skill {}: {e}", current_dir.display()))?
+        {
+            let entry = entry.map_err(|e| format!("Cannot read quarantined Skill entry: {e}"))?;
+            let path = entry.path();
+            let metadata = std::fs::symlink_metadata(&path)
+                .map_err(|e| format!("Cannot inspect quarantined Skill entry {}: {e}", path.display()))?;
+            entries_seen += 1;
+            if entries_seen > MAX_TREE_ENTRIES {
+                return Ok(false);
+            }
+            if is_symlink_or_reparse(&metadata) {
+                return Err(format!("Quarantined Skill contains a symlink or reparse point: {}", path.display()));
+            }
+            if metadata.is_dir() {
+                let relative = path
+                    .strip_prefix(skill_dir)
+                    .map_err(|_| "Quarantined Skill path escaped its directory.".to_string())?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if !expected_dirs.contains(&relative) {
+                    return Ok(false);
+                }
+                dirs_to_visit.push(path);
+            } else if metadata.is_file() {
+                let relative = path
+                    .strip_prefix(skill_dir)
+                    .map_err(|_| "Quarantined Skill path escaped its directory.".to_string())?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if !expected_files.contains(&relative) || metadata.len() > MAX_MANAGED_FILE_BYTES {
+                    return Ok(false);
+                }
+                let bytes = std::fs::read(&path)
+                    .map_err(|e| format!("Cannot read quarantined Skill file {}: {e}", path.display()))?;
+                actual_files.insert(relative, compute_sha256(&bytes));
+            } else {
+                return Ok(false);
+            }
+        }
+    }
+
+    Ok(known.iter().any(|manifest| {
+        manifest.len() == actual_files.len()
+            && manifest
+                .iter()
+                .all(|file| actual_files.get(&file.relative_path) == Some(&file.sha256))
+    }))
+}
+
+pub fn inspect_legacy_skill_quarantines_at(
+    skills_dir: &Path,
+) -> Result<Vec<CodexSkillQuarantineInfo>, String> {
+    if !skills_dir.exists() {
+        return Ok(Vec::new());
+    }
+    validate_no_reparse_components(skills_dir)?;
+    let mut results = Vec::new();
+    for entry in std::fs::read_dir(skills_dir)
+        .map_err(|e| format!("Cannot scan Codex Skills folder {}: {e}", skills_dir.display()))?
+    {
+        let entry = entry.map_err(|e| format!("Cannot read Codex Skills folder entry: {e}"))?;
+        let folder_name = entry.file_name().to_string_lossy().to_string();
+        if !folder_name.contains(".quarantined-") {
+            continue;
+        }
+        let path = entry.path();
+        let metadata = std::fs::symlink_metadata(&path)
+            .map_err(|e| format!("Cannot inspect quarantine candidate {}: {e}", path.display()))?;
+        let skill_name = parse_managed_quarantine_name(&folder_name);
+        let (can_migrate, detail_message) = if !metadata.is_dir() || is_symlink_or_reparse(&metadata) {
+            (false, Some("The quarantine entry is not a safe directory.".to_string()))
+        } else if let Some(skill_name) = skill_name {
+            match skill_folder_matches_known_manifest(&path, skill_name) {
+                Ok(true) => (true, None),
+                Ok(false) => (false, Some("Files do not match a known Poverello-managed Skill version.".to_string())),
+                Err(error) => (false, Some(error)),
+            }
+        } else {
+            (false, Some("The folder name is not a recognized Poverello quarantine name.".to_string()))
+        };
+        results.push(CodexSkillQuarantineInfo {
+            folder_name,
+            skill_name: skill_name.map(str::to_string),
+            path: path.to_string_lossy().to_string(),
+            can_migrate,
+            detail_message,
+        });
+    }
+    results.sort_by(|left, right| left.folder_name.cmp(&right.folder_name));
+    Ok(results)
+}
+
+pub fn migrate_legacy_skill_quarantines_at(
+    skills_dir: &Path,
+) -> Result<CodexSkillQuarantineMigrationResult, String> {
+    let candidates = inspect_legacy_skill_quarantines_at(skills_dir)?;
+    let mut result = CodexSkillQuarantineMigrationResult {
+        moved: Vec::new(),
+        skipped: Vec::new(),
+        failures: Vec::new(),
+    };
+    for candidate in candidates {
+        if !candidate.can_migrate {
+            result.skipped.push(candidate.folder_name);
+            continue;
+        }
+        let source = PathBuf::from(&candidate.path);
+        let destination_dir = get_quarantined_backups_dir(skills_dir);
+        if let Err(error) = create_dir_all_checked(&destination_dir) {
+            result.failures.push(format!("{}: {error}", candidate.folder_name));
+            continue;
+        }
+        let destination = destination_dir.join(&candidate.folder_name);
+        if std::fs::symlink_metadata(&destination).is_ok() {
+            result.failures.push(format!(
+                "{}: destination already exists at {}",
+                candidate.folder_name,
+                destination.display()
+            ));
+            continue;
+        }
+        if validate_no_reparse_components(&source).is_err()
+            || !candidate
+                .skill_name
+                .as_deref()
+                .is_some_and(|name| skill_folder_matches_known_manifest(&source, name).unwrap_or(false))
+        {
+            result.skipped.push(candidate.folder_name);
+            continue;
+        }
+        if let Err(error) = std::fs::rename(&source, &destination) {
+            result.failures.push(format!("{}: move failed: {error}", candidate.folder_name));
+            continue;
+        }
+        let skill_name = candidate.skill_name.as_deref().unwrap_or_default();
+        let verified = validate_no_reparse_components(&destination).is_ok()
+            && skill_folder_matches_known_manifest(&destination, skill_name).unwrap_or(false);
+        if !verified {
+            let rollback = if !source.exists() {
+                std::fs::rename(&destination, &source)
+            } else {
+                Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "source path was recreated"))
+            };
+            let reason = match rollback {
+                Ok(()) => "destination verification failed; source was restored".to_string(),
+                Err(error) => format!("destination verification failed and rollback failed: {error}; data remains at {}", destination.display()),
+            };
+            result.failures.push(format!("{}: {reason}", candidate.folder_name));
+            continue;
+        }
+        result.moved.push(candidate.folder_name);
+    }
+    Ok(result)
 }
 
 pub fn install_codex_skill_at(skills_dir: &Path, skill_name: &str) -> Result<CodexSkillItemInfo, String> {
@@ -735,10 +1011,15 @@ pub fn update_codex_skill_at(skills_dir: &Path, skill_name: &str) -> Result<Code
 
     // Step 1: Create backup
     let backups_dir = get_backups_dir(skills_dir);
-    std::fs::create_dir_all(&backups_dir).map_err(|e| format!("Failed to create backups dir: {e}"))?;
+    validate_no_reparse_components(skills_dir)?;
+    if backups_dir.starts_with(skills_dir) {
+        return Err("Refusing to create a Codex Skill backup inside the discovery root.".to_string());
+    }
+    create_dir_all_checked(&backups_dir)?;
     let backup_uuid = Uuid::new_v4().to_string();
     let this_backup_dir = backups_dir.join(format!("{}-{}-backup", skill_name, backup_uuid));
-    std::fs::create_dir_all(&this_backup_dir).map_err(|e| format!("Failed to create backup dir: {e}"))?;
+    std::fs::create_dir(&this_backup_dir).map_err(|e| format!("Failed to create backup dir: {e}"))?;
+    validate_no_reparse_components(&this_backup_dir)?;
 
     // Copy existing files to backup
     for m in &manifest {
@@ -746,7 +1027,7 @@ pub fn update_codex_skill_at(skills_dir: &Path, skill_name: &str) -> Result<Code
         if src.is_file() {
             let dst = this_backup_dir.join(&m.relative_path);
             if let Some(parent) = dst.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create backup sub-dir: {e}"))?;
+                create_dir_all_checked(parent)?;
             }
             std::fs::copy(&src, &dst).map_err(|e| format!("Failed to backup file {}: {e}", m.relative_path))?;
             // Verify backup hash
@@ -855,12 +1136,37 @@ pub fn remove_codex_skill_at(skills_dir: &Path, skill_name: &str) -> Result<Code
         return Err("Cannot remove: Skill directory is a symlink or reparse point.".to_string());
     }
 
-    // Quarantine rename: rename <skill-id> to <skill-id>.quarantined-<uuid> in parent
+    if !skill_folder_matches_known_manifest(&skill_dir, skill_name)? {
+        return Err("Cannot remove: Skill contents do not match a known managed version.".to_string());
+    }
+    validate_no_reparse_components(skills_dir)?;
+    let quarantine_dir = get_quarantined_backups_dir(skills_dir);
+    if quarantine_dir.starts_with(skills_dir) {
+        return Err("Refusing to quarantine a Codex Skill inside the discovery root.".to_string());
+    }
+    create_dir_all_checked(&quarantine_dir)?;
+
+    // Move the removed Skill outside Codex's discovery root while preserving its full tree.
     let quarantine_name = format!("{}.quarantined-{}", skill_name, Uuid::new_v4());
-    let quarantine_path = skills_dir.join(quarantine_name);
+    let quarantine_path = quarantine_dir.join(&quarantine_name);
+    if std::fs::symlink_metadata(&quarantine_path).is_ok() {
+        return Err("Cannot remove: generated backup destination already exists.".to_string());
+    }
 
     std::fs::rename(&skill_dir, &quarantine_path)
-        .map_err(|e| format!("Failed to quarantine rename skill dir: {e}"))?;
+        .map_err(|e| format!("Failed to move Skill to its recovery backup: {e}"))?;
+    let verified = validate_no_reparse_components(&quarantine_path).is_ok()
+        && skill_folder_matches_known_manifest(&quarantine_path, skill_name).unwrap_or(false);
+    if !verified {
+        let rollback = std::fs::rename(&quarantine_path, &skill_dir);
+        return match rollback {
+            Ok(()) => Err("Skill backup verification failed; the original Skill was restored.".to_string()),
+            Err(error) => Err(format!(
+                "Skill backup verification failed and rollback failed: {error}. Data remains at {}.",
+                quarantine_path.display()
+            )),
+        };
+    }
 
     Ok(inspect_codex_skill_status(skills_dir, skill_name))
 }
@@ -871,6 +1177,12 @@ mod tests {
     use tempfile::tempdir;
 
     static TEST_SERIAL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn test_skills_dir(root: &Path) -> PathBuf {
+        let path = root.join(".agents").join("skills");
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
 
     #[test]
     fn test_template_manifests_validity() {
@@ -941,29 +1253,29 @@ mod tests {
     #[test]
     fn test_install_and_inspect_codex_skill() {
         let dir = tempdir().unwrap();
-        let skills_dir = dir.path();
+        let skills_dir = test_skills_dir(dir.path());
 
-        let initial_status = inspect_codex_skill_status(skills_dir, "pov-plan-only");
+        let initial_status = inspect_codex_skill_status(&skills_dir, "pov-plan-only");
         assert_eq!(initial_status.state, CodexSkillState::NotInstalled);
         assert!(!initial_status.discovery_verified);
 
-        let installed = install_codex_skill_at(skills_dir, "pov-plan-only").expect("install should succeed");
+        let installed = install_codex_skill_at(&skills_dir, "pov-plan-only").expect("install should succeed");
         assert_eq!(installed.state, CodexSkillState::Installed);
         assert!(!installed.discovery_verified);
 
         // Modify a file to simulate unknown user modification -> ProtectedConflict
         let skill_md = skills_dir.join("pov-plan-only").join("SKILL.md");
         std::fs::write(&skill_md, "modified content").unwrap();
-        let updated_status = inspect_codex_skill_status(skills_dir, "pov-plan-only");
+        let updated_status = inspect_codex_skill_status(&skills_dir, "pov-plan-only");
         assert_eq!(updated_status.state, CodexSkillState::ProtectedConflict);
 
         // Add unknown file to simulate protected conflict
         let unknown = skills_dir.join("pov-plan-only").join("extra.txt");
         std::fs::write(&unknown, "extra").unwrap();
-        let conflict_status = inspect_codex_skill_status(skills_dir, "pov-plan-only");
+        let conflict_status = inspect_codex_skill_status(&skills_dir, "pov-plan-only");
         assert_eq!(conflict_status.state, CodexSkillState::ProtectedConflict);
         // Remove cannot proceed with unknown files
-        let rem_err = remove_codex_skill_at(skills_dir, "pov-plan-only");
+        let rem_err = remove_codex_skill_at(&skills_dir, "pov-plan-only");
         assert!(rem_err.is_err());
 
         // Remove unknown file and restore SKILL.md to standard, then remove skill via quarantine
@@ -972,31 +1284,34 @@ mod tests {
         let skill_content = &m.iter().find(|f| f.relative_path == "SKILL.md").unwrap().content;
         std::fs::write(&skill_md, skill_content).unwrap();
 
-        let rem_ok = remove_codex_skill_at(skills_dir, "pov-plan-only");
+        let rem_ok = remove_codex_skill_at(&skills_dir, "pov-plan-only");
         assert!(rem_ok.is_ok());
         assert_eq!(rem_ok.unwrap().state, CodexSkillState::NotInstalled);
         // Verify quarantine folder exists
-        let entries: Vec<_> = std::fs::read_dir(skills_dir).unwrap().flatten().collect();
-        assert!(entries.iter().any(|e| e.file_name().to_string_lossy().contains("quarantined")));
+        assert!(!skills_dir.join("pov-plan-only").exists());
+        let quarantined_dir = get_quarantined_backups_dir(&skills_dir);
+        assert!(quarantined_dir.starts_with(skills_dir.parent().unwrap().join("backups")));
+        let entries: Vec<_> = std::fs::read_dir(&quarantined_dir).unwrap().flatten().collect();
+        assert!(entries.iter().any(|e| e.file_name().to_string_lossy().contains("pov-plan-only.quarantined-")));
     }
 
     #[test]
     fn test_user_modified_skill_is_protected_from_overwrite() {
         let dir = tempdir().unwrap();
-        let skills_dir = dir.path();
+        let skills_dir = test_skills_dir(dir.path());
 
-        install_codex_skill_at(skills_dir, "pov-plan-only").unwrap();
+        install_codex_skill_at(&skills_dir, "pov-plan-only").unwrap();
 
         // User modifies SKILL.md
         let skill_md = skills_dir.join("pov-plan-only").join("SKILL.md");
         std::fs::write(&skill_md, "# My Custom Modifications\nDo not overwrite!").unwrap();
 
-        let status = inspect_codex_skill_status(skills_dir, "pov-plan-only");
+        let status = inspect_codex_skill_status(&skills_dir, "pov-plan-only");
         assert_eq!(status.state, CodexSkillState::ProtectedConflict);
         assert!(status.detail_message.as_ref().unwrap().contains("Overwrite protected"));
 
         // Attempting to update must fail and preserve custom content
-        let update_res = update_codex_skill_at(skills_dir, "pov-plan-only");
+        let update_res = update_codex_skill_at(&skills_dir, "pov-plan-only");
         assert!(update_res.is_err());
         assert!(update_res.unwrap_err().contains("Overwrite protected"));
 
@@ -1008,7 +1323,7 @@ mod tests {
     fn test_update_with_backup_and_recovery() {
         let _lock = TEST_SERIAL_LOCK.lock().unwrap();
         let dir = tempdir().unwrap();
-        let skills_dir = dir.path();
+        let skills_dir = test_skills_dir(dir.path());
 
         // Register fake historical manifest with "old backup version"
         let old_hash = compute_sha256(b"old backup version");
@@ -1030,22 +1345,23 @@ mod tests {
         );
         set_test_historical_manifests(Some(mocks));
 
-        install_codex_skill_at(skills_dir, "pov-build-review").unwrap();
+        install_codex_skill_at(&skills_dir, "pov-build-review").unwrap();
 
         // Write historical file to simulate outdated official version
         let skill_md = skills_dir.join("pov-build-review").join("SKILL.md");
         std::fs::write(&skill_md, "old backup version").unwrap();
-        let st_outdated = inspect_codex_skill_status(skills_dir, "pov-build-review");
+        let st_outdated = inspect_codex_skill_status(&skills_dir, "pov-build-review");
         assert_eq!(st_outdated.state, CodexSkillState::UpdateAvailable);
 
         // Update succeeds when matching historical manifest
-        let updated = update_codex_skill_at(skills_dir, "pov-build-review").unwrap();
+        let updated = update_codex_skill_at(&skills_dir, "pov-build-review").unwrap();
         assert_eq!(updated.state, CodexSkillState::Installed);
 
         // Simulate interrupted journal with actual backup files
         let skill_dir = skills_dir.join("pov-build-review");
         let journal_path = get_journal_path(&skill_dir);
-        let backups_dir = get_backups_dir(skills_dir);
+        let backups_dir = get_backups_dir(&skills_dir);
+        assert!(!backups_dir.starts_with(&skills_dir));
         let fake_backup = backups_dir.join("fake-backup");
         std::fs::create_dir_all(&fake_backup).unwrap();
         std::fs::write(fake_backup.join("SKILL.md"), "old backup version").unwrap();
@@ -1058,14 +1374,151 @@ mod tests {
         };
         std::fs::write(&journal_path, serde_json::to_vec(&journal).unwrap()).unwrap();
 
-        let st = inspect_codex_skill_status(skills_dir, "pov-build-review");
+        let st = inspect_codex_skill_status(&skills_dir, "pov-build-review");
         assert_eq!(st.state, CodexSkillState::RecoveryRequired);
 
         // Restore backup restores historical content -> state becomes UpdateAvailable
-        let restored = restore_codex_skill_backup_at(skills_dir, "pov-build-review").unwrap();
+        let restored = restore_codex_skill_backup_at(&skills_dir, "pov-build-review").unwrap();
         assert_eq!(restored.state, CodexSkillState::UpdateAvailable);
 
+        // Legacy absolute journal paths inside skills/.poverello_backups remain restorable.
+        let legacy_backup = skills_dir.join(".poverello_backups").join("legacy-backup");
+        std::fs::create_dir_all(&legacy_backup).unwrap();
+        std::fs::write(legacy_backup.join("SKILL.md"), "old backup version").unwrap();
+        let legacy_journal = SkillTransactionJournal {
+            skill_name: "pov-build-review".to_string(),
+            backup_dir: legacy_backup.to_string_lossy().to_string(),
+            started_at: chrono::Utc::now().to_rfc3339(),
+            files_replaced: vec!["SKILL.md".to_string()],
+            completed: false,
+        };
+        std::fs::write(&journal_path, serde_json::to_vec(&legacy_journal).unwrap()).unwrap();
+        let legacy_restored = restore_codex_skill_backup_at(&skills_dir, "pov-build-review").unwrap();
+        assert_eq!(legacy_restored.state, CodexSkillState::UpdateAvailable);
+        assert_eq!(std::fs::read_to_string(skill_md).unwrap(), "old backup version");
+
         set_test_historical_manifests(None);
+    }
+
+    #[test]
+    fn test_legacy_quarantine_migration_moves_only_verified_managed_trees() {
+        let dir = tempdir().unwrap();
+        let skills_dir = test_skills_dir(dir.path());
+        install_codex_skill_at(&skills_dir, "pov-plan-only").unwrap();
+        let verified_name = format!("pov-plan-only.quarantined-{}", Uuid::new_v4());
+        let verified_dir = skills_dir.join(&verified_name);
+        let modified_name = format!("pov-full-cycle.quarantined-{}", Uuid::new_v4());
+        let modified_dir = skills_dir.join(&modified_name);
+
+        for (name, destination, modify) in [
+            ("pov-plan-only", &verified_dir, false),
+            ("pov-full-cycle", &modified_dir, true),
+        ] {
+            for file in get_template_manifest(name).unwrap() {
+                let path = destination.join(file.relative_path);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, file.content).unwrap();
+            }
+            if modify {
+                std::fs::write(destination.join("custom.txt"), "user data").unwrap();
+            }
+        }
+
+        let candidates = inspect_legacy_skill_quarantines_at(&skills_dir).unwrap();
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().any(|candidate| candidate.folder_name == verified_name && candidate.can_migrate));
+        assert!(candidates.iter().any(|candidate| candidate.folder_name == modified_name && !candidate.can_migrate));
+
+        let result = migrate_legacy_skill_quarantines_at(&skills_dir).unwrap();
+        assert_eq!(result.moved, vec![verified_name.clone()]);
+        assert_eq!(result.skipped, vec![modified_name.clone()]);
+        assert!(result.failures.is_empty());
+        assert!(!verified_dir.exists());
+        assert!(modified_dir.join("custom.txt").is_file());
+        let moved_dir = get_quarantined_backups_dir(&skills_dir).join(verified_name);
+        assert!(skill_folder_matches_known_manifest(&moved_dir, "pov-plan-only").unwrap());
+        let status = get_codex_skills_status_at(&skills_dir);
+        assert_eq!(
+            status.skills.iter().find(|skill| skill.name == "pov-plan-only").unwrap().state,
+            CodexSkillState::Installed
+        );
+        assert_eq!(status.legacy_quarantines.len(), 1);
+        assert_eq!(status.legacy_quarantines[0].folder_name, modified_name);
+    }
+
+    #[test]
+    fn test_legacy_quarantine_migration_refuses_existing_destination() {
+        let dir = tempdir().unwrap();
+        let skills_dir = test_skills_dir(dir.path());
+        let folder_name = format!("pov-plan-only.quarantined-{}", Uuid::new_v4());
+        let source = skills_dir.join(&folder_name);
+        for file in get_template_manifest("pov-plan-only").unwrap() {
+            let path = source.join(file.relative_path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, file.content).unwrap();
+        }
+        let destination = get_quarantined_backups_dir(&skills_dir).join(&folder_name);
+        std::fs::create_dir_all(&destination).unwrap();
+
+        let result = migrate_legacy_skill_quarantines_at(&skills_dir).unwrap();
+        assert!(result.moved.is_empty());
+        assert_eq!(result.failures.len(), 1);
+        assert!(source.join("SKILL.md").is_file());
+        assert!(destination.is_dir());
+    }
+
+    #[test]
+    fn test_legacy_quarantine_with_unmanaged_empty_directory_is_not_moved() {
+        let dir = tempdir().unwrap();
+        let skills_dir = test_skills_dir(dir.path());
+        let folder_name = format!("pov-plan-only.quarantined-{}", Uuid::new_v4());
+        let source = skills_dir.join(&folder_name);
+        for file in get_template_manifest("pov-plan-only").unwrap() {
+            let path = source.join(file.relative_path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, file.content).unwrap();
+        }
+        std::fs::create_dir(source.join("user-created-empty-directory")).unwrap();
+
+        let candidates = inspect_legacy_skill_quarantines_at(&skills_dir).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert!(!candidates[0].can_migrate);
+
+        let result = migrate_legacy_skill_quarantines_at(&skills_dir).unwrap();
+        assert_eq!(result.skipped, vec![folder_name]);
+        assert!(source.join("user-created-empty-directory").is_dir());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_legacy_quarantine_junction_is_not_moved() {
+        let dir = tempdir().unwrap();
+        let skills_dir = test_skills_dir(dir.path());
+        let target = dir.path().join("junction-target");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("user-data.txt"), "preserve").unwrap();
+        let folder_name = format!("pov-plan-only.quarantined-{}", Uuid::new_v4());
+        let junction = skills_dir.join(&folder_name);
+        let output = std::process::Command::new("cmd.exe")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&target)
+            .output()
+            .expect("cmd.exe should be available on Windows");
+        assert!(
+            output.status.success(),
+            "Could not create temporary junction for safety test: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let candidates = inspect_legacy_skill_quarantines_at(&skills_dir).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert!(!candidates[0].can_migrate);
+        let result = migrate_legacy_skill_quarantines_at(&skills_dir).unwrap();
+        assert_eq!(result.skipped, vec![folder_name]);
+        assert!(junction.exists());
+        assert_eq!(std::fs::read_to_string(target.join("user-data.txt")).unwrap(), "preserve");
+        std::fs::remove_dir(&junction).unwrap();
     }
 
     #[test]
@@ -1079,7 +1532,7 @@ mod tests {
         // 4. Update operation must successfully backup historical files and upgrade to Installed.
         for skill_name in SKILL_NAMES {
             let dir = tempdir().unwrap();
-            let skills_dir = dir.path();
+            let skills_dir = test_skills_dir(dir.path());
             let skill_dir = skills_dir.join(skill_name);
             std::fs::create_dir_all(skill_dir.join("agents")).unwrap();
             std::fs::create_dir_all(skill_dir.join("scripts")).unwrap();
@@ -1142,7 +1595,7 @@ mod tests {
             std::fs::write(skill_dir.join("scripts").join("codex-review-dispatcher.ps1"), &cur_disp.content).unwrap();
 
             // Status MUST be UpdateAvailable (acceptance criteria #2)
-            let status = inspect_codex_skill_status(skills_dir, skill_name);
+            let status = inspect_codex_skill_status(&skills_dir, skill_name);
             assert_eq!(
                 status.state,
                 CodexSkillState::UpdateAvailable,
@@ -1152,7 +1605,7 @@ mod tests {
             // Adding unknown file causes ProtectedConflict (acceptance criteria #3)
             let unknown_file = skill_dir.join("custom.txt");
             std::fs::write(&unknown_file, "custom user file").unwrap();
-            let conflict_status = inspect_codex_skill_status(skills_dir, skill_name);
+            let conflict_status = inspect_codex_skill_status(&skills_dir, skill_name);
             assert_eq!(
                 conflict_status.state,
                 CodexSkillState::ProtectedConflict,
@@ -1162,7 +1615,7 @@ mod tests {
 
             // Modifying a file to non-historical hash causes ProtectedConflict
             std::fs::write(skill_dir.join("SKILL.md"), "tampered content").unwrap();
-            let tampered_status = inspect_codex_skill_status(skills_dir, skill_name);
+            let tampered_status = inspect_codex_skill_status(&skills_dir, skill_name);
             assert_eq!(
                 tampered_status.state,
                 CodexSkillState::ProtectedConflict,
@@ -1171,11 +1624,11 @@ mod tests {
 
             // Restore historical content and execute update (acceptance criteria #4)
             std::fs::write(skill_dir.join("SKILL.md"), &fake_historical_content).unwrap();
-            let update_res = update_codex_skill_at(skills_dir, skill_name).expect("Update should succeed");
+            let update_res = update_codex_skill_at(&skills_dir, skill_name).expect("Update should succeed");
             assert_eq!(update_res.state, CodexSkillState::Installed);
 
             // Verify backup was created
-            let backups_dir = get_backups_dir(skills_dir);
+            let backups_dir = get_backups_dir(&skills_dir);
             let backup_entries: Vec<_> = std::fs::read_dir(&backups_dir).unwrap().flatten().collect();
             assert!(
                 backup_entries.iter().any(|e| e.file_name().to_string_lossy().contains(skill_name)),

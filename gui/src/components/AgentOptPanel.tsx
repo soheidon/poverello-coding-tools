@@ -47,12 +47,14 @@ export default function AgentOptPanel({
 }: AgentOptPanelProps) {
   const { t } = useTranslation();
   const [actionBusy, setActionBusy] = useState(false);
+  const [confirmDisableGlobalHook, setConfirmDisableGlobalHook] = useState(false);
   const [initWorkspace, setInitWorkspace] = useState<string | null>(null);
   const [manualMenuSlotId, setManualMenuSlotId] = useState<string | null>(null);
   const [initMode, setInitMode] = useState<"FAST" | "BALANCED" | "STRICT">("BALANCED");
   const isBusy = busy || actionBusy;
   const cli = overview?.cli;
   const targets = overview?.workspace_targets ?? [];
+  const globalHookDiagnostic = overview?.global_hook_diagnostic ?? null;
   const saveManualWorkspace = async (slotId: string, path: string | null) => {
     setActionBusy(true);
     onError(null);
@@ -65,6 +67,33 @@ export default function AgentOptPanel({
     } finally {
       setActionBusy(false);
     }
+  };
+
+  const disableGlobalHook = async () => {
+    setActionBusy(true);
+    onError(null);
+    onSuccess(null);
+    setConfirmDisableGlobalHook(false);
+    let failure: string | null = null;
+    try {
+      const result = await invoke<{ state: string }>("disable_wt_agent_hooks_global");
+      if (result.state !== "disabled") {
+        failure = t("agentOpt.globalHooks.disableNotVerified");
+      }
+    } catch (error: unknown) {
+      failure = String(error);
+    }
+    try {
+      await onRefreshOverview();
+    } catch (error: unknown) {
+      failure ??= String(error);
+    }
+    if (failure) {
+      onError(failure);
+    } else {
+      onSuccess(t("agentOpt.globalHooks.disableSuccess"));
+    }
+    setActionBusy(false);
   };
 
   const browseWorkspace = async (slotId: string) => {
@@ -196,6 +225,69 @@ export default function AgentOptPanel({
       </div>}
       {cli?.installed && cli.error && <div data-testid="agentopt-cli-error-notice" style={{ padding: "10px 12px", border: "1px solid #ff8182", borderRadius: 6, background: "#ffebe9", display: "flex", justifyContent: "space-between", gap: 8 }}><span style={{ fontSize: 12, color: "#cf222e" }}>{cli.error}</span>{onOpenAgentOptSettings && <button type="button" className="btn" disabled={isBusy} onClick={onOpenAgentOptSettings}>{t("agentOpt.openInstallSettings")}</button>}</div>}
 
+      {globalHookDiagnostic && <section
+        data-testid="agentopt-global-hook-diagnostic"
+        style={{
+          padding: "9px 11px",
+          border: globalHookDiagnostic.state === "risk_pattern_detected" ? "1px solid #d4a72c" : "1px solid #d0d7de",
+          borderRadius: 6,
+          background: globalHookDiagnostic.state === "risk_pattern_detected" ? "#fff8c5" : "#fff",
+          display: "flex",
+          flexDirection: "column",
+          gap: 5,
+          fontSize: 12,
+        }}
+      >
+        <strong>{t("agentOpt.globalHooks.title")}</strong>
+        <div style={{ color: "#57606a" }}>{t("agentOpt.globalHooks.scope")}</div>
+        <div>
+          <span>{t("agentOpt.globalHooks.pluginName")}: </span>
+          <strong>wt-agent-hooks</strong>
+          <span> — {t(("agentOpt.globalHooks.status." + globalHookDiagnostic.state) as TranslationKey)}</span>
+        </div>
+        {globalHookDiagnostic.plugin_version && <div>{t("agentOpt.globalHooks.version", { version: globalHookDiagnostic.plugin_version })}</div>}
+        {globalHookDiagnostic.event && <div>{t("agentOpt.globalHooks.event", { event: globalHookDiagnostic.event })}</div>}
+        {globalHookDiagnostic.state === "risk_pattern_detected" && <>
+          <div>{t("agentOpt.globalHooks.riskDescription")}</div>
+          <div>{t("agentOpt.globalHooks.manualRemediation")}</div>
+          <code style={{ alignSelf: "flex-start", padding: "3px 6px", background: "rgba(255,255,255,.8)", borderRadius: 4 }}>
+            agy plugin disable wt-agent-hooks
+          </code>
+          <button
+            type="button"
+            className="btn"
+            disabled={isBusy}
+            onClick={() => setConfirmDisableGlobalHook(true)}
+            data-testid="btn-disable-wt-agent-hooks"
+          >
+            {t("agentOpt.globalHooks.disableNow")}
+          </button>
+        </>}
+        <div style={{ color: "#57606a" }}>{t("agentOpt.globalHooks.diagnosticReadOnly")}</div>
+      </section>}
+      {confirmDisableGlobalHook && <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="disable-wt-agent-hooks-title"
+        data-testid="modal-disable-wt-agent-hooks"
+        style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,.35)", display: "grid", placeItems: "center", padding: 16 }}
+      >
+        <div style={{ width: "min(480px, 100%)", padding: 18, borderRadius: 8, background: "var(--bg-primary, #fff)", border: "1px solid #d0d7de", boxShadow: "0 8px 32px rgba(0,0,0,.2)" }}>
+          <h3 id="disable-wt-agent-hooks-title" style={{ margin: "0 0 10px", fontSize: 16 }}>{t("agentOpt.globalHooks.confirmTitle")}</h3>
+          <p style={{ fontSize: 13, color: "#57606a", lineHeight: 1.5 }}>{t("agentOpt.globalHooks.confirmDescription")}</p>
+          <p style={{ fontSize: 13, color: "#57606a", lineHeight: 1.5 }}>{t("agentOpt.globalHooks.confirmGlobalScope")}</p>
+          <p style={{ fontSize: 13, color: "#57606a", lineHeight: 1.5 }}>{t("agentOpt.globalHooks.confirmImpact")}</p>
+          <p style={{ fontSize: 13, color: "#57606a", lineHeight: 1.5 }}>{t("agentOpt.globalHooks.confirmReversible")}</p>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+            <button type="button" className="btn" disabled={isBusy} onClick={() => setConfirmDisableGlobalHook(false)} data-testid="btn-cancel-disable-wt-agent-hooks">
+              {t("agentOpt.globalHooks.cancel")}
+            </button>
+            <button type="button" className="btn" disabled={isBusy} onClick={() => void disableGlobalHook()} data-testid="btn-confirm-disable-wt-agent-hooks">
+              {isBusy ? "…" : t("agentOpt.globalHooks.confirmDisable")}
+            </button>
+          </div>
+        </div>
+      </div>}
       {overview?.target_resolution_errors?.filter((error) => !targets.some(({ inspection }) =>
         unregisteredWorkspaceErrorMatchesPath(error, inspection.workspace_path)
         && !inspection.registered

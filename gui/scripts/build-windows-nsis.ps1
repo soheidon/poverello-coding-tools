@@ -448,6 +448,69 @@ if (-not $script:installModeCheck.Success -or $script:installModeCheck.Groups[1]
 # Tauri template change fail closed instead of silently shipping an unpatched
 # installer. Keep the generated file's UTF-8 BOM and CRLF format.
 $scriptText = [System.IO.File]::ReadAllText($installerScript, [System.Text.Encoding]::UTF8)
+$customLanguageFiles = @(
+  $appConfig.bundle.windows.nsis.customLanguageFiles |
+    Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+)
+if ($customLanguageFiles.Count -eq 0) {
+  $configuredLanguages = @(
+    $appConfig.bundle.windows.nsis.languages |
+      Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+  )
+  if ($configuredLanguages.Count -eq 0) {
+    throw 'Cannot remove Tauri legacy language fallback without configured bundled languages.'
+  }
+  foreach ($language in $configuredLanguages) {
+    $languagePath = Join-Path $nsisRoot "$language.nsh"
+    if (-not (Test-Path -LiteralPath $languagePath -PathType Leaf)) {
+      throw "Configured NSIS language file is missing: $languagePath"
+    }
+    $languageText = [System.IO.File]::ReadAllText($languagePath, [System.Text.Encoding]::UTF8)
+    $canonicalLanguageStringCount = [regex]::Matches(
+      $languageText,
+      '(?m)^LangString chooseHowToInstall \$\{LANG_[A-Z0-9_]+\} .+$'
+    ).Count
+    if ($canonicalLanguageStringCount -ne 1) {
+      throw "NSIS language '$language' must define exactly one canonical chooseHowToInstall string; found $canonicalLanguageStringCount."
+    }
+  }
+
+  $legacyHeaderBlockPattern = '(?m)^  ; Read the install choice header through \$R5 so a custom language file that only\r?\n  ; defines the misspelled `choowHowToInstall` still shows its own text\r?\n  ; TODO: remove the `choowHowToInstall` fallback in a future major version\r?\n  StrCpy \$R5 "\$\(chooseHowToInstall\)"\r?\n  \$\{IfThen\} \$R5 == "" \$\{\|} StrCpy \$R5 "\$\(choowHowToInstall\)" \$\{\|}\r?\n'
+  $legacyLanguageCommentsPattern = '(?ms)^; PageReinstall reads the misspelled `choowHowToInstall` as a fallback, and makensis warns\r?\n.*?^; TODO: remove the `choowHowToInstall` fallback in a future major version\r?\n'
+  $legacyHeaderBlockCount = [regex]::Matches($scriptText, $legacyHeaderBlockPattern).Count
+  $legacyLanguageCommentsCount = [regex]::Matches($scriptText, $legacyLanguageCommentsPattern).Count
+  $legacyLanguageStringCount = [regex]::Matches(
+    $scriptText,
+    '(?m)^LangString choowHowToInstall 0 ""\r?\n'
+  ).Count
+
+  if ($scriptText.Contains('choowHowToInstall')) {
+    if ($legacyHeaderBlockCount -ne 1 -or
+        $legacyLanguageCommentsCount -ne 1 -or
+        $legacyLanguageStringCount -ne $configuredLanguages.Count) {
+      throw "Unexpected Tauri legacy NSIS language fallback shape (header=$legacyHeaderBlockCount, comments=$legacyLanguageCommentsCount, language defaults=$legacyLanguageStringCount, configured languages=$($configuredLanguages.Count)); refusing an unverified template change."
+    }
+
+    $canonicalHeaderReplacement = '  ; All bundled language files define the canonical chooseHowToInstall string.' + "`r`n" + '  StrCpy $R5 "$(chooseHowToInstall)"' + "`r`n"
+    $scriptText = [regex]::Replace(
+      $scriptText,
+      $legacyHeaderBlockPattern,
+      [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $canonicalHeaderReplacement },
+      1
+    )
+    $scriptText = [regex]::Replace(
+      $scriptText,
+      $legacyLanguageCommentsPattern,
+      '; Bundled NSIS language files use the canonical chooseHowToInstall string.' + "`r`n",
+      1
+    )
+    $scriptText = [regex]::Replace($scriptText, '(?m)^LangString choowHowToInstall 0 ""\r?\n', '')
+    if ($scriptText.Contains('choowHowToInstall')) {
+      throw 'Tauri legacy choowHowToInstall fallback remains after applying the bundled-language compatibility patch.'
+    }
+    Write-Output 'Removed Tauri legacy choowHowToInstall fallback; all configured bundled locales define chooseHowToInstall.'
+  }
+}
 if ($ReuseGeneratedBundle) {
   $expectedExe = Join-Path $targetRoot 'release\anthro-bridge.exe'
   if (-not (Test-Path -LiteralPath $expectedExe -PathType Leaf)) {
