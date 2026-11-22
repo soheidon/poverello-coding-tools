@@ -301,7 +301,7 @@ export default function AgentOptPanel({
         );
       })}
       <div data-testid="agentopt-target-section" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {targets.map((target) => {
+        {targets.map((target, idx) => {
           const ready = cli?.installed === true
             && cli.supported_version === true
             && target.inspection.registered
@@ -310,7 +310,8 @@ export default function AgentOptPanel({
             && target.inspection.hooks_enabled != null;
           const runtimeActive = target.inspection.config?.enabled === true || target.inspection.hooks_enabled === true;
           const disableAction = runtimeActive;
-          const projectName = t("agentOpt.projectTitle", { number: target.project_slot_id === "primary" ? 1 : 2 });
+          const projectNumber = target.project_slot_id === "primary" ? 1 : target.project_slot_id === "secondary" ? 2 : idx + 1;
+          const projectName = t("agentOpt.projectTitle", { number: projectNumber });
           const canEnable = overview?.persisted_engine === "agentopt" && ready;
           const savedStatus = !target.inspection.registered || !cli?.installed || !cli.supported_version
             ? "not_initialized"

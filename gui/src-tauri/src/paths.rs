@@ -19,9 +19,7 @@ pub(crate) fn app_channel() -> AppChannel {
         Some("stable") => AppChannel::Stable,
         Some("dev") | None => AppChannel::Dev,
         Some(other) => {
-            eprintln!(
-                "Unknown ANTHRO_BRIDGE_CHANNEL={other}; using isolated dev data directory"
-            );
+            eprintln!("Unknown ANTHRO_BRIDGE_CHANNEL={other}; using isolated dev data directory");
             AppChannel::Dev
         }
     }
@@ -398,6 +396,10 @@ pub(crate) fn orchestrator_runs_dir() -> PathBuf {
     user_data_dir().join("orchestrator").join("runs")
 }
 
+pub(crate) fn project_registry_path() -> PathBuf {
+    user_data_dir().join("project-registry.json")
+}
+
 // ---------------------------------------------------------------------------
 // Pure _for variants — testable with temp paths, no env var access
 // ---------------------------------------------------------------------------
@@ -424,7 +426,14 @@ pub(crate) fn log_dir_for(base: &Path, channel: AppChannel) -> PathBuf {
 
 #[cfg(test)]
 pub(crate) fn orchestrator_runs_dir_for(base: &Path, channel: AppChannel) -> PathBuf {
-    user_data_dir_for(base, channel).join("orchestrator").join("runs")
+    user_data_dir_for(base, channel)
+        .join("orchestrator")
+        .join("runs")
+}
+
+#[cfg(test)]
+pub(crate) fn project_registry_path_for(base: &Path, channel: AppChannel) -> PathBuf {
+    user_data_dir_for(base, channel).join("project-registry.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -450,10 +459,7 @@ pub(crate) fn should_migrate_old_config(channel: AppChannel) -> bool {
 /// The frontend must use the identical regex: `^Model ([1-9]\d*)$`
 pub(crate) fn parse_model_set_number(name: &str) -> Option<u32> {
     let value = name.strip_prefix("Model ")?;
-    if value.is_empty()
-        || value.starts_with('0')
-        || !value.bytes().all(|b| b.is_ascii_digit())
-    {
+    if value.is_empty() || value.starts_with('0') || !value.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
     value.parse::<u32>().ok().filter(|n| *n > 0)
@@ -518,7 +524,10 @@ pub(crate) fn antigravity_global_rules_dir_for(home: &Path) -> PathBuf {
 pub(crate) fn antigravity_global_rules_dir() -> Result<PathBuf, String> {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
-        .map_err(|_| "Could not resolve user home directory (neither USERPROFILE nor HOME is set)".to_string())?;
+        .map_err(|_| {
+            "Could not resolve user home directory (neither USERPROFILE nor HOME is set)"
+                .to_string()
+        })?;
     Ok(antigravity_global_rules_dir_for(Path::new(&home)))
 }
 
@@ -589,23 +598,36 @@ pub(crate) fn ensure_path_contained_in_dir(path: &Path, allowed_dir: &Path) -> R
             .map_err(|e| format!("Failed to create allowed directory for canonicalization: {e}"))?;
     }
     let canonical_dir = allowed_dir.canonicalize().map_err(|e| {
-        format!("Failed to canonicalize allowed_dir {}: {e}", allowed_dir.display())
+        format!(
+            "Failed to canonicalize allowed_dir {}: {e}",
+            allowed_dir.display()
+        )
     })?;
 
     let canonical_path = if path.exists() {
-        path.canonicalize().map_err(|e| format!("Failed to canonicalize path: {e}"))?
+        path.canonicalize()
+            .map_err(|e| format!("Failed to canonicalize path: {e}"))?
     } else if let Some(parent) = path.parent() {
         if !parent.exists() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create parent dir: {e}"))?;
         }
-        parent.canonicalize().map_err(|e| format!("Failed to canonicalize parent dir: {e}"))?.join(path.file_name().unwrap_or_default())
+        parent
+            .canonicalize()
+            .map_err(|e| format!("Failed to canonicalize parent dir: {e}"))?
+            .join(path.file_name().unwrap_or_default())
     } else {
         path.to_path_buf()
     };
 
-    let mut dir_str = canonical_dir.to_string_lossy().to_lowercase().replace('\\', "/");
-    let path_str = canonical_path.to_string_lossy().to_lowercase().replace('\\', "/");
+    let mut dir_str = canonical_dir
+        .to_string_lossy()
+        .to_lowercase()
+        .replace('\\', "/");
+    let path_str = canonical_path
+        .to_string_lossy()
+        .to_lowercase()
+        .replace('\\', "/");
 
     if !dir_str.ends_with('/') {
         dir_str.push('/');
@@ -832,10 +854,7 @@ mod tests {
             openrouter_cache_path_for(base, channel).parent(),
             Some(root.as_path())
         );
-        assert_eq!(
-            log_dir_for(base, channel).parent(),
-            Some(root.as_path())
-        );
+        assert_eq!(log_dir_for(base, channel).parent(), Some(root.as_path()));
     }
 
     #[test]
@@ -856,10 +875,7 @@ mod tests {
             openrouter_cache_path_for(base, channel).parent(),
             Some(root.as_path())
         );
-        assert_eq!(
-            log_dir_for(base, channel).parent(),
-            Some(root.as_path())
-        );
+        assert_eq!(log_dir_for(base, channel).parent(), Some(root.as_path()));
     }
 
     // ── parse_model_set_number ──────────────────────────────────────

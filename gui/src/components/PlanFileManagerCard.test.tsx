@@ -10,6 +10,13 @@ let lastConfiguredLocation: string | null = "C:\\mock\\repo";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: async (cmd: string, args?: unknown) => {
     const res = await (args !== undefined ? mockInvoke(cmd, args) : mockInvoke(cmd));
+    if (cmd === "get_workflow_role_assignment" && res === undefined) {
+      const legacy = await mockInvoke("get_plan_role_assignment", { ...(args as any), repoPath: lastConfiguredLocation });
+      return { assignment: legacy ?? null, legacy_conflict: false, conflict_sources: [] };
+    }
+    if (cmd === "set_workflow_role_assignment" && res === undefined) {
+      return mockInvoke("set_plan_role_assignment", { ...(args as any), repoPath: lastConfiguredLocation });
+    }
     if (cmd === "get_plan_manager_location") {
       if (res !== undefined) {
         lastConfiguredLocation = res;
@@ -1487,16 +1494,21 @@ describe("PlanFileManagerCard Component", () => {
         );
       });
 
-      expect(mockInvoke).toHaveBeenCalledWith("set_project_plan_slots", {
-        surface: "codex",
-        slots: [
-          {
-            slot_id: "primary",
-            repo_path: "C:\\mock\\other-repo",
-            plan_path: ".plan/other.md",
-          },
-        ],
-      });
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "set_project_plan_slots",
+        expect.objectContaining({
+          surface: "codex",
+          activeSlotId: "primary",
+          activeRepoPath: "C:\\mock\\other-repo",
+          slots: [
+            {
+              slot_id: "primary",
+              repo_path: "C:\\mock\\other-repo",
+              plan_path: ".plan/other.md",
+            },
+          ],
+        })
+      );
     });
 
     it("verifies cross-surface independence and stale async write protection", async () => {
@@ -1592,11 +1604,8 @@ describe("PlanFileManagerCard Component", () => {
             ],
           });
         }
-        if (cmd === "get_plan_role_assignment") {
-          if (args?.repoPath === "C:\\mock\\repo-b") {
-            return Promise.resolve({ planner_id: "custom_planner_b", reviser_id: null });
-          }
-          return Promise.resolve({ planner_id: "default_planner_a", reviser_id: null });
+        if (cmd === "get_workflow_role_assignment") {
+          return Promise.resolve({ assignment: { planner_id: "shared_planner", reviser_id: null }, legacy_conflict: false, conflict_sources: [] });
         }
         return Promise.resolve();
       });
@@ -1617,16 +1626,13 @@ describe("PlanFileManagerCard Component", () => {
         expect(screen.getByTestId("active-plan-path-display-secondary")).toBeInTheDocument();
       });
 
-      // Role assignment must be queried for repo-b, not repo-a
+      // Role assignment is surface-wide and does not change with the selected repository.
       await waitFor(() => {
-        expect(mockInvoke).toHaveBeenCalledWith("get_plan_role_assignment", {
-          surface: "codex",
-          repoPath: "C:\\mock\\repo-b",
-        });
+        expect(mockInvoke).toHaveBeenCalledWith("get_workflow_role_assignment", { surface: "codex" });
       });
 
       expect(onRolesChanged).toHaveBeenCalledWith(
-        expect.objectContaining({ plannerRole: "custom_planner_b" })
+        expect.objectContaining({ plannerRole: "shared_planner" })
       );
       expect(onActivePlanChanged).toHaveBeenCalledWith(".plan/plan-b.md");
     });
@@ -1764,9 +1770,9 @@ describe("PlanFileManagerCard Component", () => {
         expect(screen.getByTestId("project-plan-slot-secondary")).toBeInTheDocument();
       });
 
-      // Assert slot labels exist
-      expect(screen.getByTestId("slot-label-primary")).toHaveTextContent("planManager.slotPrimary:");
-      expect(screen.getByTestId("slot-label-secondary")).toHaveTextContent("planManager.slotSecondary:");
+      // Assert path-only rows have NO Project 1 / Project 2 slot labels
+      expect(screen.queryByTestId("slot-label-primary")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("slot-label-secondary")).not.toBeInTheDocument();
 
       // Assert no project folder picker buttons exist anywhere
       expect(screen.queryByTestId("btn-select-project-primary")).not.toBeInTheDocument();
@@ -1790,7 +1796,7 @@ describe("PlanFileManagerCard Component", () => {
   });
 
   describe("Antigravity unconfigured surface role-assignment error suppression", () => {
-    it("suppresses exact generic missing-surface error on antigravity while keeping empty-plan warning and controls", async () => {
+    it("shows shared-role settings errors independently of the selected plan on antigravity", async () => {
       mockInvoke.mockImplementation((cmd: string) => {
         if (cmd === "list_available_plans") {
           return Promise.resolve(mockPlanDetailsEmpty);
@@ -1800,7 +1806,7 @@ describe("PlanFileManagerCard Component", () => {
             { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: null },
           ]);
         }
-        if (cmd === "get_plan_role_assignment") {
+        if (cmd === "get_workflow_role_assignment") {
           return Promise.reject("No active plan file is configured for antigravity surface");
         }
         return Promise.resolve();
@@ -1817,9 +1823,7 @@ describe("PlanFileManagerCard Component", () => {
       });
 
       expect(screen.getByTestId("btn-select-plan-file")).toBeInTheDocument();
-      expect(
-        screen.queryByText(/No active plan file is configured for antigravity surface/)
-      ).not.toBeInTheDocument();
+      expect(screen.getByText("No active plan file is configured for antigravity surface")).toBeInTheDocument();
     });
 
     it("keeps generic missing-surface error visible on codex surface", async () => {
@@ -1832,7 +1836,7 @@ describe("PlanFileManagerCard Component", () => {
             { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: null },
           ]);
         }
-        if (cmd === "get_plan_role_assignment") {
+        if (cmd === "get_workflow_role_assignment") {
           return Promise.reject("No active plan file is configured for codex surface");
         }
         return Promise.resolve();
@@ -1998,6 +2002,776 @@ describe("PlanFileManagerCard Component", () => {
       });
       expect(screen.queryByTestId("btn-activate-slot-primary")).not.toBeInTheDocument();
       expect(screen.queryByTestId("btn-activate-slot-secondary")).not.toBeInTheDocument();
+    });
+
+    it("resolves secondary plan while keeping Planner/Reviser shared", async () => {
+      const user = userEvent.setup();
+      let sharedRole = { planner_id: null as string | null, reviser_id: null as string | null };
+
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\primary-repo", plan_path: ".plan/primary.md" },
+            { slot_id: "secondary", repo_path: "C:\\mock\\asr-composer", plan_path: ".plan/v0.3.0.md" },
+          ]);
+        }
+        if (cmd === "get_selected_project_plan_context") {
+          return Promise.resolve({
+            surface: "codex",
+            repoRoot: "C:\\mock\\asr-composer",
+            slotId: "secondary",
+            planPath: ".plan/v0.3.0.md",
+            resolved: true,
+          });
+        }
+        if (cmd === "get_surface_plan_slots") {
+          return Promise.resolve({
+            repo_root: args?.repoPath,
+            surface: "codex",
+            active_slot_id: "secondary",
+            active_plan_path: ".plan/v0.3.0.md",
+            slots: { secondary: ".plan/v0.3.0.md" },
+            is_unresolved: false,
+          });
+        }
+        if (cmd === "list_available_plans") {
+          return Promise.resolve({
+            ...mockPlanDetailsWithPlans,
+            active_plan_path: ".plan/v0.3.0.md",
+            plans: [
+              {
+                name: "v0.3.0.md",
+                path: `${args?.repoPath}\\.plan\\v0.3.0.md`,
+                relative_path: ".plan/v0.3.0.md",
+                title: "v0.3.0",
+                status: null,
+                last_modified_ms: 1700000000000,
+                is_active: true,
+              },
+            ],
+          });
+        }
+        if (cmd === "get_workflow_role_assignment") {
+          return Promise.resolve({ assignment: sharedRole, legacy_conflict: false, conflict_sources: [] });
+        }
+        if (cmd === "set_workflow_role_assignment") {
+          sharedRole = {
+            planner_id: args?.assignment?.planner_id ?? null,
+            reviser_id: args?.assignment?.reviser_id ?? null,
+          };
+          return Promise.resolve({ assignment: sharedRole, legacy_conflict: false, conflict_sources: [] });
+        }
+        return Promise.resolve();
+      });
+
+      const { unmount } = render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+
+      // Role assignment is loaded once for the surface, not from the selected repository.
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith("get_workflow_role_assignment", { surface: "codex" });
+      });
+      expect(screen.getByTestId("planner-role-none")).toBeChecked();
+      expect(screen.getByTestId("reviser-role-none")).toBeChecked();
+
+      await user.click(screen.getByTestId("planner-role-codex-session"));
+      await user.click(screen.getByTestId("reviser-role-codex-session"));
+
+      await waitFor(() => {
+        expect(sharedRole).toEqual({
+          planner_id: "codex_session",
+          reviser_id: "codex_session",
+        });
+      });
+
+      // Reload and verify persisted roles remain selected
+      unmount();
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+      await waitFor(() => {
+        expect(screen.getByTestId("planner-role-codex-session")).toBeChecked();
+        expect(screen.getByTestId("reviser-role-codex-session")).toBeChecked();
+      });
+    });
+
+    it("reverts to last confirmed role assignment when both save and reload fail", async () => {
+      const user = userEvent.setup();
+      let getCallCount = 0;
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\repo", plan_path: ".plan/v0.3.0.md" },
+          ]);
+        }
+        if (cmd === "list_available_plans") return Promise.resolve(mockPlanDetailsWithPlans);
+        if (cmd === "get_plan_role_assignment") {
+          getCallCount += 1;
+          if (getCallCount === 1) {
+            return Promise.resolve({ planner_id: null, reviser_id: null });
+          }
+          return Promise.reject(new Error("readback I/O error"));
+        }
+        if (cmd === "set_plan_role_assignment") {
+          return Promise.reject(new Error("permission denied"));
+        }
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" repoPath="C:\\mock\\repo" />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => expect(screen.getByTestId("planner-role-none")).toBeChecked());
+      await user.click(screen.getByTestId("planner-role-codex-session"));
+
+      await waitFor(() => {
+        expect(screen.getByText(/permission denied.*failed to reload saved role assignment.*readback I\/O error/)).toBeInTheDocument();
+      });
+      // Must NOT leave unpersisted "Codex (Session)" appearing saved
+      expect(screen.getByTestId("planner-role-none")).toBeChecked();
+      expect(screen.getByTestId("planner-role-codex-session")).not.toBeChecked();
+    });
+
+    it("does not fall back to primary or overwrite parent active plan while selected context is delayed", async () => {
+      const user = userEvent.setup();
+      const onActivePlanChanged = vi.fn();
+      let resolveContext!: (value: any) => void;
+      const contextPromise = new Promise((resolve) => {
+        resolveContext = resolve;
+      });
+      const roleReads: string[] = [];
+      const roleWrites: Array<{ surface: string; planner_id: string | null; reviser_id: string | null }> = [];
+      const slotReads: string[] = [];
+
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "C:\\mock\\poverello", plan_path: ".plan/V0.28.1.md" },
+            { slot_id: "secondary", repo_path: "C:\\mock\\ASR-Composer", plan_path: ".plan/v0.3.0.md" },
+          ]);
+        }
+        if (cmd === "get_selected_project_plan_context") {
+          return contextPromise;
+        }
+        if (cmd === "get_surface_plan_slots") {
+          slotReads.push(args?.repoPath);
+          const isPrimary = args?.repoPath === "C:\\mock\\poverello";
+          return Promise.resolve({
+            repo_root: args?.repoPath,
+            surface: "codex",
+            active_slot_id: isPrimary ? "primary" : "secondary",
+            active_plan_path: isPrimary ? ".plan/V0.28.1.md" : ".plan/v0.3.0.md",
+            slots: isPrimary ? { primary: ".plan/V0.28.1.md" } : { secondary: ".plan/v0.3.0.md" },
+            is_unresolved: false,
+          });
+        }
+        if (cmd === "list_available_plans") {
+          return Promise.resolve({
+            ...mockPlanDetailsWithPlans,
+            active_plan_path: args?.repoPath === "C:\\mock\\poverello" ? ".plan/V0.28.1.md" : ".plan/v0.3.0.md",
+            active_plan_relative_path: args?.repoPath === "C:\\mock\\poverello" ? ".plan/V0.28.1.md" : ".plan/v0.3.0.md",
+            plans: [],
+          });
+        }
+        if (cmd === "get_workflow_role_assignment") {
+          roleReads.push(args?.surface);
+          return Promise.resolve({ assignment: { planner_id: null, reviser_id: null }, legacy_conflict: false, conflict_sources: [] });
+        }
+        if (cmd === "set_workflow_role_assignment") {
+          roleWrites.push({
+            surface: args?.surface,
+            planner_id: args?.assignment?.planner_id ?? null,
+            reviser_id: args?.assignment?.reviser_id ?? null,
+          });
+          return Promise.resolve(args?.assignment);
+        }
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" onActivePlanChanged={onActivePlanChanged} />
+        </LanguageContext.Provider>
+      );
+
+      // Flush get_project_plan_slots microtasks while get_selected_project_plan_context is still pending
+      await waitFor(() => {
+        expect(screen.getByTestId("project-plan-slot-secondary")).toBeInTheDocument();
+      });
+
+      expect(slotReads).toEqual([]);
+      expect(roleReads).toEqual(["codex"]);
+      expect(onActivePlanChanged).not.toHaveBeenCalledWith(".plan/V0.28.1.md");
+
+      // Now resolve selected project context to ASR-Composer secondary slot
+      resolveContext({
+        surface: "codex",
+        repoRoot: "C:\\mock\\ASR-Composer",
+        slotId: "secondary",
+        planPath: ".plan/v0.3.0.md",
+        resolved: true,
+      });
+
+      await waitFor(() => {
+        expect(slotReads).toEqual(["C:\\mock\\ASR-Composer"]);
+      });
+      expect(roleReads).toEqual(["codex"]);
+      expect(onActivePlanChanged).not.toHaveBeenCalledWith(".plan/V0.28.1.md");
+      expect(screen.getByTestId("planner-role-none")).toBeChecked();
+      expect(screen.getByTestId("reviser-role-none")).toBeChecked();
+
+      await user.click(screen.getByTestId("planner-role-codex-session"));
+      await user.click(screen.getByTestId("reviser-role-codex-session"));
+
+      await waitFor(() => {
+        expect(roleWrites.length).toBe(2);
+      });
+      expect(roleWrites.every((w) => w.surface === "codex")).toBe(true);
+    });
+
+    it("shows one shared role assignment for all registered projects", async () => {
+      const user = userEvent.setup();
+      const registryState = {
+        schema_version: 1,
+        projects: [
+          { project_id: "proj_poverello", display_name: "Project 1", repo_root: "C:\\mock\\poverello", plan_path: ".plan/V0.28.1.md", created_unix: 1, updated_unix: 1 },
+          { project_id: "proj_asr", display_name: "Project 2", repo_root: "C:\\mock\\ASR-Composer", plan_path: ".plan/v0.3.0.md", created_unix: 1, updated_unix: 1 },
+        ],
+        pending_conflicts: [],
+        migrated_from_legacy: true,
+      };
+      const roleReads: any[] = [];
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_registry") return Promise.resolve(registryState);
+        if (cmd === "get_workflow_role_assignment") {
+          roleReads.push(args);
+          return Promise.resolve({ assignment: { planner_id: "codex_session", reviser_id: null }, legacy_conflict: false, conflict_sources: [] });
+        }
+        if (cmd === "set_workflow_role_assignment") return Promise.resolve();
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("plan-path-display-proj_poverello")).toHaveTextContent("C:\\mock\\poverello\\.plan\\V0.28.1.md");
+        expect(screen.getByTestId("plan-path-display-proj_asr")).toHaveTextContent("C:\\mock\\ASR-Composer\\.plan\\v0.3.0.md");
+        expect(roleReads).toHaveLength(1);
+      });
+      expect(screen.queryByTestId("unresolved-project-context-warning")).not.toBeInTheDocument();
+      expect(mockInvoke).not.toHaveBeenCalledWith("get_selected_project_plan_context", expect.anything());
+      expect(screen.getByTestId("planner-role-codex-session")).toBeChecked();
+      expect(screen.queryByTestId("project-planner-role-proj_asr-codex_session")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("project-planner-role-proj_poverello-codex_session")).not.toBeInTheDocument();
+      expect(roleReads).toEqual([{ surface: "codex" }]);
+      await user.click(screen.getByTestId("planner-role-none"));
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith("set_workflow_role_assignment", {
+          surface: "codex",
+          assignment: { planner_id: null, reviser_id: null },
+        });
+      });
+    });
+
+    it("requires one explicit shared save when legacy project role assignments conflict", async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_registry") return Promise.resolve({
+          schema_version: 1,
+          projects: [
+            { project_id: "proj_a", display_name: "A", repo_root: "C:\\mock\\a", plan_path: ".plan/a.md", created_unix: 1, updated_unix: 1 },
+            { project_id: "proj_b", display_name: "B", repo_root: "C:\\mock\\b", plan_path: ".plan/b.md", created_unix: 1, updated_unix: 1 },
+          ], pending_conflicts: [], migrated_from_legacy: true,
+        });
+        if (cmd === "get_workflow_role_assignment") return Promise.resolve({
+          assignment: null, legacy_conflict: true, conflict_sources: ["A", "B"],
+        });
+        if (cmd === "set_workflow_role_assignment") return Promise.resolve({
+          assignment: args.assignment, legacy_conflict: false, conflict_sources: [],
+        });
+        return Promise.resolve();
+      });
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+      expect(await screen.findByTestId("shared-role-legacy-conflict")).toBeInTheDocument();
+      expect(screen.getByTestId("planner-role-none")).toBeChecked();
+      expect(screen.getByTestId("reviser-role-none")).toBeChecked();
+      await user.click(screen.getByTestId("planner-role-codex-session"));
+      await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("set_workflow_role_assignment", {
+        surface: "codex", assignment: { planner_id: "codex_session", reviser_id: null },
+      }));
+      expect(screen.queryByTestId("shared-role-legacy-conflict")).not.toBeInTheDocument();
+    });
+
+    it("renders identical path-only plan rows on both surfaces without project labels, active selectors, or verbatim prefixes", async () => {
+      const user = userEvent.setup();
+      let registryState = {
+        schema_version: 1,
+        projects: [
+          {
+            project_id: "proj_poverello",
+            display_name: "Project 1",
+            repo_root: "\\\\?\\C:\\mock\\poverello",
+            plan_path: ".plan/V0.28.1.md",
+            created_unix: 1,
+            updated_unix: 1,
+          },
+          {
+            project_id: "proj_asr",
+            display_name: "Project 2",
+            repo_root: "C:\\mock\\ASR-Composer",
+            plan_path: ".plan/v0.3.0.md",
+            created_unix: 1,
+            updated_unix: 1,
+          },
+        ],
+        pending_conflicts: [
+          {
+            conflict_id: "plan-conflict-proj_asr",
+            kind: "plan_path_conflict",
+            repo_root: "C:\\mock\\ASR-Composer",
+            surface: null,
+            description: "Multiple distinct plan paths found for ASR-Composer",
+            options: [
+              { source: "codex:secondary", label: ".plan/v0.3.0.md (codex)", plan_path: ".plan/v0.3.0.md" },
+            ],
+          },
+        ],
+        migrated_from_legacy: true,
+      };
+
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_registry") return Promise.resolve(registryState);
+        if (cmd === "resolve_project_migration_conflict") {
+          registryState = { ...registryState, pending_conflicts: [] };
+          return Promise.resolve(registryState);
+        }
+        if (cmd === "get_project_role_assignment") {
+          return Promise.resolve({ planner_id: null, reviser_id: null });
+        }
+        if (cmd === "get_project_plan_slots") {
+          return Promise.resolve([
+            { slot_id: "primary", repo_path: "\\\\?\\C:\\mock\\poverello", plan_path: ".plan/V0.28.1.md" },
+            { slot_id: "secondary", repo_path: "C:\\mock\\ASR-Composer", plan_path: ".plan/v0.3.0.md" },
+          ]);
+        }
+        if (cmd === "get_selected_project_plan_context") {
+          return Promise.resolve({
+            surface: args?.surface,
+            repoRoot: null,
+            slotId: null,
+            planPath: null,
+            resolved: false,
+          });
+        }
+        if (cmd === "get_plan_role_assignment") {
+          return Promise.resolve({ planner_id: null, reviser_id: null });
+        }
+        return Promise.resolve();
+      });
+
+      const { unmount } = render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("plan-path-display-proj_poverello")).toBeInTheDocument();
+        expect(screen.getByTestId("plan-path-display-proj_asr")).toBeInTheDocument();
+      });
+      // Clean Windows paths without \\?\ prefix
+      expect(screen.getByTestId("plan-path-display-proj_poverello")).toHaveTextContent("C:\\mock\\poverello\\.plan\\V0.28.1.md");
+      expect(screen.getByTestId("plan-path-display-proj_asr")).toHaveTextContent("C:\\mock\\ASR-Composer\\.plan\\v0.3.0.md");
+      expect(screen.queryByText(/\\\\\?\\/)).not.toBeInTheDocument();
+
+      // Path-only rows: no active selector, project cards, or priority labels.
+      expect(screen.queryByTestId("slot-label-primary")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("slot-label-secondary")).not.toBeInTheDocument();
+      expect(screen.queryByText(/Project 1|Project 2|プロジェクト 1|プロジェクト 2/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId("shared-active-project-select")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("unified-project-list")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("btn-select-project-proj_asr")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("btn-rename-project-proj_asr")).not.toBeInTheDocument();
+
+      // File-picker & open controls remain available on both rows
+      expect(screen.getByTestId("btn-select-plan-file-proj_poverello")).toBeInTheDocument();
+      expect(screen.getByTestId("btn-open-plan-proj_poverello")).toBeInTheDocument();
+      expect(screen.getByTestId("btn-select-plan-file-proj_asr")).toBeInTheDocument();
+      expect(screen.getByTestId("btn-open-plan-proj_asr")).toBeInTheDocument();
+      expect(screen.getByTestId("btn-remove-project-proj_asr")).toBeInTheDocument();
+      expect(screen.getByTestId("btn-add-project-plan")).toBeInTheDocument();
+      expect(screen.queryByTestId("btn-remove-slot-secondary")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("unresolved-project-context-warning")).not.toBeInTheDocument();
+
+      // Conflict banner rendered and resolvable
+      expect(screen.getByTestId("migration-conflict-banner")).toBeInTheDocument();
+      await user.click(screen.getByTestId("btn-resolve-conflict-plan-conflict-proj_asr"));
+      await waitFor(() => {
+        expect(screen.queryByTestId("migration-conflict-banner")).not.toBeInTheDocument();
+      });
+
+      unmount();
+
+      // Antigravity surface renders the exact same path-only rows
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="antigravity" />
+        </LanguageContext.Provider>
+      );
+      await waitFor(() => {
+        expect(screen.getByTestId("plan-path-display-proj_poverello")).toHaveTextContent("C:\\mock\\poverello\\.plan\\V0.28.1.md");
+        expect(screen.getByTestId("plan-path-display-proj_asr")).toHaveTextContent("C:\\mock\\ASR-Composer\\.plan\\v0.3.0.md");
+      });
+      expect(screen.queryByTestId("slot-label-primary")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("shared-active-project-select")).not.toBeInTheDocument();
+    });
+
+    it("updates only the chosen project's plan path without selecting or pinning a project", async () => {
+      const user = userEvent.setup();
+      let registryState: any = {
+        schema_version: 1,
+        projects: [
+          { project_id: "proj_b", display_name: "Project 2", repo_root: "C:\\mock\\b", plan_paths: { codex: ".plan/b.md", antigravity: ".plan/ag-b.md" }, created_unix: 1, updated_unix: 1 },
+          { project_id: "proj_a", display_name: "Project 1", repo_root: "C:\\mock\\a", plan_paths: { codex: ".plan/a.md", antigravity: ".plan/ag-a.md" }, created_unix: 1, updated_unix: 1 },
+        ],
+        pending_conflicts: [],
+        migrated_from_legacy: false,
+      };
+      const writes: any[] = [];
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_registry") return Promise.resolve(registryState);
+        if (cmd === "get_project_role_assignment") return Promise.resolve({ planner_id: null, reviser_id: null });
+        if (cmd === "select_plan_file_dialog") {
+          expect(args).toEqual({ repoPath: "C:\\mock\\a", surface: "codex", dialogTitle: expect.any(String) });
+          return Promise.resolve({ repo_path: "C:\\mock\\a", relative_path: ".plan/new-a.md", surface: "codex" });
+        }
+        if (cmd === "set_project_plan_path") {
+          writes.push(args);
+          registryState = { ...registryState, projects: registryState.projects.map((project: any) => project.project_id === args.projectId ? { ...project, plan_paths: { ...project.plan_paths, [args.surface]: args.planPath } } : project) };
+          return Promise.resolve(registryState);
+        }
+        return Promise.resolve();
+      });
+
+      const view = render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+      await waitFor(() => expect(screen.getByTestId("plan-path-display-proj_a")).toHaveTextContent("C:\\mock\\a\\.plan\\a.md"));
+      await user.click(screen.getByTestId("btn-select-plan-file-proj_a"));
+      await waitFor(() => expect(screen.getByTestId("plan-path-display-proj_a")).toHaveTextContent("C:\\mock\\a\\.plan\\new-a.md"));
+      expect(screen.getByTestId("plan-path-display-proj_b")).toHaveTextContent("C:\\mock\\b\\.plan\\b.md");
+      expect(writes).toEqual([{ projectId: "proj_a", planPath: ".plan/new-a.md", surface: "codex" }]);
+      view.unmount();
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="antigravity" />
+        </LanguageContext.Provider>
+      );
+      await waitFor(() => expect(screen.getByTestId("plan-path-display-proj_a")).toHaveTextContent("C:\\mock\\a\\.plan\\ag-a.md"));
+      for (const forbidden of ["set_active_plan", "pin_workflow_target", "set_project_plan_slots", "get_selected_project_plan_context"]) {
+        expect(mockInvoke).not.toHaveBeenCalledWith(forbidden, expect.anything());
+      }
+    });
+
+    it("switches the clicked row to another registered repository without leaving duplicate rows", async () => {
+      const user = userEvent.setup();
+      let registryState: any = {
+        schema_version: 1,
+        projects: [
+          { project_id: "proj_a", display_name: "Project 1", repo_root: "C:\\mock\\a", plan_path: ".plan/a.md", created_unix: 1, updated_unix: 1 },
+          { project_id: "proj_b", display_name: "Project 2", repo_root: "C:\\mock\\b", plan_path: ".plan/b.md", created_unix: 1, updated_unix: 1 },
+        ],
+        pending_conflicts: [],
+        migrated_from_legacy: false,
+      };
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_registry") return Promise.resolve(registryState);
+        if (cmd === "get_project_role_assignment") return Promise.resolve({ planner_id: null, reviser_id: null });
+        if (cmd === "select_plan_file_dialog") return Promise.resolve({ repo_path: "C:\\mock\\b", relative_path: ".plan/new-b.md", surface: "codex" });
+        if (cmd === "replace_project_plan_association") {
+          registryState = {
+            ...registryState,
+            projects: registryState.projects
+              .map((project: any) => project.project_id === args.sourceProjectId
+                ? { ...project, plan_paths: { codex: null, antigravity: project.plan_path } }
+                : project.repo_root === args.targetRepoPath
+                  ? { ...project, plan_paths: { codex: args.targetPlanPath, antigravity: project.plan_path } }
+                  : project),
+          };
+          return Promise.resolve(registryState);
+        }
+        return Promise.resolve();
+      });
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+      await waitFor(() => expect(screen.getByTestId("btn-select-plan-file-proj_a")).toBeInTheDocument());
+      await user.click(screen.getByTestId("btn-select-plan-file-proj_a"));
+      await waitFor(() => expect(screen.getByTestId("plan-path-display-proj_b")).toHaveTextContent("C:\\mock\\b\\.plan\\new-b.md"));
+      expect(screen.queryByTestId("project-registry-confirm")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("empty-plan-path-proj_a")).not.toBeInTheDocument();
+      expect(screen.getByTestId("plan-path-display-proj_b")).toHaveTextContent("C:\\mock\\b\\.plan\\new-b.md");
+      expect(registryState.projects).toHaveLength(2);
+      expect(mockInvoke).toHaveBeenCalledWith("replace_project_plan_association", {
+        sourceProjectId: "proj_a",
+        targetRepoPath: "C:\\mock\\b",
+        targetPlanPath: ".plan/new-b.md",
+        surface: "codex",
+      });
+      expect(screen.getByText(/planManager\.planAssociationSwitched/)).toBeInTheDocument();
+      expect(mockInvoke).not.toHaveBeenCalledWith("set_active_plan", expect.anything());
+      expect(mockInvoke).not.toHaveBeenCalledWith("pin_workflow_target", expect.anything());
+    });
+
+    it("replaces an existing row with a newly selected repository instead of adding a third", async () => {
+      const user = userEvent.setup();
+      let registryState: any = {
+        schema_version: 1,
+        projects: [
+          { project_id: "proj_asr", display_name: "Project 1", repo_root: "C:\\mock\\ASR-Composer", plan_path: ".plan/v0.3.0.md", created_unix: 1, updated_unix: 1 },
+          { project_id: "proj_pov", display_name: "Project 2", repo_root: "C:\\mock\\poverello", plan_path: ".plan/V0.28.1.md", created_unix: 1, updated_unix: 1 },
+        ],
+        pending_conflicts: [],
+        migrated_from_legacy: false,
+      };
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_registry") return Promise.resolve(registryState);
+        if (cmd === "get_project_role_assignment") return Promise.resolve({ planner_id: null, reviser_id: null });
+        if (cmd === "select_plan_file_dialog") return Promise.resolve({ repo_path: "C:\\mock\\NCVROC", relative_path: ".plan/v0.34.1.md", surface: "codex" });
+        if (cmd === "replace_project_plan_association") {
+          registryState = {
+            ...registryState,
+            projects: [
+              ...registryState.projects.map((project: any) => project.project_id === args.sourceProjectId
+                ? { ...project, plan_paths: { codex: null, antigravity: project.plan_path } }
+                : project),
+              { project_id: "proj_ncvroc", display_name: "Project 3", repo_root: args.targetRepoPath, plan_paths: { codex: args.targetPlanPath }, created_unix: 3, updated_unix: 3 },
+            ],
+          };
+          return Promise.resolve(registryState);
+        }
+        return Promise.resolve();
+      });
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+      await waitFor(() => expect(screen.getByTestId("btn-select-plan-file-proj_asr")).toBeInTheDocument());
+      await user.click(screen.getByTestId("btn-select-plan-file-proj_asr"));
+      await waitFor(() => expect(screen.getByTestId("plan-path-display-proj_ncvroc")).toHaveTextContent("C:\\mock\\NCVROC\\.plan\\v0.34.1.md"));
+      expect(screen.queryByTestId("project-registry-confirm")).not.toBeInTheDocument();
+      expect(mockInvoke).not.toHaveBeenCalledWith("register_project_in_registry", expect.anything());
+      expect(screen.queryByTestId("empty-plan-path-proj_asr")).not.toBeInTheDocument();
+      expect(screen.getByTestId("plan-path-display-proj_pov")).toBeInTheDocument();
+      expect(registryState.projects).toHaveLength(3);
+      expect(mockInvoke).toHaveBeenCalledWith("replace_project_plan_association", {
+        sourceProjectId: "proj_asr",
+        targetRepoPath: "C:\\mock\\NCVROC",
+        targetPlanPath: ".plan/v0.34.1.md",
+        surface: "codex",
+      });
+    });
+
+    it("adds a third repository only through the explicit add action", async () => {
+      const user = userEvent.setup();
+      let registryState: any = {
+        schema_version: 1,
+        projects: [
+          { project_id: "proj_a", display_name: "Project 1", repo_root: "C:\\mock\\a", plan_path: ".plan/a.md", created_unix: 1, updated_unix: 1 },
+          { project_id: "proj_b", display_name: "Project 2", repo_root: "C:\\mock\\b", plan_path: ".plan/b.md", created_unix: 1, updated_unix: 1 },
+        ],
+        pending_conflicts: [],
+        migrated_from_legacy: false,
+      };
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_registry") return Promise.resolve(registryState);
+        if (cmd === "get_project_role_assignment") return Promise.resolve({ planner_id: null, reviser_id: null });
+        if (cmd === "select_plan_file_dialog") {
+          expect(args).toEqual({ surface: "codex", dialogTitle: expect.any(String) });
+          return Promise.resolve({ repo_path: "C:\\mock\\c", relative_path: ".plan/c.md", surface: "codex" });
+        }
+        if (cmd === "register_project_in_registry") {
+          registryState = {
+            ...registryState,
+          projects: [...registryState.projects, { project_id: "proj_c", display_name: "Project 3", repo_root: args.repoPath, plan_paths: { [args.surface]: args.planPath }, created_unix: 3, updated_unix: 3 }],
+          };
+          return Promise.resolve(registryState);
+        }
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+      await waitFor(() => expect(screen.getByTestId("btn-add-project-plan")).toBeInTheDocument());
+      await user.click(screen.getByTestId("btn-add-project-plan"));
+
+      await waitFor(() => expect(screen.getByTestId("plan-path-display-proj_c")).toHaveTextContent("C:\\mock\\c\\.plan\\c.md"));
+      expect(screen.getByTestId("plan-path-display-proj_a")).toHaveTextContent("C:\\mock\\a\\.plan\\a.md");
+      expect(screen.getByTestId("plan-path-display-proj_b")).toHaveTextContent("C:\\mock\\b\\.plan\\b.md");
+      expect(mockInvoke).toHaveBeenCalledWith("register_project_in_registry", { repoPath: "C:\\mock\\c", planPath: ".plan/c.md", surface: "codex" });
+      expect(screen.getByText(/planManager\.planRepositoryAdded/)).toBeInTheDocument();
+      for (const forbidden of ["set_active_plan", "pin_workflow_target", "set_project_plan_slots"]) {
+        expect(mockInvoke).not.toHaveBeenCalledWith(forbidden, expect.anything());
+      }
+    });
+
+    it("removes the selected surface association immediately and hides the empty project row", async () => {
+      const user = userEvent.setup();
+      let registryState: any = {
+        schema_version: 1,
+        projects: [
+          { project_id: "proj_a", display_name: "Project 1", repo_root: "C:\\mock\\a", plan_path: ".plan/a.md", created_unix: 1, updated_unix: 1 },
+          { project_id: "proj_b", display_name: "Project 2", repo_root: "C:\\mock\\b", plan_path: ".plan/b.md", created_unix: 1, updated_unix: 1 },
+        ],
+        pending_conflicts: [],
+        migrated_from_legacy: false,
+      };
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_registry") return Promise.resolve(registryState);
+        if (cmd === "get_project_role_assignment") return Promise.resolve({ planner_id: null, reviser_id: null });
+        if (cmd === "unregister_project_from_registry") {
+          registryState = { ...registryState, projects: registryState.projects.map((project: any) => project.project_id === args.projectId ? { ...project, plan_paths: { codex: null, antigravity: project.plan_path } } : project) };
+          return Promise.resolve(registryState);
+        }
+        return Promise.resolve();
+      });
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+      await waitFor(() => expect(screen.getByTestId("btn-remove-project-proj_a")).toBeInTheDocument());
+      await user.click(screen.getByTestId("btn-remove-project-proj_a"));
+      await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("unregister_project_from_registry", { projectId: "proj_a", surface: "codex" }));
+      expect(screen.queryByTestId("empty-plan-path-proj_a")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("plan-path-display-proj_a")).not.toBeInTheDocument();
+      expect(screen.getByTestId("plan-path-display-proj_b")).toBeInTheDocument();
+      expect(screen.getByText(/planManager\.planAssociationRemoved/)).toBeInTheDocument();
+    });
+
+    it("does not write when the plan picker is cancelled", async () => {
+      const user = userEvent.setup();
+      const registryState = {
+        schema_version: 1,
+        projects: [{ project_id: "proj_a", display_name: "Project 1", repo_root: "C:\\mock\\a", plan_path: ".plan/a.md", created_unix: 1, updated_unix: 1 }],
+        pending_conflicts: [],
+        migrated_from_legacy: false,
+      };
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "get_project_registry") return Promise.resolve(registryState);
+        if (cmd === "get_project_role_assignment") return Promise.resolve({ planner_id: null, reviser_id: null });
+        if (cmd === "select_plan_file_dialog") return Promise.resolve(null);
+        return Promise.resolve();
+      });
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+      await waitFor(() => expect(screen.getByTestId("btn-select-plan-file-proj_a")).toBeInTheDocument());
+      await user.click(screen.getByTestId("btn-select-plan-file-proj_a"));
+      expect(mockInvoke).not.toHaveBeenCalledWith("register_project_in_registry", expect.anything());
+      expect(mockInvoke).not.toHaveBeenCalledWith("set_project_plan_path", expect.anything());
+    });
+
+    it("rejects a malformed relative plan path before writing the registry", async () => {
+      const user = userEvent.setup();
+      const registryState = {
+        schema_version: 1,
+        projects: [{ project_id: "proj_a", display_name: "Project 1", repo_root: "C:\\mock\\a", plan_path: ".plan/a.md", created_unix: 1, updated_unix: 1 }],
+        pending_conflicts: [],
+        migrated_from_legacy: false,
+      };
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "get_project_registry") return Promise.resolve(registryState);
+        if (cmd === "get_project_role_assignment") return Promise.resolve({ planner_id: null, reviser_id: null });
+        if (cmd === "select_plan_file_dialog") return Promise.resolve({ repo_path: "C:\\mock\\other", relative_path: "../outside.md", surface: "codex" });
+        return Promise.resolve();
+      });
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+      await waitFor(() => expect(screen.getByTestId("btn-select-plan-file-proj_a")).toBeInTheDocument());
+      await user.click(screen.getByTestId("btn-select-plan-file-proj_a"));
+      expect(await screen.findByText(/planManager\.planSelectionFailed/)).toBeInTheDocument();
+      expect(mockInvoke).not.toHaveBeenCalledWith("register_project_in_registry", expect.anything());
+      expect(mockInvoke).not.toHaveBeenCalledWith("set_project_plan_path", expect.anything());
+      expect(screen.getByTestId("plan-path-display-proj_a")).toHaveTextContent("C:\\mock\\a\\.plan\\a.md");
+    });
+
+    it("shows actionable feedback and preserves the last registry view when persistence fails", async () => {
+      const user = userEvent.setup();
+      const registryState = {
+        schema_version: 1,
+        projects: [{ project_id: "proj_a", display_name: "Project 1", repo_root: "C:\\mock\\a", plan_path: ".plan/a.md", created_unix: 1, updated_unix: 1 }],
+        pending_conflicts: [],
+        migrated_from_legacy: false,
+      };
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "get_project_registry") return Promise.resolve(registryState);
+        if (cmd === "get_project_role_assignment") return Promise.resolve({ planner_id: null, reviser_id: null });
+        if (cmd === "select_plan_file_dialog") return Promise.resolve({ repo_path: "C:\\mock\\new", relative_path: ".plan/new.md", surface: "codex" });
+        if (cmd === "replace_project_plan_association") return Promise.reject(new Error("write failed"));
+        return Promise.resolve();
+      });
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+      await waitFor(() => expect(screen.getByTestId("btn-select-plan-file-proj_a")).toBeInTheDocument());
+      await user.click(screen.getByTestId("btn-select-plan-file-proj_a"));
+      expect(await screen.findByText(/planManager\.planSelectionFailed/)).toBeInTheDocument();
+      expect(screen.getByTestId("plan-path-display-proj_a")).toHaveTextContent("C:\\mock\\a\\.plan\\a.md");
+      expect(screen.queryByTestId("plan-path-display-proj_new")).not.toBeInTheDocument();
+      expect(screen.queryByText(/planManager\.planRepositoryAdded/)).not.toBeInTheDocument();
+    });
+
+    it("shows one shared role assignment read error without project-specific editors", async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === "get_project_registry") return Promise.resolve({
+          schema_version: 1,
+          projects: [{ project_id: "proj_read_error", display_name: "Project", repo_root: "C:\\mock\\read-error", plan_path: ".plan/a.md", created_unix: 1, updated_unix: 1 }],
+          pending_conflicts: [],
+          migrated_from_legacy: false,
+        });
+        if (cmd === "get_workflow_role_assignment") return Promise.reject(new Error("role read failed"));
+        return Promise.resolve();
+      });
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+      await waitFor(() => expect(screen.getByText("Error: role read failed")).toBeInTheDocument());
+      expect(screen.queryByTestId("project-role-settings-proj_read_error")).not.toBeInTheDocument();
+      expect(screen.getByTestId("planner-role-group")).toBeInTheDocument();
     });
   });
 });

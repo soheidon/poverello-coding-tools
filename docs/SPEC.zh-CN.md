@@ -7,8 +7,10 @@
 > **v0.26.2：** Codex Autocode 区分 Codex 在当前会话中的工作与外部审查器。优先审查器只裁定有效判定之间的分歧。DeepSeek Harness 的 headless 配置和工具限制不能证明 Windows 操作系统层面的文件系统或网络隔离。新增诊断日志和历史 Skill 模板的安全更新。
 > **v0.27.0：** 新增按仓库选择 Active Plan、按界面分配 Planner / Reviser，以及在恢复前严格检查身份与未解决问题的检查点机制。新增 OpenRouter Tencent Hy4 模型与价格元数据；Antigravity Nerf 设置集中到 GUI，并停用旧斜杠命令。自动应用更新尚未启用。
 > **v0.27.2：** 为 Antigravity Autocode 和 Codex Autocode 添加相互独立的计划文件夹位置设置。各位置会一致地用于计划操作；未配置时不会默默回退到应用程序的工作目录。还可直接选择现有 Markdown 计划文件并在编辑器中打开；界面显示活动计划的绝对路径和状态，文件选择器从该计划所在文件夹开始。
-> **v0.27.3（发布目标；尚未发布）：** 为 Antigravity Autocode 和 Codex Autocode 添加相互独立的项目-计划行。每个界面始终保留一个主行，并可添加一个可选的第二行。选择 `.md` 计划文件后，会将其关联到包含该文件的 Git 仓库；两个界面分别保存各自的选择。计划文件夹设置仅在没有 Active Plan 时决定文件选择器的起始目录，不限制可选文件，也不定义项目根目录。移除可选行只会清除 Poverello 中的关联，不会删除文件。
-> **v0.28.0（发布准备中；尚未发布）：** 使 primary 与 secondary 项目计划槽位可平等选择，并为每个 Antigravity 项目添加独立的 AgentOpt 控制、FAST / BALANCED / STRICT 直接预设及自定义设置编辑器。可在设置中安装或修复受管理的 `pov-direct.md` 规则。将 GPT-6.2 Sol 加入 Codex CLI Reviewer，并将 GPT-6.2 Sol / Sol Pro / Astra / Astra Pro 加入 OpenRouter 目录。受支持的 Windows 正式版可通过 GitHub Releases 安装签名更新；开发版不使用更新器。
+> **v0.27.3**: 为 Antigravity Autocode 和 Codex Autocode 添加相互独立的项目-计划行。每个界面始终保留一个主行，并可添加一个可选的第二行。选择 `.md` 计划文件后，会将其关联到包含该文件的 Git 仓库；两个界面分别保存各自的选择。计划文件夹设置仅在没有 Active Plan 时决定文件选择器的起始目录，不限制可选文件，也不定义项目根目录。移除可选行只会清除 Poverello 中的关联，不会删除文件。
+> **v0.28.0**: 使 primary 与 secondary 项目计划槽位可平等选择，并为每个 Antigravity 项目添加独立的 AgentOpt 控制、FAST / BALANCED / STRICT 直接预设及自定义设置编辑器。可在设置中安装或修复受管理的 `pov-direct.md` 规则。将 GPT-6.2 Sol 加入 Codex CLI Reviewer，并将 GPT-6.2 Sol / Sol Pro / Astra / Astra Pro 加入 OpenRouter 目录。受支持的 Windows 正式版可通过 GitHub Releases 安装签名更新；开发版不使用更新器。
+
+> **v0.28.2：** 按仓库和 Autocode 界面分别保存计划文件，并根据所选 Markdown 文件确定仓库。支持替换、添加和解除关联；Planner/Reviser 角色按界面共用。不设置活动项目或优先级。
 
 ## 概述
 

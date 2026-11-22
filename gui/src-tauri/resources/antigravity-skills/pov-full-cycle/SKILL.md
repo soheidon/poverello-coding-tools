@@ -8,19 +8,18 @@ description: 計画作成、外部Codex/DeepSeek独立計画レビュー、実�
 ## 役割と権能分離 (Separation of Powers)
 
 - **正本計画書（Active Plan File）の解決順序**: 作業開始前に必ず確認する。
-  1. **引数・プロンプト明示指定**: ユーザーが引数等で計画書パスを指定している場合は最優先する。
-  2. **作業リポジトリローカル設定**: 作業ディレクトリの最近傍Gitリポジトリ（`.git`）配下の `.plan/.active-plan.json`（サーフェス固有 `surfaces.antigravity.active_plan_path` または legacy `active_plan_path`）を解決する。
-  3. **GUI設定のプロジェクトスロット**: `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` の `slots` から作業リポジトリルートに一致するスロットの `plan_path` を解決する。
-  4. **未解決時の安全な停止 (Fail Closed)**: 対応する計画書が特定できない、または複数一致で曖昧な場合は別プロジェクトの計画書を推測・誤用せず、即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED: Poverello GUI の Autocode 画面から作業対象のプランファイルを指定または新規作成してください。` を出力して停止する。計画書ファイルを読み込み、そのSHA-256ダイジェストを記録する。以降のすべてのフェーズ（計画作成、計画レビュー、実装、実装レビュー、是正）の更新は、直前フェーズのSHA-256ダイジェストを `expected_sha256` として指定した `append_plan_audit_trail` による CAS（Compare-And-Swap）更新を用いて、正本計画書の `## 5. Execution History & Audit Trail` へ順次追記する。
-- 計画candidateは一時領域で作成し、`apply_plan_candidate` に工程開始時の `expected_file_identity` とSHA-256を渡して反映する。監査追記eventとチェックポイント保存の両方にidentityとSHA-256を指定し（いずれも必須）、各信頼済み書込み後に返されたidentity/Hashを次工程へ引き継ぐ。再開時は `get_plan_checkpoint` と `verify_plan_resumption` を実行し、repo、path、revision、file identity、Findingの全検査が成功しなければ停止する。
+  1. **正本コンテキスト（選択プランファイル起点）**: Workflow開始時に、利用者または呼び出し元から渡された絶対パスの `selected_plan_path` を必須入力として受け取る。まず `resolve_project_context_for_plan` / `resolve_project_context_for_plan_at` にそのパスを渡し、実在するMarkdownファイルの enclosing Git repository と、レジストリ上の同じファイルの関連付けを検証する。この選択ファイルから `project_id`・`repo_root`・相対 `plan_path` を導出し、`launch_pinned_plan_workflow_for_selected_plan` で同じ `(repo_root, plan_path)` をピン留めする。cwd、現在の作業リポジトリ、surface別選択、レジストリ行順、active slot、別の登録プランから対象を選んではならない。明示された選択パスが現在の関連付けと違う場合は、GUIでそのプランを保存してから再実行するよう案内して停止する。
+  2. **未解決時の安全な停止 (Fail Closed)**: 正確な選択プランパスが呼び出し元から渡されない、ファイルが欠落・非Markdown・Gitリポジトリ外、リポジトリ未登録、またはそのリポジトリに別プランが関連付いている場合は、cwdや別プロジェクトから補完せず、`BLOCKED — PLAN FILE REQUIRED: Poverello Autocodeで使うプランファイルを選択・保存してから再実行してください。` と出力して停止する。
+- 計画candidateは一時領域で作成し、`apply_plan_candidate` に工程開始時の `expected_file_identity` とSHA-256を渡して反映する。監査追記eventとチェックポイント保存の両方にidentityとSHA-256を指定し（いずれも必須）、各信頼済み書込み後に返されたidentity/Hashを次工程へ引き継ぐ。再開時は `get_plan_checkpoint` と `verify_plan_resumption` に同じ絶対 `selected_plan_path`・surface・`pinned_target` を渡す。バックエンドが選択ファイルからrepoを導出し、レジストリ関連付け・pin・checkpointのrepo/path/revision/file identity/Findingを検証する。旧active slotは再開条件にしない。
 - **Planner (計画作成担当)**:
-  - Plannerは `.plan/.active-plan.json` の `role_assignments.antigravity.planner_id` を用いる。未設定・不正なら停止し、global設定や別roleへのfallbackを禁止する。
+  - Plannerは `CODEX_HOME/pov-review-settings.json` の `workflow_role_assignments.antigravity.planner_id` を用いる。
+  - `.plan/.active-plan.json` の旧 `role_assignments` / `project_roles` は移行元のみであり、Workflow実行時に参照しない。
   - `planner_role` が `codex`（推奨）の場合: Antigravity によるハルシネーション・代筆を完全に禁止。Antigravity は自ら計画を書かず、`codex exec` を起動して計画書を作成させる。
   - `planner_role` が `antigravity` の場合: Antigravity が計画書を作成する。
 - **Reviewer (検査担当)**: 外部Reviewer（Codex CLI / DeepSeek Harness）は計画レビュー・実装レビューともに完全な読み取り専用（Read-Only）として検査し、合否判定（`APPROVED` / `REQUEST_CHANGES`）と指摘のみを返す。**Reviewer 自身による計画書・コードの直接変更は禁止される**。
 - **Reviser / Implementer**: 計画の修正および実装・是正を担当し、修正後に再度 Reviewer の検査を仰ぐ。
-  - Reviserは `.plan/.active-plan.json` の `role_assignments.antigravity.reviser_id` を用いる。未設定・不正なら停止し、別roleへのfallbackを禁止する。
-- **Role assignmentの実行**: 設定値 `antigravity` は現在のAntigravityセッション、`codex` / `codex_cli` は `codex exec` によるCodex CLI実行を意味する。PlannerまたはReviser工程前に保存値とActive Plan Fileを再確認し、未設定・不正ID・実行失敗時は担当名と理由を報告して停止する。Reviewer工程を終了した後にだけReviser/Implementerを別工程として実行し、同じIDでもReviewerのread-only制約を共有・解除しない。
+  - Reviserは `CODEX_HOME/pov-review-settings.json` の `workflow_role_assignments.antigravity.reviser_id` を用いる。
+- **Role assignmentの実行**: 作業対象の `project_id` / `repo_root` / `plan_path` は、呼び出し元から渡された絶対パスの `selected_plan_path` を `resolve_project_context_for_plan` で検証して解決する。repoを先に決めてプランを選んではならない。Planner/Reviserの担当は、アプリと同じ `CODEX_HOME/pov-review-settings.json` にある `workflow_role_assignments.antigravity` を読む。`.plan/.active-plan.json` の旧 `role_assignments` / `project_roles` は移行元のみであり、Workflow実行時に参照してはならない。設定が未設定・不正・競合中なら、推測や別surface・別プロジェクトからfallbackせず、担当と理由を示して工程開始前に停止する。リポジトリごとの計画パスが変わっても、そのsurface共通の役割設定は変えない。Reviewer設定は既存のglobal reviewer設定から独立して解決する。
 - 各工程境界では監査イベントをfile identity/HashでCAS追記し、その成功応答を使ってチェックポイントを保存する。チェックポイント保存後のidentity/Hashを次工程の期待状態にする。
 - 外部Reviewer構成は、共通設定ファイル `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json`（他OSでは対応するホームディレクトリ配下）の設定に従う。
 - 実装コード、テスト、設定を変更できるのは実装担当だけである。外部Reviewerはread-onlyとする。

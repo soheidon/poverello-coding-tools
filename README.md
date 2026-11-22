@@ -15,7 +15,7 @@ Poverello Coding Tools (shown in the app as **Poverello**) is a Windows companio
 > [!TIP]
 > **What's New:** For version-by-version feature updates, implementation details, and changelogs, see [NEWS.md (Release Notes)](NEWS.md).
 
-This checkout is preparing **v0.28.1** (not yet published). It adds a read-only diagnostic for the known Antigravity `wt-agent-hooks` global PreToolUse failure pattern, with manual remediation guidance that leaves the external plugin untouched. It also includes the v0.28.0 AgentOpt, Poverello Rule, workflow, and model updates. See [NEWS.md](NEWS.md) for the release details.
+The v0.28.2 release keeps the registered repository list shared while storing Antigravity and Codex plan files independently. Selecting a Markdown plan determines its repository; each row can be changed or unregistered, and a separate action adds another repository. Planner/Reviser roles are shared per Autocode surface, with no active-project or priority selection. See [NEWS.md](NEWS.md) for details.
 
 ---
 

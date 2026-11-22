@@ -15,7 +15,7 @@ Poverello Coding Tools（アプリ内表示名 **Poverello**）は、AI 支援�
 > [!TIP]
 > **新実装の詳細はこちら**: バージョンごとの新機能や詳細な実装仕様・変更履歴については、[NEWS.md (リリースノート)](../NEWS.md) をご覧ください。
 
-この作業ツリーでは、未公開の **v0.28.0** を準備しています。Antigravityの各プロジェクト枠に個別のAgentOpt操作を追加し、FAST / BALANCED / STRICTプリセットとカスタム編集を選べます。PoverelloのAntigravityルールは設定からインストール・修復できます。GPT-6.2 SolをCodex CLI Reviewerに、GPT-6.2 Sol / Sol Pro / Astra / Astra ProをOpenRouterに追加します。AntigravityとCodexの2つのプラン枠はそれぞれ独立して動作します。詳細は[NEWS.md](../NEWS.md)をご覧ください。
+v0.28.2では、登録リポジトリ一覧を共有しながら、AntigravityとCodexのプランファイルをサーフェスごとに独立して保存します。Markdownプランを選ぶと、そのファイルを含むリポジトリが決まります。各行の切替・関連付け解除と、別リポジトリを追加する操作を用意しました。Planner/Reviserの役割は各Autocode画面で共通です。プロジェクトの選択・優先状態はありません。詳細は[NEWS.md](../NEWS.md)をご覧ください。
 
 ---
 

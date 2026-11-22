@@ -8,13 +8,11 @@ description: 承認済み計画に基づく実装・テスト、外部Codex/Deep
 ## 役割と権能分離 (Separation of Powers)
 
 - **正本計画書（Active Plan File）の解決順序**: 作業開始前に必ず確認する。
-  1. **引数・プロンプト明示指定**: ユーザーが引数等で計画書パスを指定している場合は最優先する。
-  2. **作業リポジトリローカル設定**: 作業ディレクトリの最近傍Gitリポジトリ（`.git`）配下の `.plan/.active-plan.json`（サーフェス固有 `surfaces.antigravity.active_plan_path` または legacy `active_plan_path`）を解決する。
-  3. **GUI設定のプロジェクトスロット**: `%USERPROFILE%\.gemini\antigravity-ide\pov-reviewer-policy.json` の `slots` から作業リポジトリルートに一致するスロットの `plan_path` を解決する。
-  4. **未解決時の安全な停止 (Fail Closed)**: 対応する計画書が特定できない、または複数一致で曖昧な場合は別プロジェクトの計画書を推測・誤用せず、即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED: Poverello GUI の Autocode 画面から作業対象のプランファイルを指定または新規作成してください。` を出力して停止する。計画書ファイルを読み込み、そのSHA-256ダイジェストを記録する。以降のすべてのフェーズ（実装、テスト結果、レビュー判定、是正）の更新は、直前フェーズのSHA-256ダイジェストを `expected_sha256` として指定した `append_plan_audit_trail` による CAS（Compare-And-Swap）更新を用いて、正本計画書の `## 5. Execution History & Audit Trail` へ順次追記する。
-- 計画candidateは一時領域で作成し、`apply_plan_candidate` に工程開始時の `expected_file_identity` とSHA-256を渡して反映する。監査追記eventとチェックポイント保存の両方にidentityとSHA-256を指定し（いずれも必須）、各信頼済み書込み後に返されたidentity/Hashを次工程へ引き継ぐ。再開時は `get_plan_checkpoint` と `verify_plan_resumption` を実行し、repo、path、revision、file identity、Findingの全検査が成功しなければ停止する。
+  1. **正本コンテキスト（選択プランファイル起点）**: Workflow開始時に、利用者または呼び出し元から渡された絶対パスの `selected_plan_path` を必須入力として受け取る。まず `resolve_project_context_for_plan` / `resolve_project_context_for_plan_at` にそのパスを渡し、実在するMarkdownファイルの enclosing Git repository と、レジストリ上の同じファイルの関連付けを検証する。この選択ファイルから `project_id`・`repo_root`・相対 `plan_path` を導出し、`launch_pinned_plan_workflow_for_selected_plan` で同じ `(repo_root, plan_path)` をピン留めする。cwd、現在の作業リポジトリ、surface別選択、レジストリ行順、active slot、別の登録プランから対象を選んではならない。明示された選択パスが現在の関連付けと違う場合は、GUIでそのプランを保存してから再実行するよう案内して停止する。
+  2. **未解決時の安全な停止 (Fail Closed)**: 正確な選択プランパスが呼び出し元から渡されない、ファイルが欠落・非Markdown・Gitリポジトリ外、リポジトリ未登録、またはそのリポジトリに別プランが関連付いている場合は、cwdや別プロジェクトから補完せず、`BLOCKED — PLAN FILE REQUIRED: Poverello Autocodeで使うプランファイルを選択・保存してから再実行してください。` と出力して停止する。
+- 計画candidateは一時領域で作成し、`apply_plan_candidate` に工程開始時の `expected_file_identity` とSHA-256を渡して反映する。監査追記eventとチェックポイント保存の両方にidentityとSHA-256を指定し（いずれも必須）、各信頼済み書込み後に返されたidentity/Hashを次工程へ引き継ぐ。再開時は `get_plan_checkpoint` と `verify_plan_resumption` に同じ絶対 `selected_plan_path`・surface・`pinned_target` を渡す。バックエンドが選択ファイルからrepoを導出し、レジストリ関連付け・pin・checkpointのrepo/path/revision/file identity/Findingを検証する。旧active slotは再開条件にしない。
 - **実装主体 (Implementer)**: 承認済み正本計画書に基づき実装およびテストを実施し、計画書の Audit Trail セクションへ記録する。
-- Planner/Reviserは `.plan/.active-plan.json` の `role_assignments.antigravity.planner_id` / `reviser_id` を用いる。未設定・不正なら停止し、global設定や別roleへのfallbackを禁止する。
+- Planner/Reviserの担当は、Poverelloアプリと同じ `CODEX_HOME` の `pov-review-settings.json` にある `workflow_role_assignments.antigravity` から読み取る。`.plan/.active-plan.json` の旧 `role_assignments` / `project_roles` は参照しない。
 - Role mapping: `antigravity` は現在のAntigravityセッション、`codex` / `codex_cli` は `codex exec` を使う。対象工程前に保存値とActive Plan Fileを再確認し、未設定・不正ID・実行失敗時は担当名と理由を報告して停止する。Reviewer工程を終了した後にだけReviser/Implementerを別呼び出しで実行する。同一IDでもReviewerのread-only制約を解除・共有しない。
 - 各工程境界では監査イベントをfile identity/HashでCAS追記し、その成功応答を使ってチェックポイントを保存する。チェックポイント保存後のidentity/Hashを次工程の期待状態にする。
 - **Reviewer (検査担当)**: 外部Reviewer（Codex CLI / DeepSeek Harness）は完全な読み取り専用（Read-Only）として検査し、合否判定（`APPROVED` / `REQUEST_CHANGES`）と指摘のみを返す。**Reviewer 自身によるコード・計画書の直接変更は禁止される**。

@@ -14,24 +14,25 @@ use std::sync::{
 use tauri::Manager;
 use tokio::sync::oneshot;
 
+pub mod agent_opt;
+mod antigravity_global_rules;
+pub mod cli_tools;
+pub mod codex_global_rules;
+pub mod codex_review_settings;
+pub mod codex_skills;
 mod config_template;
 mod model_capabilities;
 mod model_routing;
 mod openrouter;
 pub mod orchestrator;
 mod paths;
-mod antigravity_global_rules;
-pub mod reviewer_policy;
+pub mod plan_manager;
 pub mod pov_direct;
 pub mod pov_nerf;
-pub mod agent_opt;
-pub mod cli_tools;
-pub mod codex_skills;
-pub mod codex_global_rules;
-pub mod codex_review_settings;
-pub mod reviewer_diagnostics;
-pub mod plan_manager;
+pub mod project_registry;
 mod proxy;
+pub mod reviewer_diagnostics;
+pub mod reviewer_policy;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -118,13 +119,34 @@ mod updater_runtime_tests {
             resolve_updater_public_key(true, "stable", "stable", Some("test-public-key")),
             Some("test-public-key")
         );
-        assert_eq!(resolve_updater_public_key(true, "dev", "dev", Some("test-public-key")), None);
-        assert_eq!(resolve_updater_public_key(true, "dev", "staging", Some("test-public-key")), Some("test-public-key"));
-        assert_eq!(resolve_updater_public_key(true, "stable", "staging", Some("test-public-key")), None);
-        assert_eq!(resolve_updater_public_key(true, "dev", "stable", Some("test-public-key")), None);
-        assert_eq!(resolve_updater_public_key(false, "stable", "stable", Some("test-public-key")), None);
-        assert_eq!(resolve_updater_public_key(true, "stable", "stable", None), None);
-        assert_eq!(resolve_updater_public_key(true, "stable", "stable", Some("  ")), None);
+        assert_eq!(
+            resolve_updater_public_key(true, "dev", "dev", Some("test-public-key")),
+            None
+        );
+        assert_eq!(
+            resolve_updater_public_key(true, "dev", "staging", Some("test-public-key")),
+            Some("test-public-key")
+        );
+        assert_eq!(
+            resolve_updater_public_key(true, "stable", "staging", Some("test-public-key")),
+            None
+        );
+        assert_eq!(
+            resolve_updater_public_key(true, "dev", "stable", Some("test-public-key")),
+            None
+        );
+        assert_eq!(
+            resolve_updater_public_key(false, "stable", "stable", Some("test-public-key")),
+            None
+        );
+        assert_eq!(
+            resolve_updater_public_key(true, "stable", "stable", None),
+            None
+        );
+        assert_eq!(
+            resolve_updater_public_key(true, "stable", "stable", Some("  ")),
+            None
+        );
     }
 }
 
@@ -170,9 +192,8 @@ fn recover_interrupted_config_replace(path: &Path) -> Result<(), String> {
     let rollback = path.with_extension("json.rollback");
 
     if !path.exists() && rollback.exists() {
-        std::fs::rename(&rollback, path).map_err(|e| {
-            format!("Failed to recover config from interrupted replacement: {e}")
-        })?;
+        std::fs::rename(&rollback, path)
+            .map_err(|e| format!("Failed to recover config from interrupted replacement: {e}"))?;
         eprintln!(
             "[anthro-bridge] WARN: Recovered config.json from rollback after interrupted replacement (path: {})",
             path.display()
@@ -248,9 +269,8 @@ fn replace_config_from_template_atomically(path: &Path) -> Result<(), String> {
             "config.stale-rollback-{}.json",
             chrono::Local::now().format("%Y%m%d-%H%M%S")
         ));
-        std::fs::rename(&rollback, &stale).map_err(|e| {
-            format!("Failed to preserve stale rollback: {e}")
-        })?;
+        std::fs::rename(&rollback, &stale)
+            .map_err(|e| format!("Failed to preserve stale rollback: {e}"))?;
     }
 
     // Clean up tmp from any previous crashed attempt
@@ -261,8 +281,8 @@ fn replace_config_from_template_atomically(path: &Path) -> Result<(), String> {
         .map_err(|e| format!("Failed to write reset tmp: {e}"))?;
 
     // ── 2. Validate tmp ─────────────────────────────────────────
-    let written = std::fs::read_to_string(&tmp)
-        .map_err(|e| format!("Failed to read reset tmp: {e}"))?;
+    let written =
+        std::fs::read_to_string(&tmp).map_err(|e| format!("Failed to read reset tmp: {e}"))?;
     serde_json::from_str::<serde_json::Value>(&written)
         .map_err(|e| format!("Reset tmp is invalid JSON: {e}"))?;
 
@@ -757,20 +777,20 @@ fn merge_bundled_providers(user_config: &Path) -> Result<(), String> {
     merge_bundled_providers_with_installer(user_config, replace_config_file_atomically)
 }
 
-fn merge_bundled_providers_with_installer<F>(
-    user_config: &Path,
-    install: F,
-) -> Result<(), String>
+fn merge_bundled_providers_with_installer<F>(user_config: &Path, install: F) -> Result<(), String>
 where
     F: FnOnce(&Path, &Path) -> std::io::Result<()>,
 {
     // Parse both template and user config from the embedded constant
-    let template: GatewayConfigResponse = serde_json::from_str(config_template::BUNDLED_CONFIG_TEMPLATE)
-        .map_err(|e| format!("Failed to parse embedded config template in merge_bundled_providers: {e}"))?;
+    let template: GatewayConfigResponse =
+        serde_json::from_str(config_template::BUNDLED_CONFIG_TEMPLATE).map_err(|e| {
+            format!("Failed to parse embedded config template in merge_bundled_providers: {e}")
+        })?;
 
     // Parse the full template as raw JSON once for provider/model extraction
-    let template_raw: serde_json::Value = serde_json::from_str(config_template::BUNDLED_CONFIG_TEMPLATE)
-        .map_err(|e| format!("Failed to parse template as raw JSON: {e}"))?;
+    let template_raw: serde_json::Value =
+        serde_json::from_str(config_template::BUNDLED_CONFIG_TEMPLATE)
+            .map_err(|e| format!("Failed to parse template as raw JSON: {e}"))?;
 
     let (encoding, mut user_cfg) = read_config_value(user_config)
         .map_err(|e| format!("Cannot read user config in merge_bundled_providers: {e}"))?;
@@ -847,12 +867,10 @@ fn migrate_openrouter_to_profiles_at_path(config_path: &std::path::Path) {
 
     if outcome.changed {
         if let Some(active_id) = outcome.active_profile_id {
-            cfg.as_object_mut()
-                .expect("root is object")
-                .insert(
-                    "active_openrouter_profile_id".into(),
-                    serde_json::json!(active_id),
-                );
+            cfg.as_object_mut().expect("root is object").insert(
+                "active_openrouter_profile_id".into(),
+                serde_json::json!(active_id),
+            );
         }
         let serialized = serde_json::to_string_pretty(&cfg).unwrap_or_default();
         let _ = std::fs::write(config_path, serialized);
@@ -862,13 +880,12 @@ fn migrate_openrouter_to_profiles_at_path(config_path: &std::path::Path) {
 /// Ensure built-in InclusionAI and StepFun OpenRouter profiles exist.
 /// Idempotent — checks by fixed profile UUID before adding.
 /// Returns Err on I/O, parse, or save failure.
-fn ensure_builtin_openrouter_profiles_at_path(
-    config_path: &std::path::Path,
-) -> Result<(), String> {
+fn ensure_builtin_openrouter_profiles_at_path(config_path: &std::path::Path) -> Result<(), String> {
     let raw_str = std::fs::read_to_string(config_path)
         .map_err(|e| format!("Cannot read config in ensure_builtin_openrouter_profiles: {e}"))?;
-    let mut cfg: serde_json::Value = serde_json::from_str(&raw_str)
-        .map_err(|e| format!("Cannot parse config JSON in ensure_builtin_openrouter_profiles: {e}"))?;
+    let mut cfg: serde_json::Value = serde_json::from_str(&raw_str).map_err(|e| {
+        format!("Cannot parse config JSON in ensure_builtin_openrouter_profiles: {e}")
+    })?;
 
     // If OpenRouter provider doesn't exist, nothing to do.
     let or_provider = match cfg.pointer_mut("/providers/openrouter") {
@@ -926,13 +943,16 @@ fn ensure_builtin_openrouter_profiles_at_path(
             .get("model_map")
             .and_then(|m| m.get("claude-opus-5"))
             .and_then(|u| u.as_str())
-            .map_or(false, |u| u == "tencent/hy3" || u == "tencent/hy4" || u == "tencent/hy4-preview")
-            || p
-                .get("models")
+            .map_or(false, |u| {
+                u == "tencent/hy3" || u == "tencent/hy4" || u == "tencent/hy4-preview"
+            })
+            || p.get("models")
                 .and_then(|m| m.get("claude-opus-5"))
                 .and_then(|e| e.get("upstream_model"))
                 .and_then(|u| u.as_str())
-                .map_or(false, |u| u == "tencent/hy3" || u == "tencent/hy4" || u == "tencent/hy4-preview");
+                .map_or(false, |u| {
+                    u == "tencent/hy3" || u == "tencent/hy4" || u == "tencent/hy4-preview"
+                });
         if is_hy3_id || is_hy3_model {
             has_hy3 = true;
             if p.get("id").and_then(|v| v.as_str()) != Some(hy3_id) {
@@ -954,8 +974,7 @@ fn ensure_builtin_openrouter_profiles_at_path(
                 .and_then(|m| m.get("claude-opus-5"))
                 .and_then(|u| u.as_str())
                 == Some("tencent/hy3")
-                && p
-                    .get("models")
+                && p.get("models")
                     .and_then(|m| m.get("claude-opus-5"))
                     .and_then(|e| e.get("upstream_model"))
                     .and_then(|u| u.as_str())
@@ -1086,7 +1105,9 @@ fn ensure_builtin_openrouter_profiles_at_path(
         if p.get("id").and_then(|v| v.as_str()) == Some(ANTHROPIC_OR_PROFILE_ID) {
             has_anthropic = true;
             if let Some(cur_name) = p.get("display_name").and_then(|v| v.as_str()) {
-                if paths::parse_model_set_number(cur_name).is_some() || cur_name == "OpenRouter モデル 1" {
+                if paths::parse_model_set_number(cur_name).is_some()
+                    || cur_name == "OpenRouter モデル 1"
+                {
                     p["display_name"] = serde_json::Value::String(anthropic_name.to_string());
                     changed = true;
                 }
@@ -1113,10 +1134,12 @@ fn ensure_builtin_openrouter_profiles_at_path(
     // Never modify non-display-name fields of existing profiles
 
     if changed {
-        let serialized = serde_json::to_string_pretty(&cfg)
-            .map_err(|e| format!("Cannot serialize config in ensure_builtin_openrouter_profiles: {e}"))?;
-        std::fs::write(config_path, serialized)
-            .map_err(|e| format!("Cannot write config in ensure_builtin_openrouter_profiles: {e}"))?;
+        let serialized = serde_json::to_string_pretty(&cfg).map_err(|e| {
+            format!("Cannot serialize config in ensure_builtin_openrouter_profiles: {e}")
+        })?;
+        std::fs::write(config_path, serialized).map_err(|e| {
+            format!("Cannot write config in ensure_builtin_openrouter_profiles: {e}")
+        })?;
     }
 
     Ok(())
@@ -1283,7 +1306,10 @@ fn migrate_laguna_opus_default_to_normal(user_config: &Path) -> bool {
     let mut changed = false;
     if let Some(providers) = cfg.get_mut("providers").and_then(|p| p.as_object_mut()) {
         if let Some(or_provider) = providers.get_mut("openrouter") {
-            if let Some(models) = or_provider.get_mut("models").and_then(|m| m.as_object_mut()) {
+            if let Some(models) = or_provider
+                .get_mut("models")
+                .and_then(|m| m.as_object_mut())
+            {
                 if let Some(entry) = models.get_mut("claude-opus-5") {
                     let is_laguna_opus = entry
                         .get("upstream_model")
@@ -1397,7 +1423,9 @@ fn migrate_zai_provider_defaults(config_path: &Path) -> Result<bool, String> {
         .and_then(serde_json::Value::as_object_mut)
     {
         for route in crate::model_routing::CLAUDE_ROUTES {
-            let Some(entry) = models.get_mut(route).and_then(serde_json::Value::as_object_mut)
+            let Some(entry) = models
+                .get_mut(route)
+                .and_then(serde_json::Value::as_object_mut)
             else {
                 continue;
             };
@@ -1470,13 +1498,18 @@ fn migrate_deepseek_pro_legacy_reasoning_effort(config_path: &Path) -> bool {
             continue;
         };
 
-        let is_pro = entry.get("upstream_model").and_then(serde_json::Value::as_str)
+        let is_pro = entry
+            .get("upstream_model")
+            .and_then(serde_json::Value::as_str)
             == Some("deepseek-v4-pro");
         if !is_pro {
             continue;
         }
 
-        match entry.get("thinking_mode").and_then(serde_json::Value::as_str) {
+        match entry
+            .get("thinking_mode")
+            .and_then(serde_json::Value::as_str)
+        {
             Some("thinking") => {
                 if matches!(
                     entry
@@ -1506,7 +1539,10 @@ fn migrate_deepseek_pro_legacy_reasoning_effort(config_path: &Path) -> bool {
     std::fs::write(config_path, serialized).is_ok()
 }
 
-fn patch_gpt62_slot_if_none(obj: &mut serde_json::Map<String, serde_json::Value>, model_key: &str) -> bool {
+fn patch_gpt62_slot_if_none(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    model_key: &str,
+) -> bool {
     let Some(model) = obj.get(model_key).and_then(serde_json::Value::as_str) else {
         return false;
     };
@@ -1514,7 +1550,11 @@ fn patch_gpt62_slot_if_none(obj: &mut serde_json::Map<String, serde_json::Value>
         return false;
     }
     let mut changed = false;
-    if obj.get("reasoning_effort").and_then(serde_json::Value::as_str) == Some("none") {
+    if obj
+        .get("reasoning_effort")
+        .and_then(serde_json::Value::as_str)
+        == Some("none")
+    {
         obj.insert("reasoning_effort".into(), serde_json::json!("medium"));
         changed = true;
     }
@@ -1573,7 +1613,10 @@ where
     {
         for profile in profiles.iter_mut() {
             for slot_name in ["opus", "sonnet", "haiku"] {
-                if let Some(slot_obj) = profile.get_mut(slot_name).and_then(serde_json::Value::as_object_mut) {
+                if let Some(slot_obj) = profile
+                    .get_mut(slot_name)
+                    .and_then(serde_json::Value::as_object_mut)
+                {
                     if patch_gpt62_slot_if_none(slot_obj, "model") {
                         changed = true;
                     }
@@ -1595,11 +1638,10 @@ where
     std::fs::write(&temp_path, &serialized)
         .map_err(|e| format!("Failed to write temporary migrated config: {e}"))?;
 
-    let current_bytes = std::fs::read(config_path)
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&temp_path);
-            format!("Failed to re-read config before GPT-6.2 migration write: {e}")
-        })?;
+    let current_bytes = std::fs::read(config_path).map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
+        format!("Failed to re-read config before GPT-6.2 migration write: {e}")
+    })?;
     let current_hash = {
         use sha2::{Digest, Sha256};
         format!("{:x}", Sha256::digest(&current_bytes))
@@ -1619,9 +1661,13 @@ where
     #[cfg(windows)]
     {
         let backup_path = parent.join(format!(".config.gpt62.bak-{}", uuid::Uuid::new_v4()));
-        if let Err(e) = reviewer_policy::replace_file_with_backup_win(&temp_path, config_path, &backup_path) {
+        if let Err(e) =
+            reviewer_policy::replace_file_with_backup_win(&temp_path, config_path, &backup_path)
+        {
             let _ = std::fs::remove_file(&temp_path);
-            return Err(format!("Failed to atomically replace config during GPT-6.2 migration: {e}"));
+            return Err(format!(
+                "Failed to atomically replace config during GPT-6.2 migration: {e}"
+            ));
         }
         verify_and_restore_gpt62_backup_win(
             &backup_path,
@@ -1634,9 +1680,13 @@ where
     }
     #[cfg(not(windows))]
     {
-        if let Err(e) = reviewer_policy::replace_file_conditional_unix(&temp_path, config_path, &expected_hash) {
+        if let Err(e) =
+            reviewer_policy::replace_file_conditional_unix(&temp_path, config_path, &expected_hash)
+        {
             let _ = std::fs::remove_file(&temp_path);
-            return Err(format!("Concurrent modification conflict during GPT-6.2 migration: {e}"));
+            return Err(format!(
+                "Concurrent modification conflict during GPT-6.2 migration: {e}"
+            ));
         }
     }
 
@@ -1863,10 +1913,16 @@ const HISTORICAL_DEEPSEEK_MODELS: [HistoricalDeepSeekModelEntry; 17] = [
 /// exact upstream_model, thinking_mode, reasoning_effort, canonical, visible).
 /// Any profile with extra routes, missing routes, or altered fields is treated as custom.
 fn deepseek_matches_migratable_default(provider: &serde_json::Value) -> bool {
-    let Some(model_map) = provider.get("model_map").and_then(serde_json::Value::as_object) else {
+    let Some(model_map) = provider
+        .get("model_map")
+        .and_then(serde_json::Value::as_object)
+    else {
         return false;
     };
-    let Some(models) = provider.get("models").and_then(serde_json::Value::as_object) else {
+    let Some(models) = provider
+        .get("models")
+        .and_then(serde_json::Value::as_object)
+    else {
         return false;
     };
 
@@ -1886,22 +1942,31 @@ fn deepseek_matches_migratable_default(provider: &serde_json::Value) -> bool {
 
     // Exact models check
     for expected in &HISTORICAL_DEEPSEEK_MODELS {
-        let Some(entry) = models.get(expected.key).and_then(serde_json::Value::as_object) else {
+        let Some(entry) = models
+            .get(expected.key)
+            .and_then(serde_json::Value::as_object)
+        else {
             return false;
         };
 
-        if entry.get("upstream_model").and_then(serde_json::Value::as_str)
+        if entry
+            .get("upstream_model")
+            .and_then(serde_json::Value::as_str)
             != Some(expected.upstream_model)
         {
             return false;
         }
 
-        let entry_thinking = entry.get("thinking_mode").and_then(serde_json::Value::as_str);
+        let entry_thinking = entry
+            .get("thinking_mode")
+            .and_then(serde_json::Value::as_str);
         if entry_thinking != expected.thinking_mode {
             return false;
         }
 
-        let entry_effort = entry.get("reasoning_effort").and_then(serde_json::Value::as_str);
+        let entry_effort = entry
+            .get("reasoning_effort")
+            .and_then(serde_json::Value::as_str);
         if entry_effort != expected.reasoning_effort {
             return false;
         }
@@ -1953,7 +2018,10 @@ fn migrate_deepseek_legacy_flash_to_v4_1(config_path: &std::path::Path) -> bool 
     {
         for (key, entry) in models.iter_mut() {
             if let Some(obj) = entry.as_object_mut() {
-                if let Some(upstream) = obj.get("upstream_model").and_then(serde_json::Value::as_str) {
+                if let Some(upstream) = obj
+                    .get("upstream_model")
+                    .and_then(serde_json::Value::as_str)
+                {
                     if upstream == "deepseek-v4-flash"
                         && matches!(
                             key.as_str(),
@@ -1980,7 +2048,10 @@ fn migrate_deepseek_legacy_flash_to_v4_1(config_path: &std::path::Path) -> bool 
                 serde_json::Value::String("deepseek-flash".to_string()),
             );
             entry.insert("visible".to_string(), serde_json::Value::Bool(false));
-            models.insert("deepseek-flash".to_string(), serde_json::Value::Object(entry));
+            models.insert(
+                "deepseek-flash".to_string(),
+                serde_json::Value::Object(entry),
+            );
         }
     }
 
@@ -2064,10 +2135,34 @@ fn migrate_mimo_legacy_v2_5_to_v2_6(config_path: &std::path::Path) -> bool {
 
     // 2. Target built-in Claude alias routes: (route_key, legacy_upstream, target_upstream, historical_thinking_mode, new_default_thinking_mode)
     let target_routes: [(&str, &str, &str, Option<&str>, Option<&str>); 5] = [
-        ("claude-opus-5", "mimo-v2.5-pro", "mimo-v2.6-pro", Some("thinking"), Some("thinking")),
-        ("claude-sonnet-5", "mimo-v2.5-pro", "mimo-v2.6-pro", Some("normal"), Some("normal")),
-        ("claude-sonnet-4-6", "mimo-v2.5-pro", "mimo-v2.6-pro", None, None),
-        ("claude-haiku-4-5", "mimo-v2.5", "mimo-v2.6-flash", None, Some("thinking")),
+        (
+            "claude-opus-5",
+            "mimo-v2.5-pro",
+            "mimo-v2.6-pro",
+            Some("thinking"),
+            Some("thinking"),
+        ),
+        (
+            "claude-sonnet-5",
+            "mimo-v2.5-pro",
+            "mimo-v2.6-pro",
+            Some("normal"),
+            Some("normal"),
+        ),
+        (
+            "claude-sonnet-4-6",
+            "mimo-v2.5-pro",
+            "mimo-v2.6-pro",
+            None,
+            None,
+        ),
+        (
+            "claude-haiku-4-5",
+            "mimo-v2.5",
+            "mimo-v2.6-flash",
+            None,
+            Some("thinking"),
+        ),
         ("claude-haiku", "mimo-v2.5", "mimo-v2.6-flash", None, None),
     ];
 
@@ -2075,7 +2170,14 @@ fn migrate_mimo_legacy_v2_5_to_v2_6(config_path: &std::path::Path) -> bool {
         .get_mut("models")
         .and_then(serde_json::Value::as_object_mut)
     {
-        for (route_key, legacy_upstream, target_upstream, historical_thinking_mode, new_default_thinking_mode) in &target_routes {
+        for (
+            route_key,
+            legacy_upstream,
+            target_upstream,
+            historical_thinking_mode,
+            new_default_thinking_mode,
+        ) in &target_routes
+        {
             if let Some(entry) = models
                 .get_mut(*route_key)
                 .and_then(serde_json::Value::as_object_mut)
@@ -2099,7 +2201,9 @@ fn migrate_mimo_legacy_v2_5_to_v2_6(config_path: &std::path::Path) -> bool {
                         // converge to the new default thinking mode.
                         // If user explicitly changed thinking_mode away from historical default,
                         // preserve their chosen mode.
-                        if current_thinking_mode == *historical_thinking_mode || current_thinking_mode.is_none() {
+                        if current_thinking_mode == *historical_thinking_mode
+                            || current_thinking_mode.is_none()
+                        {
                             entry.insert(
                                 "thinking_mode".to_string(),
                                 serde_json::Value::String(new_mode.to_string()),
@@ -2110,10 +2214,22 @@ fn migrate_mimo_legacy_v2_5_to_v2_6(config_path: &std::path::Path) -> bool {
 
                     entry.insert("supports_vision".to_string(), serde_json::Value::Bool(true));
                     entry.insert("supports_video".to_string(), serde_json::Value::Bool(true));
-                    entry.insert("supports_image_url".to_string(), serde_json::Value::Bool(true));
-                    entry.insert("supports_image_base64".to_string(), serde_json::Value::Bool(true));
-                    entry.insert("supports_video_url".to_string(), serde_json::Value::Bool(true));
-                    entry.insert("supports_video_base64".to_string(), serde_json::Value::Bool(true));
+                    entry.insert(
+                        "supports_image_url".to_string(),
+                        serde_json::Value::Bool(true),
+                    );
+                    entry.insert(
+                        "supports_image_base64".to_string(),
+                        serde_json::Value::Bool(true),
+                    );
+                    entry.insert(
+                        "supports_video_url".to_string(),
+                        serde_json::Value::Bool(true),
+                    );
+                    entry.insert(
+                        "supports_video_base64".to_string(),
+                        serde_json::Value::Bool(true),
+                    );
                     changed = true;
                 }
             }
@@ -2129,7 +2245,10 @@ fn migrate_mimo_legacy_v2_5_to_v2_6(config_path: &std::path::Path) -> bool {
             serde_json::Value::Object(entry)
         };
         if !models.contains_key("mimo-v2.6-flash") {
-            models.insert("mimo-v2.6-flash".to_string(), make_hidden("mimo-v2.6-flash"));
+            models.insert(
+                "mimo-v2.6-flash".to_string(),
+                make_hidden("mimo-v2.6-flash"),
+            );
             changed = true;
         }
         if !models.contains_key("mimo-v2.6-pro") {
@@ -2219,25 +2338,33 @@ fn normalize_force_thinking(config_path: &std::path::Path) {
 
             if has_profiles {
                 // Migrated config: normalize force_thinking inside each profile
-                if let Some(profiles) = provider.get_mut("profiles").and_then(|p| p.as_array_mut()) {
+                if let Some(profiles) = provider.get_mut("profiles").and_then(|p| p.as_array_mut())
+                {
                     for profile in profiles.iter_mut() {
-                        if let Some(models) = profile.get_mut("models").and_then(|m| m.as_object_mut()) {
+                        if let Some(models) =
+                            profile.get_mut("models").and_then(|m| m.as_object_mut())
+                        {
                             for (_model_key, entry) in models.iter_mut() {
-                                let upstream = match entry.get("upstream_model").and_then(|v| v.as_str()) {
-                                    Some(u) => u.to_string(),
-                                    None => continue,
-                                };
-                                let caps = model_capabilities::resolve_static_model_capabilities(&upstream);
+                                let upstream =
+                                    match entry.get("upstream_model").and_then(|v| v.as_str()) {
+                                        Some(u) => u.to_string(),
+                                        None => continue,
+                                    };
+                                let caps = model_capabilities::resolve_static_model_capabilities(
+                                    &upstream,
+                                );
                                 let current = entry.get("force_thinking").and_then(|v| v.as_bool());
                                 if current != Some(caps.force_thinking) {
-                                    entry["force_thinking"] = serde_json::Value::Bool(caps.force_thinking);
+                                    entry["force_thinking"] =
+                                        serde_json::Value::Bool(caps.force_thinking);
                                     changed = true;
                                 }
                             }
                         }
                     }
                 }
-            } else if let Some(models) = provider.get_mut("models").and_then(|m| m.as_object_mut()) {
+            } else if let Some(models) = provider.get_mut("models").and_then(|m| m.as_object_mut())
+            {
                 for (_model_key, entry) in models.iter_mut() {
                     let upstream = match entry.get("upstream_model").and_then(|v| v.as_str()) {
                         Some(u) => u.to_string(),
@@ -2493,9 +2620,7 @@ pub(crate) fn read_windows_registry_env_var(var_name: &str) -> Option<String> {
             .chain(Some(0))
             .collect();
         let mut hkey: HKEY = std::ptr::null_mut();
-        let status = unsafe {
-            RegOpenKeyExW(root, subkey_wide.as_ptr(), 0, KEY_READ, &mut hkey)
-        };
+        let status = unsafe { RegOpenKeyExW(root, subkey_wide.as_ptr(), 0, KEY_READ, &mut hkey) };
         if status != 0 {
             return None;
         }
@@ -2693,7 +2818,11 @@ fn write_model_entry_fields(
         return Err(format!(
             "Model '{}' entry must be a JSON object, found {}",
             model_key,
-            if model_entry.is_null() { "null" } else { "a non-object value" }
+            if model_entry.is_null() {
+                "null"
+            } else {
+                "a non-object value"
+            }
         ));
     }
     model_entry["upstream_model"] = serde_json::Value::String(upstream_model.to_string());
@@ -2848,7 +2977,8 @@ fn apply_set_model_upstream(
             .get("active_openrouter_profile_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let restart_gateway = config_changed && active_provider == "openrouter" && pid == active_profile_id;
+        let restart_gateway =
+            config_changed && active_provider == "openrouter" && pid == active_profile_id;
 
         return Ok(ApplyOutcome {
             value: (),
@@ -2873,12 +3003,7 @@ fn apply_set_model_upstream(
     // GLM routes carry the direct provider's contract rules: only documented
     // models, contract-appropriate candidates, and low/high/max efforts.
     if provider_id == ZAI_PROVIDER_ID {
-        validate_zai_model_selection(
-            provider,
-            upstream_model,
-            thinking_mode,
-            reasoning_effort,
-        )?;
+        validate_zai_model_selection(provider, upstream_model, thinking_mode, reasoning_effort)?;
     }
 
     // Clone provider's models+model_map, apply changes, compare
@@ -3003,14 +3128,8 @@ fn build_laguna_profile(name: &str) -> OpenRouterProfile {
     );
 
     model_map.insert("claude-opus-5".into(), "poolside/laguna-s-2.1".into());
-    model_map.insert(
-        "claude-sonnet-5".into(),
-        "poolside/laguna-s-2.1".into(),
-    );
-    model_map.insert(
-        "claude-haiku-4-5".into(),
-        "poolside/laguna-xs-2.1".into(),
-    );
+    model_map.insert("claude-sonnet-5".into(), "poolside/laguna-s-2.1".into());
+    model_map.insert("claude-haiku-4-5".into(), "poolside/laguna-xs-2.1".into());
 
     models.insert("claude-opus-5".into(), opus_entry);
     models.insert("claude-sonnet-5".into(), sonnet_entry);
@@ -3049,12 +3168,7 @@ fn build_hy3_profile(name: &str) -> OpenRouterProfile {
         Some("thinking"),
         Some("low"),
     );
-    let haiku_entry = model_entry(
-        "claude-haiku-4-5",
-        "tencent/hy3",
-        Some("normal"),
-        None,
-    );
+    let haiku_entry = model_entry("claude-haiku-4-5", "tencent/hy3", Some("normal"), None);
 
     model_map.insert("claude-opus-5".into(), "tencent/hy4".into());
     model_map.insert("claude-sonnet-5".into(), "tencent/hy3".into());
@@ -3116,7 +3230,10 @@ fn build_inclusionai_profile(name: &str) -> OpenRouterProfile {
 
     model_map.insert("claude-opus-5".into(), "inclusionai/ring-2.6-1t".into());
     model_map.insert("claude-sonnet-5".into(), "inclusionai/ling-2.6-1t".into());
-    model_map.insert("claude-haiku-4-5".into(), "inclusionai/ling-2.6-flash".into());
+    model_map.insert(
+        "claude-haiku-4-5".into(),
+        "inclusionai/ling-2.6-flash".into(),
+    );
 
     models.insert("claude-opus-5".into(), opus_entry);
     models.insert("claude-sonnet-5".into(), sonnet_entry);
@@ -3207,9 +3324,24 @@ fn build_gemini_profile(name: &str) -> OpenRouterProfile {
         "claude-haiku-4-5".into(),
     ];
 
-    let opus_entry = model_entry("claude-opus-5", "google/gemini-3.8-flash", Some("thinking"), Some("high"));
-    let sonnet_entry = model_entry("claude-sonnet-5", "google/gemini-3.8-flash", Some("thinking"), Some("medium"));
-    let haiku_entry = model_entry("claude-haiku-4-5", "google/gemini-3.8-flash", Some("thinking"), Some("low"));
+    let opus_entry = model_entry(
+        "claude-opus-5",
+        "google/gemini-3.8-flash",
+        Some("thinking"),
+        Some("high"),
+    );
+    let sonnet_entry = model_entry(
+        "claude-sonnet-5",
+        "google/gemini-3.8-flash",
+        Some("thinking"),
+        Some("medium"),
+    );
+    let haiku_entry = model_entry(
+        "claude-haiku-4-5",
+        "google/gemini-3.8-flash",
+        Some("thinking"),
+        Some("low"),
+    );
 
     model_map.insert("claude-opus-5".into(), "google/gemini-3.8-flash".into());
     model_map.insert("claude-sonnet-5".into(), "google/gemini-3.8-flash".into());
@@ -3254,9 +3386,10 @@ fn migrate_gemini_profile_to_current_default(config_path: &std::path::Path) -> b
         return false;
     };
 
-    let Some(profile) = profiles.iter_mut().find(|p| {
-        p.get("id").and_then(serde_json::Value::as_str) == Some(GEMINI_PROFILE_ID)
-    }) else {
+    let Some(profile) = profiles
+        .iter_mut()
+        .find(|p| p.get("id").and_then(serde_json::Value::as_str) == Some(GEMINI_PROFILE_ID))
+    else {
         return false;
     };
 
@@ -3311,7 +3444,10 @@ fn gemini_matches_migratable_default(profile: &serde_json::Value) -> bool {
         ("claude-haiku-4-5", "google/gemini-3.7-flash", "low"),
     ];
 
-    let Some(model_map) = profile.get("model_map").and_then(serde_json::Value::as_object) else {
+    let Some(model_map) = profile
+        .get("model_map")
+        .and_then(serde_json::Value::as_object)
+    else {
         return false;
     };
     let Some(models) = profile.get("models").and_then(serde_json::Value::as_object) else {
@@ -3338,20 +3474,34 @@ fn gemini_matches_migratable_default(profile: &serde_json::Value) -> bool {
             let Some(entry) = models.get(*route).and_then(serde_json::Value::as_object) else {
                 return false;
             };
-            if entry.get("upstream_model").and_then(serde_json::Value::as_str) != Some(*upstream) {
+            if entry
+                .get("upstream_model")
+                .and_then(serde_json::Value::as_str)
+                != Some(*upstream)
+            {
                 return false;
             }
-            if entry.get("reasoning_effort").and_then(serde_json::Value::as_str) != Some(*effort) {
+            if entry
+                .get("reasoning_effort")
+                .and_then(serde_json::Value::as_str)
+                != Some(*effort)
+            {
                 return false;
             }
-            if entry.get("thinking_mode").and_then(serde_json::Value::as_str) != Some("thinking") {
+            if entry
+                .get("thinking_mode")
+                .and_then(serde_json::Value::as_str)
+                != Some("thinking")
+            {
                 return false;
             }
         }
         true
     };
 
-    matches_pattern(&INITIAL_DEFAULT) || matches_pattern(&INTERIM_DEFAULT_A) || matches_pattern(&INTERIM_DEFAULT_B)
+    matches_pattern(&INITIAL_DEFAULT)
+        || matches_pattern(&INTERIM_DEFAULT_A)
+        || matches_pattern(&INTERIM_DEFAULT_B)
 }
 
 const GPT56_BALANCED_PROFILE_ID: &str = "e0e0f000-0000-4000-8000-000000000005";
@@ -3367,9 +3517,24 @@ fn build_gpt56_balanced_profile(name: &str) -> OpenRouterProfile {
         "claude-haiku-4-5".into(),
     ];
 
-    let opus_entry = model_entry("claude-opus-5", "openai/gpt-5.6-sol", Some("thinking"), Some("high"));
-    let sonnet_entry = model_entry("claude-sonnet-5", "openai/gpt-5.6-terra", Some("thinking"), Some("high"));
-    let haiku_entry = model_entry("claude-haiku-4-5", "openai/gpt-5.6-luna", Some("thinking"), Some("high"));
+    let opus_entry = model_entry(
+        "claude-opus-5",
+        "openai/gpt-5.6-sol",
+        Some("thinking"),
+        Some("high"),
+    );
+    let sonnet_entry = model_entry(
+        "claude-sonnet-5",
+        "openai/gpt-5.6-terra",
+        Some("thinking"),
+        Some("high"),
+    );
+    let haiku_entry = model_entry(
+        "claude-haiku-4-5",
+        "openai/gpt-5.6-luna",
+        Some("thinking"),
+        Some("high"),
+    );
 
     model_map.insert("claude-opus-5".into(), "openai/gpt-5.6-sol".into());
     model_map.insert("claude-sonnet-5".into(), "openai/gpt-5.6-terra".into());
@@ -3427,9 +3592,18 @@ fn build_deepseek_profile(name: &str) -> OpenRouterProfile {
         Some("low"),
     );
 
-    model_map.insert("claude-opus-5".into(), "deepseek/deepseek-v4.1-flash".into());
-    model_map.insert("claude-sonnet-5".into(), "deepseek/deepseek-v4.1-flash".into());
-    model_map.insert("claude-haiku-4-5".into(), "deepseek/deepseek-v4.1-flash".into());
+    model_map.insert(
+        "claude-opus-5".into(),
+        "deepseek/deepseek-v4.1-flash".into(),
+    );
+    model_map.insert(
+        "claude-sonnet-5".into(),
+        "deepseek/deepseek-v4.1-flash".into(),
+    );
+    model_map.insert(
+        "claude-haiku-4-5".into(),
+        "deepseek/deepseek-v4.1-flash".into(),
+    );
 
     models.insert("claude-opus-5".into(), opus_entry);
     models.insert("claude-sonnet-5".into(), sonnet_entry);
@@ -3500,15 +3674,8 @@ fn build_anthropic_profile_json(name: &str) -> serde_json::Value {
 
 /// Fill missing gateway model keys in a migrated profile.
 /// Existing entries are left unchanged; only gaps are backfilled from the fallback.
-fn complete_migrated_profile(
-    profile: &mut OpenRouterProfile,
-    fallback: &OpenRouterProfile,
-) {
-    for key in [
-        "claude-opus-5",
-        "claude-sonnet-5",
-        "claude-haiku-4-5",
-    ] {
+fn complete_migrated_profile(profile: &mut OpenRouterProfile, fallback: &OpenRouterProfile) {
+    for key in ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"] {
         if !profile.models.contains_key(key) {
             if let Some(entry) = fallback.models.get(key) {
                 profile.models.insert(key.to_string(), entry.clone());
@@ -3531,9 +3698,7 @@ fn complete_migrated_profile(
 ///   Ok({ changed: false, ... }) — OpenRouter provider absent, or already migrated
 ///   Ok({ changed: true, ... }) — migration created profiles; caller persists
 ///   Err(...) — JSON shape is invalid
-fn migrate_openrouter_to_profiles(
-    raw: &mut serde_json::Value,
-) -> Result<MigrationOutcome, String> {
+fn migrate_openrouter_to_profiles(raw: &mut serde_json::Value) -> Result<MigrationOutcome, String> {
     let Some(openrouter) = raw
         .get_mut("providers")
         .and_then(|p| p.get_mut("openrouter"))
@@ -3591,8 +3756,8 @@ fn migrate_openrouter_to_profiles(
     };
 
     // Deserialize first profile into typed struct for backfill
-    let mut first_profile: OpenRouterProfile =
-        serde_json::from_value(first_profile_json).map_err(|e| format!("failed to parse first profile: {}", e))?;
+    let mut first_profile: OpenRouterProfile = serde_json::from_value(first_profile_json)
+        .map_err(|e| format!("failed to parse first profile: {}", e))?;
 
     let fallback_typed = if existing_uses_hy3 && !existing_uses_poolside {
         build_hy3_profile("_fallback")
@@ -3664,12 +3829,16 @@ fn normalize_openrouter_profile_names(profiles: &mut Vec<serde_json::Value>) -> 
                 .and_then(|m| m.get("claude-opus-5"))
                 .and_then(|e| e.get("upstream_model"))
                 .and_then(|u| u.as_str())
-                .map_or(false, |u| u == "tencent/hy3" || u == "tencent/hy4" || u == "tencent/hy4-preview")
+                .map_or(false, |u| {
+                    u == "tencent/hy3" || u == "tencent/hy4" || u == "tencent/hy4-preview"
+                })
             || profile
                 .get("model_map")
                 .and_then(|m| m.get("claude-opus-5"))
                 .and_then(|u| u.as_str())
-                .map_or(false, |u| u == "tencent/hy3" || u == "tencent/hy4" || u == "tencent/hy4-preview");
+                .map_or(false, |u| {
+                    u == "tencent/hy3" || u == "tencent/hy4" || u == "tencent/hy4-preview"
+                });
         if is_tencent_profile {
             if let Some(name) = profile.get("display_name").and_then(|v| v.as_str()) {
                 if name == "OpenRouter: Hy3"
@@ -3699,7 +3868,8 @@ fn normalize_openrouter_profile_names(profiles: &mut Vec<serde_json::Value>) -> 
                 == Some("anthropic/claude-opus-5.5");
         if is_anthropic_profile {
             if let Some(name) = profile.get("display_name").and_then(|v| v.as_str()) {
-                if paths::parse_model_set_number(name).is_some() || name == "OpenRouter モデル 1" {
+                if paths::parse_model_set_number(name).is_some() || name == "OpenRouter モデル 1"
+                {
                     profile["display_name"] =
                         serde_json::Value::String(ANTHROPIC_OR_PROFILE_NAME.to_string());
                     changed = true;
@@ -3728,8 +3898,7 @@ fn normalize_openrouter_profile_names(profiles: &mut Vec<serde_json::Value>) -> 
             continue;
         }
 
-        let is_legacy =
-            display_name == "OpenRouter" || display_name.starts_with(LEGACY_PREFIX);
+        let is_legacy = display_name == "OpenRouter" || display_name.starts_with(LEGACY_PREFIX);
         if !is_legacy {
             continue;
         }
@@ -3824,12 +3993,10 @@ fn normalize_config(cfg: &mut serde_json::Value) -> bool {
             .unwrap_or("")
             .to_string();
         if !active_id_exists || !active_id_valid {
-            cfg.as_object_mut()
-                .expect("root is object")
-                .insert(
-                    "active_openrouter_profile_id".into(),
-                    serde_json::Value::String(new_first_id),
-                );
+            cfg.as_object_mut().expect("root is object").insert(
+                "active_openrouter_profile_id".into(),
+                serde_json::Value::String(new_first_id),
+            );
             changed = true;
         }
         return changed;
@@ -3842,20 +4009,16 @@ fn normalize_config(cfg: &mut serde_json::Value) -> bool {
 
     // 3. Active profile id missing or invalid → repair to first profile.
     if !active_id_exists {
-        cfg.as_object_mut()
-            .expect("root is object")
-            .insert(
-                "active_openrouter_profile_id".into(),
-                serde_json::Value::String(first_id),
-            );
+        cfg.as_object_mut().expect("root is object").insert(
+            "active_openrouter_profile_id".into(),
+            serde_json::Value::String(first_id),
+        );
         changed = true;
     } else if !active_id_valid {
-        cfg.as_object_mut()
-            .expect("root is object")
-            .insert(
-                "active_openrouter_profile_id".into(),
-                serde_json::Value::String(first_id),
-            );
+        cfg.as_object_mut().expect("root is object").insert(
+            "active_openrouter_profile_id".into(),
+            serde_json::Value::String(first_id),
+        );
         changed = true;
     }
 
@@ -3874,24 +4037,47 @@ fn write_capability_flags(
             .as_object_mut()
             .ok_or("model entry must be a JSON object")?;
         map.insert("supports_image_url".into(), serde_json::Value::Bool(false));
-        map.insert("supports_image_base64".into(), serde_json::Value::Bool(false));
+        map.insert(
+            "supports_image_base64".into(),
+            serde_json::Value::Bool(false),
+        );
         map.insert("supports_video_url".into(), serde_json::Value::Bool(false));
-        map.insert("supports_video_base64".into(), serde_json::Value::Bool(false));
+        map.insert(
+            "supports_video_base64".into(),
+            serde_json::Value::Bool(false),
+        );
         map.insert("force_thinking".into(), serde_json::Value::Bool(false));
         return Ok(());
     }
 
     // OpenRouter: model not in TEXT_ONLY_OR_MODELS — check if statically known
     if is_openrouter {
-        if let Some(caps) = model_capabilities::try_resolve_static_model_capabilities(upstream_model) {
+        if let Some(caps) =
+            model_capabilities::try_resolve_static_model_capabilities(upstream_model)
+        {
             let map = entry
                 .as_object_mut()
                 .ok_or("model entry must be a JSON object")?;
-            map.insert("supports_image_url".into(), serde_json::Value::Bool(caps.supports_image_url));
-            map.insert("supports_image_base64".into(), serde_json::Value::Bool(caps.supports_image_base64));
-            map.insert("supports_video_url".into(), serde_json::Value::Bool(caps.supports_video_url));
-            map.insert("supports_video_base64".into(), serde_json::Value::Bool(caps.supports_video_base64));
-            map.insert("force_thinking".into(), serde_json::Value::Bool(caps.force_thinking));
+            map.insert(
+                "supports_image_url".into(),
+                serde_json::Value::Bool(caps.supports_image_url),
+            );
+            map.insert(
+                "supports_image_base64".into(),
+                serde_json::Value::Bool(caps.supports_image_base64),
+            );
+            map.insert(
+                "supports_video_url".into(),
+                serde_json::Value::Bool(caps.supports_video_url),
+            );
+            map.insert(
+                "supports_video_base64".into(),
+                serde_json::Value::Bool(caps.supports_video_base64),
+            );
+            map.insert(
+                "force_thinking".into(),
+                serde_json::Value::Bool(caps.force_thinking),
+            );
             return Ok(());
         }
         // Unknown OpenRouter model — preserve existing flags
@@ -3903,11 +4089,26 @@ fn write_capability_flags(
     let map = entry
         .as_object_mut()
         .ok_or("model entry must be a JSON object")?;
-    map.insert("supports_image_url".into(), serde_json::Value::Bool(c.supports_image_url));
-    map.insert("supports_image_base64".into(), serde_json::Value::Bool(c.supports_image_base64));
-    map.insert("supports_video_url".into(), serde_json::Value::Bool(c.supports_video_url));
-    map.insert("supports_video_base64".into(), serde_json::Value::Bool(c.supports_video_base64));
-    map.insert("force_thinking".into(), serde_json::Value::Bool(c.force_thinking));
+    map.insert(
+        "supports_image_url".into(),
+        serde_json::Value::Bool(c.supports_image_url),
+    );
+    map.insert(
+        "supports_image_base64".into(),
+        serde_json::Value::Bool(c.supports_image_base64),
+    );
+    map.insert(
+        "supports_video_url".into(),
+        serde_json::Value::Bool(c.supports_video_url),
+    );
+    map.insert(
+        "supports_video_base64".into(),
+        serde_json::Value::Bool(c.supports_video_base64),
+    );
+    map.insert(
+        "force_thinking".into(),
+        serde_json::Value::Bool(c.force_thinking),
+    );
     Ok(())
 }
 
@@ -4019,15 +4220,22 @@ fn apply_update_active_provider(
     let mut route_changed = false;
     if let Some(cc) = cfg.get_mut("claude_code").and_then(|v| v.as_object_mut()) {
         let prev_route = cc.get("active_route").and_then(|v| v.as_str());
-        let legacy_enabled = cc.get("third_party_provider")
+        let legacy_enabled = cc
+            .get("third_party_provider")
             .and_then(|tp| tp.get("enabled"))
             .and_then(|e| e.as_bool())
             .unwrap_or(false);
         if prev_route == Some("ollama") || (prev_route.is_none() && legacy_enabled) {
             route_changed = true;
         }
-        cc.insert("active_route".to_string(), serde_json::Value::String("gateway".to_string()));
-        if let Some(tp) = cc.get_mut("third_party_provider").and_then(|v| v.as_object_mut()) {
+        cc.insert(
+            "active_route".to_string(),
+            serde_json::Value::String("gateway".to_string()),
+        );
+        if let Some(tp) = cc
+            .get_mut("third_party_provider")
+            .and_then(|v| v.as_object_mut())
+        {
             if tp.contains_key("enabled") {
                 tp.insert("enabled".to_string(), serde_json::Value::Bool(false));
             }
@@ -4152,11 +4360,12 @@ fn apply_add_openrouter_profile(
     let provider = cfg["providers"]["openrouter"]
         .as_object_mut()
         .ok_or("OpenRouter provider not found")?;
-    let profiles = provider["profiles"].as_array_mut().ok_or("no profiles array")?;
+    let profiles = provider["profiles"]
+        .as_array_mut()
+        .ok_or("no profiles array")?;
     let mut profile = build_laguna_profile(&normalized);
     profile.id = new_unique_openrouter_profile_id(profiles);
-    let profile_value =
-        serde_json::to_value(&profile).map_err(|e| format!("JSON error: {}", e))?;
+    let profile_value = serde_json::to_value(&profile).map_err(|e| format!("JSON error: {}", e))?;
     profiles.push(profile_value.clone());
     Ok(ApplyOutcome {
         value: profile_value,
@@ -4207,12 +4416,10 @@ fn apply_delete_openrouter_profile(
             .and_then(|i| i.as_str())
             .unwrap_or("")
             .to_string();
-        cfg.as_object_mut()
-            .expect("root is object")
-            .insert(
-                "active_openrouter_profile_id".into(),
-                serde_json::Value::String(new_first_id),
-            );
+        cfg.as_object_mut().expect("root is object").insert(
+            "active_openrouter_profile_id".into(),
+            serde_json::Value::String(new_first_id),
+        );
     }
 
     Ok(ApplyOutcome {
@@ -4296,7 +4503,8 @@ fn apply_reorder_openrouter_profiles(
         .iter()
         .filter_map(|p| p.get("id").and_then(|i| i.as_str()))
         .collect();
-    let config_changed = current_order != profile_ids.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+    let config_changed =
+        current_order != profile_ids.iter().map(|s| s.as_str()).collect::<Vec<_>>();
 
     if config_changed {
         profiles.sort_by_key(|p| {
@@ -4340,7 +4548,10 @@ fn apply_set_openrouter_profile_hidden(
     let config_changed = current_hidden != hidden;
     if config_changed {
         if hidden {
-            profile.as_object_mut().unwrap().insert("hidden".to_string(), serde_json::Value::Bool(true));
+            profile
+                .as_object_mut()
+                .unwrap()
+                .insert("hidden".to_string(), serde_json::Value::Bool(true));
         } else {
             profile.as_object_mut().unwrap().remove("hidden");
         }
@@ -4437,15 +4648,22 @@ fn apply_activate_openrouter_profile(
     let mut route_changed = false;
     if let Some(cc) = cfg.get_mut("claude_code").and_then(|v| v.as_object_mut()) {
         let prev_route = cc.get("active_route").and_then(|v| v.as_str());
-        let legacy_enabled = cc.get("third_party_provider")
+        let legacy_enabled = cc
+            .get("third_party_provider")
             .and_then(|tp| tp.get("enabled"))
             .and_then(|e| e.as_bool())
             .unwrap_or(false);
         if prev_route == Some("ollama") || (prev_route.is_none() && legacy_enabled) {
             route_changed = true;
         }
-        cc.insert("active_route".to_string(), serde_json::Value::String("gateway".to_string()));
-        if let Some(tp) = cc.get_mut("third_party_provider").and_then(|v| v.as_object_mut()) {
+        cc.insert(
+            "active_route".to_string(),
+            serde_json::Value::String("gateway".to_string()),
+        );
+        if let Some(tp) = cc
+            .get_mut("third_party_provider")
+            .and_then(|v| v.as_object_mut())
+        {
             if tp.contains_key("enabled") {
                 tp.insert("enabled".to_string(), serde_json::Value::Bool(false));
             }
@@ -4462,7 +4680,10 @@ fn apply_activate_openrouter_profile(
     }
 
     let root = cfg.as_object_mut().expect("root is object");
-    root.insert("active_provider".into(), serde_json::Value::String("openrouter".into()));
+    root.insert(
+        "active_provider".into(),
+        serde_json::Value::String("openrouter".into()),
+    );
     root.insert(
         "active_openrouter_profile_id".into(),
         serde_json::Value::String(profile_id.to_string()),
@@ -4478,46 +4699,70 @@ fn apply_activate_openrouter_profile(
 
 // ── Multi-Provider Gateway Profile apply functions ─────────────────────────
 
-fn validate_gateway_profile(profile: &GatewayProfile, cfg: &serde_json::Value) -> Result<(), String> {
+fn validate_gateway_profile(
+    profile: &GatewayProfile,
+    cfg: &serde_json::Value,
+) -> Result<(), String> {
     normalize_profile_name(&profile.display_name)?;
 
     for route in &crate::model_routing::CLAUDE_ROUTES {
         if !profile.routes.contains_key(*route) {
-            return Err(format!("Gateway profile is missing required canonical route '{}'", route));
+            return Err(format!(
+                "Gateway profile is missing required canonical route '{}'",
+                route
+            ));
         }
     }
 
     for (route_name, spec) in &profile.routes {
         if !crate::model_routing::ELIGIBLE_GATEWAY_PROVIDERS.contains(&spec.provider.as_str()) {
-            return Err(format!("Route '{}' references unreviewed provider '{}'", route_name, spec.provider));
+            return Err(format!(
+                "Route '{}' references unreviewed provider '{}'",
+                route_name, spec.provider
+            ));
         }
 
         if spec.provider == "openrouter" {
             let pid = spec.profile_id.as_deref().ok_or_else(|| {
-                format!("OpenRouter route '{}' requires explicit profile_id", route_name)
+                format!(
+                    "OpenRouter route '{}' requires explicit profile_id",
+                    route_name
+                )
             })?;
-            let or_profiles = cfg.get("providers")
+            let or_profiles = cfg
+                .get("providers")
                 .and_then(|p| p.get("openrouter"))
                 .and_then(|p| p.get("profiles"))
                 .and_then(|p| p.as_array());
             let found_or_profile = or_profiles.and_then(|profs| {
-                profs.iter().find(|p| p.get("id").and_then(|i| i.as_str()) == Some(pid))
+                profs
+                    .iter()
+                    .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(pid))
             });
             let or_profile = found_or_profile.ok_or_else(|| {
-                format!("OpenRouter profile '{}' not found for route '{}'", pid, route_name)
+                format!(
+                    "OpenRouter profile '{}' not found for route '{}'",
+                    pid, route_name
+                )
             })?;
             // Gateway dispatch resolves the actual upstream from this profile's
             // `models[route].upstream_model`; a legacy `model_map` entry alone
             // is not sufficient and must not make a profile appear runnable.
             if crate::model_routing::resolve_from_models(or_profile, route_name).is_none() {
-                return Err(format!("OpenRouter profile '{}' does not route '{}'", pid, route_name));
+                return Err(format!(
+                    "OpenRouter profile '{}' does not route '{}'",
+                    pid, route_name
+                ));
             }
         } else {
             let model = spec.model.as_deref().ok_or_else(|| {
                 format!("Route '{}' requires explicit upstream model", route_name)
             })?;
             if !crate::model_routing::is_eligible_provider_model(&spec.provider, model) {
-                return Err(format!("Route '{}' has unreviewed provider/model: {}/{}", route_name, spec.provider, model));
+                return Err(format!(
+                    "Route '{}' has unreviewed provider/model: {}/{}",
+                    route_name, spec.provider, model
+                ));
             }
         }
 
@@ -4544,13 +4789,19 @@ fn validate_gateway_profile(profile: &GatewayProfile, cfg: &serde_json::Value) -
         } else {
             if let Some(ref tm) = spec.thinking_mode {
                 if !matches!(tm.as_str(), "normal" | "thinking" | "thinking_only") {
-                    return Err(format!("Unsupported thinking_mode '{}' in route '{}'", tm, route_name));
+                    return Err(format!(
+                        "Unsupported thinking_mode '{}' in route '{}'",
+                        tm, route_name
+                    ));
                 }
             }
 
             if let Some(ref re) = spec.reasoning_effort {
                 if !matches!(re.as_str(), "low" | "medium" | "high") {
-                    return Err(format!("Unsupported reasoning_effort '{}' in route '{}'", re, route_name));
+                    return Err(format!(
+                        "Unsupported reasoning_effort '{}' in route '{}'",
+                        re, route_name
+                    ));
                 }
             }
         }
@@ -4563,31 +4814,47 @@ fn apply_select_gateway_profile(
     cfg: &mut serde_json::Value,
     profile_id: &str,
 ) -> Result<ApplyOutcome<()>, String> {
-    let profiles = cfg.get("gateway_profiles")
+    let profiles = cfg
+        .get("gateway_profiles")
         .and_then(|p| p.as_array())
         .ok_or("No gateway profiles configured")?;
-    let target = profiles.iter().find(|p| p.get("id").and_then(|i| i.as_str()) == Some(profile_id))
+    let target = profiles
+        .iter()
+        .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(profile_id))
         .ok_or_else(|| format!("Gateway profile '{}' not found", profile_id))?;
     let target_profile: GatewayProfile = serde_json::from_value(target.clone())
         .map_err(|e| format!("Invalid gateway profile format: {}", e))?;
     validate_gateway_profile(&target_profile, cfg)?;
 
-    let current_provider = cfg.get("active_provider").and_then(|v| v.as_str()).unwrap_or("");
-    let current_profile = cfg.get("active_gateway_profile_id").and_then(|v| v.as_str()).unwrap_or("");
+    let current_provider = cfg
+        .get("active_provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let current_profile = cfg
+        .get("active_gateway_profile_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let already_active = current_provider == "gateway_profile" && current_profile == profile_id;
 
     let mut route_changed = false;
     if let Some(cc) = cfg.get_mut("claude_code").and_then(|v| v.as_object_mut()) {
         let prev_route = cc.get("active_route").and_then(|v| v.as_str());
-        let legacy_enabled = cc.get("third_party_provider")
+        let legacy_enabled = cc
+            .get("third_party_provider")
             .and_then(|tp| tp.get("enabled"))
             .and_then(|e| e.as_bool())
             .unwrap_or(false);
         if prev_route == Some("ollama") || (prev_route.is_none() && legacy_enabled) {
             route_changed = true;
         }
-        cc.insert("active_route".to_string(), serde_json::Value::String("gateway".to_string()));
-        if let Some(tp) = cc.get_mut("third_party_provider").and_then(|v| v.as_object_mut()) {
+        cc.insert(
+            "active_route".to_string(),
+            serde_json::Value::String("gateway".to_string()),
+        );
+        if let Some(tp) = cc
+            .get_mut("third_party_provider")
+            .and_then(|v| v.as_object_mut())
+        {
             if tp.contains_key("enabled") {
                 tp.insert("enabled".to_string(), serde_json::Value::Bool(false));
             }
@@ -4604,8 +4871,14 @@ fn apply_select_gateway_profile(
     }
 
     let root = cfg.as_object_mut().expect("root is object");
-    root.insert("active_provider".into(), serde_json::Value::String("gateway_profile".into()));
-    root.insert("active_gateway_profile_id".into(), serde_json::Value::String(profile_id.to_string()));
+    root.insert(
+        "active_provider".into(),
+        serde_json::Value::String("gateway_profile".into()),
+    );
+    root.insert(
+        "active_gateway_profile_id".into(),
+        serde_json::Value::String(profile_id.to_string()),
+    );
 
     Ok(ApplyOutcome {
         value: (),
@@ -4622,17 +4895,30 @@ fn apply_save_gateway_profile(
     validate_gateway_profile(profile, cfg)?;
 
     let is_active = cfg.get("active_provider").and_then(|v| v.as_str()) == Some("gateway_profile")
-        && cfg.get("active_gateway_profile_id").and_then(|v| v.as_str()) == Some(&profile.id);
+        && cfg
+            .get("active_gateway_profile_id")
+            .and_then(|v| v.as_str())
+            == Some(&profile.id);
 
     let root = cfg.as_object_mut().expect("root is object");
     if !root.contains_key("gateway_profiles") || !root["gateway_profiles"].is_array() {
-        root.insert("gateway_profiles".into(), serde_json::Value::Array(Vec::new()));
+        root.insert(
+            "gateway_profiles".into(),
+            serde_json::Value::Array(Vec::new()),
+        );
     }
-    let profiles = root.get_mut("gateway_profiles").and_then(|p| p.as_array_mut()).unwrap();
-    if let Some(idx) = profiles.iter().position(|p| p.get("id").and_then(|i| i.as_str()) == Some(&profile.id)) {
+    let profiles = root
+        .get_mut("gateway_profiles")
+        .and_then(|p| p.as_array_mut())
+        .unwrap();
+    if let Some(idx) = profiles
+        .iter()
+        .position(|p| p.get("id").and_then(|i| i.as_str()) == Some(&profile.id))
+    {
         merge_gateway_profile_preserving_unknown(&mut profiles[idx], profile)?;
     } else {
-        let profile_val = serde_json::to_value(profile).map_err(|e| format!("JSON error: {}", e))?;
+        let profile_val =
+            serde_json::to_value(profile).map_err(|e| format!("JSON error: {}", e))?;
         profiles.push(profile_val);
     }
 
@@ -4655,8 +4941,8 @@ fn merge_gateway_profile_preserving_unknown(
     existing: &mut serde_json::Value,
     incoming: &GatewayProfile,
 ) -> Result<(), String> {
-    let incoming_value = serde_json::to_value(incoming)
-        .map_err(|e| format!("JSON error: {}", e))?;
+    let incoming_value =
+        serde_json::to_value(incoming).map_err(|e| format!("JSON error: {}", e))?;
     let incoming_object = incoming_value
         .as_object()
         .ok_or("Serialized Gateway Profile was not an object")?;
@@ -4694,9 +4980,20 @@ fn merge_gateway_profile_preserving_unknown(
         let existing_route = existing_routes
             .get_mut(route_key)
             .and_then(serde_json::Value::as_object_mut)
-            .ok_or_else(|| format!("Existing route '{}' is not an object; refusing to replace it", route_key))?;
+            .ok_or_else(|| {
+                format!(
+                    "Existing route '{}' is not an object; refusing to replace it",
+                    route_key
+                )
+            })?;
 
-        for key in ["provider", "model", "profile_id", "thinking_mode", "reasoning_effort"] {
+        for key in [
+            "provider",
+            "model",
+            "profile_id",
+            "thinking_mode",
+            "reasoning_effort",
+        ] {
             if let Some(value) = incoming_route.get(key) {
                 existing_route.insert(key.to_string(), value.clone());
             } else {
@@ -4713,23 +5010,39 @@ fn apply_delete_gateway_profile(
     profile_id: &str,
 ) -> Result<ApplyOutcome<()>, String> {
     let is_active = cfg.get("active_provider").and_then(|v| v.as_str()) == Some("gateway_profile")
-        && cfg.get("active_gateway_profile_id").and_then(|v| v.as_str()) == Some(profile_id);
+        && cfg
+            .get("active_gateway_profile_id")
+            .and_then(|v| v.as_str())
+            == Some(profile_id);
 
     let root = cfg.as_object_mut().expect("root is object");
-    let profiles = root.get_mut("gateway_profiles")
+    let profiles = root
+        .get_mut("gateway_profiles")
         .and_then(|p| p.as_array_mut())
         .ok_or("No gateway profiles configured")?;
-    let idx = profiles.iter().position(|p| p.get("id").and_then(|i| i.as_str()) == Some(profile_id))
+    let idx = profiles
+        .iter()
+        .position(|p| p.get("id").and_then(|i| i.as_str()) == Some(profile_id))
         .ok_or_else(|| format!("Gateway profile '{}' not found", profile_id))?;
     profiles.remove(idx);
-    let next_id = profiles.first().and_then(|p| p.get("id")).and_then(|i| i.as_str()).map(String::from);
+    let next_id = profiles
+        .first()
+        .and_then(|p| p.get("id"))
+        .and_then(|i| i.as_str())
+        .map(String::from);
 
     if is_active {
         if let Some(first_id) = next_id {
-            root.insert("active_gateway_profile_id".into(), serde_json::Value::String(first_id));
+            root.insert(
+                "active_gateway_profile_id".into(),
+                serde_json::Value::String(first_id),
+            );
         } else {
             root.remove("active_gateway_profile_id");
-            root.insert("active_provider".into(), serde_json::Value::String("deepseek".into()));
+            root.insert(
+                "active_provider".into(),
+                serde_json::Value::String("deepseek".into()),
+            );
         }
     }
 
@@ -4751,16 +5064,19 @@ fn apply_duplicate_gateway_profile(
     new_name: Option<&str>,
 ) -> Result<ApplyOutcome<GatewayProfile>, String> {
     let source_val = {
-        let profiles = cfg.get("gateway_profiles")
+        let profiles = cfg
+            .get("gateway_profiles")
             .and_then(|p| p.as_array())
             .ok_or("No gateway profiles configured")?;
-        profiles.iter().find(|p| p.get("id").and_then(|i| i.as_str()) == Some(profile_id))
+        profiles
+            .iter()
+            .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(profile_id))
             .ok_or_else(|| format!("Gateway profile '{}' not found", profile_id))?
             .clone()
     };
 
-    let mut cloned: GatewayProfile = serde_json::from_value(source_val.clone())
-        .map_err(|e| format!("JSON error: {}", e))?;
+    let mut cloned: GatewayProfile =
+        serde_json::from_value(source_val.clone()).map_err(|e| format!("JSON error: {}", e))?;
     cloned.id = uuid::Uuid::new_v4().to_string();
     cloned.display_name = match new_name {
         Some(name) if !name.trim().is_empty() => normalize_profile_name(name)?,
@@ -4769,14 +5085,23 @@ fn apply_duplicate_gateway_profile(
 
     let root = cfg.as_object_mut().expect("root is object");
     if !root.contains_key("gateway_profiles") || !root["gateway_profiles"].is_array() {
-        root.insert("gateway_profiles".into(), serde_json::Value::Array(Vec::new()));
+        root.insert(
+            "gateway_profiles".into(),
+            serde_json::Value::Array(Vec::new()),
+        );
     }
-    let profiles = root.get_mut("gateway_profiles").and_then(|p| p.as_array_mut()).unwrap();
+    let profiles = root
+        .get_mut("gateway_profiles")
+        .and_then(|p| p.as_array_mut())
+        .unwrap();
     let mut cloned_value = source_val;
     let cloned_object = cloned_value
         .as_object_mut()
         .ok_or("Gateway Profile to duplicate is not an object")?;
-    cloned_object.insert("id".to_string(), serde_json::Value::String(cloned.id.clone()));
+    cloned_object.insert(
+        "id".to_string(),
+        serde_json::Value::String(cloned.id.clone()),
+    );
     cloned_object.insert(
         "display_name".to_string(),
         serde_json::Value::String(cloned.display_name.clone()),
@@ -4797,17 +5122,25 @@ fn apply_set_gateway_profile_hidden(
     hidden: bool,
 ) -> Result<ApplyOutcome<()>, String> {
     let root = cfg.as_object_mut().expect("root is object");
-    let profiles = root.get_mut("gateway_profiles")
+    let profiles = root
+        .get_mut("gateway_profiles")
         .and_then(|p| p.as_array_mut())
         .ok_or("No gateway profiles configured")?;
-    let profile = profiles.iter_mut()
+    let profile = profiles
+        .iter_mut()
         .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(profile_id))
         .ok_or_else(|| format!("Gateway profile '{}' not found", profile_id))?;
-    let current_hidden = profile.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false);
+    let current_hidden = profile
+        .get("hidden")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let changed = current_hidden != hidden;
     if changed {
         if hidden {
-            profile.as_object_mut().unwrap().insert("hidden".to_string(), serde_json::Value::Bool(true));
+            profile
+                .as_object_mut()
+                .unwrap()
+                .insert("hidden".to_string(), serde_json::Value::Bool(true));
         } else {
             profile.as_object_mut().unwrap().remove("hidden");
         }
@@ -4816,7 +5149,11 @@ fn apply_set_gateway_profile_hidden(
         value: (),
         config_changed: changed,
         restart_gateway: false,
-        restart_reason: if changed { "gateway_profile_visibility_changed" } else { "already_desired_state" },
+        restart_reason: if changed {
+            "gateway_profile_visibility_changed"
+        } else {
+            "already_desired_state"
+        },
     })
 }
 
@@ -5222,11 +5559,7 @@ impl Drop for ConfigTempFile {
     }
 }
 
-fn write_config_value(
-    cfg: &serde_json::Value,
-    encoding: &str,
-    path: &Path,
-) -> Result<(), String> {
+fn write_config_value(cfg: &serde_json::Value, encoding: &str, path: &Path) -> Result<(), String> {
     write_config_value_with_installer(cfg, encoding, path, replace_config_file_atomically)
 }
 
@@ -5345,9 +5678,7 @@ fn restore_config_from_backup_at_path(path: &std::path::Path) -> Result<(), Stri
 }
 
 #[tauri::command]
-fn restore_config_from_backup(
-    config_state: tauri::State<'_, ConfigState>,
-) -> Result<(), String> {
+fn restore_config_from_backup(config_state: tauri::State<'_, ConfigState>) -> Result<(), String> {
     let path = config_path();
     let bak_path = path.with_extension("json.bak");
     if !bak_path.exists() {
@@ -5392,8 +5723,7 @@ fn reset_config_at_path(path: &std::path::Path) -> Result<(), String> {
     // Create timestamped backup before reset
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let backup = path.with_file_name(format!("config.before-reset-{}.json", timestamp));
-    std::fs::copy(&path, &backup)
-        .map_err(|e| format!("Cannot create backup before reset: {e}"))?;
+    std::fs::copy(&path, &backup).map_err(|e| format!("Cannot create backup before reset: {e}"))?;
 
     // Atomically replace — builds in .reset.tmp, validates, then renames.
     // On failure, the original config.json is untouched.
@@ -5401,10 +5731,10 @@ fn reset_config_at_path(path: &std::path::Path) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn reset_config(
-    config_state: tauri::State<'_, ConfigState>,
-) -> Result<(), String> {
-    let _guard = config_state.write_lock.lock()
+fn reset_config(config_state: tauri::State<'_, ConfigState>) -> Result<(), String> {
+    let _guard = config_state
+        .write_lock
+        .lock()
         .map_err(|e| format!("config write lock poisoned: {e}"))?;
     reset_config_at_path(&paths::config_path())
 }
@@ -5606,10 +5936,7 @@ fn apply_update_validation_gate_enabled(
     })
 }
 
-fn rename_orchestrator_fields(
-    value: &mut serde_json::Value,
-    fields: &[(&str, &str)],
-) {
+fn rename_orchestrator_fields(value: &mut serde_json::Value, fields: &[(&str, &str)]) {
     let Some(object) = value.as_object_mut() else {
         return;
     };
@@ -5622,72 +5949,96 @@ fn rename_orchestrator_fields(
 }
 
 fn normalize_orchestrator_limits(value: &mut serde_json::Value) {
-    rename_orchestrator_fields(value, &[
-        ("max_plan_review_iterations", "maxPlanReviewIterations"),
-        ("max_fix_iterations", "maxFixIterations"),
-        ("max_code_review_iterations", "maxCodeReviewIterations"),
-    ]);
+    rename_orchestrator_fields(
+        value,
+        &[
+            ("max_plan_review_iterations", "maxPlanReviewIterations"),
+            ("max_fix_iterations", "maxFixIterations"),
+            ("max_code_review_iterations", "maxCodeReviewIterations"),
+        ],
+    );
 }
 
 fn normalize_orchestrator_gate(value: &mut serde_json::Value) {
-    rename_orchestrator_fields(value, &[
-        ("working_dir", "workingDir"),
-        ("fail_on_error", "failOnError"),
-        ("is_advanced_custom", "isAdvancedCustom"),
-    ]);
+    rename_orchestrator_fields(
+        value,
+        &[
+            ("working_dir", "workingDir"),
+            ("fail_on_error", "failOnError"),
+            ("is_advanced_custom", "isAdvancedCustom"),
+        ],
+    );
 }
 
 fn normalize_orchestrator_budget(value: &mut serde_json::Value) {
-    rename_orchestrator_fields(value, &[
-        ("max_calls_per_run", "maxCallsPerRun"),
-        ("max_consecutive_calls", "maxConsecutiveCalls"),
-        ("timeout_seconds", "timeoutSeconds"),
-        ("fallback_profile_id", "fallbackProfileId"),
-        ("on_rate_limit", "onRateLimit"),
-    ]);
+    rename_orchestrator_fields(
+        value,
+        &[
+            ("max_calls_per_run", "maxCallsPerRun"),
+            ("max_consecutive_calls", "maxConsecutiveCalls"),
+            ("timeout_seconds", "timeoutSeconds"),
+            ("fallback_profile_id", "fallbackProfileId"),
+            ("on_rate_limit", "onRateLimit"),
+        ],
+    );
 }
 
 fn normalize_orchestrator_profile(value: &mut serde_json::Value) {
-    rename_orchestrator_fields(value, &[
-        ("display_name", "displayName"),
-        ("provider_id", "providerId"),
-        ("provider_profile_id", "providerProfileId"),
-        ("thinking_mode", "thinkingMode"),
-        ("reasoning_effort", "reasoningEffort"),
-        ("ollama_model", "ollamaModel"),
-        ("ollama_endpoint", "ollamaEndpoint"),
-        ("external_mcp_server", "externalMcpServer"),
-        ("mcp_tool", "mcpTool"),
-        ("context_window_tokens", "contextWindowTokens"),
-    ]);
+    rename_orchestrator_fields(
+        value,
+        &[
+            ("display_name", "displayName"),
+            ("provider_id", "providerId"),
+            ("provider_profile_id", "providerProfileId"),
+            ("thinking_mode", "thinkingMode"),
+            ("reasoning_effort", "reasoningEffort"),
+            ("ollama_model", "ollamaModel"),
+            ("ollama_endpoint", "ollamaEndpoint"),
+            ("external_mcp_server", "externalMcpServer"),
+            ("mcp_tool", "mcpTool"),
+            ("context_window_tokens", "contextWindowTokens"),
+        ],
+    );
 }
 
 fn normalize_orchestrator_assignment(value: &mut serde_json::Value) {
-    rename_orchestrator_fields(value, &[
-        ("profile_id", "profileId"),
-        ("custom_prompt_supplement", "customPromptSupplement"),
-        ("escalation_role", "escalationRole"),
-    ]);
+    rename_orchestrator_fields(
+        value,
+        &[
+            ("profile_id", "profileId"),
+            ("custom_prompt_supplement", "customPromptSupplement"),
+            ("escalation_role", "escalationRole"),
+        ],
+    );
 }
 
 fn normalize_orchestrator_preset(value: &mut serde_json::Value) {
-    rename_orchestrator_fields(value, &[
-        ("iteration_limits", "iterationLimits"),
-        ("validation_gates", "validationGates"),
-        ("budget_limits", "budgetLimits"),
-    ]);
+    rename_orchestrator_fields(
+        value,
+        &[
+            ("iteration_limits", "iterationLimits"),
+            ("validation_gates", "validationGates"),
+            ("budget_limits", "budgetLimits"),
+        ],
+    );
     let Some(object) = value.as_object_mut() else {
         return;
     };
     if let Some(limits) = object.get_mut("iterationLimits") {
         normalize_orchestrator_limits(limits);
     }
-    if let Some(gates) = object.get_mut("validationGates").and_then(serde_json::Value::as_array_mut) {
+    if let Some(gates) = object
+        .get_mut("validationGates")
+        .and_then(serde_json::Value::as_array_mut)
+    {
         for gate in gates {
             normalize_orchestrator_gate(gate);
         }
     }
-    if let Some(budgets) = object.get_mut("budgetLimits").and_then(serde_json::Value::as_object_mut) {
+    if let Some(budgets) = object
+        .get_mut("budgetLimits")
+        .and_then(serde_json::Value::as_object_mut)
+    {
         for budget in budgets.values_mut() {
             normalize_orchestrator_budget(budget);
         }
@@ -5701,27 +6052,36 @@ fn normalize_orchestrator_quick_slot(value: &mut serde_json::Value) {
 /// Normalizes only known Orchestrator schema locations. Unknown extension data
 /// remains byte-for-value intact, including nested keys that resemble legacy fields.
 fn normalize_orchestrator_config_keys(value: &mut serde_json::Value) {
-    rename_orchestrator_fields(value, &[
-        ("project_path", "projectPath"),
-        ("active_workflow_id", "activeWorkflowId"),
-        ("active_preset_id", "activePresetId"),
-        ("iteration_limits", "iterationLimits"),
-        ("validation_gates", "validationGates"),
-        ("budget_limits", "budgetLimits"),
-        ("custom_presets", "customPresets"),
-        ("authorized_custom_gates", "authorizedCustomGates"),
-        ("quick_slots", "quickSlots"),
-        ("auto_validation_enabled", "autoValidationEnabled"),
-    ]);
+    rename_orchestrator_fields(
+        value,
+        &[
+            ("project_path", "projectPath"),
+            ("active_workflow_id", "activeWorkflowId"),
+            ("active_preset_id", "activePresetId"),
+            ("iteration_limits", "iterationLimits"),
+            ("validation_gates", "validationGates"),
+            ("budget_limits", "budgetLimits"),
+            ("custom_presets", "customPresets"),
+            ("authorized_custom_gates", "authorizedCustomGates"),
+            ("quick_slots", "quickSlots"),
+            ("auto_validation_enabled", "autoValidationEnabled"),
+        ],
+    );
     let Some(object) = value.as_object_mut() else {
         return;
     };
-    if let Some(profiles) = object.get_mut("profiles").and_then(serde_json::Value::as_array_mut) {
+    if let Some(profiles) = object
+        .get_mut("profiles")
+        .and_then(serde_json::Value::as_array_mut)
+    {
         for profile in profiles {
             normalize_orchestrator_profile(profile);
         }
     }
-    if let Some(assignments) = object.get_mut("assignments").and_then(serde_json::Value::as_object_mut) {
+    if let Some(assignments) = object
+        .get_mut("assignments")
+        .and_then(serde_json::Value::as_object_mut)
+    {
         for assignment in assignments.values_mut() {
             normalize_orchestrator_assignment(assignment);
         }
@@ -5729,31 +6089,49 @@ fn normalize_orchestrator_config_keys(value: &mut serde_json::Value) {
     if let Some(limits) = object.get_mut("iterationLimits") {
         normalize_orchestrator_limits(limits);
     }
-    if let Some(gates) = object.get_mut("validationGates").and_then(serde_json::Value::as_array_mut) {
+    if let Some(gates) = object
+        .get_mut("validationGates")
+        .and_then(serde_json::Value::as_array_mut)
+    {
         for gate in gates {
             normalize_orchestrator_gate(gate);
         }
     }
-    if let Some(budgets) = object.get_mut("budgetLimits").and_then(serde_json::Value::as_object_mut) {
+    if let Some(budgets) = object
+        .get_mut("budgetLimits")
+        .and_then(serde_json::Value::as_object_mut)
+    {
         for budget in budgets.values_mut() {
             normalize_orchestrator_budget(budget);
         }
     }
-    if let Some(presets) = object.get_mut("customPresets").and_then(serde_json::Value::as_array_mut) {
+    if let Some(presets) = object
+        .get_mut("customPresets")
+        .and_then(serde_json::Value::as_array_mut)
+    {
         for preset in presets {
             normalize_orchestrator_preset(preset);
         }
     }
-    if let Some(gates) = object.get_mut("authorizedCustomGates").and_then(serde_json::Value::as_array_mut) {
+    if let Some(gates) = object
+        .get_mut("authorizedCustomGates")
+        .and_then(serde_json::Value::as_array_mut)
+    {
         for gate in gates {
-            rename_orchestrator_fields(gate, &[
-                ("gate_id", "gateId"),
-                ("canonical_working_dir", "canonicalWorkingDir"),
-                ("command_hash", "commandHash"),
-            ]);
+            rename_orchestrator_fields(
+                gate,
+                &[
+                    ("gate_id", "gateId"),
+                    ("canonical_working_dir", "canonicalWorkingDir"),
+                    ("command_hash", "commandHash"),
+                ],
+            );
         }
     }
-    if let Some(slots) = object.get_mut("quickSlots").and_then(serde_json::Value::as_array_mut) {
+    if let Some(slots) = object
+        .get_mut("quickSlots")
+        .and_then(serde_json::Value::as_array_mut)
+    {
         for slot in slots {
             normalize_orchestrator_quick_slot(slot);
         }
@@ -5796,10 +6174,22 @@ fn preserve_profile_extension_fields(
         .collect::<std::collections::HashMap<_, _>>();
 
     let known_fields = [
-        "id", "displayName", "adapter", "capabilities", "providerId",
-        "providerProfileId", "model", "thinkingMode", "reasoningEffort",
-        "ollamaModel", "ollamaEndpoint", "executable", "args",
-        "externalMcpServer", "mcpTool", "contextWindowTokens",
+        "id",
+        "displayName",
+        "adapter",
+        "capabilities",
+        "providerId",
+        "providerProfileId",
+        "model",
+        "thinkingMode",
+        "reasoningEffort",
+        "ollamaModel",
+        "ollamaEndpoint",
+        "executable",
+        "args",
+        "externalMcpServer",
+        "mcpTool",
+        "contextWindowTokens",
     ];
     serde_json::Value::Array(
         updated_profiles
@@ -5988,10 +6378,7 @@ fn confirm_converged_new_plan(
     expected_revision: u64,
     candidate_id: String,
     action: String,
-) -> Result<
-    orchestrator::PlanConvergenceCommandResult,
-    orchestrator::PlanConvergenceError,
-> {
+) -> Result<orchestrator::PlanConvergenceCommandResult, orchestrator::PlanConvergenceError> {
     orchestrator::confirm_converged_new_plan_impl(
         app,
         std::sync::Arc::clone(&state),
@@ -6059,7 +6446,12 @@ fn reconcile_plan_convergence_acceptance(
     run_id: String,
     expected_revision: u64,
 ) -> Result<orchestrator::convergence::PlanConvergenceRecoveryResult, String> {
-    orchestrator::reconcile_plan_convergence_acceptance_impl(app, &state, &run_id, expected_revision)
+    orchestrator::reconcile_plan_convergence_acceptance_impl(
+        app,
+        &state,
+        &run_id,
+        expected_revision,
+    )
 }
 
 #[tauri::command]
@@ -6072,7 +6464,15 @@ fn resolve_run_recovery(
     expected_backup_id: String,
     confirmed: bool,
 ) -> Result<orchestrator::RecoveryResolution, String> {
-    orchestrator::resolve_run_recovery_impl(&state, &run_id, &choice, expected_revision, &expected_fingerprint, &expected_backup_id, confirmed)
+    orchestrator::resolve_run_recovery_impl(
+        &state,
+        &run_id,
+        &choice,
+        expected_revision,
+        &expected_fingerprint,
+        &expected_backup_id,
+        confirmed,
+    )
 }
 
 #[tauri::command]
@@ -6144,44 +6544,84 @@ fn get_mcp_status() -> Result<McpStatusResponse, String> {
     let provider_id = mcp.provider.as_deref().unwrap_or("deepseek");
     let provider = cfg.providers.get(provider_id);
 
-    let (api_key_set, api_key_env, profile_name, model, thinking_mode, reasoning_effort) = if let Some(p) = provider {
-        let env_var = p.api_key_env.clone();
-        let key_set = resolve_api_key_env_var(&env_var).is_some();
+    let (api_key_set, api_key_env, profile_name, model, thinking_mode, reasoning_effort) =
+        if let Some(p) = provider {
+            let env_var = p.api_key_env.clone();
+            let key_set = resolve_api_key_env_var(&env_var).is_some();
 
-        let (prof_name, resolved_model, resolved_tm, resolved_re) = if provider_id == "openrouter" {
-            let active_prof = if let Some(ref pid) = mcp.profile_id {
-                p.openrouter_profiles.iter().find(|pr| pr.id == *pid)
-            } else {
-                p.openrouter_profiles.first()
-            };
-            let name = active_prof.map(|pr| pr.display_name.clone());
-            let m_name = mcp.model.clone().or_else(|| {
-                active_prof.and_then(|pr| pr.models.get("claude-opus-5").map(|m| m.upstream_model.clone()))
-            });
-            let tm = mcp.thinking_mode.clone().or_else(|| {
-                active_prof.and_then(|pr| pr.models.get("claude-opus-5").and_then(|m| m.thinking_mode.clone()))
-            });
-            let re = mcp.reasoning_effort.clone().or_else(|| {
-                active_prof.and_then(|pr| pr.models.get("claude-opus-5").and_then(|m| m.reasoning_effort.clone()))
-            });
-            (name, m_name, tm, re)
+            let (prof_name, resolved_model, resolved_tm, resolved_re) =
+                if provider_id == "openrouter" {
+                    let active_prof = if let Some(ref pid) = mcp.profile_id {
+                        p.openrouter_profiles.iter().find(|pr| pr.id == *pid)
+                    } else {
+                        p.openrouter_profiles.first()
+                    };
+                    let name = active_prof.map(|pr| pr.display_name.clone());
+                    let m_name = mcp.model.clone().or_else(|| {
+                        active_prof.and_then(|pr| {
+                            pr.models
+                                .get("claude-opus-5")
+                                .map(|m| m.upstream_model.clone())
+                        })
+                    });
+                    let tm = mcp.thinking_mode.clone().or_else(|| {
+                        active_prof.and_then(|pr| {
+                            pr.models
+                                .get("claude-opus-5")
+                                .and_then(|m| m.thinking_mode.clone())
+                        })
+                    });
+                    let re = mcp.reasoning_effort.clone().or_else(|| {
+                        active_prof.and_then(|pr| {
+                            pr.models
+                                .get("claude-opus-5")
+                                .and_then(|m| m.reasoning_effort.clone())
+                        })
+                    });
+                    (name, m_name, tm, re)
+                } else {
+                    let m_name = mcp
+                        .model
+                        .clone()
+                        .or_else(|| {
+                            p.models.as_ref().and_then(|ms| {
+                                ms.get("claude-opus-5").map(|m| m.upstream_model.clone())
+                            })
+                        })
+                        .unwrap_or_else(|| p.default_model.clone());
+                    let tm = mcp.thinking_mode.clone().or_else(|| {
+                        p.models.as_ref().and_then(|ms| {
+                            ms.get("claude-opus-5")
+                                .and_then(|m| m.thinking_mode.clone())
+                        })
+                    });
+                    let re = mcp.reasoning_effort.clone().or_else(|| {
+                        p.models.as_ref().and_then(|ms| {
+                            ms.get("claude-opus-5")
+                                .and_then(|m| m.reasoning_effort.clone())
+                        })
+                    });
+                    (None, Some(m_name), tm, re)
+                };
+
+            (
+                key_set,
+                Some(env_var),
+                prof_name,
+                resolved_model,
+                resolved_tm,
+                resolved_re,
+            )
         } else {
-            let m_name = mcp.model.clone().or_else(|| {
-                p.models.as_ref().and_then(|ms| ms.get("claude-opus-5").map(|m| m.upstream_model.clone()))
-            }).unwrap_or_else(|| p.default_model.clone());
-            let tm = mcp.thinking_mode.clone().or_else(|| {
-                p.models.as_ref().and_then(|ms| ms.get("claude-opus-5").and_then(|m| m.thinking_mode.clone()))
-            });
-            let re = mcp.reasoning_effort.clone().or_else(|| {
-                p.models.as_ref().and_then(|ms| ms.get("claude-opus-5").and_then(|m| m.reasoning_effort.clone()))
-            });
-            (None, Some(m_name), tm, re)
+            (
+                false,
+                None,
+                None,
+                mcp.model,
+                mcp.thinking_mode,
+                mcp.reasoning_effort,
+            )
         };
-
-        (key_set, Some(env_var), prof_name, resolved_model, resolved_tm, resolved_re)
-    } else {
-        (false, None, None, mcp.model, mcp.thinking_mode, mcp.reasoning_effort)
-    };
 
     Ok(McpStatusResponse {
         configured: api_key_set, // configuration is complete and ready when API key is set
@@ -6373,8 +6813,10 @@ pub fn inspect_antigravity_mcp_status_at(config_path: &Path) -> AntigravityMcpIn
     let servers = json_val.get("mcpServers");
     let (status, registered_command, registered_args, error) =
         inspect_mcp_server_entry(servers.and_then(|s| s.get("poverello")), "poverello");
-    let (legacy_status, legacy_command, legacy_args, _legacy_error) =
-        inspect_mcp_server_entry(servers.and_then(|s| s.get("anthro-bridge")), "anthro-bridge");
+    let (legacy_status, legacy_command, legacy_args, _legacy_error) = inspect_mcp_server_entry(
+        servers.and_then(|s| s.get("anthro-bridge")),
+        "anthro-bridge",
+    );
 
     AntigravityMcpInfo {
         status,
@@ -6400,7 +6842,9 @@ pub fn configure_antigravity_mcp_at(
 
     let path_obj = Path::new(trimmed);
     if !path_obj.is_file() {
-        return Err(format!("The specified executable file does not exist: {trimmed}"));
+        return Err(format!(
+            "The specified executable file does not exist: {trimmed}"
+        ));
     }
 
     if let Some(ext) = path_obj.extension() {
@@ -6430,12 +6874,16 @@ pub fn configure_antigravity_mcp_at(
     };
 
     if !json_val.is_object() {
-        return Err("Existing mcp_config.json is invalid: top-level value must be an object".to_string());
+        return Err(
+            "Existing mcp_config.json is invalid: top-level value must be an object".to_string(),
+        );
     }
 
     if let Some(servers) = json_val.get("mcpServers") {
         if !servers.is_object() {
-            return Err("Existing mcp_config.json is invalid: 'mcpServers' must be an object".to_string());
+            return Err(
+                "Existing mcp_config.json is invalid: 'mcpServers' must be an object".to_string(),
+            );
         }
     }
 
@@ -6452,9 +6900,8 @@ pub fn configure_antigravity_mcp_at(
         let (status, existing_cmd, existing_args, error) =
             inspect_mcp_server_entry(Some(existing_poverello), "poverello");
         if status == AntigravityMcpStatus::Invalid {
-            return Err(error.unwrap_or_else(|| {
-                "The existing 'poverello' MCP entry is malformed".to_string()
-            }));
+            return Err(error
+                .unwrap_or_else(|| "The existing 'poverello' MCP entry is malformed".to_string()));
         }
         let target_args = vec!["--mcp-server".to_string()];
         let is_identical = existing_cmd.as_deref() == Some(trimmed)
@@ -6506,10 +6953,15 @@ pub fn remove_antigravity_mcp_at(config_path: &Path) -> Result<AntigravityMcpInf
         .map_err(|e| format!("Existing mcp_config.json is invalid JSON: {e}"))?;
 
     if !json_val.is_object() {
-        return Err("Existing mcp_config.json is invalid: top-level value must be an object".to_string());
+        return Err(
+            "Existing mcp_config.json is invalid: top-level value must be an object".to_string(),
+        );
     }
 
-    if let Some(servers) = json_val.get_mut("mcpServers").and_then(|s| s.as_object_mut()) {
+    if let Some(servers) = json_val
+        .get_mut("mcpServers")
+        .and_then(|s| s.as_object_mut())
+    {
         servers.remove("poverello");
     }
 
@@ -6615,8 +7067,13 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 fn select_project_folder_dialog() -> Result<Option<String>, String> {
     #[cfg(target_os = "windows")]
     {
-        if let Some(path) = rfd::FileDialog::new().set_title("Select Project Folder").pick_folder() {
-            let canonical = path.canonicalize().map_err(|e| format!("Cannot canonicalize path: {e}"))?;
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Select Project Folder")
+            .pick_folder()
+        {
+            let canonical = path
+                .canonicalize()
+                .map_err(|e| format!("Cannot canonicalize path: {e}"))?;
             let repo = match plan_manager::find_enclosing_repo_root(&canonical) {
                 Ok(r) => r,
                 Err(_) => canonical,
@@ -6673,11 +7130,14 @@ fn remove_antigravity_mcp() -> Result<AntigravityMcpInfo, String> {
 // and legacy /anthro-plan, /anthro-revise, /anthro-review (Compatibility)
 // ---------------------------------------------------------------------------
 
-pub const ANTIGRAVITY_POV_PLAN_SKILL_MD: &str = include_str!("../resources/antigravity-skills/pov-mcp-plan/SKILL.md");
+pub const ANTIGRAVITY_POV_PLAN_SKILL_MD: &str =
+    include_str!("../resources/antigravity-skills/pov-mcp-plan/SKILL.md");
 
-pub const ANTIGRAVITY_POV_REVISE_SKILL_MD: &str = include_str!("../resources/antigravity-skills/pov-mcp-revise/SKILL.md");
+pub const ANTIGRAVITY_POV_REVISE_SKILL_MD: &str =
+    include_str!("../resources/antigravity-skills/pov-mcp-revise/SKILL.md");
 
-pub const ANTIGRAVITY_POV_REVIEW_SKILL_MD: &str = include_str!("../resources/antigravity-skills/pov-mcp-review/SKILL.md");
+pub const ANTIGRAVITY_POV_REVIEW_SKILL_MD: &str =
+    include_str!("../resources/antigravity-skills/pov-mcp-review/SKILL.md");
 
 pub const ANTIGRAVITY_ANTHRO_PLAN_SKILL_MD: &str = r#"---
 name: anthro-plan
@@ -6786,9 +7246,12 @@ Review an implementation against its approved implementation plan using the Pove
 9. Stop after presenting the review verdict.
 "#;
 
-pub const ANTIGRAVITY_POV_FULL_CYCLE_SKILL_MD: &str = include_str!("../resources/antigravity-skills/pov-full-cycle/SKILL.md");
-pub const ANTIGRAVITY_POV_PLAN_ONLY_SKILL_MD: &str = include_str!("../resources/antigravity-skills/pov-plan-only/SKILL.md");
-pub const ANTIGRAVITY_POV_BUILD_REVIEW_SKILL_MD: &str = include_str!("../resources/antigravity-skills/pov-build-review/SKILL.md");
+pub const ANTIGRAVITY_POV_FULL_CYCLE_SKILL_MD: &str =
+    include_str!("../resources/antigravity-skills/pov-full-cycle/SKILL.md");
+pub const ANTIGRAVITY_POV_PLAN_ONLY_SKILL_MD: &str =
+    include_str!("../resources/antigravity-skills/pov-plan-only/SKILL.md");
+pub const ANTIGRAVITY_POV_BUILD_REVIEW_SKILL_MD: &str =
+    include_str!("../resources/antigravity-skills/pov-build-review/SKILL.md");
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -6846,7 +7309,10 @@ pub struct AntigravityCommandInstallResult {
 fn antigravity_global_skills_dir() -> Result<PathBuf, String> {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
-        .map_err(|_| "Could not resolve user home directory (neither USERPROFILE nor HOME is set)".to_string())?;
+        .map_err(|_| {
+            "Could not resolve user home directory (neither USERPROFILE nor HOME is set)"
+                .to_string()
+        })?;
     Ok(PathBuf::from(home)
         .join(".gemini")
         .join("config")
@@ -6891,7 +7357,9 @@ fn ensure_no_link_or_reparse_components(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn resolve_allowed_antigravity_command(name: &str) -> Result<(&'static str, &'static str, &'static str), String> {
+pub fn resolve_allowed_antigravity_command(
+    name: &str,
+) -> Result<(&'static str, &'static str, &'static str), String> {
     match name {
         "pov-mcp-plan" => Ok(("pov-mcp-plan", "/pov-mcp-plan", ANTIGRAVITY_POV_PLAN_SKILL_MD)),
         "pov-mcp-revise" => Ok(("pov-mcp-revise", "/pov-mcp-revise", ANTIGRAVITY_POV_REVISE_SKILL_MD)),
@@ -6911,8 +7379,12 @@ pub fn resolve_allowed_antigravity_command(name: &str) -> Result<(&'static str, 
 pub fn known_v0251_hash(name: &str) -> Option<&'static str> {
     match name {
         "pov-plan-only" => Some("c34de927eba565d00073fdd88723b04e799fbe0b4c4ec5a7df5658c2a40e6c0e"),
-        "pov-build-review" => Some("1046a6e8578cd42ec2c145c4520cc49b9250afb6ab4fd53a681ee3b0bc493906"),
-        "pov-full-cycle" => Some("31517675c3e107508bd6a3ac935389f442e87d498d5fec38563d2c803afecc97"),
+        "pov-build-review" => {
+            Some("1046a6e8578cd42ec2c145c4520cc49b9250afb6ab4fd53a681ee3b0bc493906")
+        }
+        "pov-full-cycle" => {
+            Some("31517675c3e107508bd6a3ac935389f442e87d498d5fec38563d2c803afecc97")
+        }
         _ => None,
     }
 }
@@ -7078,13 +7550,21 @@ fn migrate_legacy_mcp_skill_folder(skills_root: &Path, name: &str) -> Result<(),
         }
     }
     if new_dir.exists() {
-        return Err(format!("Both legacy and renamed Skill folders exist; neither was changed: {} and {}", old_dir.display(), new_dir.display()));
+        return Err(format!(
+            "Both legacy and renamed Skill folders exist; neither was changed: {} and {}",
+            old_dir.display(),
+            new_dir.display()
+        ));
     }
     ensure_no_link_or_reparse_components(&old_dir)?;
     let old_file = old_dir.join("SKILL.md");
     ensure_no_link_or_reparse_components(&old_file)?;
-    let bytes = std::fs::read(&old_file).map_err(|e| format!("Cannot read legacy Skill; migration stopped without changing it: {e}"))?;
-    let text = String::from_utf8(bytes).map_err(|_| "Legacy Skill is not UTF-8; migration stopped without changing it".to_string())?;
+    let bytes = std::fs::read(&old_file).map_err(|e| {
+        format!("Cannot read legacy Skill; migration stopped without changing it: {e}")
+    })?;
+    let text = String::from_utf8(bytes).map_err(|_| {
+        "Legacy Skill is not UTF-8; migration stopped without changing it".to_string()
+    })?;
     let updated = text
         .replacen(&format!("name: {old}"), &format!("name: {name}"), 1)
         .replacen("# Pov Plan", "# Poverello MCP Plan", 1)
@@ -7099,10 +7579,22 @@ fn migrate_legacy_mcp_skill_folder(skills_root: &Path, name: &str) -> Result<(),
         && frontmatter[1] == format!("name: {name}")
         && frontmatter[2]
             == "description: Poverello MCP経由で、設定されたモデルへ処理を依頼するSkill";
-    if (updated == text && !already_migrated) || frontmatter.len() < 3 || frontmatter[0] != "---" || frontmatter[1] != format!("name: {name}") {
-        return Err(format!("Legacy Skill frontmatter did not match a known template; preserved at {}", old_dir.display()));
+    if (updated == text && !already_migrated)
+        || frontmatter.len() < 3
+        || frontmatter[0] != "---"
+        || frontmatter[1] != format!("name: {name}")
+    {
+        return Err(format!(
+            "Legacy Skill frontmatter did not match a known template; preserved at {}",
+            old_dir.display()
+        ));
     }
-    std::fs::write(&old_file, updated).map_err(|e| format!("Failed to update legacy Skill metadata; preserved at {}: {e}", old_dir.display()))?;
+    std::fs::write(&old_file, updated).map_err(|e| {
+        format!(
+            "Failed to update legacy Skill metadata; preserved at {}: {e}",
+            old_dir.display()
+        )
+    })?;
     std::fs::rename(&old_dir, &new_dir).map_err(|e| {
         let restore = std::fs::write(&old_file, text.as_bytes());
         format!("Failed to rename legacy Skill folder; original retained at {} (metadata restore: {:?}): {e}", old_dir.display(), restore.err())
@@ -7119,9 +7611,13 @@ where
 {
     let (clean_name, _, canonical) = resolve_allowed_antigravity_command(name)?;
     if clean_name.starts_with("anthro-") {
-        return Err("Legacy Anthro Skills are status-only and cannot be installed by this operation".to_string());
+        return Err(
+            "Legacy Anthro Skills are status-only and cannot be installed by this operation"
+                .to_string(),
+        );
     }
-    let current = inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file)?;
+    let current =
+        inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file)?;
     match current.status {
         AntigravitySkillStatus::Installed => return Ok(current),
         AntigravitySkillStatus::Invalid => {
@@ -7139,7 +7635,10 @@ where
                 .map_err(|e| format!("Failed to read SKILL.md before upgrade: {e}"))?;
             let digest = format!("{:x}", sha2::Sha256::digest(&current_bytes));
             if !is_known_outdated_antigravity_skill_hash(clean_name, &digest) {
-                return Err("Skill content changed before upgrade could complete; refusing to overwrite".to_string());
+                return Err(
+                    "Skill content changed before upgrade could complete; refusing to overwrite"
+                        .to_string(),
+                );
             }
 
             let backup_filename = format!("SKILL.md.backup-{}", uuid::Uuid::new_v4());
@@ -7152,7 +7651,9 @@ where
             let temp_file = skill_folder.join(temp_filename);
             if let Err(e) = std::fs::write(&temp_file, canonical.as_bytes()) {
                 let _ = std::fs::remove_file(&backup_file);
-                return Err(format!("Failed to write temporary replacement Skill file: {e}"));
+                return Err(format!(
+                    "Failed to write temporary replacement Skill file: {e}"
+                ));
             }
             if let Err(e) = std::fs::rename(&temp_file, &skill_file) {
                 let _ = std::fs::remove_file(&temp_file);
@@ -7165,19 +7666,26 @@ where
                 return Err("Read-back verification failed after upgrade".to_string());
             }
 
-            return inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file);
+            return inspect_antigravity_command_status_with_reader(
+                skills_root,
+                clean_name,
+                read_file,
+            );
         }
     }
     let skill_folder = skills_root.join(clean_name);
     let skill_file = skill_folder.join("SKILL.md");
     ensure_no_link_or_reparse_components(&skill_folder)?;
-    std::fs::create_dir_all(&skill_folder).map_err(|e| format!("Failed to create skill directory: {e}"))?;
+    std::fs::create_dir_all(&skill_folder)
+        .map_err(|e| format!("Failed to create skill directory: {e}"))?;
     ensure_no_link_or_reparse_components(&skill_file)?;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&skill_file)
-        .map_err(|e| format!("Failed to create SKILL.md without overwriting an existing file: {e}"))?;
+        .map_err(|e| {
+            format!("Failed to create SKILL.md without overwriting an existing file: {e}")
+        })?;
     use std::io::Write;
     file.write_all(canonical.as_bytes())
         .map_err(|e| format!("Failed to write newly created SKILL.md; partial file was preserved for inspection: {e}"))?;
@@ -7204,7 +7712,8 @@ where
     if clean_name.starts_with("anthro-") {
         return Err("Legacy Anthro Skills are status-only and cannot be updated".to_string());
     }
-    let current = inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file)?;
+    let current =
+        inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file)?;
     match current.status {
         AntigravitySkillStatus::Installed => Ok(current),
         AntigravitySkillStatus::NotInstalled => {
@@ -7218,7 +7727,9 @@ where
             let meta = std::fs::symlink_metadata(&skill_file)
                 .map_err(|e| format!("Cannot inspect SKILL.md metadata: {e}"))?;
             if !meta.is_file() {
-                return Err("SKILL.md exists but is not a regular file; refusing to repair".to_string());
+                return Err(
+                    "SKILL.md exists but is not a regular file; refusing to repair".to_string(),
+                );
             }
 
             let current_bytes = read_file(&skill_file)
@@ -7228,8 +7739,9 @@ where
             let backup_filename = format!("SKILL.md.backup-{}", uuid::Uuid::new_v4());
             let backup_file = skill_folder.join(&backup_filename);
             ensure_no_link_or_reparse_components(&backup_file)?;
-            std::fs::write(&backup_file, &current_bytes)
-                .map_err(|e| format!("Failed to create backup before updating/repairing Skill: {e}"))?;
+            std::fs::write(&backup_file, &current_bytes).map_err(|e| {
+                format!("Failed to create backup before updating/repairing Skill: {e}")
+            })?;
 
             // Verify backup content and hash
             let backup_readback = std::fs::read(&backup_file)
@@ -7237,7 +7749,10 @@ where
             let current_hash = format!("{:x}", sha2::Sha256::digest(&current_bytes));
             let backup_hash = format!("{:x}", sha2::Sha256::digest(&backup_readback));
             if current_hash != backup_hash {
-                return Err("Backup hash verification failed; aborting without modifying original".to_string());
+                return Err(
+                    "Backup hash verification failed; aborting without modifying original"
+                        .to_string(),
+                );
             }
 
             // Atomic replace
@@ -7245,7 +7760,9 @@ where
             let temp_file = skill_folder.join(temp_filename);
             if let Err(e) = std::fs::write(&temp_file, canonical.as_bytes()) {
                 let _ = std::fs::remove_file(&backup_file);
-                return Err(format!("Failed to write temporary replacement Skill file: {e}"));
+                return Err(format!(
+                    "Failed to write temporary replacement Skill file: {e}"
+                ));
             }
             if let Err(e) = std::fs::rename(&temp_file, &skill_file) {
                 let _ = std::fs::remove_file(&temp_file);
@@ -7280,7 +7797,8 @@ where
     F: Fn(&Path) -> std::io::Result<Vec<u8>>,
 {
     let (clean_name, _, _) = resolve_allowed_antigravity_command(name)?;
-    let current = inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file)?;
+    let current =
+        inspect_antigravity_command_status_with_reader(skills_root, clean_name, read_file)?;
     match current.status {
         AntigravitySkillStatus::NotInstalled => return Ok(current),
         AntigravitySkillStatus::Invalid | AntigravitySkillStatus::Outdated => {
@@ -7306,17 +7824,38 @@ where
     inspect_antigravity_command_status_at(skills_root, clean_name)
 }
 
-pub fn get_antigravity_commands_info_at(skills_root: &Path) -> Result<AntigravityCommandsInfo, String> {
+pub fn get_antigravity_commands_info_at(
+    skills_root: &Path,
+) -> Result<AntigravityCommandsInfo, String> {
     // Automatically retire managed nerf skills if present (§13)
     let _ = pov_nerf::retire_managed_nerf_skills_at(skills_root);
-    const CANONICAL: [&str; 6] = ["pov-mcp-plan", "pov-mcp-revise", "pov-mcp-review", "pov-full-cycle", "pov-plan-only", "pov-build-review"];
-    let commands = CANONICAL.iter().map(|name| inspect_antigravity_command_status_at(skills_root, name)).collect::<Result<Vec<_>, _>>()?;
+    const CANONICAL: [&str; 6] = [
+        "pov-mcp-plan",
+        "pov-mcp-revise",
+        "pov-mcp-review",
+        "pov-full-cycle",
+        "pov-plan-only",
+        "pov-build-review",
+    ];
+    let commands = CANONICAL
+        .iter()
+        .map(|name| inspect_antigravity_command_status_at(skills_root, name))
+        .collect::<Result<Vec<_>, _>>()?;
     let plan_command = commands[0].clone();
     let revise_command = commands[1].clone();
     let review_command = commands[2].clone();
-    let legacy_plan_command = Some(inspect_antigravity_command_status_at(skills_root, "anthro-plan")?);
-    let legacy_revise_command = Some(inspect_antigravity_command_status_at(skills_root, "anthro-revise")?);
-    let legacy_review_command = Some(inspect_antigravity_command_status_at(skills_root, "anthro-review")?);
+    let legacy_plan_command = Some(inspect_antigravity_command_status_at(
+        skills_root,
+        "anthro-plan",
+    )?);
+    let legacy_revise_command = Some(inspect_antigravity_command_status_at(
+        skills_root,
+        "anthro-revise",
+    )?);
+    let legacy_review_command = Some(inspect_antigravity_command_status_at(
+        skills_root,
+        "anthro-review",
+    )?);
 
     Ok(AntigravityCommandsInfo {
         skills_dir: skills_root.to_string_lossy().to_string(),
@@ -7373,12 +7912,9 @@ where
         .iter()
         .map(|name| inspect_antigravity_command_status_at(skills_root, name))
         .collect::<Result<Vec<_>, _>>()?;
-    let has_unsafe_target = preflight.iter().any(|item| {
-        matches!(
-            item.status,
-            AntigravitySkillStatus::Invalid
-        )
-    });
+    let has_unsafe_target = preflight
+        .iter()
+        .any(|item| matches!(item.status, AntigravitySkillStatus::Invalid));
     let mut results = Vec::with_capacity(names.len());
 
     if has_unsafe_target {
@@ -7435,9 +7971,9 @@ where
                     results.push(AntigravityCommandInstallResult {
                         name: (*name).to_string(),
                         outcome: AntigravityCommandInstallOutcome::Failed,
-                        message: installed.error.or_else(|| {
-                            Some("Install did not produce a synced Skill".to_string())
-                        }),
+                        message: installed
+                            .error
+                            .or_else(|| Some("Install did not produce a synced Skill".to_string())),
                     });
                 }
                 Err(error) => {
@@ -7464,13 +8000,26 @@ fn install_all_antigravity_commands_with<F>(
 where
     F: FnMut(&Path, &str) -> Result<AntigravityCommandItemInfo, String>,
 {
-    const NAMES: [&str; 6] = ["pov-mcp-plan", "pov-mcp-revise", "pov-mcp-review", "pov-full-cycle", "pov-plan-only", "pov-build-review"];
+    const NAMES: [&str; 6] = [
+        "pov-mcp-plan",
+        "pov-mcp-revise",
+        "pov-mcp-review",
+        "pov-full-cycle",
+        "pov-plan-only",
+        "pov-build-review",
+    ];
     install_targeted_antigravity_commands_with(skills_root, &NAMES, install_one)
 }
 
-pub fn install_all_antigravity_mcp_commands_at(skills_root: &Path) -> Result<AntigravityCommandsInfo, String> {
+pub fn install_all_antigravity_mcp_commands_at(
+    skills_root: &Path,
+) -> Result<AntigravityCommandsInfo, String> {
     const MCP_NAMES: [&str; 3] = ["pov-mcp-plan", "pov-mcp-revise", "pov-mcp-review"];
-    install_targeted_antigravity_commands_with(skills_root, &MCP_NAMES, install_antigravity_command_at)
+    install_targeted_antigravity_commands_with(
+        skills_root,
+        &MCP_NAMES,
+        install_antigravity_command_at,
+    )
 }
 
 #[tauri::command]
@@ -7479,7 +8028,9 @@ fn install_all_antigravity_mcp_commands() -> Result<AntigravityCommandsInfo, Str
     install_all_antigravity_mcp_commands_at(&root)
 }
 
-pub fn install_all_antigravity_commands_at(skills_root: &Path) -> Result<AntigravityCommandsInfo, String> {
+pub fn install_all_antigravity_commands_at(
+    skills_root: &Path,
+) -> Result<AntigravityCommandsInfo, String> {
     install_all_antigravity_commands_with(skills_root, install_antigravity_command_at)
 }
 
@@ -7506,15 +8057,12 @@ fn save_pov_direct_settings(
 ) -> Result<pov_direct::PovDirectStatus, String> {
     let rules_dir = paths::antigravity_global_rules_dir()?;
     let skill_file = paths::poverello_direct_skill_file()?;
-    pov_direct::save_pov_direct_settings_at(
-        &rules_dir,
-        &skill_file,
-        request,
-    )
+    pov_direct::save_pov_direct_settings_at(&rules_dir, &skill_file, request)
 }
 
 #[tauri::command]
-fn get_pov_direct_rule_management_status() -> Result<pov_direct::PovDirectRuleManagementStatus, String> {
+fn get_pov_direct_rule_management_status(
+) -> Result<pov_direct::PovDirectRuleManagementStatus, String> {
     let rules_dir = paths::antigravity_global_rules_dir()?;
     let skill_file = paths::poverello_direct_skill_file()?;
     pov_direct::inspect_pov_direct_rule_management_at(&rules_dir, &skill_file)
@@ -7545,15 +8093,13 @@ fn open_antigravity_rules_folder() -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_antigravity_nerf_engine_overview(
-) -> Result<agent_opt::NerfEngineOverview, String> {
+fn get_antigravity_nerf_engine_overview() -> Result<agent_opt::NerfEngineOverview, String> {
     let settings_file = paths::antigravity_nerf_engine_settings_path()?;
     let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
     let rules_dir = paths::antigravity_global_rules_dir()?;
     let skill_file = paths::poverello_direct_skill_file()?;
     let runner = agent_opt::RealAgentOptCliRunner;
-    let project_slots_file = resolve_project_plan_slots_settings_file("antigravity")?;
-    let project_slots = get_project_plan_slots_from_file(&project_slots_file)?;
+    let project_slots = load_agent_opt_project_slots_from_registry()?;
     let mut overview = agent_opt::inspect_nerf_engine_overview_for_projects_at(
         &settings_file,
         &cli_dir,
@@ -7573,8 +8119,7 @@ fn get_antigravity_nerf_engine_overview(
 }
 
 #[tauri::command]
-fn disable_wt_agent_hooks_global(
-) -> Result<agent_opt::AntigravityGlobalHookDiagnostic, String> {
+fn disable_wt_agent_hooks_global() -> Result<agent_opt::AntigravityGlobalHookDiagnostic, String> {
     let home = std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
         .map(std::path::PathBuf::from);
@@ -7621,7 +8166,8 @@ fn adopt_agent_opt_workspace(
 #[tauri::command]
 fn enable_agent_opt_workspace(
     workspace_path: String,
-) -> Result<agent_opt::AgentOptWorkspaceInspection, String> {    let _ = workspace_path;
+) -> Result<agent_opt::AgentOptWorkspaceInspection, String> {
+    let _ = workspace_path;
     Err("Per-workspace AgentOpt enable is disabled. Apply the selected engine to all configured projects.".to_string())
 }
 #[tauri::command]
@@ -7643,7 +8189,13 @@ fn update_agent_opt_config(
     let settings_file = paths::antigravity_nerf_engine_settings_path()?;
     let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
     let runner = agent_opt::RealAgentOptCliRunner;
-    agent_opt::update_agent_opt_config_at(&settings_file, &cli_dir, &workspace_path, &patch, &runner)
+    agent_opt::update_agent_opt_config_at(
+        &settings_file,
+        &cli_dir,
+        &workspace_path,
+        &patch,
+        &runner,
+    )
 }
 
 #[tauri::command]
@@ -7656,8 +8208,7 @@ fn switch_antigravity_nerf_engine(
     let rules_dir = paths::antigravity_global_rules_dir()?;
     let skill_file = paths::poverello_direct_skill_file()?;
     let runner = agent_opt::RealAgentOptCliRunner;
-    let project_slots_file = resolve_project_plan_slots_settings_file("antigravity")?;
-    let project_slots = get_project_plan_slots_from_file(&project_slots_file)?;
+    let project_slots = load_agent_opt_project_slots_from_registry()?;
     agent_opt::switch_nerf_engine_for_projects_at(
         &settings_file,
         &cli_dir,
@@ -7670,15 +8221,13 @@ fn switch_antigravity_nerf_engine(
 }
 
 #[tauri::command]
-fn apply_selected_antigravity_nerf_engine(
-) -> Result<agent_opt::EngineTransitionResult, String> {
+fn apply_selected_antigravity_nerf_engine() -> Result<agent_opt::EngineTransitionResult, String> {
     let settings_file = paths::antigravity_nerf_engine_settings_path()?;
     let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
     let rules_dir = paths::antigravity_global_rules_dir()?;
     let skill_file = paths::poverello_direct_skill_file()?;
     let runner = agent_opt::RealAgentOptCliRunner;
-    let project_slots_file = resolve_project_plan_slots_settings_file("antigravity")?;
-    let project_slots = get_project_plan_slots_from_file(&project_slots_file)?;
+    let project_slots = load_agent_opt_project_slots_from_registry()?;
     agent_opt::apply_selected_nerf_engine_for_projects_at(
         &settings_file,
         &cli_dir,
@@ -7700,8 +8249,7 @@ fn set_antigravity_agent_opt_workspace_selection(
     let rules_dir = paths::antigravity_global_rules_dir()?;
     let skill_file = paths::poverello_direct_skill_file()?;
     let runner = agent_opt::RealAgentOptCliRunner;
-    let project_slots_file = resolve_project_plan_slots_settings_file("antigravity")?;
-    let project_slots = get_project_plan_slots_from_file(&project_slots_file)?;
+    let project_slots = load_agent_opt_project_slots_from_registry()?;
     agent_opt::set_agent_opt_workspace_selection_at(
         &settings_file,
         &cli_dir,
@@ -7739,8 +8287,7 @@ fn update_agent_opt_project_preference(
     let cli_dir = paths::antigravity_agent_opt_cli_dir()?;
     let rules_dir = paths::antigravity_global_rules_dir()?;
     let skill_file = paths::poverello_direct_skill_file()?;
-    let project_slots_file = resolve_project_plan_slots_settings_file("antigravity")?;
-    let project_slots = get_project_plan_slots_from_file(&project_slots_file)?;
+    let project_slots = load_agent_opt_project_slots_from_registry()?;
     let runner = agent_opt::RealAgentOptCliRunner;
     agent_opt::set_agent_opt_project_preference_at(
         &settings_file,
@@ -7763,12 +8310,16 @@ fn update_antigravity_command(name: String) -> Result<AntigravityCommandsInfo, S
 }
 
 #[tauri::command]
-async fn get_cli_tools_status(refresh: Option<bool>) -> Result<Vec<cli_tools::CliToolInfo>, String> {
+async fn get_cli_tools_status(
+    refresh: Option<bool>,
+) -> Result<Vec<cli_tools::CliToolInfo>, String> {
     cli_tools::get_cli_tools_status_cached(refresh.unwrap_or(false)).await
 }
 
 #[tauri::command]
-async fn get_codex_account_info(refresh: Option<bool>) -> Result<cli_tools::CodexAccountInfo, String> {
+async fn get_codex_account_info(
+    refresh: Option<bool>,
+) -> Result<cli_tools::CodexAccountInfo, String> {
     cli_tools::get_codex_account_info_cached(refresh.unwrap_or(false)).await
 }
 
@@ -7833,7 +8384,8 @@ fn restore_codex_skill_backup(name: String) -> Result<codex_skills::CodexSkillIt
 }
 
 #[tauri::command]
-fn migrate_codex_skill_quarantines() -> Result<codex_skills::CodexSkillQuarantineMigrationResult, String> {
+fn migrate_codex_skill_quarantines(
+) -> Result<codex_skills::CodexSkillQuarantineMigrationResult, String> {
     let dir = codex_skills::resolve_codex_user_skills_dir()?;
     codex_skills::migrate_legacy_skill_quarantines_at(&dir)
 }
@@ -7853,7 +8405,8 @@ fn get_codex_global_rules_status() -> codex_global_rules::CodexGlobalRulesStatus
 }
 
 #[tauri::command]
-fn install_or_update_codex_global_rules() -> Result<codex_global_rules::CodexGlobalRulesStatus, String> {
+fn install_or_update_codex_global_rules(
+) -> Result<codex_global_rules::CodexGlobalRulesStatus, String> {
     let home = codex_global_rules::resolve_codex_home()?;
     codex_global_rules::install_or_update_codex_global_rules_at(&home)
 }
@@ -7886,7 +8439,9 @@ fn save_codex_review_settings(
 }
 
 #[tauri::command]
-fn get_reviewer_diagnostic_events(limit: Option<usize>) -> Result<Vec<reviewer_diagnostics::ReviewerDiagnosticEvent>, String> {
+fn get_reviewer_diagnostic_events(
+    limit: Option<usize>,
+) -> Result<Vec<reviewer_diagnostics::ReviewerDiagnosticEvent>, String> {
     let dir = reviewer_diagnostics::get_diagnostics_dir();
     reviewer_diagnostics::read_diagnostic_events_at(&dir, limit.unwrap_or(50))
 }
@@ -7898,7 +8453,9 @@ fn export_reviewer_diagnostics_report(run_id: Option<String>) -> Result<String, 
 }
 
 #[tauri::command]
-fn record_reviewer_diagnostic_event(event: reviewer_diagnostics::ReviewerDiagnosticEvent) -> Result<(), String> {
+fn record_reviewer_diagnostic_event(
+    event: reviewer_diagnostics::ReviewerDiagnosticEvent,
+) -> Result<(), String> {
     let dir = reviewer_diagnostics::get_diagnostics_dir();
     reviewer_diagnostics::append_diagnostic_event_at(&dir, &event)
 }
@@ -7911,7 +8468,12 @@ fn list_available_plans(
     slot_id: Option<String>,
 ) -> Result<plan_manager::PlanOverview, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
-    plan_manager::get_plan_overview(&repo_root, folder_path.as_deref(), surface.as_deref(), slot_id.as_deref())
+    plan_manager::get_plan_overview(
+        &repo_root,
+        folder_path.as_deref(),
+        surface.as_deref(),
+        slot_id.as_deref(),
+    )
 }
 
 #[tauri::command]
@@ -7982,7 +8544,10 @@ fn replace_file_win(temp: &std::path::Path, target: &std::path::Path) -> std::io
 }
 
 #[cfg(windows)]
-fn move_file_win_no_replace(source: &std::path::Path, target: &std::path::Path) -> std::io::Result<()> {
+fn move_file_win_no_replace(
+    source: &std::path::Path,
+    target: &std::path::Path,
+) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     unsafe extern "system" {
         fn MoveFileW(existing: *const u16, new: *const u16) -> i32;
@@ -8024,7 +8589,12 @@ fn save_plan_manager_location_to_file(
     backups_subfolder: &str,
     normalized_path: Option<&str>,
 ) -> Result<(), String> {
-    save_plan_manager_location_to_file_with_hook(target_file, backups_subfolder, normalized_path, |_| Ok(()))
+    save_plan_manager_location_to_file_with_hook(
+        target_file,
+        backups_subfolder,
+        normalized_path,
+        |_| Ok(()),
+    )
 }
 
 fn save_plan_manager_location_to_file_with_hook<F>(
@@ -8036,23 +8606,32 @@ fn save_plan_manager_location_to_file_with_hook<F>(
 where
     F: FnOnce(&std::path::Path) -> Result<(), String>,
 {
-    let parent = target_file
-        .parent()
-        .ok_or_else(|| format!("Target file has no parent directory: {}", target_file.display()))?;
+    let parent = target_file.parent().ok_or_else(|| {
+        format!(
+            "Target file has no parent directory: {}",
+            target_file.display()
+        )
+    })?;
     ensure_no_link_or_reparse_components(parent)?;
     ensure_no_link_or_reparse_components(target_file)?;
 
     // Snapshot the source before any backup/staging work; verify this exact state again
     // immediately before replacement to avoid overwriting concurrent edits.
-    let original_bytes = if target_file.exists() {
-        Some(std::fs::read(target_file)
-            .map_err(|e| format!("Failed to read target file {}: {e}", target_file.display()))?)
-    } else {
-        None
-    };
+    let original_bytes =
+        if target_file.exists() {
+            Some(std::fs::read(target_file).map_err(|e| {
+                format!("Failed to read target file {}: {e}", target_file.display())
+            })?)
+        } else {
+            None
+        };
 
-    std::fs::create_dir_all(parent)
-        .map_err(|e| format!("Failed to create parent directory for {}: {e}", target_file.display()))?;
+    std::fs::create_dir_all(parent).map_err(|e| {
+        format!(
+            "Failed to create parent directory for {}: {e}",
+            target_file.display()
+        )
+    })?;
     ensure_no_link_or_reparse_components(parent)?;
     ensure_no_link_or_reparse_components(target_file)?;
 
@@ -8071,11 +8650,8 @@ where
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("config.json");
-        let backup_file = backups_dir.join(format!(
-            "{}.backup-{}",
-            file_name,
-            uuid::Uuid::new_v4()
-        ));
+        let backup_file =
+            backups_dir.join(format!("{}.backup-{}", file_name, uuid::Uuid::new_v4()));
         ensure_no_link_or_reparse_components(&backup_file)?;
         std::fs::copy(target_file, &backup_file)
             .map_err(|e| format!("Failed to create backup file: {e}"))?;
@@ -8106,7 +8682,10 @@ where
     if let Some(obj) = value.as_object_mut() {
         match normalized_path {
             Some(p) => {
-                obj.insert("plan_root_path".to_string(), serde_json::Value::String(p.to_string()));
+                obj.insert(
+                    "plan_root_path".to_string(),
+                    serde_json::Value::String(p.to_string()),
+                );
             }
             None => {
                 obj.remove("plan_root_path");
@@ -8123,11 +8702,7 @@ where
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("config");
-    let staged = parent.join(format!(
-        ".{}.staged-{}",
-        file_stem,
-        uuid::Uuid::new_v4()
-    ));
+    let staged = parent.join(format!(".{}.staged-{}", file_stem, uuid::Uuid::new_v4()));
     let mut staged_file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -8139,8 +8714,8 @@ where
         .map_err(|e| format!("Failed to write staged settings: {e}"))?;
     drop(staged_file);
 
-    let staged_bytes = std::fs::read(&staged)
-        .map_err(|e| format!("Failed to read staged settings: {e}"))?;
+    let staged_bytes =
+        std::fs::read(&staged).map_err(|e| format!("Failed to read staged settings: {e}"))?;
     if sha2::Sha256::digest(&staged_bytes) != sha2::Sha256::digest(serialized.as_bytes()) {
         let _ = std::fs::remove_file(&staged);
         return Err("Read-back verification failed for staged settings write.".to_string());
@@ -8159,8 +8734,10 @@ where
         return Err(error);
     }
     let current_bytes = if target_file.exists() {
-        Some(std::fs::read(target_file)
-            .map_err(|e| format!("Failed to re-read target before replacement: {e}"))?)
+        Some(
+            std::fs::read(target_file)
+                .map_err(|e| format!("Failed to re-read target before replacement: {e}"))?,
+        )
     } else {
         None
     };
@@ -8189,7 +8766,10 @@ where
 }
 
 #[tauri::command]
-fn set_plan_manager_location(surface: String, path: Option<String>) -> Result<Option<String>, String> {
+fn set_plan_manager_location(
+    surface: String,
+    path: Option<String>,
+) -> Result<Option<String>, String> {
     if !matches!(surface.as_str(), "codex" | "antigravity") {
         return Err(format!("Unsupported surface: '{surface}'"));
     }
@@ -8237,9 +8817,13 @@ fn normalize_plan_manager_location(path: Option<&str>) -> Result<Option<String>,
             if !p.is_dir() {
                 return Err(format!("Specified path is not a directory: '{trimmed}'"));
             }
-            let canonical = p.canonicalize().map_err(|e| format!("Cannot canonicalize path: {e}"))?;
+            let canonical = p
+                .canonicalize()
+                .map_err(|e| format!("Cannot canonicalize path: {e}"))?;
             // If the user selected the .plan folder directly, resolve its parent as repo_root
-            let effective = if canonical.file_name().and_then(|n| n.to_str()) == Some(plan_manager::PLAN_DIR_NAME) {
+            let effective = if canonical.file_name().and_then(|n| n.to_str())
+                == Some(plan_manager::PLAN_DIR_NAME)
+            {
                 canonical.parent().unwrap_or(&canonical).to_path_buf()
             } else {
                 canonical
@@ -8301,7 +8885,9 @@ fn select_plan_folder_dialog(
     };
 
     let repo_root = plan_manager::resolve_repo_root(Some(&effective_target))?;
-    let canonical_repo = repo_root.canonicalize().map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
+    let canonical_repo = repo_root
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
 
     #[cfg(target_os = "windows")]
     {
@@ -8316,13 +8902,21 @@ fn select_plan_folder_dialog(
             .pick_folder();
 
         if let Some(path) = picked {
-            let canonical_picked = path.canonicalize().map_err(|e| format!("Cannot canonicalize picked folder: {e}"))?;
+            let canonical_picked = path
+                .canonicalize()
+                .map_err(|e| format!("Cannot canonicalize picked folder: {e}"))?;
             if !canonical_picked.starts_with(&canonical_repo) {
                 return Err("Selected folder must be inside the repository root".to_string());
             }
-            let rel = canonical_picked.strip_prefix(&canonical_repo).map_err(|e| e.to_string())?;
+            let rel = canonical_picked
+                .strip_prefix(&canonical_repo)
+                .map_err(|e| e.to_string())?;
             let rel_str = rel.to_string_lossy().replace('\\', "/");
-            Ok(Some(if rel_str.is_empty() { ".".to_string() } else { rel_str }))
+            Ok(Some(if rel_str.is_empty() {
+                ".".to_string()
+            } else {
+                rel_str
+            }))
         } else {
             Ok(None)
         }
@@ -8423,7 +9017,8 @@ fn select_plan_file_dialog(
     dialog_title: Option<String>,
 ) -> Result<Option<SelectedPlanResult>, String> {
     let root_ref = repo_path.as_deref().map(std::path::Path::new);
-    let starting_dir = resolve_plan_dialog_starting_dir(root_ref, surface.as_deref(), slot_id.as_deref());
+    let starting_dir =
+        resolve_plan_dialog_starting_dir(root_ref, surface.as_deref(), slot_id.as_deref());
 
     let title = dialog_title
         .filter(|t| !t.trim().is_empty())
@@ -8584,9 +9179,16 @@ fn set_active_plan(
     slot_id: Option<String>,
 ) -> Result<plan_manager::PlanOverview, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
-    let parent_folder = std::path::Path::new(&relative_path).parent().and_then(|p| p.to_str());
+    let parent_folder = std::path::Path::new(&relative_path)
+        .parent()
+        .and_then(|p| p.to_str());
     // Write canonical repo-local state first.
-    let details = plan_manager::set_active_plan(&repo_root, &relative_path, surface.as_deref(), slot_id.as_deref())?;
+    let details = plan_manager::set_active_plan(
+        &repo_root,
+        &relative_path,
+        surface.as_deref(),
+        slot_id.as_deref(),
+    )?;
 
     // Refresh derived global compatibility mirror; mirror failures must not overwrite canonical state.
     if let (Some(surf), Some(slot_name)) = (surface.as_deref(), slot_id.as_deref()) {
@@ -8603,7 +9205,12 @@ fn set_active_plan(
         }
     }
 
-    plan_manager::get_plan_overview(&repo_root, parent_folder, surface.as_deref(), slot_id.as_deref())
+    plan_manager::get_plan_overview(
+        &repo_root,
+        parent_folder,
+        surface.as_deref(),
+        slot_id.as_deref(),
+    )
 }
 
 #[tauri::command]
@@ -8650,7 +9257,10 @@ fn set_active_plan_slot(
             warnings.push(format!("Overview refresh failed after canonical save: {e}"));
             plan_manager::PlanOverview {
                 repo_root: repo_root.to_string_lossy().to_string(),
-                plans_dir: repo_root.join(plan_manager::PLAN_DIR_NAME).to_string_lossy().to_string(),
+                plans_dir: repo_root
+                    .join(plan_manager::PLAN_DIR_NAME)
+                    .to_string_lossy()
+                    .to_string(),
                 selected_folder: parent_folder.map(|s| s.to_string()),
                 active_plan_path: Some(details.abs_path.clone()),
                 active_plan_relative_path: Some(details.rel_path.clone()),
@@ -8703,7 +9313,9 @@ fn get_project_plan_slots_from_file(
     let val: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
 
     if let Some(slots_arr) = val.get("slots") {
-        if let Ok(mut slots) = serde_json::from_value::<Vec<plan_manager::ProjectPlanSlot>>(slots_arr.clone()) {
+        if let Ok(mut slots) =
+            serde_json::from_value::<Vec<plan_manager::ProjectPlanSlot>>(slots_arr.clone())
+        {
             if !slots.is_empty() {
                 slots.truncate(2);
                 // Keep only recognized valid slot IDs; if an ID is missing, only assign primary
@@ -8730,7 +9342,10 @@ fn get_project_plan_slots_from_file(
         }
     }
 
-    let active_plan = val.get("active_plan_path").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let active_plan = val
+        .get("active_plan_path")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let mut resolved_repo: Option<String> = None;
     let mut resolved_plan: Option<String> = active_plan.clone();
 
@@ -8778,9 +9393,351 @@ fn get_project_plan_slots(surface: String) -> Result<Vec<plan_manager::ProjectPl
     get_project_plan_slots_from_file(&target_file)
 }
 
+fn ensure_project_registry_loaded() -> Result<project_registry::ProjectRegistryState, String> {
+    let registry_path = paths::project_registry_path();
+    let codex_file = resolve_project_plan_slots_settings_file("codex").ok();
+    let ag_file = resolve_project_plan_slots_settings_file("antigravity").ok();
+    let state = project_registry::migrate_legacy_projects_if_needed(
+        &registry_path,
+        codex_file.as_deref(),
+        ag_file.as_deref(),
+    )?;
+    if let Ok(ao_settings_path) = paths::antigravity_nerf_engine_settings_path() {
+        if ao_settings_path.exists() {
+            if let Ok(mut ao_settings) = agent_opt::load_nerf_engine_settings(&ao_settings_path) {
+                if agent_opt::migrate_agent_opt_project_preferences_to_project_ids(
+                    &mut ao_settings,
+                    &state.projects,
+                ) {
+                    let _ = agent_opt::save_nerf_engine_settings(&ao_settings_path, &ao_settings);
+                }
+            }
+        }
+    }
+    Ok(state)
+}
+
+fn load_agent_opt_project_slots_from_registry() -> Result<Vec<plan_manager::ProjectPlanSlot>, String>
+{
+    let state = ensure_project_registry_loaded()?;
+    Ok(state
+        .projects
+        .into_iter()
+        .map(|p| {
+            let plan_path = p.plan_path_for_surface("antigravity").map(str::to_string);
+            plan_manager::ProjectPlanSlot {
+                slot_id: p.project_id,
+                repo_path: Some(p.repo_root),
+                plan_path,
+            }
+        })
+        .collect())
+}
+
+fn sync_surface_compatibility_mirrors(state: &project_registry::ProjectRegistryState) {
+    for surface in ["codex", "antigravity"] {
+        let Ok(settings_file) = resolve_project_plan_slots_settings_file(surface) else {
+            continue;
+        };
+        let slots: Vec<plan_manager::ProjectPlanSlot> = state
+            .projects
+            .iter()
+            .take(2)
+            .enumerate()
+            .map(|(idx, p)| plan_manager::ProjectPlanSlot {
+                slot_id: if idx == 0 {
+                    "primary".to_string()
+                } else {
+                    "secondary".to_string()
+                },
+                repo_path: Some(p.repo_root.clone()),
+                plan_path: p.plan_path_for_surface(surface).map(str::to_string),
+            })
+            .collect();
+        if slots.is_empty() {
+            continue;
+        }
+        let backups_subfolder = if surface == "antigravity" {
+            "reviewer-policy"
+        } else {
+            "codex-review-settings"
+        };
+        let _ =
+            save_project_plan_slots_to_file(&settings_file, backups_subfolder, &slots, None, None);
+    }
+}
+
 #[tauri::command]
-fn get_selected_project_plan_context(surface: String) -> Result<ActivePlanContextView, String> {
-    if surface != "antigravity" {
+fn get_project_registry() -> Result<project_registry::ProjectRegistryView, String> {
+    Ok(ensure_project_registry_loaded()?.into())
+}
+
+#[tauri::command]
+fn register_project_in_registry(
+    repo_path: String,
+    plan_path: Option<String>,
+    display_name: Option<String>,
+    surface: Option<String>,
+) -> Result<project_registry::ProjectRegistryView, String> {
+    let _ = ensure_project_registry_loaded()?;
+    let registry_path = paths::project_registry_path();
+    let state = if let Some(surface) = surface.as_deref() {
+        project_registry::register_or_update_project_for_surface_at(
+            &registry_path,
+            surface,
+            &repo_path,
+            plan_path.as_deref(),
+            display_name.as_deref(),
+        )?
+    } else {
+        project_registry::register_or_update_project_at(
+            &registry_path,
+            &repo_path,
+            plan_path.as_deref(),
+            display_name.as_deref(),
+        )?
+    };
+    sync_surface_compatibility_mirrors(&state);
+    Ok(state.into())
+}
+
+#[tauri::command]
+fn set_project_plan_path(
+    project_id: String,
+    plan_path: Option<String>,
+    surface: Option<String>,
+) -> Result<project_registry::ProjectRegistryView, String> {
+    let _ = ensure_project_registry_loaded()?;
+    let registry_path = paths::project_registry_path();
+    let state = if let Some(surface) = surface.as_deref() {
+        project_registry::set_project_plan_path_for_surface_at(
+            &registry_path,
+            &project_id,
+            surface,
+            plan_path.as_deref(),
+        )?
+    } else {
+        project_registry::set_project_plan_path_at(
+            &registry_path,
+            &project_id,
+            plan_path.as_deref(),
+        )?
+    };
+    sync_surface_compatibility_mirrors(&state);
+    Ok(state.into())
+}
+
+#[tauri::command]
+fn replace_project_plan_association(
+    source_project_id: String,
+    target_repo_path: String,
+    target_plan_path: String,
+    surface: Option<String>,
+) -> Result<project_registry::ProjectRegistryView, String> {
+    let _ = ensure_project_registry_loaded()?;
+    let registry_path = paths::project_registry_path();
+    let state = if let Some(surface) = surface.as_deref() {
+        project_registry::replace_project_plan_association_for_surface_at(
+            &registry_path,
+            &source_project_id,
+            &target_repo_path,
+            &target_plan_path,
+            surface,
+        )?
+    } else {
+        project_registry::replace_project_plan_association_at(
+            &registry_path,
+            &source_project_id,
+            &target_repo_path,
+            &target_plan_path,
+        )?
+    };
+    sync_surface_compatibility_mirrors(&state);
+    Ok(state.into())
+}
+
+#[tauri::command]
+fn rename_project_in_registry(
+    project_id: String,
+    display_name: String,
+) -> Result<project_registry::ProjectRegistryView, String> {
+    let _ = ensure_project_registry_loaded()?;
+    let registry_path = paths::project_registry_path();
+    let state = project_registry::rename_project_at(&registry_path, &project_id, &display_name)?;
+    Ok(state.into())
+}
+
+#[tauri::command]
+fn reorder_projects_in_registry(
+    ordered_project_ids: Vec<String>,
+) -> Result<project_registry::ProjectRegistryView, String> {
+    let _ = ensure_project_registry_loaded()?;
+    let registry_path = paths::project_registry_path();
+    let state = project_registry::reorder_projects_at(&registry_path, &ordered_project_ids)?;
+    Ok(state.into())
+}
+
+#[tauri::command]
+fn unregister_project_from_registry(
+    project_id: String,
+    surface: Option<String>,
+) -> Result<project_registry::ProjectRegistryView, String> {
+    let _ = ensure_project_registry_loaded()?;
+    let registry_path = paths::project_registry_path();
+    let state = if let Some(surface) = surface.as_deref() {
+        project_registry::unregister_project_surface_at(&registry_path, &project_id, surface)?
+    } else {
+        project_registry::unregister_project_at(&registry_path, &project_id)?
+    };
+    sync_surface_compatibility_mirrors(&state);
+    Ok(state.into())
+}
+
+#[tauri::command]
+fn resolve_project_migration_conflict(
+    conflict_id: String,
+    chosen_plan_path: Option<String>,
+) -> Result<project_registry::ProjectRegistryView, String> {
+    let _ = ensure_project_registry_loaded()?;
+    let registry_path = paths::project_registry_path();
+    let state = project_registry::resolve_migration_conflict_at(
+        &registry_path,
+        &conflict_id,
+        chosen_plan_path.as_deref(),
+    )?;
+    sync_surface_compatibility_mirrors(&state);
+    Ok(state.into())
+}
+
+#[tauri::command]
+fn resolve_project_context(
+    surface: String,
+    repo_path: Option<String>,
+) -> Result<project_registry::ResolvedProjectContext, String> {
+    let _ = ensure_project_registry_loaded()?;
+    let registry_path = paths::project_registry_path();
+    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
+    project_registry::resolve_project_context_for_repo_at(&registry_path, &surface, &repo_root)
+}
+
+#[tauri::command]
+fn resolve_project_context_for_plan(
+    surface: String,
+    selected_plan_path: String,
+) -> Result<project_registry::ResolvedProjectContext, String> {
+    let _ = ensure_project_registry_loaded()?;
+    let registry_path = paths::project_registry_path();
+    project_registry::resolve_project_context_for_plan_at(
+        &registry_path,
+        &surface,
+        std::path::Path::new(&selected_plan_path),
+    )
+}
+
+#[tauri::command]
+fn get_project_role_assignment(
+    _repo_path: String,
+    _project_id: String,
+    surface: String,
+) -> Result<plan_manager::RoleAssignment, String> {
+    require_shared_workflow_role_assignment(&surface)
+}
+
+#[tauri::command]
+fn set_project_role_assignment(
+    _repo_path: String,
+    _project_id: String,
+    surface: String,
+    assignment: plan_manager::RoleAssignment,
+) -> Result<plan_manager::RoleAssignment, String> {
+    Ok(
+        codex_review_settings::set_workflow_role_assignment(&surface, assignment)?
+            .assignment
+            .unwrap_or_default(),
+    )
+}
+
+fn require_shared_workflow_role_assignment(
+    surface: &str,
+) -> Result<plan_manager::RoleAssignment, String> {
+    let _ = ensure_project_registry_loaded()?;
+    let view = codex_review_settings::get_workflow_role_assignment(surface)?;
+    view.assignment.ok_or_else(|| {
+        if view.legacy_conflict {
+            format!("Shared {surface} workflow roles are unresolved because registered projects contain different legacy assignments. Choose the common Planner and Reviser roles once in Autocode settings.")
+        } else {
+            format!("Shared {surface} workflow roles are not configured. Choose Planner and Reviser once in Autocode settings before starting this workflow.")
+        }
+    })
+}
+
+#[tauri::command]
+fn get_workflow_role_assignment(
+    surface: String,
+) -> Result<codex_review_settings::WorkflowRoleAssignmentView, String> {
+    let _ = ensure_project_registry_loaded()?;
+    codex_review_settings::get_workflow_role_assignment(&surface)
+}
+
+#[tauri::command]
+fn set_workflow_role_assignment(
+    surface: String,
+    assignment: plan_manager::RoleAssignment,
+) -> Result<codex_review_settings::WorkflowRoleAssignmentView, String> {
+    codex_review_settings::set_workflow_role_assignment(&surface, assignment)
+}
+
+#[tauri::command]
+fn launch_pinned_plan_workflow_for_selected_plan(
+    surface: String,
+    selected_plan_path: String,
+) -> Result<plan_manager::PinnedWorkflowLaunch, String> {
+    let _ = ensure_project_registry_loaded()?;
+    let registry_path = paths::project_registry_path();
+    let assignment = require_shared_workflow_role_assignment(&surface)?;
+    plan_manager::launch_pinned_plan_workflow_for_plan(
+        &registry_path,
+        &surface,
+        std::path::Path::new(&selected_plan_path),
+        assignment,
+    )
+}
+
+#[tauri::command]
+fn get_selected_project_plan_context(
+    surface: String,
+    repo_path: Option<String>,
+) -> Result<ActivePlanContextView, String> {
+    if !matches!(surface.as_str(), "antigravity" | "codex") {
+        return Ok(ActivePlanContextView {
+            surface,
+            repo_root: None,
+            slot_id: None,
+            plan_path: None,
+            resolved: false,
+        });
+    }
+    let registry_path = paths::project_registry_path();
+    if registry_path.exists() {
+        if let Some(rp) = repo_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if let Ok(ctx) = project_registry::resolve_project_context_for_repo_at(
+                &registry_path,
+                &surface,
+                std::path::Path::new(rp),
+            ) {
+                return Ok(ActivePlanContextView {
+                    surface: ctx.surface,
+                    repo_root: Some(ctx.repo_root),
+                    slot_id: Some(ctx.project_id),
+                    plan_path: Some(ctx.plan_path),
+                    resolved: true,
+                });
+            }
+        }
         return Ok(ActivePlanContextView {
             surface,
             repo_root: None,
@@ -8790,15 +9747,33 @@ fn get_selected_project_plan_context(surface: String) -> Result<ActivePlanContex
         });
     }
     let settings_file = resolve_project_plan_slots_settings_file(&surface)?;
-    let selected = get_selected_antigravity_plan_slot_from_file(&settings_file)?;
+    get_selected_project_plan_context_from_file(&surface, &settings_file)
+}
+
+fn get_selected_project_plan_context_from_file(
+    surface: &str,
+    settings_file: &std::path::Path,
+) -> Result<ActivePlanContextView, String> {
+    let selected = get_selected_antigravity_plan_slot_from_file(settings_file)?;
     let resolved = selected.len() == 1
-        && selected[0].repo_path.as_deref().is_some_and(|path| !path.trim().is_empty())
+        && selected[0]
+            .repo_path
+            .as_deref()
+            .is_some_and(|path| !path.trim().is_empty())
         && matches!(selected[0].slot_id.as_str(), "primary" | "secondary");
     let slot = selected.first();
     Ok(ActivePlanContextView {
-        surface,
-        repo_root: if resolved { slot.and_then(|item| item.repo_path.clone()) } else { None },
-        slot_id: if resolved { slot.map(|item| item.slot_id.clone()) } else { None },
+        surface: surface.to_string(),
+        repo_root: if resolved {
+            slot.and_then(|item| item.repo_path.clone())
+        } else {
+            None
+        },
+        slot_id: if resolved {
+            slot.map(|item| item.slot_id.clone())
+        } else {
+            None
+        },
         plan_path: slot.and_then(|item| item.plan_path.clone()),
         resolved,
     })
@@ -8819,8 +9794,7 @@ fn get_selected_antigravity_plan_slot_from_file(
         .get("active_plan_path")
         .and_then(|v| v.as_str())
         .map(str::trim)
-        .filter(|s| !s.is_empty())
-        ;
+        .filter(|s| !s.is_empty());
     let Some(active_plan) = active_plan else {
         return Ok(Vec::new());
     };
@@ -8885,21 +9859,30 @@ fn save_project_plan_slots_to_file(
     derived_active_plan_path: Option<&str>,
     derived_active_plan_repo_path: Option<&str>,
 ) -> Result<(), String> {
-    let parent = target_file
-        .parent()
-        .ok_or_else(|| format!("Target file has no parent directory: {}", target_file.display()))?;
+    let parent = target_file.parent().ok_or_else(|| {
+        format!(
+            "Target file has no parent directory: {}",
+            target_file.display()
+        )
+    })?;
     ensure_no_link_or_reparse_components(parent)?;
     ensure_no_link_or_reparse_components(target_file)?;
 
-    let original_bytes = if target_file.exists() {
-        Some(std::fs::read(target_file)
-            .map_err(|e| format!("Failed to read target file {}: {e}", target_file.display()))?)
-    } else {
-        None
-    };
+    let original_bytes =
+        if target_file.exists() {
+            Some(std::fs::read(target_file).map_err(|e| {
+                format!("Failed to read target file {}: {e}", target_file.display())
+            })?)
+        } else {
+            None
+        };
 
-    std::fs::create_dir_all(parent)
-        .map_err(|e| format!("Failed to create parent directory for {}: {e}", target_file.display()))?;
+    std::fs::create_dir_all(parent).map_err(|e| {
+        format!(
+            "Failed to create parent directory for {}: {e}",
+            target_file.display()
+        )
+    })?;
     ensure_no_link_or_reparse_components(parent)?;
     ensure_no_link_or_reparse_components(target_file)?;
 
@@ -8917,11 +9900,8 @@ fn save_project_plan_slots_to_file(
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("config.json");
-        let backup_file = backups_dir.join(format!(
-            "{}.backup-{}",
-            file_name,
-            uuid::Uuid::new_v4()
-        ));
+        let backup_file =
+            backups_dir.join(format!("{}.backup-{}", file_name, uuid::Uuid::new_v4()));
         ensure_no_link_or_reparse_components(&backup_file)?;
         std::fs::copy(target_file, &backup_file)
             .map_err(|e| format!("Failed to create backup file: {e}"))?;
@@ -8965,27 +9945,35 @@ fn save_project_plan_slots_to_file(
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("config");
-    let staged = parent.join(format!(
-        ".{}.staged-{}",
-        file_stem,
-        uuid::Uuid::new_v4()
-    ));
+    let staged = parent.join(format!(".{}.staged-{}", file_stem, uuid::Uuid::new_v4()));
 
-    std::fs::write(&staged, serialized.as_bytes())
-        .map_err(|e| format!("Failed to write staged configuration to {}: {e}", staged.display()))?;
+    std::fs::write(&staged, serialized.as_bytes()).map_err(|e| {
+        format!(
+            "Failed to write staged configuration to {}: {e}",
+            staged.display()
+        )
+    })?;
 
     #[cfg(windows)]
     {
-        if let Err(e) = commit_staged_settings_file_win(&staged, target_file, original_bytes.is_some()) {
+        if let Err(e) =
+            commit_staged_settings_file_win(&staged, target_file, original_bytes.is_some())
+        {
             let _ = std::fs::remove_file(&staged);
-            return Err(format!("Atomic settings write failed for {}: {e}", target_file.display()));
+            return Err(format!(
+                "Atomic settings write failed for {}: {e}",
+                target_file.display()
+            ));
         }
     }
     #[cfg(not(windows))]
     {
         if let Err(e) = std::fs::rename(&staged, target_file) {
             let _ = std::fs::remove_file(&staged);
-            return Err(format!("Atomic rename failed for {}: {e}", target_file.display()));
+            return Err(format!(
+                "Atomic rename failed for {}: {e}",
+                target_file.display()
+            ));
         }
     }
 
@@ -8993,7 +9981,12 @@ fn save_project_plan_slots_to_file(
 }
 
 #[tauri::command]
-fn set_project_plan_slots(surface: String, slots: Vec<plan_manager::ProjectPlanSlot>) -> Result<Vec<plan_manager::ProjectPlanSlot>, String> {
+fn set_project_plan_slots(
+    surface: String,
+    slots: Vec<plan_manager::ProjectPlanSlot>,
+    active_slot_id: Option<String>,
+    active_repo_path: Option<String>,
+) -> Result<Vec<plan_manager::ProjectPlanSlot>, String> {
     if !matches!(surface.as_str(), "codex" | "antigravity") {
         return Err(format!("Unsupported surface: '{surface}'"));
     }
@@ -9004,13 +9997,29 @@ fn set_project_plan_slots(surface: String, slots: Vec<plan_manager::ProjectPlanS
         return Err("Maximum of 2 project plan slots allowed".to_string());
     }
     let settings_file = resolve_project_plan_slots_settings_file(&surface)?;
-    set_project_plan_slots_at_file(&surface, slots, &settings_file)
+    set_project_plan_slots_at_file_with_active(
+        &surface,
+        slots,
+        &settings_file,
+        active_slot_id.as_deref(),
+        active_repo_path.as_deref(),
+    )
 }
 
 fn set_project_plan_slots_at_file(
     surface: &str,
     slots: Vec<plan_manager::ProjectPlanSlot>,
     settings_file: &std::path::Path,
+) -> Result<Vec<plan_manager::ProjectPlanSlot>, String> {
+    set_project_plan_slots_at_file_with_active(surface, slots, settings_file, None, None)
+}
+
+fn set_project_plan_slots_at_file_with_active(
+    surface: &str,
+    slots: Vec<plan_manager::ProjectPlanSlot>,
+    settings_file: &std::path::Path,
+    explicit_active_slot_id: Option<&str>,
+    explicit_active_repo_path: Option<&str>,
 ) -> Result<Vec<plan_manager::ProjectPlanSlot>, String> {
     if !matches!(surface, "codex" | "antigravity") {
         return Err(format!("Unsupported surface: '{surface}'"));
@@ -9025,8 +10034,16 @@ fn set_project_plan_slots_at_file(
     if !slots.iter().any(|s| s.slot_id == "secondary") {
         let existing_slots = get_project_plan_slots_from_file(settings_file)?;
         if let Some(sec) = existing_slots.iter().find(|s| s.slot_id == "secondary") {
-            let has_repo = sec.repo_path.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false);
-            let has_plan = sec.plan_path.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+            let has_repo = sec
+                .repo_path
+                .as_ref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false);
+            let has_plan = sec
+                .plan_path
+                .as_ref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false);
             if has_repo || has_plan {
                 let candidate_repo: Option<std::path::PathBuf> = sec
                     .repo_path
@@ -9103,30 +10120,71 @@ fn set_project_plan_slots_at_file(
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty());
-    let selected_repo = existing_active_repo
-        .and_then(|active_repo| {
-            let active_key = normalize_repo_for_mirror_match(active_repo);
-            normalized.iter().find(|slot| {
-                slot.repo_path
+    let explicit_repo = explicit_active_repo_path
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let explicit_repo_key = explicit_repo.map(normalize_repo_for_mirror_match);
+    let explicit_slot = explicit_active_slot_id
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let has_explicit_context =
+        explicit_active_repo_path.is_some() || explicit_active_slot_id.is_some();
+    if has_explicit_context && (explicit_repo.is_none() && explicit_slot.is_none()) {
+        return Err("Explicit active project context is empty".to_string());
+    }
+    let selected_repo = if has_explicit_context {
+        normalized
+            .iter()
+            .find(|slot| {
+                let repo_matches = explicit_repo_key
                     .as_deref()
-                    .map(normalize_repo_for_mirror_match)
-                    .as_deref()
-                    == Some(active_key.as_str())
+                    .map(|active_key| {
+                        slot.repo_path
+                            .as_deref()
+                            .map(normalize_repo_for_mirror_match)
+                            .as_deref()
+                            == Some(active_key)
+                    })
+                    .unwrap_or(true);
+                let slot_matches = explicit_slot
+                    .map(|slot_id| slot.slot_id == slot_id)
+                    .unwrap_or(true);
+                repo_matches && slot_matches
             })
-        })
-        .or_else(|| {
-            let active_plan = existing_active_plan?;
-            let matches: Vec<_> = normalized
-                .iter()
-                .filter(|slot| slot.plan_path.as_deref() == Some(active_plan))
-                .collect();
-            (matches.len() == 1).then(|| matches[0])
-        })
-        .or_else(|| (normalized.len() == 1).then(|| &normalized[0]));
+            .ok_or_else(|| {
+                "Explicit active project repository and slot do not match a configured slot"
+                    .to_string()
+            })?
+            .into()
+    } else {
+        existing_active_repo
+            .and_then(|active_repo| {
+                let active_key = normalize_repo_for_mirror_match(active_repo);
+                normalized.iter().find(|slot| {
+                    slot.repo_path
+                        .as_deref()
+                        .map(normalize_repo_for_mirror_match)
+                        .as_deref()
+                        == Some(active_key.as_str())
+                })
+            })
+            .or_else(|| {
+                let active_plan = existing_active_plan?;
+                let matches: Vec<_> = normalized
+                    .iter()
+                    .filter(|slot| slot.plan_path.as_deref() == Some(active_plan))
+                    .collect();
+                (matches.len() == 1).then(|| matches[0])
+            })
+            .or_else(|| (normalized.len() == 1).then(|| &normalized[0]))
+    };
     let derived_active_plan = selected_repo.and_then(|slot| {
         let repo_root = plan_manager::resolve_repo_root(slot.repo_path.as_deref()).ok()?;
         let view = plan_manager::get_surface_plan_slots(&repo_root, surface).ok()?;
-        Some((view.active_plan_path?, repo_root.to_string_lossy().to_string()))
+        Some((
+            view.active_plan_path?,
+            repo_root.to_string_lossy().to_string(),
+        ))
     });
     let (derived_active_plan_path, derived_active_plan_repo_path) = derived_active_plan
         .map(|(path, repo)| (Some(path), Some(repo)))
@@ -9160,17 +10218,23 @@ fn clear_active_plan_slot(
 #[tauri::command]
 fn get_plan_role_assignment(
     surface: String,
-    repo_path: Option<String>,
-    slot_id: Option<String>,
+    _repo_path: Option<String>,
+    _slot_id: Option<String>,
 ) -> Result<plan_manager::RoleAssignment, String> {
-    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
-    plan_manager::get_role_assignment_for_active_plan(&repo_root, &surface, slot_id.as_deref())
+    require_shared_workflow_role_assignment(&surface)
 }
 
 #[tauri::command]
-fn set_plan_role_assignment(surface: String, assignment: plan_manager::RoleAssignment, repo_path: Option<String>) -> Result<plan_manager::RoleAssignment, String> {
-    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
-    plan_manager::set_role_assignment(&repo_root, &surface, assignment)
+fn set_plan_role_assignment(
+    surface: String,
+    assignment: plan_manager::RoleAssignment,
+    _repo_path: Option<String>,
+) -> Result<plan_manager::RoleAssignment, String> {
+    Ok(
+        codex_review_settings::set_workflow_role_assignment(&surface, assignment)?
+            .assignment
+            .unwrap_or_default(),
+    )
 }
 
 #[tauri::command]
@@ -9227,7 +10291,13 @@ fn save_plan_checkpoint(
 ) -> Result<plan_manager::PlanFileDetails, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
     plan_manager::verify_pinned_target_for_repo_plan(&pinned_target, &repo_root, &relative_path)?;
-    plan_manager::save_execution_checkpoint(&repo_root, &relative_path, &checkpoint, &expected_file_identity, &expected_sha256)
+    plan_manager::save_execution_checkpoint(
+        &repo_root,
+        &relative_path,
+        &checkpoint,
+        &expected_file_identity,
+        &expected_sha256,
+    )
 }
 
 #[tauri::command]
@@ -9239,14 +10309,28 @@ fn get_plan_checkpoint(
     plan_manager::get_execution_checkpoint(&repo_root, &relative_path)
 }
 
-#[tauri::command]
 fn launch_pinned_plan_workflow(
     repo_path: Option<String>,
     surface: String,
     slot_id: Option<String>,
 ) -> Result<plan_manager::PinnedWorkflowLaunch, String> {
     let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
-    plan_manager::launch_pinned_plan_workflow(&repo_root, &surface, slot_id.as_deref())
+    let assignment = require_shared_workflow_role_assignment(&surface)?;
+    launch_pinned_plan_workflow_with_assignment(
+        &repo_root,
+        &surface,
+        slot_id.as_deref(),
+        assignment,
+    )
+}
+
+fn launch_pinned_plan_workflow_with_assignment(
+    repo_root: &std::path::Path,
+    surface: &str,
+    slot_id: Option<&str>,
+    assignment: plan_manager::RoleAssignment,
+) -> Result<plan_manager::PinnedWorkflowLaunch, String> {
+    plan_manager::launch_pinned_plan_workflow(repo_root, surface, slot_id, assignment)
 }
 
 #[tauri::command]
@@ -9276,20 +10360,42 @@ fn verify_pinned_workflow_target_cmd(
 
 #[tauri::command]
 fn verify_plan_resumption(
-    relative_path: String,
+    selected_plan_path: String,
     checkpoint: plan_manager::ExecutionCheckpoint,
     pinned_target: plan_manager::PinnedWorkflowTarget,
-    repo_path: Option<String>,
-    surface: Option<String>,
-    slot_id: Option<String>,
+    surface: String,
 ) -> Result<plan_manager::ResumptionPreflightResult, String> {
-    let repo_root = plan_manager::resolve_repo_root(repo_path.as_deref())?;
-    plan_manager::verify_pinned_target_for_repo_plan(&pinned_target, &repo_root, &relative_path)?;
-    plan_manager::verify_resumption_preflight(&repo_root, &relative_path, &checkpoint, surface.as_deref(), slot_id.as_deref())
+    let _ = ensure_project_registry_loaded()?;
+    let registry_path = paths::project_registry_path();
+    let context = project_registry::resolve_project_context_for_plan_at(
+        &registry_path,
+        &surface,
+        std::path::Path::new(&selected_plan_path),
+    )?;
+    if pinned_target.project_id.as_deref() != Some(context.project_id.as_str())
+        || pinned_target.surface != surface
+    {
+        return Err(
+            "Pinned workflow project or surface does not match the selected plan".to_string(),
+        );
+    }
+    let repo_root = std::path::PathBuf::from(&context.repo_root);
+    plan_manager::verify_pinned_target_for_repo_plan(
+        &pinned_target,
+        &repo_root,
+        &context.plan_path,
+    )?;
+    plan_manager::verify_selected_plan_resumption_preflight(
+        &repo_root,
+        &context.plan_path,
+        &checkpoint,
+    )
 }
 
 #[tauri::command]
-async fn get_node_prerequisites_status(refresh: Option<bool>) -> Result<cli_tools::NodePrerequisiteStatus, String> {
+async fn get_node_prerequisites_status(
+    refresh: Option<bool>,
+) -> Result<cli_tools::NodePrerequisiteStatus, String> {
     Ok(cli_tools::get_prerequisites_status_cached(refresh.unwrap_or(false)).await)
 }
 
@@ -9309,19 +10415,24 @@ fn open_node_download_page() -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_antigravity_global_rules_status() -> Result<Vec<antigravity_global_rules::GlobalRuleItemInfo>, String> {
+fn get_antigravity_global_rules_status(
+) -> Result<Vec<antigravity_global_rules::GlobalRuleItemInfo>, String> {
     let dir = paths::antigravity_global_rules_dir()?;
     antigravity_global_rules::inspect_global_rules_status_at(&dir)
 }
 
 #[tauri::command]
-fn install_antigravity_global_rule(id: String) -> Result<antigravity_global_rules::GlobalRuleItemInfo, String> {
+fn install_antigravity_global_rule(
+    id: String,
+) -> Result<antigravity_global_rules::GlobalRuleItemInfo, String> {
     let dir = paths::antigravity_global_rules_dir()?;
     antigravity_global_rules::install_global_rule_at(&dir, &id)
 }
 
 #[tauri::command]
-fn remove_antigravity_global_rule(id: String) -> Result<antigravity_global_rules::GlobalRuleItemInfo, String> {
+fn remove_antigravity_global_rule(
+    id: String,
+) -> Result<antigravity_global_rules::GlobalRuleItemInfo, String> {
     let dir = paths::antigravity_global_rules_dir()?;
     antigravity_global_rules::remove_global_rule_at(&dir, &id)
 }
@@ -9348,7 +10459,8 @@ fn set_reviewer_policy(
 }
 
 #[tauri::command]
-fn get_workflow_skills_policy_status() -> Result<reviewer_policy::WorkflowSkillsPolicyStatus, String> {
+fn get_workflow_skills_policy_status() -> Result<reviewer_policy::WorkflowSkillsPolicyStatus, String>
+{
     let skills_dir = antigravity_global_skills_dir()?;
     reviewer_policy::inspect_workflow_skills_policy_compliance(&skills_dir)
 }
@@ -9609,7 +10721,11 @@ fn resolve_context_routes(
         .chain(CLAUDE_55_ROUTES.iter())
         .filter_map(|route| {
             let (target_provider, upstream_model) = if provider_id == "gateway_profile" {
-                match model_routing::resolve_route_for_gateway_profile(cfg, profile_id.unwrap_or(""), route) {
+                match model_routing::resolve_route_for_gateway_profile(
+                    cfg,
+                    profile_id.unwrap_or(""),
+                    route,
+                ) {
                     Some((prov, model)) => (prov, Some(model)),
                     None => (provider_id.to_string(), None),
                 }
@@ -9650,9 +10766,7 @@ fn min_context_window(routes: &[EffectiveContextRoute]) -> Result<Option<u32>, S
         .iter()
         .filter(|r| CLAUDE_ROUTES.contains(&r.route.as_str()))
         .collect();
-    if base.len() != CLAUDE_ROUTES.len()
-        || base.iter().any(|r| r.context_window_tokens.is_none())
-    {
+    if base.len() != CLAUDE_ROUTES.len() || base.iter().any(|r| r.context_window_tokens.is_none()) {
         return Ok(None);
     }
     let min_context = base
@@ -9667,18 +10781,20 @@ fn min_context_window(routes: &[EffectiveContextRoute]) -> Result<Option<u32>, S
 
 /// Pure resolver — mirrors proxy.rs active-provider / active-profile fallbacks
 /// (`effective_active`, transient `profiles[0]`). No I/O, operates on raw JSON.
-fn resolve_effective_auto_compact(
-    cfg: &serde_json::Value,
-) -> Result<EffectiveAutoCompact, String> {
+fn resolve_effective_auto_compact(cfg: &serde_json::Value) -> Result<EffectiveAutoCompact, String> {
     let root_ac = auto_compact_value(cfg);
     let globally_enabled = root_ac
         .and_then(|r| r.get("enabled"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let common_percent = root_ac.and_then(|r| r.get("trigger_percent")).and_then(as_u8);
+    let common_percent = root_ac
+        .and_then(|r| r.get("trigger_percent"))
+        .and_then(as_u8);
 
     if is_claude_code_3p_enabled(cfg) {
-        let tp_val = cfg.get("claude_code").and_then(|cc| cc.get("third_party_provider"));
+        let tp_val = cfg
+            .get("claude_code")
+            .and_then(|cc| cc.get("third_party_provider"));
         let provider = tp_val
             .and_then(|tp| tp.get("provider"))
             .and_then(|p| p.as_str())
@@ -9709,15 +10825,26 @@ fn resolve_effective_auto_compact(
         let mode = AutoCompactMode::Auto;
 
         let (status, apply_environment, window_tokens, trigger_percent) = if !globally_enabled {
-            (AutoCompactStatus::Disabled, false, auto_window, common_percent)
+            (
+                AutoCompactStatus::Disabled,
+                false,
+                auto_window,
+                common_percent,
+            )
         } else if auto_window.is_some() {
-            (AutoCompactStatus::Applied, true, auto_window, common_percent)
+            (
+                AutoCompactStatus::Applied,
+                true,
+                auto_window,
+                common_percent,
+            )
         } else {
             (AutoCompactStatus::Incomplete, false, None, common_percent)
         };
 
-        let estimated_trigger_tokens =
-            window_tokens.zip(trigger_percent).map(|(w, p)| (w as u64 * p as u64 / 100) as u32);
+        let estimated_trigger_tokens = window_tokens
+            .zip(trigger_percent)
+            .map(|(w, p)| (w as u64 * p as u64 / 100) as u32);
 
         return Ok(EffectiveAutoCompact {
             globally_enabled,
@@ -9747,13 +10874,26 @@ fn resolve_effective_auto_compact(
     let (target_kind, target_id, target_name, target_ac, route_profile_id) =
         if effective_provider == "gateway_profile" {
             let profiles = cfg.get("gateway_profiles").and_then(|p| p.as_array());
-            let active_id = cfg.get("active_gateway_profile_id").and_then(|v| v.as_str()).unwrap_or("");
+            let active_id = cfg
+                .get("active_gateway_profile_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let active_prof = profiles.and_then(|profs| {
-                profs.iter().find(|p| p.get("id").and_then(|v| v.as_str()) == Some(active_id))
+                profs
+                    .iter()
+                    .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(active_id))
             });
             if let Some(prof) = active_prof {
-                let id = prof.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let name = prof.get("display_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let id = prof
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let name = prof
+                    .get("display_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 (
                     Some("gateway_profile"),
                     Some(id.clone()),
@@ -9820,9 +10960,7 @@ fn resolve_effective_auto_compact(
     // can show the calculation basis before the user flips the toggle.
     // `apply_environment` is the only thing that stops env vars from being set.
     let routes = resolve_context_routes(cfg, effective_provider, route_profile_id.as_deref());
-    let all_routes_known = routes
-        .iter()
-        .all(|r| r.context_window_tokens.is_some());
+    let all_routes_known = routes.iter().all(|r| r.context_window_tokens.is_some());
     // Only an all-3-routes-known resolution produces an auto value; a partial
     // minimum would mislead the panel into showing a capacity that wasn't
     // actually computed from every route. u64 → u32 via try_from (never `as`).
@@ -9885,8 +11023,9 @@ fn resolve_effective_auto_compact(
         }
     };
 
-    let estimated_trigger_tokens =
-        window_tokens.zip(trigger_percent).map(|(w, p)| (w as u64 * p as u64 / 100) as u32);
+    let estimated_trigger_tokens = window_tokens
+        .zip(trigger_percent)
+        .map(|(w, p)| (w as u64 * p as u64 / 100) as u32);
 
     Ok(EffectiveAutoCompact {
         globally_enabled,
@@ -10021,7 +11160,8 @@ fn gateway_client_base_url(host: &str, port: u16) -> String {
 const LOCAL_GATEWAY_TOKEN: &str = "sk-local-gateway";
 
 fn is_claude_code_3p_enabled(cfg: &serde_json::Value) -> bool {
-    let active_route = cfg.get("claude_code")
+    let active_route = cfg
+        .get("claude_code")
         .and_then(|cc| cc.get("active_route"))
         .and_then(|r| r.as_str());
 
@@ -10059,7 +11199,10 @@ fn normalize_custom_headers_in_memory(existing: Option<&str>) -> String {
                 continue;
             }
             if let Some((header_name, _)) = trimmed.split_once(':') {
-                if header_name.trim().eq_ignore_ascii_case(CLAUDE_CODE_CLIENT_HEADER_NAME) {
+                if header_name
+                    .trim()
+                    .eq_ignore_ascii_case(CLAUDE_CODE_CLIENT_HEADER_NAME)
+                {
                     continue;
                 }
             }
@@ -10074,11 +11217,14 @@ fn normalize_custom_headers_in_memory(existing: Option<&str>) -> String {
 fn gateway_connection_env_vars(
     cfg: &serde_json::Value,
 ) -> Result<Vec<(&'static str, String)>, String> {
-    let host = cfg["server"]["host"].as_str().unwrap_or("127.0.0.1").to_string();
+    let host = cfg["server"]["host"]
+        .as_str()
+        .unwrap_or("127.0.0.1")
+        .to_string();
     let port_u64 = cfg["server"]["port"].as_u64().unwrap_or(4000);
     // as u16 で切り詰めず、範囲外は明示的にエラーにする。
-    let port = u16::try_from(port_u64)
-        .map_err(|_| format!("gateway port is out of range: {port_u64}"))?;
+    let port =
+        u16::try_from(port_u64).map_err(|_| format!("gateway port is out of range: {port_u64}"))?;
     let vars = vec![
         ("ANTHROPIC_BASE_URL", gateway_client_base_url(&host, port)),
         ("ANTHROPIC_AUTH_TOKEN", LOCAL_GATEWAY_TOKEN.to_string()),
@@ -10158,7 +11304,10 @@ fn apply_update_claude_code_global(
         validate_claude_code_trigger_percent(v)?;
     }
 
-    let obj = ensure_auto_compact_obj(cfg, serde_json::json!(ClaudeCodeAutoCompactConfig::default()))?;
+    let obj = ensure_auto_compact_obj(
+        cfg,
+        serde_json::json!(ClaudeCodeAutoCompactConfig::default()),
+    )?;
 
     let mut changed = false;
     if let Some(v) = enabled {
@@ -10242,7 +11391,8 @@ fn apply_update_claude_code_target(
     };
 
     let target = locate_claude_code_target(cfg, provider_id, profile_id)?;
-    let obj = ensure_auto_compact_obj(target, serde_json::json!(ClaudeCodeTargetConfig::default()))?;
+    let obj =
+        ensure_auto_compact_obj(target, serde_json::json!(ClaudeCodeTargetConfig::default()))?;
 
     let mut changed = false;
     let cur_mode = obj
@@ -10250,7 +11400,10 @@ fn apply_update_claude_code_target(
         .and_then(|x| x.as_str())
         .unwrap_or(AUTO_COMPACT_MODE_AUTO);
     if cur_mode != mode {
-        obj.insert("mode".to_string(), serde_json::Value::String(mode.to_string()));
+        obj.insert(
+            "mode".to_string(),
+            serde_json::Value::String(mode.to_string()),
+        );
         changed = true;
     }
     if mode == AUTO_COMPACT_MODE_MANUAL {
@@ -10379,7 +11532,10 @@ fn check_claude_code_shape(scope: &serde_json::Value, label: &str) -> Result<(),
         }
         if let Some(ac) = cc.get("auto_compact") {
             if !ac.is_object() {
-                return Err(format!("{} has a non-object 'claude_code.auto_compact'", label));
+                return Err(format!(
+                    "{} has a non-object 'claude_code.auto_compact'",
+                    label
+                ));
             }
         }
     }
@@ -10525,7 +11681,9 @@ fn apply_update_claude_code_third_party(
     //    - legacy third_party_provider.enabled == true -> persist active_route = "ollama"
     //    - legacy third_party_provider.enabled == false or missing -> persist active_route = "gateway"
     let mut route_changed = false;
-    let has_active_route = claude_code.get("active_route").map_or(false, |v| !v.is_null());
+    let has_active_route = claude_code
+        .get("active_route")
+        .map_or(false, |v| !v.is_null());
     if !has_active_route {
         let legacy_enabled = claude_code
             .get("third_party_provider")
@@ -10533,7 +11691,10 @@ fn apply_update_claude_code_third_party(
             .and_then(|e| e.as_bool())
             .unwrap_or(false);
         let promoted_route = if legacy_enabled { "ollama" } else { "gateway" };
-        claude_code.insert("active_route".to_string(), serde_json::Value::String(promoted_route.to_string()));
+        claude_code.insert(
+            "active_route".to_string(),
+            serde_json::Value::String(promoted_route.to_string()),
+        );
         route_changed = true;
     }
 
@@ -10545,7 +11706,10 @@ fn apply_update_claude_code_third_party(
             .get("third_party_provider")
             .and_then(|tp| tp.get("models"))
         {
-            if let Ok(models_map) = serde_json::from_value::<std::collections::HashMap<String, String>>(existing_models.clone()) {
+            if let Ok(models_map) = serde_json::from_value::<
+                std::collections::HashMap<String, String>,
+            >(existing_models.clone())
+            {
                 final_settings.models = Some(models_map);
             }
         }
@@ -10588,7 +11752,10 @@ fn apply_set_claude_code_active_route(
     route: &str,
 ) -> Result<ApplyOutcome<()>, String> {
     if route != "gateway" && route != "ollama" {
-        return Err(format!("Invalid active_route '{}'. Must be 'gateway' or 'ollama'", route));
+        return Err(format!(
+            "Invalid active_route '{}'. Must be 'gateway' or 'ollama'",
+            route
+        ));
     }
     if !cfg.get("claude_code").map_or(false, |v| v.is_object()) {
         cfg["claude_code"] = serde_json::json!({});
@@ -10598,7 +11765,8 @@ fn apply_set_claude_code_active_route(
         .ok_or_else(|| "config 'claude_code' is not an object".to_string())?;
 
     let prev_route = claude_code.get("active_route").and_then(|v| v.as_str());
-    let legacy_enabled = claude_code.get("third_party_provider")
+    let legacy_enabled = claude_code
+        .get("third_party_provider")
         .and_then(|tp| tp.get("enabled"))
         .and_then(|e| e.as_bool())
         .unwrap_or(false);
@@ -10611,10 +11779,19 @@ fn apply_set_claude_code_active_route(
     };
 
     let changed = prev_effective != route;
-    claude_code.insert("active_route".to_string(), serde_json::Value::String(route.to_string()));
-    if let Some(tp) = claude_code.get_mut("third_party_provider").and_then(|v| v.as_object_mut()) {
+    claude_code.insert(
+        "active_route".to_string(),
+        serde_json::Value::String(route.to_string()),
+    );
+    if let Some(tp) = claude_code
+        .get_mut("third_party_provider")
+        .and_then(|v| v.as_object_mut())
+    {
         if tp.contains_key("enabled") {
-            tp.insert("enabled".to_string(), serde_json::Value::Bool(route == "ollama"));
+            tp.insert(
+                "enabled".to_string(),
+                serde_json::Value::Bool(route == "ollama"),
+            );
         }
     }
 
@@ -10622,7 +11799,11 @@ fn apply_set_claude_code_active_route(
         value: (),
         config_changed: changed,
         restart_gateway: changed,
-        restart_reason: if changed { "Claude Code active route changed" } else { "" },
+        restart_reason: if changed {
+            "Claude Code active route changed"
+        } else {
+            ""
+        },
     })
 }
 
@@ -10641,8 +11822,8 @@ fn validate_ollama_loopback_endpoint(endpoint: Option<&str>) -> Result<String, S
         .filter(|s| !s.trim().is_empty())
         .unwrap_or("http://127.0.0.1:11434");
 
-    let parsed = reqwest::Url::parse(raw_url)
-        .map_err(|e| format!("Invalid Ollama endpoint URL: {e}"))?;
+    let parsed =
+        reqwest::Url::parse(raw_url).map_err(|e| format!("Invalid Ollama endpoint URL: {e}"))?;
 
     let host_str = parsed.host_str().unwrap_or("").to_lowercase();
     let is_loopback = host_str == "127.0.0.1"
@@ -10651,7 +11832,10 @@ fn validate_ollama_loopback_endpoint(endpoint: Option<&str>) -> Result<String, S
         || host_str == "[::1]";
 
     if !is_loopback {
-        return Err("Only local loopback endpoints (127.0.0.1, localhost, [::1]) are supported.".to_string());
+        return Err(
+            "Only local loopback endpoints (127.0.0.1, localhost, [::1]) are supported."
+                .to_string(),
+        );
     }
 
     Ok(format!("{}/api/tags", raw_url.trim_end_matches('/')))
@@ -10900,10 +12084,7 @@ fn migrate_claude_code_auto_compact_modes_inner(cfg: &mut serde_json::Value) -> 
             {
                 changed |= migrate_claude_code_mode(ac);
             }
-            if let Some(profiles) = provider
-                .get_mut("profiles")
-                .and_then(|p| p.as_array_mut())
-            {
+            if let Some(profiles) = provider.get_mut("profiles").and_then(|p| p.as_array_mut()) {
                 for profile in profiles.iter_mut() {
                     if let Some(ac) = profile
                         .get_mut("claude_code")
@@ -10926,9 +12107,10 @@ fn migrate_claude_code_mode(ac: &mut serde_json::Value) -> bool {
     let new_mode = match current {
         Some("inherit") => AUTO_COMPACT_MODE_AUTO,
         Some("override") => AUTO_COMPACT_MODE_MANUAL,
-        Some(m) if m == AUTO_COMPACT_MODE_AUTO
-            || m == AUTO_COMPACT_MODE_MANUAL
-            || m == AUTO_COMPACT_MODE_CLAUDE_DEFAULT =>
+        Some(m)
+            if m == AUTO_COMPACT_MODE_AUTO
+                || m == AUTO_COMPACT_MODE_MANUAL
+                || m == AUTO_COMPACT_MODE_CLAUDE_DEFAULT =>
         {
             return false
         }
@@ -11068,14 +12250,9 @@ pub(crate) const ZAI_DEFAULT_REASONING_EFFORT: &str = "max";
 pub(crate) const ANTHROPIC_PROVIDER_ID: &str = "anthropic";
 pub(crate) const ANTHROPIC_DISPLAY_NAME: &str = "Anthropic";
 pub(crate) const ANTHROPIC_DEFAULT_MODEL: &str = "claude-opus-5-5";
-pub(crate) const ANTHROPIC_MODELS: [&str; 3] = [
-    "claude-opus-5-5",
-    "claude-sonnet-5-5",
-    "claude-haiku-5-5",
-];
-pub(crate) const ANTHROPIC_REASONING_EFFORTS: [&str; 5] = [
-    "low", "medium", "high", "xhigh", "max",
-];
+pub(crate) const ANTHROPIC_MODELS: [&str; 3] =
+    ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
+pub(crate) const ANTHROPIC_REASONING_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 #[allow(dead_code)]
 pub(crate) const ANTHROPIC_DEFAULT_REASONING_EFFORT: &str = "high";
 
@@ -11454,10 +12631,8 @@ fn write_config_at_path(
 
     // Atomic write: write to temp file, then rename
     let tmp_path = path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, &bytes)
-        .map_err(|e| format!("Cannot write config: {}", e))?;
-    std::fs::rename(&tmp_path, path)
-        .map_err(|e| format!("Cannot finalize config save: {}", e))?;
+    std::fs::write(&tmp_path, &bytes).map_err(|e| format!("Cannot write config: {}", e))?;
+    std::fs::rename(&tmp_path, path).map_err(|e| format!("Cannot finalize config save: {}", e))?;
     Ok(encoding.to_string())
 }
 
@@ -11726,7 +12901,9 @@ where
         .lock()
         .map_err(|e| format!("config write lock poisoned: {e}"))?;
     let (encoding, mut cfg) = read_config_value(path)?;
-    execute_config_mutation(&mut cfg, apply, |cfg| write_config_value(cfg, encoding, path))
+    execute_config_mutation(&mut cfg, apply, |cfg| {
+        write_config_value(cfg, encoding, path)
+    })
 }
 
 fn execute_serialized_config_mutation_at_path_with_installer<T: serde::Serialize, F, I>(
@@ -12119,9 +13296,7 @@ pub fn is_mcp_server_mode(args: &[String]) -> bool {
 pub fn run() {
     // Initialize config (migration, seeding, normalization) before anything reads it
     if let Err(error) = ensure_config_initialized() {
-        eprintln!(
-            "[anthro-bridge] FATAL: Configuration initialization failed: {error}"
-        );
+        eprintln!("[anthro-bridge] FATAL: Configuration initialization failed: {error}");
         // Show a message box before exiting so the user sees the error
         #[cfg(target_os = "windows")]
         {
@@ -12230,7 +13405,7 @@ pub fn run() {
             delete_gateway_profile,
             duplicate_gateway_profile,
             set_gateway_profile_hidden,
-                start_proxy,
+            start_proxy,
             stop_proxy,
             proxy_status,
             get_user_language,
@@ -12300,6 +13475,21 @@ pub fn run() {
             get_project_plan_slots,
             get_selected_project_plan_context,
             set_project_plan_slots,
+            get_project_registry,
+            register_project_in_registry,
+            set_project_plan_path,
+            replace_project_plan_association,
+            rename_project_in_registry,
+            reorder_projects_in_registry,
+            unregister_project_from_registry,
+            resolve_project_migration_conflict,
+            resolve_project_context,
+            resolve_project_context_for_plan,
+            get_project_role_assignment,
+            set_project_role_assignment,
+            get_workflow_role_assignment,
+            set_workflow_role_assignment,
+            launch_pinned_plan_workflow_for_selected_plan,
             get_surface_plan_slots,
             set_active_plan_slot,
             get_active_plan,
@@ -12312,7 +13502,6 @@ pub fn run() {
             apply_plan_candidate,
             save_plan_checkpoint,
             get_plan_checkpoint,
-            launch_pinned_plan_workflow,
             advance_pinned_workflow_target,
             pin_workflow_target,
             verify_pinned_workflow_target_cmd,
@@ -12449,13 +13638,17 @@ mod tests {
         assert!(outcome.changed);
         assert!(outcome.active_profile_id.is_some());
 
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles.len(), 2);
         assert_eq!(profiles[0]["display_name"], "OpenRouter");
         assert_eq!(profiles[1]["display_name"], "OpenRouter: Tencent");
 
         // Legacy fields removed
-        assert!(cfg["providers"]["openrouter"]["models"].as_object().map_or(true, |o| o.is_empty()));
+        assert!(cfg["providers"]["openrouter"]["models"]
+            .as_object()
+            .map_or(true, |o| o.is_empty()));
     }
 
     #[test]
@@ -12484,7 +13677,9 @@ mod tests {
         let outcome = migrate_openrouter_to_profiles(&mut cfg).unwrap();
         assert!(outcome.changed);
 
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles.len(), 2);
 
         // First profile preserves existing
@@ -12497,7 +13692,10 @@ mod tests {
         assert!(first["models"].get("claude-sonnet-5").is_some());
         assert!(first["models"].get("claude-haiku-4-5").is_some());
         assert!(first["model_map"].get("claude-sonnet-5").is_some());
-        assert!(first["visible_models"].as_array().unwrap().contains(&json!("claude-opus-5")));
+        assert!(first["visible_models"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("claude-opus-5")));
     }
 
     #[test]
@@ -12537,7 +13735,9 @@ mod tests {
 
         let outcome = migrate_openrouter_to_profiles(&mut cfg).unwrap();
         assert!(outcome.changed);
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles.len(), 2);
         assert_eq!(profiles[0]["display_name"], "OpenRouter");
         // Second profile should be Laguna (Hy3-only configs get Laguna as second)
@@ -12596,7 +13796,9 @@ mod tests {
 
         let outcome = migrate_openrouter_to_profiles(&mut cfg).unwrap();
         let active_id = outcome.active_profile_id.unwrap();
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles[0]["id"], active_id);
     }
 
@@ -12646,9 +13848,9 @@ mod tests {
         ] {
             for key in ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"] {
                 assert_eq!(
-                    profile.models[key].upstream_model,
-                    profile.model_map[key],
-                    "profile={}, key={}", profile.display_name, key
+                    profile.models[key].upstream_model, profile.model_map[key],
+                    "profile={}, key={}",
+                    profile.display_name, key
                 );
             }
         }
@@ -12682,7 +13884,9 @@ mod tests {
 
         let changed = normalize_config(&mut cfg);
         assert!(changed);
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles.len(), 2);
         assert!(cfg["active_openrouter_profile_id"].as_str().is_some());
     }
@@ -12708,7 +13912,9 @@ mod tests {
         });
 
         assert!(normalize_config(&mut cfg));
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         let repaired_user_id = profiles[1]["id"].as_str().unwrap();
         assert_eq!(profiles[0]["id"], builtin_id);
         assert_ne!(profiles[0]["id"], profiles[1]["id"]);
@@ -12803,7 +14009,9 @@ mod tests {
         let outcome = apply_add_openrouter_profile(&mut cfg, "NewOne").unwrap();
         assert!(outcome.config_changed);
         assert!(!outcome.restart_gateway);
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles.len(), 2);
         assert_eq!(profiles[1]["display_name"], "NewOne");
         assert_ne!(profiles[0]["id"], profiles[1]["id"]);
@@ -12832,8 +14040,12 @@ mod tests {
             }
         });
 
-        let first = apply_add_openrouter_profile(&mut cfg, "Model 1").unwrap().value;
-        let second = apply_add_openrouter_profile(&mut cfg, "Model 2").unwrap().value;
+        let first = apply_add_openrouter_profile(&mut cfg, "Model 1")
+            .unwrap()
+            .value;
+        let second = apply_add_openrouter_profile(&mut cfg, "Model 2")
+            .unwrap()
+            .value;
         let first_id = first["id"].as_str().unwrap();
         let second_id = second["id"].as_str().unwrap();
         assert_ne!(first_id, builtin_id);
@@ -12841,7 +14053,9 @@ mod tests {
         assert_ne!(first_id, second_id);
 
         apply_delete_openrouter_profile(&mut cfg, first_id).unwrap();
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles.len(), 2);
         assert_eq!(profiles[0]["id"], builtin_id);
         assert_eq!(profiles[0]["display_name"], "OpenRouter: Laguna");
@@ -12874,7 +14088,9 @@ mod tests {
             }
         });
         let outcome = apply_add_openrouter_profile(&mut cfg, "  Trimmed  ").unwrap();
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles[1]["display_name"], "Trimmed");
         assert_eq!(outcome.value["display_name"], "Trimmed");
     }
@@ -12900,9 +14116,14 @@ mod tests {
         let outcome = apply_delete_openrouter_profile(&mut cfg, &p1.id).unwrap();
         assert!(outcome.config_changed);
         assert!(outcome.restart_gateway);
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles.len(), 1);
-        assert_eq!(cfg["active_openrouter_profile_id"].as_str().unwrap(), &p2.id);
+        assert_eq!(
+            cfg["active_openrouter_profile_id"].as_str().unwrap(),
+            &p2.id
+        );
     }
 
     #[test]
@@ -12933,7 +14154,9 @@ mod tests {
         let outcome = apply_rename_openrouter_profile(&mut cfg, &p1.id, "NewName").unwrap();
         assert!(outcome.config_changed);
         assert!(!outcome.restart_gateway);
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles[0]["display_name"], "NewName");
     }
 
@@ -12984,7 +14207,9 @@ mod tests {
         let outcome =
             apply_reorder_openrouter_profiles(&mut cfg, &[p2.id.clone(), p1.id.clone()]).unwrap();
         assert!(outcome.config_changed);
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles[0]["id"], p2.id);
         assert_eq!(profiles[1]["id"], p1.id);
     }
@@ -13098,10 +14323,7 @@ mod tests {
         let mut save_count = 0u32;
         let result: Result<CommandResponse<()>, String> = execute_config_mutation(
             &mut cfg,
-            |cfg| {
-                apply_activate_openrouter_profile(cfg, &p1.id)
-                    .map(|o| ApplyOutcome { ..o })
-            },
+            |cfg| apply_activate_openrouter_profile(cfg, &p1.id).map(|o| ApplyOutcome { ..o }),
             |_cfg| {
                 save_count += 1;
                 Ok(())
@@ -13155,10 +14377,7 @@ mod tests {
         });
         let result: Result<CommandResponse<()>, String> = execute_config_mutation(
             &mut cfg,
-            |cfg| {
-                apply_activate_openrouter_profile(cfg, &p1.id)
-                    .map(|o| ApplyOutcome { ..o })
-            },
+            |cfg| apply_activate_openrouter_profile(cfg, &p1.id).map(|o| ApplyOutcome { ..o }),
             |_cfg| Err("disk full".into()),
         );
         assert!(result.is_err());
@@ -13253,13 +14472,20 @@ mod tests {
     fn apply_set_model_upstream_writes_requested_profile() {
         let mut cfg = make_or_test_cfg("p1", "poolside/laguna-s-2.1", Some("thinking"));
         let outcome = apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "tencent/hy3",
-            Some("normal"), Some("low"),
-        ).unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "tencent/hy3",
+            Some("normal"),
+            Some("low"),
+        )
+        .unwrap();
         assert!(outcome.config_changed);
         assert!(outcome.restart_gateway);
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         let m = &profiles[0]["models"]["claude-sonnet-5"];
         assert_eq!(m["upstream_model"], "tencent/hy3");
         assert_eq!(m["thinking_mode"], "normal");
@@ -13304,35 +14530,63 @@ mod tests {
             }
         });
         apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "deepseek-v4-pro",
-            None, None,
-        ).unwrap();
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "deepseek-v4-pro",
+            None,
+            None,
+        )
+        .unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         // p2 unchanged
-        assert_eq!(profiles[1]["models"]["claude-sonnet-5"]["upstream_model"], "tencent/hy3");
+        assert_eq!(
+            profiles[1]["models"]["claude-sonnet-5"]["upstream_model"],
+            "tencent/hy3"
+        );
     }
 
     #[test]
     fn apply_set_model_upstream_rejects_missing_profile_for_openrouter() {
         let mut cfg = make_or_test_cfg("p1", "poolside/laguna-s-2.1", None);
         let err = apply_set_model_upstream(
-            &mut cfg, "openrouter", None,
-            "claude-sonnet-5", "tencent/hy3",
-            None, None,
-        ).unwrap_err();
-        assert!(err.contains("profile_id"), "expected profile_id error, got: {}", err);
+            &mut cfg,
+            "openrouter",
+            None,
+            "claude-sonnet-5",
+            "tencent/hy3",
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("profile_id"),
+            "expected profile_id error, got: {}",
+            err
+        );
     }
 
     #[test]
     fn apply_set_model_upstream_rejects_unknown_profile_id() {
         let mut cfg = make_or_test_cfg("p1", "poolside/laguna-s-2.1", None);
         let err = apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("nonexistent"),
-            "claude-sonnet-5", "tencent/hy3",
-            None, None,
-        ).unwrap_err();
-        assert!(err.contains("not found"), "expected not-found error, got: {}", err);
+            &mut cfg,
+            "openrouter",
+            Some("nonexistent"),
+            "claude-sonnet-5",
+            "tencent/hy3",
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("not found"),
+            "expected not-found error, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -13352,10 +14606,15 @@ mod tests {
             }
         });
         let outcome = apply_set_model_upstream(
-            &mut cfg, "deepseek", Some("ignored"),
-            "claude-sonnet-5", "deepseek-v4-flash",
-            None, None,
-        ).unwrap();
+            &mut cfg,
+            "deepseek",
+            Some("ignored"),
+            "claude-sonnet-5",
+            "deepseek-v4-flash",
+            None,
+            None,
+        )
+        .unwrap();
         assert!(outcome.config_changed);
         assert!(outcome.restart_gateway); // active_provider == deepseek
         assert_eq!(
@@ -13368,10 +14627,15 @@ mod tests {
     fn apply_set_model_upstream_same_values_is_noop() {
         let mut cfg = make_or_test_cfg("p1", "poolside/laguna-s-2.1", Some("thinking"));
         let outcome = apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "poolside/laguna-s-2.1",
-            Some("thinking"), None,
-        ).unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "poolside/laguna-s-2.1",
+            Some("thinking"),
+            None,
+        )
+        .unwrap();
         assert!(!outcome.config_changed);
         assert!(!outcome.restart_gateway);
     }
@@ -13380,11 +14644,18 @@ mod tests {
     fn apply_set_model_upstream_keeps_models_and_model_map_in_sync() {
         let mut cfg = make_or_test_cfg("p1", "poolside/laguna-s-2.1", None);
         apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "deepseek-v4-pro",
-            None, None,
-        ).unwrap();
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "deepseek-v4-pro",
+            None,
+            None,
+        )
+        .unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         let model_upstream = &profiles[0]["models"]["claude-sonnet-5"]["upstream_model"];
         let map_upstream = &profiles[0]["model_map"]["claude-sonnet-5"];
         assert_eq!(model_upstream, map_upstream);
@@ -13397,11 +14668,18 @@ mod tests {
         let mut cfg = make_or_test_cfg("p1", "poolside/laguna-s-2.1", None);
         // Start with stale capabilities (wrong force_thinking for laguna-s-2.1)
         apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "deepseek-v4-pro",
-            None, None,
-        ).unwrap();
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "deepseek-v4-pro",
+            None,
+            None,
+        )
+        .unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         let m = &profiles[0]["models"]["claude-sonnet-5"];
         // OpenRouter + unknown model → write_capability_flags returns early (unchanged).
         // deepseek-v4-pro is not in TEXT_ONLY_OR_MODELS, so flags are left as-is.
@@ -13433,10 +14711,15 @@ mod tests {
             }
         });
         let outcome = apply_set_model_upstream(
-            &mut cfg, "deepseek", None,
-            "claude-sonnet-5", "MiniMax-M3",
-            None, None,
-        ).unwrap();
+            &mut cfg,
+            "deepseek",
+            None,
+            "claude-sonnet-5",
+            "MiniMax-M3",
+            None,
+            None,
+        )
+        .unwrap();
         assert!(outcome.config_changed);
         let m = &cfg["providers"]["deepseek"]["models"]["claude-sonnet-5"];
         // MiniMax-M3: image+video=true, force_thinking=false
@@ -13471,10 +14754,15 @@ mod tests {
         });
         // Same model, same everything — no-op
         let outcome = apply_set_model_upstream(
-            &mut cfg, "deepseek", None,
-            "claude-sonnet-5", "deepseek-v4-pro",
-            None, None,
-        ).unwrap();
+            &mut cfg,
+            "deepseek",
+            None,
+            "claude-sonnet-5",
+            "deepseek-v4-pro",
+            None,
+            None,
+        )
+        .unwrap();
         assert!(!outcome.config_changed);
     }
 
@@ -13483,12 +14771,19 @@ mod tests {
         let mut cfg = make_or_test_cfg("p1", "poolside/laguna-s-2.1", Some("thinking"));
         // Remove thinking_mode → None semantics should remove the key
         let outcome = apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "poolside/laguna-s-2.1",
-            None, None,
-        ).unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "poolside/laguna-s-2.1",
+            None,
+            None,
+        )
+        .unwrap();
         assert!(outcome.config_changed); // thinking_mode removed
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         let m = &profiles[0]["models"]["claude-sonnet-5"];
         assert!(m.get("thinking_mode").is_none());
         assert!(m.get("reasoning_effort").is_none());
@@ -13500,17 +14795,24 @@ mod tests {
     fn apply_set_model_upstream_none_clears_existing_reasoning_effort() {
         // Pre-seed a reasoning_effort so we can verify a null/None update removes it.
         let mut cfg = make_or_test_cfg("p1", "poolside/laguna-s-2.1", Some("thinking"));
-        cfg["providers"]["openrouter"]["profiles"][0]["models"]["claude-sonnet-5"]["reasoning_effort"] =
-            json!("max");
+        cfg["providers"]["openrouter"]["profiles"][0]["models"]["claude-sonnet-5"]
+            ["reasoning_effort"] = json!("max");
 
         // Update with reasoning_effort = None → the stored value must be cleared.
         let outcome = apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "poolside/laguna-s-2.1",
-            Some("thinking"), None,
-        ).unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "poolside/laguna-s-2.1",
+            Some("thinking"),
+            None,
+        )
+        .unwrap();
         assert!(outcome.config_changed);
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         let m = &profiles[0]["models"]["claude-sonnet-5"];
         assert!(m.get("reasoning_effort").is_none());
         assert!(!m.as_object().unwrap().contains_key("reasoning_effort"));
@@ -13521,17 +14823,30 @@ mod tests {
         let mut cfg = make_or_test_cfg("p1", "poolside/laguna-s-2.1", Some("thinking"));
         // First write: changes thinking_mode + repairs stale capabilities
         let o1 = apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "poolside/laguna-s-2.1",
-            Some("normal"), None,
-        ).unwrap();
-        assert!(o1.config_changed, "1st write should change (thinking_mode: thinking→normal)");
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "poolside/laguna-s-2.1",
+            Some("normal"),
+            None,
+        )
+        .unwrap();
+        assert!(
+            o1.config_changed,
+            "1st write should change (thinking_mode: thinking→normal)"
+        );
         // Second write with same input: no-op
         let o2 = apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "poolside/laguna-s-2.1",
-            Some("normal"), None,
-        ).unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "poolside/laguna-s-2.1",
+            Some("normal"),
+            None,
+        )
+        .unwrap();
         assert!(!o2.config_changed, "2nd write should be no-op");
         assert!(!o2.restart_gateway);
     }
@@ -13567,10 +14882,15 @@ mod tests {
             }
         });
         let outcome = apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p2"), // editing p2, but p1 is active
-            "claude-sonnet-5", "deepseek-v4-pro",
-            None, None,
-        ).unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p2"), // editing p2, but p1 is active
+            "claude-sonnet-5",
+            "deepseek-v4-pro",
+            None,
+            None,
+        )
+        .unwrap();
         assert!(outcome.config_changed);
         assert!(!outcome.restart_gateway);
     }
@@ -13594,10 +14914,15 @@ mod tests {
             }
         });
         let outcome = apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "tencent/hy3",
-            None, None,
-        ).unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "tencent/hy3",
+            None,
+            None,
+        )
+        .unwrap();
         assert!(outcome.config_changed);
         assert!(!outcome.restart_gateway); // minimax is active, not openrouter
     }
@@ -13606,10 +14931,15 @@ mod tests {
     fn editing_active_openrouter_profile_restarts() {
         let mut cfg = make_or_test_cfg("p1", "poolside/laguna-s-2.1", None);
         let outcome = apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "tencent/hy3",
-            None, None,
-        ).unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "tencent/hy3",
+            None,
+            None,
+        )
+        .unwrap();
         assert!(outcome.config_changed);
         assert!(outcome.restart_gateway);
     }
@@ -13631,10 +14961,15 @@ mod tests {
             }
         });
         let outcome = apply_set_model_upstream(
-            &mut cfg, "deepseek", None,
-            "claude-sonnet-5", "deepseek-v4-flash",
-            None, None,
-        ).unwrap();
+            &mut cfg,
+            "deepseek",
+            None,
+            "claude-sonnet-5",
+            "deepseek-v4-flash",
+            None,
+            None,
+        )
+        .unwrap();
         assert!(outcome.config_changed);
         assert!(outcome.restart_gateway);
     }
@@ -13647,12 +14982,21 @@ mod tests {
         let mut save_count = 0u32;
         let result: Result<CommandResponse<()>, String> = execute_config_mutation(
             &mut cfg,
-            |cfg| apply_set_model_upstream(
-                cfg, "openrouter", Some("p1"),
-                "claude-sonnet-5", "tencent/hy3",
-                Some("thinking"), Some("high"),
-            ),
-            |_cfg| { save_count += 1; Ok(()) },
+            |cfg| {
+                apply_set_model_upstream(
+                    cfg,
+                    "openrouter",
+                    Some("p1"),
+                    "claude-sonnet-5",
+                    "tencent/hy3",
+                    Some("thinking"),
+                    Some("high"),
+                )
+            },
+            |_cfg| {
+                save_count += 1;
+                Ok(())
+            },
         );
         let res = result.unwrap();
         assert!(res.restart_gateway);
@@ -13665,12 +15009,21 @@ mod tests {
         let mut save_count = 0u32;
         let result: Result<CommandResponse<()>, String> = execute_config_mutation(
             &mut cfg,
-            |cfg| apply_set_model_upstream(
-                cfg, "openrouter", Some("p1"),
-                "claude-sonnet-5", "poolside/laguna-s-2.1",
-                Some("thinking"), None,
-            ),
-            |_cfg| { save_count += 1; Ok(()) },
+            |cfg| {
+                apply_set_model_upstream(
+                    cfg,
+                    "openrouter",
+                    Some("p1"),
+                    "claude-sonnet-5",
+                    "poolside/laguna-s-2.1",
+                    Some("thinking"),
+                    None,
+                )
+            },
+            |_cfg| {
+                save_count += 1;
+                Ok(())
+            },
         );
         let res = result.unwrap();
         assert!(!res.restart_gateway);
@@ -13709,12 +15062,19 @@ mod tests {
         });
         // Change from tencent/hy3 to kimi-k3 — known model, static caps must overwrite
         let outcome = apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "kimi-k3",
-            None, None,
-        ).unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "kimi-k3",
+            None,
+            None,
+        )
+        .unwrap();
         assert!(outcome.config_changed);
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         let m = &profiles[0]["models"]["claude-sonnet-5"];
         assert_eq!(m["upstream_model"], "kimi-k3");
         assert!(m["force_thinking"].as_bool().unwrap()); // kimi-k3: force_thinking=true
@@ -13754,12 +15114,19 @@ mod tests {
         });
         // Change to deepseek-v4-pro — known model, must repair all stale caps
         let outcome = apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "deepseek-v4-pro",
-            None, None,
-        ).unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "deepseek-v4-pro",
+            None,
+            None,
+        )
+        .unwrap();
         assert!(outcome.config_changed);
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         let m = &profiles[0]["models"]["claude-sonnet-5"];
         assert!(!m["force_thinking"].as_bool().unwrap());
         assert!(!m["supports_image_url"].as_bool().unwrap());
@@ -13797,12 +15164,19 @@ mod tests {
             }
         });
         let outcome = apply_set_model_upstream(
-            &mut cfg, "openrouter", Some("p1"),
-            "claude-sonnet-5", "custom/unknown-model-v999",
-            None, None,
-        ).unwrap();
+            &mut cfg,
+            "openrouter",
+            Some("p1"),
+            "claude-sonnet-5",
+            "custom/unknown-model-v999",
+            None,
+            None,
+        )
+        .unwrap();
         assert!(outcome.config_changed); // upstream_model changed
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         let m = &profiles[0]["models"]["claude-sonnet-5"];
         // Unknown model → existing caps preserved
         assert!(!m["force_thinking"].as_bool().unwrap());
@@ -13828,10 +15202,15 @@ mod tests {
             }
         });
         let err = apply_set_model_upstream(
-            &mut cfg, "deepseek", None,
-            "claude-sonnet-5", "deepseek-v4-flash",
-            None, None,
-        ).unwrap_err();
+            &mut cfg,
+            "deepseek",
+            None,
+            "claude-sonnet-5",
+            "deepseek-v4-flash",
+            None,
+            None,
+        )
+        .unwrap_err();
         assert!(err.contains("must be a JSON object"), "got: {}", err);
     }
 
@@ -13850,9 +15229,13 @@ mod tests {
         });
         // Must not panic — returns Err
         let result = apply_set_model_upstream(
-            &mut cfg, "deepseek", None,
-            "claude-sonnet-5", "deepseek-v4-flash",
-            None, None,
+            &mut cfg,
+            "deepseek",
+            None,
+            "claude-sonnet-5",
+            "deepseek-v4-flash",
+            None,
+            None,
         );
         assert!(result.is_err());
     }
@@ -13869,10 +15252,15 @@ mod tests {
             }
         });
         let err = apply_set_model_upstream(
-            &mut cfg, "deepseek", None,
-            "claude-sonnet-5", "deepseek-v4-flash",
-            None, None,
-        ).unwrap_err();
+            &mut cfg,
+            "deepseek",
+            None,
+            "claude-sonnet-5",
+            "deepseek-v4-flash",
+            None,
+            None,
+        )
+        .unwrap_err();
         // The non-OpenRouter path catches this before write_model_entry_fields
         assert!(err.contains("models"), "got: {}", err);
     }
@@ -13894,11 +15282,20 @@ mod tests {
             }
         });
         let err = apply_set_model_upstream(
-            &mut cfg, "deepseek", None,
-            "claude-sonnet-5", "deepseek-v4-flash",
-            None, None,
-        ).unwrap_err();
-        assert!(err.contains("model_map must be a JSON object"), "got: {}", err);
+            &mut cfg,
+            "deepseek",
+            None,
+            "claude-sonnet-5",
+            "deepseek-v4-flash",
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("model_map must be a JSON object"),
+            "got: {}",
+            err
+        );
     }
 
     #[test]
@@ -13918,10 +15315,15 @@ mod tests {
             }
         });
         assert!(apply_set_model_upstream(
-            &mut cfg, "deepseek", None,
-            "claude-sonnet-5", "deepseek-v4-flash",
-            None, None,
-        ).is_err());
+            &mut cfg,
+            "deepseek",
+            None,
+            "claude-sonnet-5",
+            "deepseek-v4-flash",
+            None,
+            None,
+        )
+        .is_err());
     }
 
     #[test]
@@ -13963,8 +15365,12 @@ mod tests {
     /// Compute the real APPDATA-based config paths for isolation verification.
     fn real_appdata_config_paths() -> (std::path::PathBuf, std::path::PathBuf) {
         let appdata = std::env::var("APPDATA").unwrap_or_default();
-        let stable = std::path::PathBuf::from(&appdata).join("Poverello").join("config.json");
-        let dev = std::path::PathBuf::from(&appdata).join("Poverello Dev").join("config.json");
+        let stable = std::path::PathBuf::from(&appdata)
+            .join("Poverello")
+            .join("config.json");
+        let dev = std::path::PathBuf::from(&appdata)
+            .join("Poverello Dev")
+            .join("config.json");
         (stable, dev)
     }
 
@@ -13994,7 +15400,10 @@ mod tests {
         std::fs::write(&config_path, user_json).unwrap();
 
         let result = seed_config_from_template(&config_path);
-        assert!(result.is_err(), "seed must refuse to overwrite existing config");
+        assert!(
+            result.is_err(),
+            "seed must refuse to overwrite existing config"
+        );
         assert!(
             result.unwrap_err().contains("Refusing to overwrite"),
             "error must mention refusal reason"
@@ -14033,7 +15442,10 @@ mod tests {
         );
 
         // Rollback must be gone after successful recovery
-        assert!(!rollback.exists(), "rollback must be cleaned up after recovery");
+        assert!(
+            !rollback.exists(),
+            "rollback must be cleaned up after recovery"
+        );
     }
 
     #[test]
@@ -14055,11 +15467,17 @@ mod tests {
         // Original config preserved
         assert!(config_path.exists(), "original config must still exist");
         let content = std::fs::read_to_string(&config_path).unwrap();
-        assert_eq!(content, user_json, "original config must be unchanged byte-for-byte");
+        assert_eq!(
+            content, user_json,
+            "original config must be unchanged byte-for-byte"
+        );
 
         // No rollback left behind (step 3 never ran)
         let rollback = dir.path().join("config.json.rollback");
-        assert!(!rollback.exists(), "no rollback should exist — stage never reached");
+        assert!(
+            !rollback.exists(),
+            "no rollback should exist — stage never reached"
+        );
     }
 
     #[test]
@@ -14115,7 +15533,10 @@ mod tests {
         );
 
         // User's server settings MUST be preserved
-        assert_eq!(val["server"]["port"], 9999, "user's custom port must be preserved");
+        assert_eq!(
+            val["server"]["port"], 9999,
+            "user's custom port must be preserved"
+        );
 
         // Bundled providers SHOULD be merged in (additive, not replacement)
         // deepseek is in the template and should now exist alongside user's provider
@@ -14145,7 +15566,11 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let temp_config = dir.path().join("config.json");
         let result = ensure_config_initialized_at(&temp_config, paths::AppChannel::Dev, false);
-        assert!(result.is_ok(), "TempDir init must succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "TempDir init must succeed: {:?}",
+            result.err()
+        );
         assert!(temp_config.exists(), "TempDir config must be created");
 
         // Real APPDATA paths must be completely unchanged
@@ -14191,10 +15616,13 @@ mod tests {
         e
     }
 
-    fn write_migration_config(entries: Vec<(&str, serde_json::Value)>) -> (tempfile::TempDir, std::path::PathBuf) {
+    fn write_migration_config(
+        entries: Vec<(&str, serde_json::Value)>,
+    ) -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("config.json");
-        let models = serde_json::Map::from_iter(entries.into_iter().map(|(k, v)| (k.to_string(), v)));
+        let models =
+            serde_json::Map::from_iter(entries.into_iter().map(|(k, v)| (k.to_string(), v)));
         let config = json!({
             "active_provider": "deepseek",
             "providers": {
@@ -14222,7 +15650,10 @@ mod tests {
             deepseek_model_entry("deepseek-v4-pro", Some("thinking"), Some("low")),
         )]);
         assert!(!migrate_deepseek_pro_legacy_reasoning_effort(&path));
-        assert_eq!(migration_effort(&path, "claude-sonnet-5").as_deref(), Some("low"));
+        assert_eq!(
+            migration_effort(&path, "claude-sonnet-5").as_deref(),
+            Some("low")
+        );
     }
 
     #[test]
@@ -14232,7 +15663,10 @@ mod tests {
             deepseek_model_entry("deepseek-v4-pro", Some("thinking"), Some("medium")),
         )]);
         assert!(migrate_deepseek_pro_legacy_reasoning_effort(&path));
-        assert_eq!(migration_effort(&path, "claude-sonnet-5").as_deref(), Some("high"));
+        assert_eq!(
+            migration_effort(&path, "claude-sonnet-5").as_deref(),
+            Some("high")
+        );
     }
 
     #[test]
@@ -14242,7 +15676,10 @@ mod tests {
             deepseek_model_entry("deepseek-v4-pro", Some("thinking"), Some("xhigh")),
         )]);
         assert!(migrate_deepseek_pro_legacy_reasoning_effort(&path));
-        assert_eq!(migration_effort(&path, "claude-sonnet-5").as_deref(), Some("high"));
+        assert_eq!(
+            migration_effort(&path, "claude-sonnet-5").as_deref(),
+            Some("high")
+        );
     }
 
     #[test]
@@ -14252,7 +15689,10 @@ mod tests {
             deepseek_model_entry("deepseek-v4-pro", Some("thinking"), Some("high")),
         )]);
         assert!(!migrate_deepseek_pro_legacy_reasoning_effort(&path));
-        assert_eq!(migration_effort(&path, "claude-sonnet-5").as_deref(), Some("high"));
+        assert_eq!(
+            migration_effort(&path, "claude-sonnet-5").as_deref(),
+            Some("high")
+        );
     }
 
     #[test]
@@ -14262,7 +15702,10 @@ mod tests {
             deepseek_model_entry("deepseek-v4-pro", Some("thinking"), Some("max")),
         )]);
         assert!(!migrate_deepseek_pro_legacy_reasoning_effort(&path));
-        assert_eq!(migration_effort(&path, "claude-sonnet-5").as_deref(), Some("max"));
+        assert_eq!(
+            migration_effort(&path, "claude-sonnet-5").as_deref(),
+            Some("max")
+        );
     }
 
     #[test]
@@ -14302,7 +15745,10 @@ mod tests {
             deepseek_model_entry("deepseek-v4-flash", Some("thinking"), Some("low")),
         )]);
         assert!(!migrate_deepseek_pro_legacy_reasoning_effort(&path));
-        assert_eq!(migration_effort(&path, "claude-sonnet-5").as_deref(), Some("low"));
+        assert_eq!(
+            migration_effort(&path, "claude-sonnet-5").as_deref(),
+            Some("low")
+        );
     }
 
     #[test]
@@ -14343,7 +15789,8 @@ mod tests {
         let val: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(
-            val["providers"]["openrouter"]["profiles"][0]["models"]["claude-sonnet-5"]["reasoning_effort"],
+            val["providers"]["openrouter"]["profiles"][0]["models"]["claude-sonnet-5"]
+                ["reasoning_effort"],
             "low"
         );
         assert_eq!(
@@ -14401,8 +15848,10 @@ mod tests {
         assert_eq!(HISTORICAL_DEEPSEEK_MODEL_MAP.len(), 16);
         assert_eq!(HISTORICAL_DEEPSEEK_MODELS.len(), 17);
 
-        let map_keys: std::collections::HashSet<&str> =
-            HISTORICAL_DEEPSEEK_MODEL_MAP.iter().map(|(k, _)| *k).collect();
+        let map_keys: std::collections::HashSet<&str> = HISTORICAL_DEEPSEEK_MODEL_MAP
+            .iter()
+            .map(|(k, _)| *k)
+            .collect();
         let model_keys: std::collections::HashSet<&str> =
             HISTORICAL_DEEPSEEK_MODELS.iter().map(|e| e.key).collect();
 
@@ -14434,11 +15883,26 @@ mod tests {
         assert_eq!(ds["model_map"]["claude-deepseek-flash"], "deepseek-flash");
         assert_eq!(ds["model_map"]["deepseek-flash"], "deepseek-flash");
 
-        assert_eq!(ds["models"]["claude-opus-5"]["upstream_model"], "deepseek-flash");
-        assert_eq!(ds["models"]["claude-sonnet-5"]["upstream_model"], "deepseek-flash");
-        assert_eq!(ds["models"]["claude-haiku-4-5"]["upstream_model"], "deepseek-flash");
-        assert_eq!(ds["models"]["claude-deepseek-flash"]["upstream_model"], "deepseek-flash");
-        assert_eq!(ds["models"]["deepseek-flash"]["upstream_model"], "deepseek-flash");
+        assert_eq!(
+            ds["models"]["claude-opus-5"]["upstream_model"],
+            "deepseek-flash"
+        );
+        assert_eq!(
+            ds["models"]["claude-sonnet-5"]["upstream_model"],
+            "deepseek-flash"
+        );
+        assert_eq!(
+            ds["models"]["claude-haiku-4-5"]["upstream_model"],
+            "deepseek-flash"
+        );
+        assert_eq!(
+            ds["models"]["claude-deepseek-flash"]["upstream_model"],
+            "deepseek-flash"
+        );
+        assert_eq!(
+            ds["models"]["deepseek-flash"]["upstream_model"],
+            "deepseek-flash"
+        );
     }
 
     #[test]
@@ -14478,8 +15942,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.json");
         let mut cfg = make_historical_deepseek_provider_json();
-        cfg["providers"]["deepseek"]["models"]["claude-opus-5"]["thinking_mode"] =
-            json!("normal");
+        cfg["providers"]["deepseek"]["models"]["claude-opus-5"]["thinking_mode"] = json!("normal");
         std::fs::write(&path, serde_json::to_string_pretty(&cfg).unwrap()).unwrap();
 
         assert!(!migrate_deepseek_legacy_flash_to_v4_1(&path));
@@ -14559,10 +16022,7 @@ mod tests {
     const INCLUSIONAI_PROFILE_ID: &str = "c0e0f000-0000-4000-8000-000000000003";
     const STEPFUN_PROFILE_ID: &str = "d0e0f000-0000-4000-8000-000000000004";
 
-    fn find_profile<'a>(
-        profiles: &'a [serde_json::Value],
-        id: &str,
-    ) -> &'a serde_json::Value {
+    fn find_profile<'a>(profiles: &'a [serde_json::Value], id: &str) -> &'a serde_json::Value {
         profiles
             .iter()
             .find(|p| p["id"].as_str() == Some(id))
@@ -14656,8 +16116,7 @@ mod tests {
     #[test]
     fn bundled_deepseek_defaults_use_flash_routing() {
         let config: serde_json::Value =
-            serde_json::from_str(include_str!("../resources/config.json"))
-                .unwrap();
+            serde_json::from_str(include_str!("../resources/config.json")).unwrap();
 
         let models = &config["providers"]["deepseek"]["models"];
 
@@ -14680,8 +16139,7 @@ mod tests {
     #[test]
     fn bundled_kimi_code_defaults() {
         let config: serde_json::Value =
-            serde_json::from_str(include_str!("../resources/config.json"))
-                .unwrap();
+            serde_json::from_str(include_str!("../resources/config.json")).unwrap();
 
         let kc = &config["providers"]["kimi-code"];
         assert_eq!(kc["display_name"], "Kimi Code");
@@ -14759,12 +16217,20 @@ mod tests {
         assert!(profiles.iter().any(|p| p["id"] == HY3_PROFILE_ID));
         assert!(profiles.iter().any(|p| p["id"] == INCLUSIONAI_PROFILE_ID));
         assert!(profiles.iter().any(|p| p["id"] == STEPFUN_PROFILE_ID));
-        assert!(profiles.iter().any(|p| p["id"] == GPT56_BALANCED_PROFILE_ID));
+        assert!(profiles
+            .iter()
+            .any(|p| p["id"] == GPT56_BALANCED_PROFILE_ID));
         assert!(profiles.iter().any(|p| p["id"] == GEMINI_PROFILE_ID));
         assert!(profiles.iter().any(|p| p["id"] == DEEPSEEK_OR_PROFILE_ID));
         // Existing Laguna display_name repaired
-        let laguna_repaired = profiles.iter().find(|p| p["id"] == LAGUNA_PROFILE_ID).unwrap();
-        assert_eq!(laguna_repaired["display_name"].as_str().unwrap(), "OpenRouter: Laguna");
+        let laguna_repaired = profiles
+            .iter()
+            .find(|p| p["id"] == LAGUNA_PROFILE_ID)
+            .unwrap();
+        assert_eq!(
+            laguna_repaired["display_name"].as_str().unwrap(),
+            "OpenRouter: Laguna"
+        );
     }
 
     #[test]
@@ -14777,7 +16243,15 @@ mod tests {
         let gpt56 = build_gpt56_balanced_profile_json(GPT56_BALANCED_PROFILE_NAME);
         let deepseek = build_deepseek_profile_json(DEEPSEEK_OR_PROFILE_NAME);
         let cfg = make_openrouter_config_with_profiles(
-            vec![laguna.clone(), hy3.clone(), inclusionai.clone(), stepfun.clone(), gpt56.clone(), build_gemini_profile_json(GEMINI_PROFILE_NAME).clone(), deepseek.clone()],
+            vec![
+                laguna.clone(),
+                hy3.clone(),
+                inclusionai.clone(),
+                stepfun.clone(),
+                gpt56.clone(),
+                build_gemini_profile_json(GEMINI_PROFILE_NAME).clone(),
+                deepseek.clone(),
+            ],
             None,
         );
         write_config(dir.path(), &cfg);
@@ -14996,12 +16470,17 @@ mod tests {
         ensure_builtin_openrouter_profiles_at_path(&path).unwrap();
 
         let after = read_config(dir.path());
-        let profiles = after["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = after["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         let anthropic = profiles
             .iter()
             .find(|p| p["id"].as_str() == Some(ANTHROPIC_OR_PROFILE_ID))
             .unwrap();
-        assert_eq!(anthropic["display_name"].as_str().unwrap(), ANTHROPIC_OR_PROFILE_NAME);
+        assert_eq!(
+            anthropic["display_name"].as_str().unwrap(),
+            ANTHROPIC_OR_PROFILE_NAME
+        );
         assert_eq!(anthropic["user_note"], json!("keep me"));
     }
 
@@ -15095,7 +16574,10 @@ mod tests {
 
         // A fresh install carries no contract/protocol block: Z.ai is
         // Anthropic Messages with an API key only.
-        assert!(zai.get("zai").is_none(), "no legacy contract block in the template");
+        assert!(
+            zai.get("zai").is_none(),
+            "no legacy contract block in the template"
+        );
         assert_eq!(
             zai["upstream_url"].as_str(),
             Some("https://api.z.ai/api/anthropic")
@@ -15133,7 +16615,10 @@ mod tests {
         merge_bundled_providers(&path).expect("merge must succeed");
 
         let after = read_config(dir.path());
-        assert_eq!(after["providers"]["zai"]["display_name"].as_str(), Some("GLM"));
+        assert_eq!(
+            after["providers"]["zai"]["display_name"].as_str(),
+            Some("GLM")
+        );
         assert_eq!(after["active_provider"], json!("deepseek"));
         assert_eq!(after["user_top_level"], json!(7));
         assert_eq!(
@@ -15256,15 +16741,36 @@ mod tests {
         merge_bundled_providers(&path).expect("merge must succeed");
 
         let after = read_config(dir.path());
-        assert_eq!(after["providers"]["anthropic"]["display_name"].as_str(), Some("Anthropic"));
-        assert_eq!(after["providers"]["anthropic"]["upstream_url"].as_str(), Some("https://api.anthropic.com"));
-        assert_eq!(after["providers"]["anthropic"]["api_key_env"].as_str(), Some("ANTHROPIC_API_KEY"));
-        assert_eq!(after["providers"]["anthropic"]["default_model"].as_str(), Some("claude-opus-5-5"));
+        assert_eq!(
+            after["providers"]["anthropic"]["display_name"].as_str(),
+            Some("Anthropic")
+        );
+        assert_eq!(
+            after["providers"]["anthropic"]["upstream_url"].as_str(),
+            Some("https://api.anthropic.com")
+        );
+        assert_eq!(
+            after["providers"]["anthropic"]["api_key_env"].as_str(),
+            Some("ANTHROPIC_API_KEY")
+        );
+        assert_eq!(
+            after["providers"]["anthropic"]["default_model"].as_str(),
+            Some("claude-opus-5-5")
+        );
 
         let anthropic_models = &after["providers"]["anthropic"]["models"];
-        assert_eq!(anthropic_models["claude-opus-5"]["upstream_model"], json!("claude-opus-5-5"));
-        assert_eq!(anthropic_models["claude-sonnet-5"]["upstream_model"], json!("claude-sonnet-5-5"));
-        assert_eq!(anthropic_models["claude-haiku-4-5"]["upstream_model"], json!("claude-haiku-5-5"));
+        assert_eq!(
+            anthropic_models["claude-opus-5"]["upstream_model"],
+            json!("claude-opus-5-5")
+        );
+        assert_eq!(
+            anthropic_models["claude-sonnet-5"]["upstream_model"],
+            json!("claude-sonnet-5-5")
+        );
+        assert_eq!(
+            anthropic_models["claude-haiku-4-5"]["upstream_model"],
+            json!("claude-haiku-5-5")
+        );
 
         let first = std::fs::read_to_string(&path).unwrap();
         merge_bundled_providers(&path).expect("merge must be idempotent");
@@ -15429,7 +16935,10 @@ mod tests {
         let after = read_config(dir.path());
         let zai = &after["providers"]["zai"];
         assert_eq!(zai["display_name"], json!(ZAI_DISPLAY_NAME));
-        assert_eq!(zai["models"]["claude-opus-5"]["upstream_model"], json!(ZAI_DEFAULT_MODEL));
+        assert_eq!(
+            zai["models"]["claude-opus-5"]["upstream_model"],
+            json!(ZAI_DEFAULT_MODEL)
+        );
         assert_eq!(
             zai["models"]["claude-opus-5"]["reasoning_effort"],
             json!(ZAI_DEFAULT_REASONING_EFFORT)
@@ -15495,9 +17004,18 @@ mod tests {
         let after = read_config(dir.path());
         let zai = &after["providers"]["zai"];
         assert_eq!(zai["display_name"], json!("My GLM"));
-        assert_eq!(zai["models"]["claude-opus-5"]["upstream_model"], json!("glm-legacy-x"));
-        assert_eq!(zai["models"]["claude-opus-5"]["reasoning_effort"], json!("medium"));
-        assert_eq!(zai["models"]["claude-sonnet-5"]["reasoning_effort"], json!(7));
+        assert_eq!(
+            zai["models"]["claude-opus-5"]["upstream_model"],
+            json!("glm-legacy-x")
+        );
+        assert_eq!(
+            zai["models"]["claude-opus-5"]["reasoning_effort"],
+            json!("medium")
+        );
+        assert_eq!(
+            zai["models"]["claude-sonnet-5"]["reasoning_effort"],
+            json!(7)
+        );
     }
 
     /// Without the provider the migration is a no-op: it never invents a
@@ -15547,13 +17065,18 @@ mod tests {
         let provider = &cfg["providers"]["zai"];
 
         // An undocumented model is refused outright.
-        let err = validate_zai_model_selection(provider, "glm-4.6", Some("thinking"), Some("max")).unwrap_err();
+        let err = validate_zai_model_selection(provider, "glm-4.6", Some("thinking"), Some("max"))
+            .unwrap_err();
         assert!(err.contains("not a model documented"), "{err}");
 
         // Without an explicit contract selection, the documented pay-as-you-go
         // models are allowed by default.
         for model in ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "glm-5.2"] {
-            let mode = if model == "glm-5.2" { Some("normal") } else { Some("thinking") };
+            let mode = if model == "glm-5.2" {
+                Some("normal")
+            } else {
+                Some("thinking")
+            };
             assert!(
                 validate_zai_model_selection(provider, model, mode, Some("max")).is_ok(),
                 "{model} must be allowed by default when unselected"
@@ -15561,13 +17084,16 @@ mod tests {
         }
 
         // Only the documented effort axis is stored.
-        let err = validate_zai_model_selection(provider, "glm-5.3", Some("thinking"), Some("medium")).unwrap_err();
+        let err =
+            validate_zai_model_selection(provider, "glm-5.3", Some("thinking"), Some("medium"))
+                .unwrap_err();
         assert!(err.contains("low, high, max"), "{err}");
 
         // `thinking_only` is catalog capability metadata, never a persisted
         // value: a new selection must carry the canonical `thinking`.
         for mode in [Some("thinking_only"), Some("normal"), Some("default"), None] {
-            let err = validate_zai_model_selection(provider, "glm-5.3", mode, Some("max")).unwrap_err();
+            let err =
+                validate_zai_model_selection(provider, "glm-5.3", mode, Some("max")).unwrap_err();
             assert!(err.contains("must be 'thinking'"), "{mode:?}: {err}");
         }
 
@@ -15576,7 +17102,11 @@ mod tests {
         payg["providers"]["zai"]["zai"] = json!({ "contract_product": "pay_as_you_go" });
         let provider = &payg["providers"]["zai"];
         for model in ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "glm-5.2"] {
-            let mode = if model == "glm-5.2" { Some("normal") } else { Some("thinking") };
+            let mode = if model == "glm-5.2" {
+                Some("normal")
+            } else {
+                Some("thinking")
+            };
             assert!(
                 validate_zai_model_selection(provider, model, mode, Some("max")).is_ok(),
                 "{model} must be allowed on the pay-as-you-go contract"
@@ -15589,7 +17119,8 @@ mod tests {
         let mut cfg = zai_settings_config();
         cfg["providers"]["zai"]["zai"] = json!({ "contract_product": "pay_as_you_go" });
         // A legacy value already stored on one route stays as it is.
-        cfg["providers"]["zai"]["models"]["claude-opus-5"]["thinking_mode"] = json!("thinking_only");
+        cfg["providers"]["zai"]["models"]["claude-opus-5"]["thinking_mode"] =
+            json!("thinking_only");
         let before = cfg.clone();
 
         // The shared writer never stores `thinking_only`.
@@ -15618,10 +17149,19 @@ mod tests {
         )
         .unwrap();
         assert!(outcome.config_changed);
-        assert_eq!(cfg["providers"]["zai"]["models"]["claude-sonnet-5"]["thinking_mode"], "thinking");
-        assert_eq!(cfg["providers"]["zai"]["models"]["claude-sonnet-5"]["reasoning_effort"], "high");
+        assert_eq!(
+            cfg["providers"]["zai"]["models"]["claude-sonnet-5"]["thinking_mode"],
+            "thinking"
+        );
+        assert_eq!(
+            cfg["providers"]["zai"]["models"]["claude-sonnet-5"]["reasoning_effort"],
+            "high"
+        );
         // The untouched route keeps its legacy value verbatim.
-        assert_eq!(cfg["providers"]["zai"]["models"]["claude-opus-5"]["thinking_mode"], "thinking_only");
+        assert_eq!(
+            cfg["providers"]["zai"]["models"]["claude-opus-5"]["thinking_mode"],
+            "thinking_only"
+        );
 
         // GLM-5.2 is the one documented model that may disable thinking: the
         // canonical `normal` is accepted for it and refused for the 5.3 series,
@@ -15653,8 +17193,7 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("thinking is always enabled"), "{err}");
         assert_eq!(
-            cfg["providers"]["zai"]["models"]["claude-haiku-4-5"]["thinking_mode"],
-            "normal",
+            cfg["providers"]["zai"]["models"]["claude-haiku-4-5"]["thinking_mode"], "normal",
             "a refused save must not modify the route"
         );
 
@@ -15689,7 +17228,10 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("not a model documented"), "{err}");
-        assert_eq!(fresh, fresh_before, "a refused save must not modify the config");
+        assert_eq!(
+            fresh, fresh_before,
+            "a refused save must not modify the config"
+        );
     }
 
     #[test]
@@ -15854,18 +17396,22 @@ mod tests {
             .as_array()
             .unwrap();
         // Laguna profile ID repaired to fixed UUID + display_name repaired
-        let laguna_after = profiles.iter().find(|p| p["id"] == LAGUNA_PROFILE_ID).unwrap();
-        assert_eq!(laguna_after["display_name"].as_str().unwrap(), "OpenRouter: Laguna");
+        let laguna_after = profiles
+            .iter()
+            .find(|p| p["id"] == LAGUNA_PROFILE_ID)
+            .unwrap();
+        assert_eq!(
+            laguna_after["display_name"].as_str().unwrap(),
+            "OpenRouter: Laguna"
+        );
     }
 
     #[test]
     fn ensure_builtin_preserves_active_profile() {
         let dir = TempDir::new().unwrap();
         let laguna = build_laguna_profile_json("OpenRouter: Laguna");
-        let cfg = make_openrouter_config_with_profiles(
-            vec![laguna.clone()],
-            Some(LAGUNA_PROFILE_ID),
-        );
+        let cfg =
+            make_openrouter_config_with_profiles(vec![laguna.clone()], Some(LAGUNA_PROFILE_ID));
         write_config(dir.path(), &cfg);
 
         let path = dir.path().join("config.json");
@@ -15890,7 +17436,16 @@ mod tests {
         let deepseek = build_deepseek_profile_json(DEEPSEEK_OR_PROFILE_NAME);
         let anthropic = build_anthropic_profile_json(ANTHROPIC_OR_PROFILE_NAME);
         let cfg = make_openrouter_config_with_profiles(
-            vec![laguna.clone(), hy3.clone(), inclusionai.clone(), stepfun.clone(), gpt56.clone(), build_gemini_profile_json(GEMINI_PROFILE_NAME).clone(), deepseek.clone(), anthropic.clone()],
+            vec![
+                laguna.clone(),
+                hy3.clone(),
+                inclusionai.clone(),
+                stepfun.clone(),
+                gpt56.clone(),
+                build_gemini_profile_json(GEMINI_PROFILE_NAME).clone(),
+                deepseek.clone(),
+                anthropic.clone(),
+            ],
             None,
         );
         write_config(dir.path(), &cfg);
@@ -15937,7 +17492,15 @@ mod tests {
         let gpt56 = build_gpt56_balanced_profile_json("GPT Test");
         let deepseek = build_deepseek_profile_json("DeepSeek");
         let cfg = make_openrouter_config_with_profiles(
-            vec![laguna.clone(), hy3.clone(), inclusionai.clone(), stepfun.clone(), gpt56.clone(), build_gemini_profile_json(GEMINI_PROFILE_NAME).clone(), deepseek.clone()],
+            vec![
+                laguna.clone(),
+                hy3.clone(),
+                inclusionai.clone(),
+                stepfun.clone(),
+                gpt56.clone(),
+                build_gemini_profile_json(GEMINI_PROFILE_NAME).clone(),
+                deepseek.clone(),
+            ],
             None,
         );
         write_config(dir.path(), &cfg);
@@ -15950,18 +17513,42 @@ mod tests {
             .as_array()
             .unwrap();
         // All 7 profiles have their display_name repaired
-        let lg = profiles.iter().find(|p| p["id"] == LAGUNA_PROFILE_ID).unwrap();
+        let lg = profiles
+            .iter()
+            .find(|p| p["id"] == LAGUNA_PROFILE_ID)
+            .unwrap();
         let hy = profiles.iter().find(|p| p["id"] == HY3_PROFILE_ID).unwrap();
-        let ia = profiles.iter().find(|p| p["id"] == INCLUSIONAI_PROFILE_ID).unwrap();
-        let sf = profiles.iter().find(|p| p["id"] == STEPFUN_PROFILE_ID).unwrap();
-        let gpt = profiles.iter().find(|p| p["id"] == GPT56_BALANCED_PROFILE_ID).unwrap();
-        let ds = profiles.iter().find(|p| p["id"] == DEEPSEEK_OR_PROFILE_ID).unwrap();
+        let ia = profiles
+            .iter()
+            .find(|p| p["id"] == INCLUSIONAI_PROFILE_ID)
+            .unwrap();
+        let sf = profiles
+            .iter()
+            .find(|p| p["id"] == STEPFUN_PROFILE_ID)
+            .unwrap();
+        let gpt = profiles
+            .iter()
+            .find(|p| p["id"] == GPT56_BALANCED_PROFILE_ID)
+            .unwrap();
+        let ds = profiles
+            .iter()
+            .find(|p| p["id"] == DEEPSEEK_OR_PROFILE_ID)
+            .unwrap();
         assert_eq!(lg["display_name"].as_str().unwrap(), "OpenRouter: Laguna");
         assert_eq!(hy["display_name"].as_str().unwrap(), "OpenRouter: Tencent");
-        assert_eq!(ia["display_name"].as_str().unwrap(), "OpenRouter: InclusionAI");
+        assert_eq!(
+            ia["display_name"].as_str().unwrap(),
+            "OpenRouter: InclusionAI"
+        );
         assert_eq!(sf["display_name"].as_str().unwrap(), "OpenRouter: StepFun");
-        assert_eq!(gpt["display_name"].as_str().unwrap(), GPT56_BALANCED_PROFILE_NAME);
-        assert_eq!(ds["display_name"].as_str().unwrap(), DEEPSEEK_OR_PROFILE_NAME);
+        assert_eq!(
+            gpt["display_name"].as_str().unwrap(),
+            GPT56_BALANCED_PROFILE_NAME
+        );
+        assert_eq!(
+            ds["display_name"].as_str().unwrap(),
+            DEEPSEEK_OR_PROFILE_NAME
+        );
     }
 
     #[test]
@@ -15996,15 +17583,39 @@ mod tests {
         ];
         let changed = normalize_openrouter_profile_names(&mut profiles);
         assert!(changed); // custom_legacy renamed
-        // Built-in names preserved
-        assert_eq!(profiles[0]["display_name"].as_str().unwrap(), "OpenRouter: Laguna");
-        assert_eq!(profiles[1]["display_name"].as_str().unwrap(), "OpenRouter: Tencent");
-        assert_eq!(profiles[2]["display_name"].as_str().unwrap(), "OpenRouter: InclusionAI");
-        assert_eq!(profiles[3]["display_name"].as_str().unwrap(), "OpenRouter: StepFun");
-        assert_eq!(profiles[4]["display_name"].as_str().unwrap(), GPT56_BALANCED_PROFILE_NAME);
-        assert_eq!(profiles[5]["display_name"].as_str().unwrap(), GEMINI_PROFILE_NAME);
-        assert_eq!(profiles[6]["display_name"].as_str().unwrap(), DEEPSEEK_OR_PROFILE_NAME);
-        assert_eq!(profiles[7]["display_name"].as_str().unwrap(), ANTHROPIC_OR_PROFILE_NAME);
+                          // Built-in names preserved
+        assert_eq!(
+            profiles[0]["display_name"].as_str().unwrap(),
+            "OpenRouter: Laguna"
+        );
+        assert_eq!(
+            profiles[1]["display_name"].as_str().unwrap(),
+            "OpenRouter: Tencent"
+        );
+        assert_eq!(
+            profiles[2]["display_name"].as_str().unwrap(),
+            "OpenRouter: InclusionAI"
+        );
+        assert_eq!(
+            profiles[3]["display_name"].as_str().unwrap(),
+            "OpenRouter: StepFun"
+        );
+        assert_eq!(
+            profiles[4]["display_name"].as_str().unwrap(),
+            GPT56_BALANCED_PROFILE_NAME
+        );
+        assert_eq!(
+            profiles[5]["display_name"].as_str().unwrap(),
+            GEMINI_PROFILE_NAME
+        );
+        assert_eq!(
+            profiles[6]["display_name"].as_str().unwrap(),
+            DEEPSEEK_OR_PROFILE_NAME
+        );
+        assert_eq!(
+            profiles[7]["display_name"].as_str().unwrap(),
+            ANTHROPIC_OR_PROFILE_NAME
+        );
         // Custom legacy renamed to "Model 1" (no other numbered names in use)
         assert_eq!(profiles[8]["display_name"].as_str().unwrap(), "Model 1");
     }
@@ -16023,14 +17634,20 @@ mod tests {
         let changed = normalize_openrouter_profile_names(&mut profiles);
         assert!(changed);
         // Anthropic repaired to canonical built-in name
-        assert_eq!(profiles[0]["display_name"].as_str().unwrap(), ANTHROPIC_OR_PROFILE_NAME);
+        assert_eq!(
+            profiles[0]["display_name"].as_str().unwrap(),
+            ANTHROPIC_OR_PROFILE_NAME
+        );
         // Custom profile can now take Model 1
         assert_eq!(profiles[1]["display_name"].as_str().unwrap(), "Model 1");
 
         // Second pass is a no-op
         let changed_again = normalize_openrouter_profile_names(&mut profiles);
         assert!(!changed_again);
-        assert_eq!(profiles[0]["display_name"].as_str().unwrap(), ANTHROPIC_OR_PROFILE_NAME);
+        assert_eq!(
+            profiles[0]["display_name"].as_str().unwrap(),
+            ANTHROPIC_OR_PROFILE_NAME
+        );
         assert_eq!(profiles[1]["display_name"].as_str().unwrap(), "Model 1");
     }
 
@@ -16171,7 +17788,8 @@ mod tests {
     #[test]
     fn gemini_initial_default_is_migrated_to_current_default() {
         let dir = TempDir::new().unwrap();
-        let cfg = make_openrouter_config_with_profiles(vec![initial_gemini_default_profile()], None);
+        let cfg =
+            make_openrouter_config_with_profiles(vec![initial_gemini_default_profile()], None);
         write_config(dir.path(), &cfg);
 
         let path = dir.path().join("config.json");
@@ -16181,11 +17799,20 @@ mod tests {
         let profiles = result["providers"]["openrouter"]["profiles"]
             .as_array()
             .unwrap();
-        assert_eq!(gemini_route_upstream(profiles, "claude-opus-5"), "google/gemini-3.8-flash");
+        assert_eq!(
+            gemini_route_upstream(profiles, "claude-opus-5"),
+            "google/gemini-3.8-flash"
+        );
         assert_eq!(gemini_route_effort(profiles, "claude-opus-5"), "high");
-        assert_eq!(gemini_route_upstream(profiles, "claude-sonnet-5"), "google/gemini-3.8-flash");
+        assert_eq!(
+            gemini_route_upstream(profiles, "claude-sonnet-5"),
+            "google/gemini-3.8-flash"
+        );
         assert_eq!(gemini_route_effort(profiles, "claude-sonnet-5"), "medium");
-        assert_eq!(gemini_route_upstream(profiles, "claude-haiku-4-5"), "google/gemini-3.8-flash");
+        assert_eq!(
+            gemini_route_upstream(profiles, "claude-haiku-4-5"),
+            "google/gemini-3.8-flash"
+        );
         assert_eq!(gemini_route_effort(profiles, "claude-haiku-4-5"), "low");
     }
 
@@ -16193,7 +17820,8 @@ mod tests {
     fn gemini_interim_defaults_are_migrated_to_current_default() {
         // Test Interim A (High/High/Low)
         let dir = TempDir::new().unwrap();
-        let cfg = make_openrouter_config_with_profiles(vec![interim_gemini_default_profile_a()], None);
+        let cfg =
+            make_openrouter_config_with_profiles(vec![interim_gemini_default_profile_a()], None);
         write_config(dir.path(), &cfg);
 
         let path = dir.path().join("config.json");
@@ -16203,16 +17831,26 @@ mod tests {
         let profiles = result["providers"]["openrouter"]["profiles"]
             .as_array()
             .unwrap();
-        assert_eq!(gemini_route_upstream(profiles, "claude-opus-5"), "google/gemini-3.8-flash");
+        assert_eq!(
+            gemini_route_upstream(profiles, "claude-opus-5"),
+            "google/gemini-3.8-flash"
+        );
         assert_eq!(gemini_route_effort(profiles, "claude-opus-5"), "high");
-        assert_eq!(gemini_route_upstream(profiles, "claude-sonnet-5"), "google/gemini-3.8-flash");
+        assert_eq!(
+            gemini_route_upstream(profiles, "claude-sonnet-5"),
+            "google/gemini-3.8-flash"
+        );
         assert_eq!(gemini_route_effort(profiles, "claude-sonnet-5"), "medium");
-        assert_eq!(gemini_route_upstream(profiles, "claude-haiku-4-5"), "google/gemini-3.8-flash");
+        assert_eq!(
+            gemini_route_upstream(profiles, "claude-haiku-4-5"),
+            "google/gemini-3.8-flash"
+        );
         assert_eq!(gemini_route_effort(profiles, "claude-haiku-4-5"), "low");
 
         // Test Interim B (High/Medium/Low)
         let dir_b = TempDir::new().unwrap();
-        let cfg_b = make_openrouter_config_with_profiles(vec![interim_gemini_default_profile_b()], None);
+        let cfg_b =
+            make_openrouter_config_with_profiles(vec![interim_gemini_default_profile_b()], None);
         write_config(dir_b.path(), &cfg_b);
 
         let path_b = dir_b.path().join("config.json");
@@ -16222,18 +17860,28 @@ mod tests {
         let profiles_b = result_b["providers"]["openrouter"]["profiles"]
             .as_array()
             .unwrap();
-        assert_eq!(gemini_route_upstream(profiles_b, "claude-opus-5"), "google/gemini-3.8-flash");
+        assert_eq!(
+            gemini_route_upstream(profiles_b, "claude-opus-5"),
+            "google/gemini-3.8-flash"
+        );
         assert_eq!(gemini_route_effort(profiles_b, "claude-opus-5"), "high");
-        assert_eq!(gemini_route_upstream(profiles_b, "claude-sonnet-5"), "google/gemini-3.8-flash");
+        assert_eq!(
+            gemini_route_upstream(profiles_b, "claude-sonnet-5"),
+            "google/gemini-3.8-flash"
+        );
         assert_eq!(gemini_route_effort(profiles_b, "claude-sonnet-5"), "medium");
-        assert_eq!(gemini_route_upstream(profiles_b, "claude-haiku-4-5"), "google/gemini-3.8-flash");
+        assert_eq!(
+            gemini_route_upstream(profiles_b, "claude-haiku-4-5"),
+            "google/gemini-3.8-flash"
+        );
         assert_eq!(gemini_route_effort(profiles_b, "claude-haiku-4-5"), "low");
     }
 
     #[test]
     fn gemini_already_new_default_is_noop() {
         let dir = TempDir::new().unwrap();
-        let default_profile = serde_json::to_value(build_gemini_profile(GEMINI_PROFILE_NAME)).unwrap();
+        let default_profile =
+            serde_json::to_value(build_gemini_profile(GEMINI_PROFILE_NAME)).unwrap();
         let cfg = make_openrouter_config_with_profiles(vec![default_profile], None);
         write_config(dir.path(), &cfg);
 
@@ -16260,8 +17908,14 @@ mod tests {
             .as_array()
             .unwrap();
         // Haiku stays as the user edited it; Opus stays at the old default.
-        assert_eq!(gemini_route_upstream(profiles, "claude-haiku-4-5"), "google/gemini-3.1-pro-preview");
-        assert_eq!(gemini_route_upstream(profiles, "claude-opus-5"), "google/gemini-3.1-pro-preview");
+        assert_eq!(
+            gemini_route_upstream(profiles, "claude-haiku-4-5"),
+            "google/gemini-3.1-pro-preview"
+        );
+        assert_eq!(
+            gemini_route_upstream(profiles, "claude-opus-5"),
+            "google/gemini-3.1-pro-preview"
+        );
     }
 
     #[test]
@@ -16356,19 +18010,21 @@ mod tests {
         let hy3 = build_hy3_profile_json("OpenRouter: Tencent");
         let inclusionai = build_inclusionai_profile_json("OpenRouter: InclusionAI");
         let stepfun = build_stepfun_profile_json("OpenRouter: StepFun");
-        let cfg = make_openrouter_config_with_profiles(
-            vec![laguna, hy3, inclusionai, stepfun],
-            None,
-        );
+        let cfg =
+            make_openrouter_config_with_profiles(vec![laguna, hy3, inclusionai, stepfun], None);
         write_config(dir.path(), &cfg);
 
         let path = dir.path().join("config.json");
         // First run: adds GPT-5.6 Balanced, Gemini, DeepSeek, Anthropic
         ensure_builtin_openrouter_profiles_at_path(&path).unwrap();
         let result = read_config(dir.path());
-        let profiles = result["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = result["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles.len(), 8);
-        assert!(profiles.iter().any(|p| p["id"] == GPT56_BALANCED_PROFILE_ID));
+        assert!(profiles
+            .iter()
+            .any(|p| p["id"] == GPT56_BALANCED_PROFILE_ID));
         assert!(profiles.iter().any(|p| p["id"] == GEMINI_PROFILE_ID));
         assert!(profiles.iter().any(|p| p["id"] == DEEPSEEK_OR_PROFILE_ID));
 
@@ -16395,7 +18051,9 @@ mod tests {
         ensure_builtin_openrouter_profiles_at_path(&path).unwrap();
 
         let result = read_config(dir.path());
-        let profiles = result["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = result["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         let gpt = find_profile(profiles, GPT56_BALANCED_PROFILE_ID);
 
         // Display name repaired to canonical
@@ -16470,7 +18128,9 @@ mod tests {
         ensure_builtin_openrouter_profiles_at_path(&path).unwrap();
 
         let result = read_config(dir.path());
-        let profiles = result["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = result["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
 
         let tencent = find_profile(profiles, "b0e0f000-0000-4000-8000-000000000002");
         // Display name migrated to OpenRouter: Tencent
@@ -16493,25 +18153,16 @@ mod tests {
             tencent["models"]["claude-haiku-4-5"]["upstream_model"],
             "tencent/hy3"
         );
-        assert_eq!(
-            tencent["model_map"]["claude-opus-5"],
-            "tencent/hy4-preview"
-        );
-        assert_eq!(
-            tencent["model_map"]["claude-sonnet-5"],
-            "tencent/hy3"
-        );
-        assert_eq!(
-            tencent["model_map"]["claude-haiku-4-5"],
-            "tencent/hy3"
-        );
-        assert_eq!(
-            tencent["visible_models"].as_array().unwrap().len(),
-            3
-        );
+        assert_eq!(tencent["model_map"]["claude-opus-5"], "tencent/hy4-preview");
+        assert_eq!(tencent["model_map"]["claude-sonnet-5"], "tencent/hy3");
+        assert_eq!(tencent["model_map"]["claude-haiku-4-5"], "tencent/hy3");
+        assert_eq!(tencent["visible_models"].as_array().unwrap().len(), 3);
 
         // Custom profile's name and UUID are untouched
-        let custom = profiles.iter().find(|p| p["id"] == "custom-uuid-tencent-test").unwrap();
+        let custom = profiles
+            .iter()
+            .find(|p| p["id"] == "custom-uuid-tencent-test")
+            .unwrap();
         assert_eq!(custom["display_name"], "My Custom Tencent Setup");
 
         // Second pass is idempotent and does not create duplicates or rename
@@ -16532,7 +18183,9 @@ mod tests {
         ensure_builtin_openrouter_profiles_at_path(&path).unwrap();
 
         let result = read_config(dir.path());
-        let profiles = result["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = result["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         let tencent = find_profile(profiles, "b0e0f000-0000-4000-8000-000000000002");
         assert_eq!(tencent["display_name"], "OpenRouter: Tencent");
     }
@@ -16554,16 +18207,30 @@ mod tests {
             "models": {}
         });
 
-        let mut profiles = vec![legacy_tencent, custom_tencent, normalized_tencent, custom_unrelated];
+        let mut profiles = vec![
+            legacy_tencent,
+            custom_tencent,
+            normalized_tencent,
+            custom_unrelated,
+        ];
         let changed = normalize_openrouter_profile_names(&mut profiles);
         assert!(changed);
 
         // Legacy name migrated to OpenRouter: Tencent
-        assert_eq!(profiles[0]["display_name"].as_str().unwrap(), "OpenRouter: Tencent");
+        assert_eq!(
+            profiles[0]["display_name"].as_str().unwrap(),
+            "OpenRouter: Tencent"
+        );
         // Custom name preserved on built-in ID
-        assert_eq!(profiles[1]["display_name"].as_str().unwrap(), "Tencent Special");
+        assert_eq!(
+            profiles[1]["display_name"].as_str().unwrap(),
+            "Tencent Special"
+        );
         // Mistakenly normalized "Model 1" restored to OpenRouter: Tencent
-        assert_eq!(profiles[2]["display_name"].as_str().unwrap(), "OpenRouter: Tencent");
+        assert_eq!(
+            profiles[2]["display_name"].as_str().unwrap(),
+            "OpenRouter: Tencent"
+        );
         // Custom unrelated profile preserved
         assert_eq!(profiles[3]["display_name"].as_str().unwrap(), "Hy3 Custom");
 
@@ -16586,7 +18253,9 @@ mod tests {
         let outcome = apply_set_openrouter_profile_hidden(&mut cfg, "p1", true).unwrap();
         assert!(outcome.config_changed);
         assert!(!outcome.restart_gateway);
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles[0]["hidden"].as_bool().unwrap(), true);
     }
 
@@ -16602,7 +18271,9 @@ mod tests {
         let outcome = apply_set_openrouter_profile_hidden(&mut cfg, "p1", false).unwrap();
         assert!(outcome.config_changed);
         assert!(!outcome.restart_gateway);
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         // Key removed, not written as false
         assert!(profiles[0].get("hidden").is_none());
     }
@@ -16620,7 +18291,9 @@ mod tests {
         assert!(!outcome.config_changed);
         assert!(!outcome.restart_gateway);
         // Key still present
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert_eq!(profiles[0]["hidden"].as_bool().unwrap(), true);
     }
 
@@ -16704,7 +18377,9 @@ mod tests {
         });
         let outcome = apply_set_openrouter_profile_hidden(&mut cfg, "p1", false).unwrap();
         assert!(outcome.config_changed);
-        let profiles = cfg["providers"]["openrouter"]["profiles"].as_array().unwrap();
+        let profiles = cfg["providers"]["openrouter"]["profiles"]
+            .as_array()
+            .unwrap();
         assert!(profiles[0].get("hidden").is_none());
 
         // Second call: key already absent → unchanged
@@ -16743,9 +18418,17 @@ mod tests {
         let outcome = apply_set_provider_hidden(&mut cfg, "deepseek", true).unwrap();
         assert!(outcome.config_changed);
         assert!(!outcome.restart_gateway);
-        assert_eq!(cfg["providers"]["deepseek"]["hidden"].as_bool().unwrap(), true);
+        assert_eq!(
+            cfg["providers"]["deepseek"]["hidden"].as_bool().unwrap(),
+            true
+        );
         // Other provider fields are preserved
-        assert_eq!(cfg["providers"]["deepseek"]["api_key_env"].as_str().unwrap(), "DEEPSEEK_API_KEY");
+        assert_eq!(
+            cfg["providers"]["deepseek"]["api_key_env"]
+                .as_str()
+                .unwrap(),
+            "DEEPSEEK_API_KEY"
+        );
     }
 
     #[test]
@@ -16812,27 +18495,36 @@ mod tests {
 
     fn valid_test_gateway_profile() -> GatewayProfile {
         let mut routes = std::collections::HashMap::new();
-        routes.insert("claude-opus-5".to_string(), GatewayProfileRoute {
-            provider: "anthropic".to_string(),
-            model: Some("claude-opus-5-5".to_string()),
-            profile_id: None,
-            thinking_mode: Some("thinking".to_string()),
-            reasoning_effort: Some("high".to_string()),
-        });
-        routes.insert("claude-sonnet-5".to_string(), GatewayProfileRoute {
-            provider: "zai".to_string(),
-            model: Some("glm-5.2".to_string()),
-            profile_id: None,
-            thinking_mode: Some("normal".to_string()),
-            reasoning_effort: None,
-        });
-        routes.insert("claude-haiku-4-5".to_string(), GatewayProfileRoute {
-            provider: "deepseek".to_string(),
-            model: Some("deepseek-v4-flash".to_string()),
-            profile_id: None,
-            thinking_mode: None,
-            reasoning_effort: None,
-        });
+        routes.insert(
+            "claude-opus-5".to_string(),
+            GatewayProfileRoute {
+                provider: "anthropic".to_string(),
+                model: Some("claude-opus-5-5".to_string()),
+                profile_id: None,
+                thinking_mode: Some("thinking".to_string()),
+                reasoning_effort: Some("high".to_string()),
+            },
+        );
+        routes.insert(
+            "claude-sonnet-5".to_string(),
+            GatewayProfileRoute {
+                provider: "zai".to_string(),
+                model: Some("glm-5.2".to_string()),
+                profile_id: None,
+                thinking_mode: Some("normal".to_string()),
+                reasoning_effort: None,
+            },
+        );
+        routes.insert(
+            "claude-haiku-4-5".to_string(),
+            GatewayProfileRoute {
+                provider: "deepseek".to_string(),
+                model: Some("deepseek-v4-flash".to_string()),
+                profile_id: None,
+                thinking_mode: None,
+                reasoning_effort: None,
+            },
+        );
         GatewayProfile {
             id: "gw-prof-1".to_string(),
             display_name: "Multi-Provider Mix".to_string(),
@@ -16924,12 +18616,20 @@ mod tests {
 
         // Unreviewed provider
         let mut prof_bad_prov = valid_test_gateway_profile();
-        prof_bad_prov.routes.get_mut("claude-opus-5").unwrap().provider = "openai".to_string();
+        prof_bad_prov
+            .routes
+            .get_mut("claude-opus-5")
+            .unwrap()
+            .provider = "openai".to_string();
         assert!(apply_save_gateway_profile(&mut cfg, &prof_bad_prov).is_err());
 
         // Unreviewed model for anthropic
         let mut prof_bad_model = valid_test_gateway_profile();
-        prof_bad_model.routes.get_mut("claude-opus-5").unwrap().model = Some("unreviewed-model".to_string());
+        prof_bad_model
+            .routes
+            .get_mut("claude-opus-5")
+            .unwrap()
+            .model = Some("unreviewed-model".to_string());
         assert!(apply_save_gateway_profile(&mut cfg, &prof_bad_model).is_err());
     }
 
@@ -16938,24 +18638,48 @@ mod tests {
         let mut cfg = base_gateway_test_config();
 
         let mut prof_bad_think = valid_test_gateway_profile();
-        prof_bad_think.routes.get_mut("claude-opus-5").unwrap().thinking_mode = Some("invalid_mode".to_string());
+        prof_bad_think
+            .routes
+            .get_mut("claude-opus-5")
+            .unwrap()
+            .thinking_mode = Some("invalid_mode".to_string());
         assert!(apply_save_gateway_profile(&mut cfg, &prof_bad_think).is_err());
 
         let mut prof_bad_effort = valid_test_gateway_profile();
-        prof_bad_effort.routes.get_mut("claude-opus-5").unwrap().reasoning_effort = Some("extreme".to_string());
+        prof_bad_effort
+            .routes
+            .get_mut("claude-opus-5")
+            .unwrap()
+            .reasoning_effort = Some("extreme".to_string());
         assert!(apply_save_gateway_profile(&mut cfg, &prof_bad_effort).is_err());
 
         let mut glm_bad_effort = valid_test_gateway_profile();
-        glm_bad_effort.routes.get_mut("claude-sonnet-5").unwrap().reasoning_effort = Some("medium".to_string());
+        glm_bad_effort
+            .routes
+            .get_mut("claude-sonnet-5")
+            .unwrap()
+            .reasoning_effort = Some("medium".to_string());
         assert!(apply_save_gateway_profile(&mut cfg, &glm_bad_effort).is_err());
 
         let mut glm_bad_thinking = valid_test_gateway_profile();
-        glm_bad_thinking.routes.get_mut("claude-sonnet-5").unwrap().model = Some("glm-5.3".to_string());
-        glm_bad_thinking.routes.get_mut("claude-sonnet-5").unwrap().thinking_mode = Some("normal".to_string());
+        glm_bad_thinking
+            .routes
+            .get_mut("claude-sonnet-5")
+            .unwrap()
+            .model = Some("glm-5.3".to_string());
+        glm_bad_thinking
+            .routes
+            .get_mut("claude-sonnet-5")
+            .unwrap()
+            .thinking_mode = Some("normal".to_string());
         assert!(apply_save_gateway_profile(&mut cfg, &glm_bad_thinking).is_err());
 
         let mut glm_supported_max = valid_test_gateway_profile();
-        glm_supported_max.routes.get_mut("claude-sonnet-5").unwrap().reasoning_effort = Some("max".to_string());
+        glm_supported_max
+            .routes
+            .get_mut("claude-sonnet-5")
+            .unwrap()
+            .reasoning_effort = Some("max".to_string());
         assert!(apply_save_gateway_profile(&mut cfg, &glm_supported_max).is_ok());
     }
 
@@ -17033,7 +18757,10 @@ mod tests {
         prof.display_name = "Updated name".to_string();
         apply_save_gateway_profile(&mut cfg, &prof).unwrap();
         assert_eq!(cfg["gateway_profiles"][0]["display_name"], "Updated name");
-        assert_eq!(cfg["gateway_profiles"][0]["future_profile_field"], json!({"keep": true}));
+        assert_eq!(
+            cfg["gateway_profiles"][0]["future_profile_field"],
+            json!({"keep": true})
+        );
         assert_eq!(
             cfg["gateway_profiles"][0]["routes"]["claude-opus-5"]["future_route_field"],
             "keep-route-data"
@@ -17041,7 +18768,10 @@ mod tests {
 
         let duplicate = apply_duplicate_gateway_profile(&mut cfg, &prof.id, None).unwrap();
         assert_eq!(duplicate.value.display_name, "Updated name (Copy)");
-        assert_eq!(cfg["gateway_profiles"][1]["future_profile_field"], json!({"keep": true}));
+        assert_eq!(
+            cfg["gateway_profiles"][1]["future_profile_field"],
+            json!({"keep": true})
+        );
         assert_eq!(
             cfg["gateway_profiles"][1]["routes"]["claude-opus-5"]["future_route_field"],
             "keep-route-data"
@@ -17059,17 +18789,29 @@ mod tests {
         assert_eq!(eff.target_kind, Some("gateway_profile"));
         assert_eq!(eff.target_id, Some("gw-prof-1".to_string()));
         assert_eq!(eff.routes.len(), 3);
-        assert_eq!(eff.routes[0].upstream_model.as_deref(), Some("claude-opus-5-5"));
+        assert_eq!(
+            eff.routes[0].upstream_model.as_deref(),
+            Some("claude-opus-5-5")
+        );
         assert_eq!(eff.routes[1].upstream_model.as_deref(), Some("glm-5.2"));
-        assert_eq!(eff.routes[2].upstream_model.as_deref(), Some("deepseek-v4-flash"));
+        assert_eq!(
+            eff.routes[2].upstream_model.as_deref(),
+            Some("deepseek-v4-flash")
+        );
 
         // A missing active ID must not silently select the first saved profile.
         let mut invalid_active = cfg.clone();
-        invalid_active.as_object_mut().unwrap().remove("active_gateway_profile_id");
+        invalid_active
+            .as_object_mut()
+            .unwrap()
+            .remove("active_gateway_profile_id");
         let unresolved = resolve_effective_auto_compact(&invalid_active).unwrap();
         assert_eq!(unresolved.target_kind, Some("gateway_profile"));
         assert_eq!(unresolved.target_id, None);
-        assert!(unresolved.routes.iter().all(|route| route.upstream_model.is_none()));
+        assert!(unresolved
+            .routes
+            .iter()
+            .all(|route| route.upstream_model.is_none()));
     }
 
     // ── Config write serialization regression tests ─────────────────
@@ -17122,8 +18864,13 @@ mod tests {
         let handle_a = std::thread::spawn(move || {
             execute_serialized_config_mutation_at_path(&lock_a, &path_a, |cfg| {
                 apply_set_model_upstream(
-                    cfg, "minimax", None, "claude-sonnet-5",
-                    "MiniMax-M3", Some("default"), None,
+                    cfg,
+                    "minimax",
+                    None,
+                    "claude-sonnet-5",
+                    "MiniMax-M3",
+                    Some("default"),
+                    None,
                 )
             })
         });
@@ -17133,8 +18880,13 @@ mod tests {
         let handle_b = std::thread::spawn(move || {
             execute_serialized_config_mutation_at_path(&lock_b, &path_b, |cfg| {
                 apply_set_model_upstream(
-                    cfg, "minimax", None, "claude-haiku-4-5",
-                    "MiniMax-M3", Some("default"), None,
+                    cfg,
+                    "minimax",
+                    None,
+                    "claude-haiku-4-5",
+                    "MiniMax-M3",
+                    Some("default"),
+                    None,
                 )
             })
         });
@@ -17189,20 +18941,28 @@ mod tests {
             ("model-d", "Target-D"),
         ];
 
-        let handles: Vec<_> = edits.iter().map(|(key, target)| {
-            let lock = Arc::clone(&lock);
-            let path = path.clone();
-            let key = key.to_string();
-            let target = target.to_string();
-            std::thread::spawn(move || {
-                execute_serialized_config_mutation_at_path(&lock, &path, |cfg| {
-                    apply_set_model_upstream(
-                        cfg, "minimax", None, &key,
-                        &target, Some("default"), None,
-                    )
+        let handles: Vec<_> = edits
+            .iter()
+            .map(|(key, target)| {
+                let lock = Arc::clone(&lock);
+                let path = path.clone();
+                let key = key.to_string();
+                let target = target.to_string();
+                std::thread::spawn(move || {
+                    execute_serialized_config_mutation_at_path(&lock, &path, |cfg| {
+                        apply_set_model_upstream(
+                            cfg,
+                            "minimax",
+                            None,
+                            &key,
+                            &target,
+                            Some("default"),
+                            None,
+                        )
+                    })
                 })
             })
-        }).collect();
+            .collect();
 
         for h in handles {
             let _ = h.join().unwrap().unwrap();
@@ -17213,10 +18973,12 @@ mod tests {
         let model_map = &result["providers"]["minimax"]["model_map"];
 
         for (key, target) in &edits {
-            assert_eq!(models[*key]["upstream_model"], *target,
-                "model key {}: upstream_model mismatch", key);
-            assert_eq!(model_map[*key], *target,
-                "model_map key {}: mismatch", key);
+            assert_eq!(
+                models[*key]["upstream_model"], *target,
+                "model key {}: upstream_model mismatch",
+                key
+            );
+            assert_eq!(model_map[*key], *target, "model_map key {}: mismatch", key);
         }
     }
 
@@ -17242,8 +19004,13 @@ mod tests {
         let handle_a = std::thread::spawn(move || {
             execute_serialized_config_mutation_at_path::<(), _>(&lock_a, &path_a, |cfg| {
                 apply_set_model_upstream(
-                    cfg, "minimax", None, "claude-sonnet-5",
-                    "", Some("default"), None, // empty → Err
+                    cfg,
+                    "minimax",
+                    None,
+                    "claude-sonnet-5",
+                    "",
+                    Some("default"),
+                    None, // empty → Err
                 )
             })
         });
@@ -17254,8 +19021,13 @@ mod tests {
         let handle_b = std::thread::spawn(move || {
             execute_serialized_config_mutation_at_path(&lock_b, &path_b, |cfg| {
                 apply_set_model_upstream(
-                    cfg, "minimax", None, "claude-haiku-4-5",
-                    "MiniMax-M3", Some("default"), None,
+                    cfg,
+                    "minimax",
+                    None,
+                    "claude-haiku-4-5",
+                    "MiniMax-M3",
+                    Some("default"),
+                    None,
                 )
             })
         });
@@ -17264,7 +19036,10 @@ mod tests {
         assert!(result_a.is_err(), "Thread A must error on empty upstream");
 
         let result_b = handle_b.join().unwrap();
-        assert!(result_b.is_ok(), "Thread B must succeed (lock released after A's error)");
+        assert!(
+            result_b.is_ok(),
+            "Thread B must succeed (lock released after A's error)"
+        );
 
         // Thread B's change is on disk
         let result = read_config(dir.path());
@@ -17284,18 +19059,15 @@ mod tests {
         assert!(result.is_ok());
 
         // Invalid thinking_mode
-        let result = validate_set_model_upstream_input(
-            "m", Some("bogus"), None);
+        let result = validate_set_model_upstream_input("m", Some("bogus"), None);
         assert!(result.is_err());
 
         // Invalid reasoning_effort
-        let result = validate_set_model_upstream_input(
-            "m", None, Some("bogus"));
+        let result = validate_set_model_upstream_input("m", None, Some("bogus"));
         assert!(result.is_err());
 
         // Valid thinking_mode and reasoning_effort (including xhigh)
-        let result = validate_set_model_upstream_input(
-            "m", Some("thinking"), Some("xhigh"));
+        let result = validate_set_model_upstream_input("m", Some("thinking"), Some("xhigh"));
         assert!(result.is_ok());
     }
 
@@ -17304,10 +19076,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.json");
 
-        let cfg = make_provider_config(
-            "minimax",
-            json!({"claude-sonnet-5": "sonnet-upstream"}),
-        );
+        let cfg = make_provider_config("minimax", json!({"claude-sonnet-5": "sonnet-upstream"}));
         write_config(dir.path(), &cfg);
 
         let lock = Arc::new(Mutex::new(()));
@@ -17318,8 +19087,13 @@ mod tests {
         let handle_a = std::thread::spawn(move || {
             execute_serialized_config_mutation_at_path(&lock_a, &path_a, |cfg| {
                 apply_set_model_upstream(
-                    cfg, "minimax", None, "claude-sonnet-5",
-                    "MiniMax-M3", Some("default"), None,
+                    cfg,
+                    "minimax",
+                    None,
+                    "claude-sonnet-5",
+                    "MiniMax-M3",
+                    Some("default"),
+                    None,
                 )
             })
         });
@@ -17351,10 +19125,8 @@ mod tests {
             let dir = TempDir::new().unwrap();
             let path = dir.path().join("config.json");
 
-            let cfg = make_provider_config(
-                "minimax",
-                json!({"claude-sonnet-5": "sonnet-upstream"}),
-            );
+            let cfg =
+                make_provider_config("minimax", json!({"claude-sonnet-5": "sonnet-upstream"}));
             write_config(dir.path(), &cfg);
 
             let lock = Arc::new(Mutex::new(()));
@@ -17364,13 +19136,17 @@ mod tests {
             let lock_a = Arc::clone(&lock);
             let path_a = path.clone();
             let handle_a = std::thread::spawn(move || {
-                let r = execute_serialized_config_mutation_at_path(
-                    &lock_a, &path_a, |cfg| {
-                        apply_set_model_upstream(
-                            cfg, "minimax", None, "claude-sonnet-5",
-                            "MiniMax-M3", Some("default"), None,
-                        )
-                    });
+                let r = execute_serialized_config_mutation_at_path(&lock_a, &path_a, |cfg| {
+                    apply_set_model_upstream(
+                        cfg,
+                        "minimax",
+                        None,
+                        "claude-sonnet-5",
+                        "MiniMax-M3",
+                        Some("default"),
+                        None,
+                    )
+                });
                 let _ = tx.send("done");
                 r
             });
@@ -17392,7 +19168,9 @@ mod tests {
             let result = read_config(dir.path());
             // Full replace ran last → overwrites everything (intentional)
             assert_eq!(result["active_provider"], "deepseek");
-            assert!(result["providers"].as_object().map_or(true, |o| o.is_empty()));
+            assert!(result["providers"]
+                .as_object()
+                .map_or(true, |o| o.is_empty()));
         }
 
         // Case 2: full replace runs FIRST → partial mutation applies on top
@@ -17400,10 +19178,8 @@ mod tests {
             let dir = TempDir::new().unwrap();
             let path = dir.path().join("config.json");
 
-            let cfg = make_provider_config(
-                "minimax",
-                json!({"claude-sonnet-5": "sonnet-upstream"}),
-            );
+            let cfg =
+                make_provider_config("minimax", json!({"claude-sonnet-5": "sonnet-upstream"}));
             write_config(dir.path(), &cfg);
 
             let lock = Arc::new(Mutex::new(()));
@@ -17446,13 +19222,17 @@ mod tests {
             let path_b = path.clone();
             let handle_b = std::thread::spawn(move || {
                 let _ = rx.recv(); // wait for A to finish
-                let _ = execute_serialized_config_mutation_at_path(
-                    &lock_b, &path_b, |cfg| {
-                        apply_set_model_upstream(
-                            cfg, "minimax", None, "claude-sonnet-5",
-                            "MiniMax-M3", Some("default"), None,
-                        )
-                    });
+                let _ = execute_serialized_config_mutation_at_path(&lock_b, &path_b, |cfg| {
+                    apply_set_model_upstream(
+                        cfg,
+                        "minimax",
+                        None,
+                        "claude-sonnet-5",
+                        "MiniMax-M3",
+                        Some("default"),
+                        None,
+                    )
+                });
                 Ok::<_, String>(())
             });
 
@@ -17467,10 +19247,7 @@ mod tests {
         let path = dir.path().join("config.json");
 
         // Seed temp dir with a config so reset_config_at_path has something to back up
-        let cfg = make_provider_config(
-            "minimax",
-            json!({"claude-sonnet-5": "sonnet-upstream"}),
-        );
+        let cfg = make_provider_config("minimax", json!({"claude-sonnet-5": "sonnet-upstream"}));
         write_config(dir.path(), &cfg);
 
         let lock = Arc::new(Mutex::new(()));
@@ -17493,8 +19270,13 @@ mod tests {
             let _ = rx.recv();
             execute_serialized_config_mutation_at_path(&lock_b, &path_b, |cfg| {
                 apply_set_model_upstream(
-                    cfg, "deepseek", None, "claude-sonnet-5",
-                    "deepseek-chat", Some("normal"), None,
+                    cfg,
+                    "deepseek",
+                    None,
+                    "claude-sonnet-5",
+                    "deepseek-chat",
+                    Some("normal"),
+                    None,
                 )
             })
         });
@@ -17546,10 +19328,7 @@ mod tests {
         std::fs::write(&bak_path, bak_s).unwrap();
 
         // Write a different current config (will be overwritten by restore)
-        let cfg = make_provider_config(
-            "deepseek",
-            json!({"claude-sonnet-5": "deepseek-chat"}),
-        );
+        let cfg = make_provider_config("deepseek", json!({"claude-sonnet-5": "deepseek-chat"}));
         write_config(dir.path(), &cfg);
 
         let lock = Arc::new(Mutex::new(()));
@@ -17572,8 +19351,13 @@ mod tests {
             let _ = rx.recv();
             execute_serialized_config_mutation_at_path(&lock_b, &path_b, |cfg| {
                 apply_set_model_upstream(
-                    cfg, "minimax", None, "claude-sonnet-5",
-                    "MiniMax-M3", Some("default"), None,
+                    cfg,
+                    "minimax",
+                    None,
+                    "claude-sonnet-5",
+                    "MiniMax-M3",
+                    Some("default"),
+                    None,
                 )
             })
         });
@@ -17931,8 +19715,7 @@ mod tests {
             },
             "server": { "host": "127.0.0.1", "port": 4000, "enable_cors": false }
         });
-        let cfg: GatewayConfigResponse =
-            serde_json::from_value(raw).expect("deserialize typed");
+        let cfg: GatewayConfigResponse = serde_json::from_value(raw).expect("deserialize typed");
         let raw_again = serde_json::to_value(&cfg).expect("re-serialize typed");
         assert_eq!(
             resolve_route_upstream_model(&raw_again, "legacy", None, "claude-opus-5"),
@@ -17953,7 +19736,9 @@ mod tests {
         assert!(o.config_changed);
         assert_eq!(cfg["claude_code"]["auto_compact"]["enabled"], true);
         assert_eq!(cfg["claude_code"]["auto_compact"]["trigger_percent"], 90);
-        assert!(cfg["claude_code"]["auto_compact"].get("window_tokens").is_none());
+        assert!(cfg["claude_code"]["auto_compact"]
+            .get("window_tokens")
+            .is_none());
     }
 
     #[test]
@@ -17963,7 +19748,9 @@ mod tests {
         assert!(o.config_changed);
         assert_eq!(cfg["claude_code"]["auto_compact"]["enabled"], true);
         assert_eq!(cfg["claude_code"]["auto_compact"]["trigger_percent"], 90);
-        assert!(cfg["claude_code"]["auto_compact"].get("window_tokens").is_none());
+        assert!(cfg["claude_code"]["auto_compact"]
+            .get("window_tokens")
+            .is_none());
     }
 
     #[test]
@@ -18028,12 +19815,28 @@ mod tests {
         let mut cfg = json!({
             "providers": { "kimi": { "display_name": "Kimi" } }
         });
-        let o = apply_update_claude_code_target(&mut cfg, "kimi", None, "manual", Some(128000), Some(75))
-            .unwrap();
+        let o = apply_update_claude_code_target(
+            &mut cfg,
+            "kimi",
+            None,
+            "manual",
+            Some(128000),
+            Some(75),
+        )
+        .unwrap();
         assert!(o.config_changed);
-        assert_eq!(cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["mode"], "manual");
-        assert_eq!(cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["window_tokens"], 128000);
-        assert_eq!(cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["trigger_percent"], 75);
+        assert_eq!(
+            cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["mode"],
+            "manual"
+        );
+        assert_eq!(
+            cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["window_tokens"],
+            128000
+        );
+        assert_eq!(
+            cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["trigger_percent"],
+            75
+        );
     }
 
     #[test]
@@ -18052,13 +19855,15 @@ mod tests {
                 }
             }
         });
-        let o = apply_update_claude_code_target(&mut cfg, "kimi", None, "auto", None, None).unwrap();
+        let o =
+            apply_update_claude_code_target(&mut cfg, "kimi", None, "auto", None, None).unwrap();
         assert!(o.config_changed);
         let ac = &cfg["providers"]["kimi"]["claude_code"]["auto_compact"];
         assert_eq!(ac["mode"], "auto");
         assert!(ac.get("window_tokens").is_none());
         assert!(ac.get("trigger_percent").is_none());
-        let o2 = apply_update_claude_code_target(&mut cfg, "kimi", None, "auto", None, None).unwrap();
+        let o2 =
+            apply_update_claude_code_target(&mut cfg, "kimi", None, "auto", None, None).unwrap();
         assert!(!o2.config_changed);
     }
 
@@ -18075,19 +19880,37 @@ mod tests {
                 }
             }
         });
-        let o = apply_update_claude_code_target(&mut cfg, "openrouter", Some("p2"), "manual", Some(200000), Some(80))
-            .unwrap();
+        let o = apply_update_claude_code_target(
+            &mut cfg,
+            "openrouter",
+            Some("p2"),
+            "manual",
+            Some(200000),
+            Some(80),
+        )
+        .unwrap();
         assert!(o.config_changed);
-        assert_eq!(cfg["providers"]["openrouter"]["profiles"][1]["claude_code"]["auto_compact"]["mode"], "manual");
-        assert_eq!(cfg["providers"]["openrouter"]["profiles"][1]["claude_code"]["auto_compact"]["window_tokens"], 200000);
+        assert_eq!(
+            cfg["providers"]["openrouter"]["profiles"][1]["claude_code"]["auto_compact"]["mode"],
+            "manual"
+        );
+        assert_eq!(
+            cfg["providers"]["openrouter"]["profiles"][1]["claude_code"]["auto_compact"]
+                ["window_tokens"],
+            200000
+        );
         // profile 1 untouched
-        assert!(cfg["providers"]["openrouter"]["profiles"][0].get("claude_code").is_none());
+        assert!(cfg["providers"]["openrouter"]["profiles"][0]
+            .get("claude_code")
+            .is_none());
     }
 
     #[test]
     fn auto_compact_target_missing_provider_rejected() {
         let mut cfg = json!({ "providers": {} });
-        assert!(apply_update_claude_code_target(&mut cfg, "ghost", None, "auto", None, None).is_err());
+        assert!(
+            apply_update_claude_code_target(&mut cfg, "ghost", None, "auto", None, None).is_err()
+        );
     }
 
     #[test]
@@ -18095,20 +19918,37 @@ mod tests {
         let mut cfg = json!({
             "providers": { "openrouter": { "profiles": [ { "id": "p1", "display_name": "One" } ] } }
         });
-        assert!(apply_update_claude_code_target(&mut cfg, "openrouter", Some("nope"), "auto", None, None).is_err());
+        assert!(apply_update_claude_code_target(
+            &mut cfg,
+            "openrouter",
+            Some("nope"),
+            "auto",
+            None,
+            None
+        )
+        .is_err());
     }
 
     #[test]
     fn auto_compact_target_profile_id_on_non_openrouter_rejected() {
         let mut cfg = json!({ "providers": { "kimi": { "display_name": "Kimi" } } });
-        assert!(apply_update_claude_code_target(&mut cfg, "kimi", Some("p1"), "auto", None, None).is_err());
+        assert!(
+            apply_update_claude_code_target(&mut cfg, "kimi", Some("p1"), "auto", None, None)
+                .is_err()
+        );
     }
 
     #[test]
     fn auto_compact_manual_requires_values() {
         let mut cfg = json!({ "providers": { "kimi": { "display_name": "Kimi" } } });
-        assert!(apply_update_claude_code_target(&mut cfg, "kimi", None, "manual", None, Some(75)).is_err());
-        assert!(apply_update_claude_code_target(&mut cfg, "kimi", None, "manual", Some(100), None).is_err());
+        assert!(
+            apply_update_claude_code_target(&mut cfg, "kimi", None, "manual", None, Some(75))
+                .is_err()
+        );
+        assert!(
+            apply_update_claude_code_target(&mut cfg, "kimi", None, "manual", Some(100), None)
+                .is_err()
+        );
     }
 
     // ── Claude Code auto-compact: validation ────────────────────────
@@ -18121,11 +19961,38 @@ mod tests {
         assert!(apply_update_claude_code_global(&mut cfg, None, Some(50)).is_ok());
 
         let mut target = json!({ "providers": { "kimi": { "display_name": "Kimi" } } });
-        assert!(apply_update_claude_code_target(&mut target, "kimi", None, "bogus", None, None).is_err());
+        assert!(
+            apply_update_claude_code_target(&mut target, "kimi", None, "bogus", None, None)
+                .is_err()
+        );
         // manual window_tokens range validation
-        assert!(apply_update_claude_code_target(&mut target, "kimi", None, "manual", Some(0), Some(50)).is_err());
-        assert!(apply_update_claude_code_target(&mut target, "kimi", None, "manual", Some(10_000_001), Some(50)).is_err());
-        assert!(apply_update_claude_code_target(&mut target, "kimi", None, "manual", Some(100), Some(50)).is_ok());
+        assert!(apply_update_claude_code_target(
+            &mut target,
+            "kimi",
+            None,
+            "manual",
+            Some(0),
+            Some(50)
+        )
+        .is_err());
+        assert!(apply_update_claude_code_target(
+            &mut target,
+            "kimi",
+            None,
+            "manual",
+            Some(10_000_001),
+            Some(50)
+        )
+        .is_err());
+        assert!(apply_update_claude_code_target(
+            &mut target,
+            "kimi",
+            None,
+            "manual",
+            Some(100),
+            Some(50)
+        )
+        .is_ok());
     }
 
     // ── Claude Code auto-compact: serialized mutation ───────────────
@@ -18149,7 +20016,9 @@ mod tests {
         let result = read_config(dir.path());
         assert_eq!(result["claude_code"]["auto_compact"]["enabled"], true);
         assert_eq!(result["claude_code"]["auto_compact"]["trigger_percent"], 85);
-        assert!(result["claude_code"]["auto_compact"].get("window_tokens").is_none());
+        assert!(result["claude_code"]["auto_compact"]
+            .get("window_tokens")
+            .is_none());
     }
 
     // ── Claude Code auto-compact: template defaults ─────────────────
@@ -18162,7 +20031,10 @@ mod tests {
 
         let root_ac = &template["claude_code"]["auto_compact"];
         assert_eq!(root_ac["enabled"], false);
-        assert!(root_ac.get("window_tokens").is_none(), "root window_tokens must be removed in v2");
+        assert!(
+            root_ac.get("window_tokens").is_none(),
+            "root window_tokens must be removed in v2"
+        );
         assert_eq!(root_ac["trigger_percent"], 90);
 
         let providers = template["providers"].as_object().expect("providers object");
@@ -18172,8 +20044,7 @@ mod tests {
                 if let Some(profiles) = profiles {
                     for prof in profiles {
                         assert_eq!(
-                            prof["claude_code"]["auto_compact"]["mode"],
-                            "auto",
+                            prof["claude_code"]["auto_compact"]["mode"], "auto",
                             "profile '{}' must default to mode auto",
                             prof["id"]
                         );
@@ -18181,8 +20052,7 @@ mod tests {
                 }
             } else {
                 assert_eq!(
-                    provider["claude_code"]["auto_compact"]["mode"],
-                    "auto",
+                    provider["claude_code"]["auto_compact"]["mode"], "auto",
                     "provider '{}' must default to mode auto",
                     id
                 );
@@ -18308,13 +20178,9 @@ mod tests {
             .routes
             .iter()
             .any(|r| CLAUDE_55_ROUTES.contains(&r.route.as_str())));
-        assert!(CLAUDE_55_ROUTES.iter().all(|route| resolve_route_upstream_model(
-            &cfg,
-            "deepseek",
-            None,
-            route
-        )
-        .is_none()));
+        assert!(CLAUDE_55_ROUTES
+            .iter()
+            .all(|route| resolve_route_upstream_model(&cfg, "deepseek", None, route).is_none()));
     }
 
     // ── Claude Code auto-compact: launch command env generation ─────
@@ -18342,28 +20208,41 @@ mod tests {
 
     #[test]
     fn auto_compact_environment_applied_returns_both() {
-        let env = auto_compact_environment(&eff(true, Some(262144), Some(90), AutoCompactStatus::Applied))
-            .unwrap();
+        let env = auto_compact_environment(&eff(
+            true,
+            Some(262144),
+            Some(90),
+            AutoCompactStatus::Applied,
+        ))
+        .unwrap();
         assert_eq!(env.set.len(), 2);
-        assert!(env.set.contains(&("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "262144".to_string())));
-        assert!(env.set.contains(&("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "90".to_string())));
+        assert!(env
+            .set
+            .contains(&("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "262144".to_string())));
+        assert!(env
+            .set
+            .contains(&("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "90".to_string())));
         assert!(env.remove.is_empty());
     }
 
     #[test]
     fn auto_compact_environment_manual_returns_target_values() {
-        let mut effective =
-            eff(true, Some(200_000), Some(80), AutoCompactStatus::Applied);
+        let mut effective = eff(true, Some(200_000), Some(80), AutoCompactStatus::Applied);
         effective.mode = AutoCompactMode::Manual;
         let env = auto_compact_environment(&effective).unwrap();
-        assert!(env.set.contains(&("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "200000".to_string())));
-        assert!(env.set.contains(&("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "80".to_string())));
+        assert!(env
+            .set
+            .contains(&("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "200000".to_string())));
+        assert!(env
+            .set
+            .contains(&("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "80".to_string())));
         assert!(env.remove.is_empty());
     }
 
     #[test]
     fn auto_compact_environment_disabled_clears() {
-        let env = auto_compact_environment(&eff(false, None, None, AutoCompactStatus::Disabled)).unwrap();
+        let env =
+            auto_compact_environment(&eff(false, None, None, AutoCompactStatus::Disabled)).unwrap();
         assert!(env.set.is_empty());
         assert_eq!(env.remove, AUTO_COMPACT_ENV_VARS.to_vec());
     }
@@ -18379,7 +20258,8 @@ mod tests {
 
     #[test]
     fn auto_compact_environment_incomplete_clears() {
-        let env = auto_compact_environment(&eff(false, None, None, AutoCompactStatus::Incomplete)).unwrap();
+        let env = auto_compact_environment(&eff(false, None, None, AutoCompactStatus::Incomplete))
+            .unwrap();
         assert!(env.set.is_empty());
         assert_eq!(env.remove, AUTO_COMPACT_ENV_VARS.to_vec());
     }
@@ -18393,25 +20273,37 @@ mod tests {
 
     #[test]
     fn auto_compact_environment_missing_percent_errors() {
-        let err = auto_compact_environment(&eff(true, Some(262144), None, AutoCompactStatus::Applied))
-            .unwrap_err();
+        let err =
+            auto_compact_environment(&eff(true, Some(262144), None, AutoCompactStatus::Applied))
+                .unwrap_err();
         assert!(err.contains("trigger_percent"), "{err}");
     }
 
     #[test]
     fn auto_compact_environment_window_zero_errors() {
-        let err = auto_compact_environment(&eff(true, Some(0), Some(90), AutoCompactStatus::Applied))
-            .unwrap_err();
+        let err =
+            auto_compact_environment(&eff(true, Some(0), Some(90), AutoCompactStatus::Applied))
+                .unwrap_err();
         assert!(err.contains("greater than zero"), "{err}");
     }
 
     #[test]
     fn auto_compact_environment_percent_out_of_range_errors() {
-        let err = auto_compact_environment(&eff(true, Some(262144), Some(0), AutoCompactStatus::Applied))
-            .unwrap_err();
+        let err = auto_compact_environment(&eff(
+            true,
+            Some(262144),
+            Some(0),
+            AutoCompactStatus::Applied,
+        ))
+        .unwrap_err();
         assert!(err.contains("between 1 and 100"), "{err}");
-        let err = auto_compact_environment(&eff(true, Some(262144), Some(101), AutoCompactStatus::Applied))
-            .unwrap_err();
+        let err = auto_compact_environment(&eff(
+            true,
+            Some(262144),
+            Some(101),
+            AutoCompactStatus::Applied,
+        ))
+        .unwrap_err();
         assert!(err.contains("between 1 and 100"), "{err}");
     }
 
@@ -18427,7 +20319,10 @@ mod tests {
 
         let cfg = json!({ "server": { "host": "proxy.example.com", "port": 8080 } });
         let env = gateway_connection_env_vars(&cfg).unwrap();
-        assert!(env.contains(&("ANTHROPIC_BASE_URL", "http://proxy.example.com:8080".to_string())));
+        assert!(env.contains(&(
+            "ANTHROPIC_BASE_URL",
+            "http://proxy.example.com:8080".to_string()
+        )));
 
         let cfg = json!({ "server": { "port": 5000 } });
         let env = gateway_connection_env_vars(&cfg).unwrap();
@@ -18628,10 +20523,21 @@ mod tests {
         assert!(o.config_changed);
         assert_eq!(cfg["claude_code"]["auto_compact"]["enabled"], true);
         assert_eq!(cfg["claude_code"]["auto_compact"]["trigger_percent"], 85);
-        assert!(cfg["claude_code"]["auto_compact"].get("window_tokens").is_none());
-        assert_eq!(cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["mode"], "manual");
-        assert_eq!(cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["window_tokens"], 128000);
-        assert_eq!(cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["trigger_percent"], 75);
+        assert!(cfg["claude_code"]["auto_compact"]
+            .get("window_tokens")
+            .is_none());
+        assert_eq!(
+            cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["mode"],
+            "manual"
+        );
+        assert_eq!(
+            cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["window_tokens"],
+            128000
+        );
+        assert_eq!(
+            cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["trigger_percent"],
+            75
+        );
     }
 
     #[test]
@@ -18667,7 +20573,10 @@ mod tests {
         .unwrap();
         assert!(o.config_changed);
         assert!(cfg.get("claude_code").is_none());
-        assert_eq!(cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["mode"], "manual");
+        assert_eq!(
+            cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["mode"],
+            "manual"
+        );
     }
 
     #[test]
@@ -18719,7 +20628,10 @@ mod tests {
             Ok(_) => panic!("expected an error for a missing target"),
         };
         assert!(err.contains("ghost"));
-        assert_eq!(cfg, before, "rejected target must not leave a partial write");
+        assert_eq!(
+            cfg, before,
+            "rejected target must not leave a partial write"
+        );
     }
 
     #[test]
@@ -18807,7 +20719,10 @@ mod tests {
         .unwrap();
         assert_eq!(saves, 1);
         assert_eq!(cfg["claude_code"]["auto_compact"]["enabled"], true);
-        assert_eq!(cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["mode"], "manual");
+        assert_eq!(
+            cfg["providers"]["kimi"]["claude_code"]["auto_compact"]["mode"],
+            "manual"
+        );
 
         // Failing target → no save, common section unchanged.
         let before = cfg.clone();
@@ -18839,7 +20754,10 @@ mod tests {
         };
         assert!(err.contains("ghost"));
         assert_eq!(saves, 1, "failing combined update must not save");
-        assert_eq!(cfg, before, "failing target must not leave the common section mutated");
+        assert_eq!(
+            cfg, before,
+            "failing target must not leave the common section mutated"
+        );
     }
 
     #[test]
@@ -18878,7 +20796,10 @@ mod tests {
         };
         assert!(err.contains("non-object"), "unexpected error: {}", err);
         assert_eq!(saves, 0, "structural failure must not save");
-        assert_eq!(cfg, before, "structural failure must leave the config fully unchanged");
+        assert_eq!(
+            cfg, before,
+            "structural failure must leave the config fully unchanged"
+        );
     }
 
     #[test]
@@ -18975,19 +20896,51 @@ mod tests {
         });
         assert!(migrate_claude_code_auto_compact_modes_inner(&mut cfg));
         let root = &cfg["claude_code"]["auto_compact"];
-        assert!(root.get("window_tokens").is_none(), "root window_tokens removed");
-        assert_eq!(cfg["providers"]["a"]["claude_code"]["auto_compact"]["mode"], "auto");
-        assert_eq!(cfg["providers"]["b"]["claude_code"]["auto_compact"]["mode"], "manual");
+        assert!(
+            root.get("window_tokens").is_none(),
+            "root window_tokens removed"
+        );
+        assert_eq!(
+            cfg["providers"]["a"]["claude_code"]["auto_compact"]["mode"],
+            "auto"
+        );
+        assert_eq!(
+            cfg["providers"]["b"]["claude_code"]["auto_compact"]["mode"],
+            "manual"
+        );
         // manual は値維持
-        assert_eq!(cfg["providers"]["b"]["claude_code"]["auto_compact"]["window_tokens"], 128000);
-        assert_eq!(cfg["providers"]["b"]["claude_code"]["auto_compact"]["trigger_percent"], 75);
-        assert_eq!(cfg["providers"]["c"]["claude_code"]["auto_compact"]["mode"], "claude_default");
-        assert_eq!(cfg["providers"]["d"]["claude_code"]["auto_compact"]["mode"], "claude_default");
-        assert_eq!(cfg["providers"]["e"]["claude_code"]["auto_compact"]["mode"], "auto");
+        assert_eq!(
+            cfg["providers"]["b"]["claude_code"]["auto_compact"]["window_tokens"],
+            128000
+        );
+        assert_eq!(
+            cfg["providers"]["b"]["claude_code"]["auto_compact"]["trigger_percent"],
+            75
+        );
+        assert_eq!(
+            cfg["providers"]["c"]["claude_code"]["auto_compact"]["mode"],
+            "claude_default"
+        );
+        assert_eq!(
+            cfg["providers"]["d"]["claude_code"]["auto_compact"]["mode"],
+            "claude_default"
+        );
+        assert_eq!(
+            cfg["providers"]["e"]["claude_code"]["auto_compact"]["mode"],
+            "auto"
+        );
         // mode なし → そのまま（読み取り側デフォルトが auto）
-        assert!(cfg["providers"]["f"]["claude_code"]["auto_compact"].get("mode").is_none());
-        assert_eq!(cfg["providers"]["openrouter"]["profiles"][0]["claude_code"]["auto_compact"]["mode"], "auto");
-        assert_eq!(cfg["providers"]["openrouter"]["profiles"][1]["claude_code"]["auto_compact"]["mode"], "manual");
+        assert!(cfg["providers"]["f"]["claude_code"]["auto_compact"]
+            .get("mode")
+            .is_none());
+        assert_eq!(
+            cfg["providers"]["openrouter"]["profiles"][0]["claude_code"]["auto_compact"]["mode"],
+            "auto"
+        );
+        assert_eq!(
+            cfg["providers"]["openrouter"]["profiles"][1]["claude_code"]["auto_compact"]["mode"],
+            "manual"
+        );
     }
 
     #[test]
@@ -19049,7 +21002,9 @@ mod tests {
         let result = read_config(dir.path());
 
         // root window_tokens は存在しない
-        assert!(result["claude_code"]["auto_compact"].get("window_tokens").is_none());
+        assert!(result["claude_code"]["auto_compact"]
+            .get("window_tokens")
+            .is_none());
 
         // kimi: override → manual、値維持
         let kimi_ac = &result["providers"]["kimi"]["claude_code"]["auto_compact"];
@@ -19060,10 +21015,16 @@ mod tests {
         // 全 provider / profile に v2 以前の mode が無い（template 由来の inherit も auto 化）
         let providers = result["providers"].as_object().expect("providers object");
         for (pid, provider) in providers {
-            if let Some(ac) = provider.get("claude_code").and_then(|c| c.get("auto_compact")) {
+            if let Some(ac) = provider
+                .get("claude_code")
+                .and_then(|c| c.get("auto_compact"))
+            {
                 let mode = ac.get("mode").and_then(|m| m.as_str());
                 assert!(
-                    matches!(mode, Some("auto") | Some("manual") | Some("claude_default") | None),
+                    matches!(
+                        mode,
+                        Some("auto") | Some("manual") | Some("claude_default") | None
+                    ),
                     "provider '{}' has a legacy mode: {:?}",
                     pid,
                     mode
@@ -19071,10 +21032,16 @@ mod tests {
             }
             if let Some(profiles) = provider.get("profiles").and_then(|p| p.as_array()) {
                 for profile in profiles {
-                    if let Some(ac) = profile.get("claude_code").and_then(|c| c.get("auto_compact")) {
+                    if let Some(ac) = profile
+                        .get("claude_code")
+                        .and_then(|c| c.get("auto_compact"))
+                    {
                         let mode = ac.get("mode").and_then(|m| m.as_str());
                         assert!(
-                            matches!(mode, Some("auto") | Some("manual") | Some("claude_default") | None),
+                            matches!(
+                                mode,
+                                Some("auto") | Some("manual") | Some("claude_default") | None
+                            ),
                             "openrouter profile '{}' has a legacy mode: {:?}",
                             profile.get("id").and_then(|i| i.as_str()).unwrap_or("?"),
                             mode
@@ -19179,15 +21146,23 @@ mod tests {
 
         let result = apply_update_mcp_config(&mut cfg, mcp);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Provider 'nonexistent_provider' not found"));
+        assert!(result
+            .unwrap_err()
+            .contains("Provider 'nonexistent_provider' not found"));
     }
 
     #[test]
     fn test_is_mcp_server_mode_detection() {
-        assert!(is_mcp_server_mode(&["anthro-bridge.exe".to_string(), "--mcp-server".to_string()]));
+        assert!(is_mcp_server_mode(&[
+            "anthro-bridge.exe".to_string(),
+            "--mcp-server".to_string()
+        ]));
         assert!(is_mcp_server_mode(&["--mcp-server".to_string()]));
         assert!(!is_mcp_server_mode(&["anthro-bridge.exe".to_string()]));
-        assert!(!is_mcp_server_mode(&["anthro-bridge.exe".to_string(), "--other".to_string()]));
+        assert!(!is_mcp_server_mode(&[
+            "anthro-bridge.exe".to_string(),
+            "--other".to_string()
+        ]));
     }
 
     #[test]
@@ -19205,7 +21180,10 @@ mod tests {
         // 1. Missing file -> NotConfigured for both canonical and legacy
         let info = inspect_antigravity_mcp_status_at(&config_path);
         assert_eq!(info.status, AntigravityMcpStatus::NotConfigured);
-        assert_eq!(info.legacy_status, Some(AntigravityMcpStatus::NotConfigured));
+        assert_eq!(
+            info.legacy_status,
+            Some(AntigravityMcpStatus::NotConfigured)
+        );
         assert!(info.registered_command.is_none());
         assert!(info.legacy_command.is_none());
 
@@ -19222,17 +21200,32 @@ mod tests {
         // 3. Configure with explicit valid exe -> adds canonical 'poverello' entry
         let info = configure_antigravity_mcp_at(&config_path, &fake_exe_str).unwrap();
         assert_eq!(info.status, AntigravityMcpStatus::Configured);
-        assert_eq!(info.registered_command.as_deref(), Some(fake_exe_str.as_str()));
+        assert_eq!(
+            info.registered_command.as_deref(),
+            Some(fake_exe_str.as_str())
+        );
         assert_eq!(info.registered_args, Some(vec!["--mcp-server".to_string()]));
-        assert_eq!(info.legacy_status, Some(AntigravityMcpStatus::NotConfigured));
+        assert_eq!(
+            info.legacy_status,
+            Some(AntigravityMcpStatus::NotConfigured)
+        );
 
         // 4. Additive config: existing other servers, legacy 'anthro-bridge', and unknown fields are preserved
-        let mut parsed: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
-        parsed.as_object_mut().unwrap().insert("customTopLevel".to_string(), serde_json::json!("preserved_val"));
-        parsed.get_mut("mcpServers").unwrap().as_object_mut().unwrap().insert(
-            "anthro-bridge".to_string(),
-            serde_json::json!({"command": fake_exe_str.as_str(), "args": ["--mcp-server"]}),
+        let mut parsed: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+        parsed.as_object_mut().unwrap().insert(
+            "customTopLevel".to_string(),
+            serde_json::json!("preserved_val"),
         );
+        parsed
+            .get_mut("mcpServers")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert(
+                "anthro-bridge".to_string(),
+                serde_json::json!({"command": fake_exe_str.as_str(), "args": ["--mcp-server"]}),
+            );
         parsed.get_mut("mcpServers").unwrap().as_object_mut().unwrap().insert(
             "github".to_string(),
             serde_json::json!({"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]}),
@@ -19254,33 +21247,70 @@ mod tests {
         assert!(err.contains("conflicting 'poverello' MCP server"));
 
         // Verify on disk that 'poverello' still has fake_exe_str and anthro-bridge is untouched
-        let on_disk: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+        let on_disk: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
         assert_eq!(
-            on_disk.get("mcpServers").unwrap().get("poverello").unwrap().get("command").and_then(|v| v.as_str()),
+            on_disk
+                .get("mcpServers")
+                .unwrap()
+                .get("poverello")
+                .unwrap()
+                .get("command")
+                .and_then(|v| v.as_str()),
             Some(fake_exe_str.as_str())
         );
         assert_eq!(
-            on_disk.get("mcpServers").unwrap().get("anthro-bridge").unwrap().get("command").and_then(|v| v.as_str()),
+            on_disk
+                .get("mcpServers")
+                .unwrap()
+                .get("anthro-bridge")
+                .unwrap()
+                .get("command")
+                .and_then(|v| v.as_str()),
             Some(fake_exe_str.as_str())
         );
-        assert_eq!(on_disk.get("customTopLevel").and_then(|v| v.as_str()), Some("preserved_val"));
+        assert_eq!(
+            on_disk.get("customTopLevel").and_then(|v| v.as_str()),
+            Some("preserved_val")
+        );
 
         // 7. Remove -> removes only 'poverello', preserves legacy 'anthro-bridge', github, and customTopLevel
         let info = remove_antigravity_mcp_at(&config_path).unwrap();
         assert_eq!(info.status, AntigravityMcpStatus::NotConfigured);
         assert_eq!(info.legacy_status, Some(AntigravityMcpStatus::Configured));
 
-        let post_remove: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
-        assert_eq!(post_remove.get("customTopLevel").and_then(|v| v.as_str()), Some("preserved_val"));
-        assert!(post_remove.get("mcpServers").unwrap().get("github").is_some());
-        assert!(post_remove.get("mcpServers").unwrap().get("anthro-bridge").is_some());
-        assert!(post_remove.get("mcpServers").unwrap().get("poverello").is_none());
+        let post_remove: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+        assert_eq!(
+            post_remove.get("customTopLevel").and_then(|v| v.as_str()),
+            Some("preserved_val")
+        );
+        assert!(post_remove
+            .get("mcpServers")
+            .unwrap()
+            .get("github")
+            .is_some());
+        assert!(post_remove
+            .get("mcpServers")
+            .unwrap()
+            .get("anthro-bridge")
+            .is_some());
+        assert!(post_remove
+            .get("mcpServers")
+            .unwrap()
+            .get("poverello")
+            .is_none());
 
         // 8. Verify .bak backup exists
         let backup_path = config_path.with_extension("json.bak");
         assert!(backup_path.exists());
-        let backup_content: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&backup_path).unwrap()).unwrap();
-        assert!(backup_content.get("mcpServers").unwrap().get("poverello").is_some());
+        let backup_content: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&backup_path).unwrap()).unwrap();
+        assert!(backup_content
+            .get("mcpServers")
+            .unwrap()
+            .get("poverello")
+            .is_some());
 
         // 9. Invalid JSON syntax -> Invalid
         std::fs::write(&config_path, "{ broken json ...").unwrap();
@@ -19321,21 +21351,34 @@ mod tests {
         ];
 
         for entry in &malformed_entries {
-            let original = serde_json::json!({"custom": {"keep": true}, "mcpServers": {"poverello": entry}});
+            let original =
+                serde_json::json!({"custom": {"keep": true}, "mcpServers": {"poverello": entry}});
             let original_bytes = serde_json::to_vec(&original).unwrap();
             std::fs::write(&config_path, &original_bytes).unwrap();
             let info = inspect_antigravity_mcp_status_at(&config_path);
-            assert_eq!(info.status, AntigravityMcpStatus::Invalid, "entry was treated as configured: {entry}");
+            assert_eq!(
+                info.status,
+                AntigravityMcpStatus::Invalid,
+                "entry was treated as configured: {entry}"
+            );
             assert!(info.error.is_some());
             assert!(configure_antigravity_mcp_at(&config_path, &executable).is_err());
-            assert_eq!(std::fs::read(&config_path).unwrap(), original_bytes, "malformed canonical entry was rewritten: {entry}");
+            assert_eq!(
+                std::fs::read(&config_path).unwrap(),
+                original_bytes,
+                "malformed canonical entry was rewritten: {entry}"
+            );
         }
 
         for entry in &malformed_entries {
             let config = serde_json::json!({"mcpServers": {"anthro-bridge": entry}});
             std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
             let info = inspect_antigravity_mcp_status_at(&config_path);
-            assert_eq!(info.legacy_status, Some(AntigravityMcpStatus::Invalid), "legacy entry was treated as configured: {entry}");
+            assert_eq!(
+                info.legacy_status,
+                Some(AntigravityMcpStatus::Invalid),
+                "legacy entry was treated as configured: {entry}"
+            );
         }
 
         let valid = serde_json::json!({
@@ -19412,17 +21455,35 @@ mod tests {
 
         // 2. Initially NotInstalled for all canonical and legacy commands
         let info = get_antigravity_commands_info_at(skills_root).unwrap();
-        assert_eq!(info.plan_command.status, AntigravitySkillStatus::NotInstalled);
-        assert_eq!(info.revise_command.status, AntigravitySkillStatus::NotInstalled);
-        assert_eq!(info.review_command.status, AntigravitySkillStatus::NotInstalled);
+        assert_eq!(
+            info.plan_command.status,
+            AntigravitySkillStatus::NotInstalled
+        );
+        assert_eq!(
+            info.revise_command.status,
+            AntigravitySkillStatus::NotInstalled
+        );
+        assert_eq!(
+            info.review_command.status,
+            AntigravitySkillStatus::NotInstalled
+        );
         assert_eq!(info.plan_command.slash_command, "/pov-mcp-plan");
         assert_eq!(info.revise_command.slash_command, "/pov-mcp-revise");
         assert_eq!(info.review_command.slash_command, "/pov-mcp-review");
         assert_eq!(info.commands.len(), 6);
 
-        assert_eq!(info.legacy_plan_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
-        assert_eq!(info.legacy_revise_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
-        assert_eq!(info.legacy_review_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
+        assert_eq!(
+            info.legacy_plan_command.as_ref().unwrap().status,
+            AntigravitySkillStatus::NotInstalled
+        );
+        assert_eq!(
+            info.legacy_revise_command.as_ref().unwrap().status,
+            AntigravitySkillStatus::NotInstalled
+        );
+        assert_eq!(
+            info.legacy_review_command.as_ref().unwrap().status,
+            AntigravitySkillStatus::NotInstalled
+        );
 
         // 3. Install canonical pov-mcp-plan
         let plan_info = install_antigravity_command_at(skills_root, "pov-mcp-plan").unwrap();
@@ -19436,7 +21497,10 @@ mod tests {
         // Verify legacy anthro-plan remains NotInstalled and absent
         let info = get_antigravity_commands_info_at(skills_root).unwrap();
         assert_eq!(info.plan_command.status, AntigravitySkillStatus::Installed);
-        assert_eq!(info.legacy_plan_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
+        assert_eq!(
+            info.legacy_plan_command.as_ref().unwrap().status,
+            AntigravitySkillStatus::NotInstalled
+        );
         assert!(!skills_root.join("anthro-plan").exists());
 
         // 4. Install canonical pov-mcp-revise and pov-mcp-review
@@ -19468,26 +21532,43 @@ mod tests {
 
         let info = get_antigravity_commands_info_at(skills_root).unwrap();
         assert_eq!(info.plan_command.status, AntigravitySkillStatus::Installed);
-        assert_eq!(info.legacy_plan_command.as_ref().unwrap().status, AntigravitySkillStatus::Installed);
+        assert_eq!(
+            info.legacy_plan_command.as_ref().unwrap().status,
+            AntigravitySkillStatus::Installed
+        );
 
         // 6. User modifies legacy skill -> Invalid detected on legacy, canonical unaffected.
         std::fs::write(&legacy_plan_file, "# Custom legacy modification").unwrap();
         let info = get_antigravity_commands_info_at(skills_root).unwrap();
         assert_eq!(info.plan_command.status, AntigravitySkillStatus::Installed);
-        assert_eq!(info.legacy_plan_command.as_ref().unwrap().status, AntigravitySkillStatus::Invalid);
+        assert_eq!(
+            info.legacy_plan_command.as_ref().unwrap().status,
+            AntigravitySkillStatus::Invalid
+        );
         assert!(remove_antigravity_command_at(skills_root, "anthro-plan").is_err());
-        assert_eq!(std::fs::read_to_string(&legacy_plan_file).unwrap(), "# Custom legacy modification");
+        assert_eq!(
+            std::fs::read_to_string(&legacy_plan_file).unwrap(),
+            "# Custom legacy modification"
+        );
 
         // 7. User modifies canonical skill -> Invalid detected, and destructive operations refuse.
         std::fs::write(&plan_file, "# Custom canonical modification").unwrap();
-        let plan_info_mod = inspect_antigravity_command_status_at(skills_root, "pov-mcp-plan").unwrap();
+        let plan_info_mod =
+            inspect_antigravity_command_status_at(skills_root, "pov-mcp-plan").unwrap();
         assert_eq!(plan_info_mod.status, AntigravitySkillStatus::Invalid);
-        assert!(plan_info_mod.error.as_deref().unwrap().contains("user edits"));
+        assert!(plan_info_mod
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("user edits"));
         assert!(install_antigravity_command_at(skills_root, "pov-mcp-plan").is_err());
         assert!(remove_antigravity_command_at(skills_root, "pov-mcp-plan").is_err());
         let backup_file = skills_root.join("pov-mcp-plan").join("SKILL.md.bak");
         assert!(!backup_file.exists());
-        assert_eq!(std::fs::read_to_string(&plan_file).unwrap(), "# Custom canonical modification");
+        assert_eq!(
+            std::fs::read_to_string(&plan_file).unwrap(),
+            "# Custom canonical modification"
+        );
 
         // Legacy file was NOT touched by canonical update
         let legacy_content = std::fs::read_to_string(&legacy_plan_file).unwrap();
@@ -19501,7 +21582,10 @@ mod tests {
         let (_, _, canonical_plan) = resolve_allowed_antigravity_command("pov-mcp-plan").unwrap();
         std::fs::write(&plan_file, canonical_plan).unwrap();
         let plan_info_removed = remove_antigravity_command_at(skills_root, "pov-mcp-plan").unwrap();
-        assert_eq!(plan_info_removed.status, AntigravitySkillStatus::NotInstalled);
+        assert_eq!(
+            plan_info_removed.status,
+            AntigravitySkillStatus::NotInstalled
+        );
         assert!(!plan_file.exists());
         assert!(!backup_file.exists());
         assert!(user_custom_note.exists());
@@ -19512,7 +21596,8 @@ mod tests {
 
         // 11. Invalid SKILL.md (directory named SKILL.md)
         std::fs::create_dir_all(skills_root.join("pov-mcp-plan").join("SKILL.md")).unwrap();
-        let info_invalid = inspect_antigravity_command_status_at(skills_root, "pov-mcp-plan").unwrap();
+        let info_invalid =
+            inspect_antigravity_command_status_at(skills_root, "pov-mcp-plan").unwrap();
         assert_eq!(info_invalid.status, AntigravitySkillStatus::Invalid);
         assert!(info_invalid.error.is_some());
         assert!(install_antigravity_command_at(skills_root, "pov-mcp-plan").is_err());
@@ -19523,25 +21608,51 @@ mod tests {
         let all_root = temp_all_dir.path();
 
         let initial_all = get_antigravity_commands_info_at(all_root).unwrap();
-        assert_eq!(initial_all.plan_command.status, AntigravitySkillStatus::NotInstalled);
-        assert_eq!(initial_all.revise_command.status, AntigravitySkillStatus::NotInstalled);
-        assert_eq!(initial_all.review_command.status, AntigravitySkillStatus::NotInstalled);
-        assert_eq!(initial_all.legacy_plan_command.as_ref().unwrap().status, AntigravitySkillStatus::NotInstalled);
+        assert_eq!(
+            initial_all.plan_command.status,
+            AntigravitySkillStatus::NotInstalled
+        );
+        assert_eq!(
+            initial_all.revise_command.status,
+            AntigravitySkillStatus::NotInstalled
+        );
+        assert_eq!(
+            initial_all.review_command.status,
+            AntigravitySkillStatus::NotInstalled
+        );
+        assert_eq!(
+            initial_all.legacy_plan_command.as_ref().unwrap().status,
+            AntigravitySkillStatus::NotInstalled
+        );
 
         // Call production install_all_antigravity_commands_at directly
         let installed_all = install_all_antigravity_commands_at(all_root).unwrap();
-        assert_eq!(installed_all.plan_command.status, AntigravitySkillStatus::Installed);
-        assert_eq!(installed_all.revise_command.status, AntigravitySkillStatus::Installed);
-        assert_eq!(installed_all.review_command.status, AntigravitySkillStatus::Installed);
+        assert_eq!(
+            installed_all.plan_command.status,
+            AntigravitySkillStatus::Installed
+        );
+        assert_eq!(
+            installed_all.revise_command.status,
+            AntigravitySkillStatus::Installed
+        );
+        assert_eq!(
+            installed_all.review_command.status,
+            AntigravitySkillStatus::Installed
+        );
         let all_results = installed_all.install_all_results.as_ref().unwrap();
         assert_eq!(all_results.len(), 6);
         assert_eq!(installed_all.commands.len(), 6);
-        assert!(all_results.iter().all(|r| r.outcome == AntigravityCommandInstallOutcome::Installed));
+        assert!(all_results
+            .iter()
+            .all(|r| r.outcome == AntigravityCommandInstallOutcome::Installed));
 
         let repeated_all = install_all_antigravity_commands_at(all_root).unwrap();
-        assert!(repeated_all.install_all_results.as_ref().unwrap().iter().all(
-            |r| r.outcome == AntigravityCommandInstallOutcome::AlreadyCurrent
-        ));
+        assert!(repeated_all
+            .install_all_results
+            .as_ref()
+            .unwrap()
+            .iter()
+            .all(|r| r.outcome == AntigravityCommandInstallOutcome::AlreadyCurrent));
 
         // Verify disk files: only canonical pov-* created, legacy NOT created
         assert!(all_root.join("pov-mcp-plan").join("SKILL.md").exists());
@@ -19559,17 +21670,37 @@ mod tests {
         let mcp_root = temp_mcp_dir.path();
 
         let initial_mcp = get_antigravity_commands_info_at(mcp_root).unwrap();
-        assert_eq!(initial_mcp.plan_command.status, AntigravitySkillStatus::NotInstalled);
-        assert_eq!(initial_mcp.revise_command.status, AntigravitySkillStatus::NotInstalled);
-        assert_eq!(initial_mcp.review_command.status, AntigravitySkillStatus::NotInstalled);
+        assert_eq!(
+            initial_mcp.plan_command.status,
+            AntigravitySkillStatus::NotInstalled
+        );
+        assert_eq!(
+            initial_mcp.revise_command.status,
+            AntigravitySkillStatus::NotInstalled
+        );
+        assert_eq!(
+            initial_mcp.review_command.status,
+            AntigravitySkillStatus::NotInstalled
+        );
 
         let installed_mcp = install_all_antigravity_mcp_commands_at(mcp_root).unwrap();
-        assert_eq!(installed_mcp.plan_command.status, AntigravitySkillStatus::Installed);
-        assert_eq!(installed_mcp.revise_command.status, AntigravitySkillStatus::Installed);
-        assert_eq!(installed_mcp.review_command.status, AntigravitySkillStatus::Installed);
+        assert_eq!(
+            installed_mcp.plan_command.status,
+            AntigravitySkillStatus::Installed
+        );
+        assert_eq!(
+            installed_mcp.revise_command.status,
+            AntigravitySkillStatus::Installed
+        );
+        assert_eq!(
+            installed_mcp.review_command.status,
+            AntigravitySkillStatus::Installed
+        );
         let mcp_results = installed_mcp.install_all_results.as_ref().unwrap();
         assert_eq!(mcp_results.len(), 3);
-        assert!(mcp_results.iter().all(|r| r.outcome == AntigravityCommandInstallOutcome::Installed));
+        assert!(mcp_results
+            .iter()
+            .all(|r| r.outcome == AntigravityCommandInstallOutcome::Installed));
 
         // Disk check: only MCP skills installed; workflow skills remain untouched
         assert!(mcp_root.join("pov-mcp-plan").join("SKILL.md").exists());
@@ -19587,12 +21718,24 @@ mod tests {
         std::fs::write(&modified, "user-owned revise content").unwrap();
         let preflight_result = install_all_antigravity_commands_at(unsafe_root).unwrap();
         assert!(!unsafe_root.join("pov-mcp-plan").join("SKILL.md").exists());
-        assert_eq!(std::fs::read_to_string(&modified).unwrap(), "user-owned revise content");
+        assert_eq!(
+            std::fs::read_to_string(&modified).unwrap(),
+            "user-owned revise content"
+        );
         assert!(!unsafe_root.join("pov-mcp-review").join("SKILL.md").exists());
         let outcomes = preflight_result.install_all_results.unwrap();
-        assert_eq!(outcomes[0].outcome, AntigravityCommandInstallOutcome::NotAttempted);
-        assert_eq!(outcomes[1].outcome, AntigravityCommandInstallOutcome::Refused);
-        assert_eq!(outcomes[2].outcome, AntigravityCommandInstallOutcome::NotAttempted);
+        assert_eq!(
+            outcomes[0].outcome,
+            AntigravityCommandInstallOutcome::NotAttempted
+        );
+        assert_eq!(
+            outcomes[1].outcome,
+            AntigravityCommandInstallOutcome::Refused
+        );
+        assert_eq!(
+            outcomes[2].outcome,
+            AntigravityCommandInstallOutcome::NotAttempted
+        );
 
         // 14. Inject a deterministic mid-sequence I/O error; preserve successes and report the rest.
         let failure_dir = tempfile::tempdir().unwrap();
@@ -19605,13 +21748,28 @@ mod tests {
         })
         .unwrap();
         let outcomes = partial.install_all_results.unwrap();
-        assert_eq!(outcomes[0].outcome, AntigravityCommandInstallOutcome::Installed);
-        assert_eq!(outcomes[1].outcome, AntigravityCommandInstallOutcome::Failed);
+        assert_eq!(
+            outcomes[0].outcome,
+            AntigravityCommandInstallOutcome::Installed
+        );
+        assert_eq!(
+            outcomes[1].outcome,
+            AntigravityCommandInstallOutcome::Failed
+        );
         assert_eq!(outcomes[1].message.as_deref(), Some("injected I/O failure"));
-        assert_eq!(outcomes[2].outcome, AntigravityCommandInstallOutcome::NotAttempted);
+        assert_eq!(
+            outcomes[2].outcome,
+            AntigravityCommandInstallOutcome::NotAttempted
+        );
         assert!(failure_root.join("pov-mcp-plan").join("SKILL.md").exists());
-        assert!(!failure_root.join("pov-mcp-revise").join("SKILL.md").exists());
-        assert!(!failure_root.join("pov-mcp-review").join("SKILL.md").exists());
+        assert!(!failure_root
+            .join("pov-mcp-revise")
+            .join("SKILL.md")
+            .exists());
+        assert!(!failure_root
+            .join("pov-mcp-review")
+            .join("SKILL.md")
+            .exists());
     }
 
     #[test]
@@ -19627,8 +21785,15 @@ mod tests {
         let installed = install_antigravity_command_at(dir.path(), "pov-mcp-plan").unwrap();
         assert_eq!(installed.status, AntigravitySkillStatus::Installed);
         assert!(!old_dir.exists());
-        assert_eq!(std::fs::read_to_string(dir.path().join("pov-mcp-plan/notes.txt")).unwrap(), "keep me");
-        assert!(std::fs::read_to_string(dir.path().join("pov-mcp-plan/SKILL.md")).unwrap().contains("name: pov-mcp-plan"));
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("pov-mcp-plan/notes.txt")).unwrap(),
+            "keep me"
+        );
+        assert!(
+            std::fs::read_to_string(dir.path().join("pov-mcp-plan/SKILL.md"))
+                .unwrap()
+                .contains("name: pov-mcp-plan")
+        );
     }
 
     #[test]
@@ -19641,8 +21806,14 @@ mod tests {
         std::fs::write(old_dir.join("SKILL.md"), "old user data").unwrap();
         std::fs::write(new_dir.join("SKILL.md"), "new user data").unwrap();
         assert!(install_antigravity_command_at(dir.path(), "pov-mcp-plan").is_err());
-        assert_eq!(std::fs::read_to_string(old_dir.join("SKILL.md")).unwrap(), "old user data");
-        assert_eq!(std::fs::read_to_string(new_dir.join("SKILL.md")).unwrap(), "new user data");
+        assert_eq!(
+            std::fs::read_to_string(old_dir.join("SKILL.md")).unwrap(),
+            "old user data"
+        );
+        assert_eq!(
+            std::fs::read_to_string(new_dir.join("SKILL.md")).unwrap(),
+            "new user data"
+        );
     }
 
     #[cfg(unix)]
@@ -19692,17 +21863,24 @@ mod tests {
             ))
         };
 
-        let status = inspect_antigravity_command_status_with_reader(
-            skills_root,
-            "pov-mcp-plan",
-            &deny_read,
-        )
-        .unwrap();
+        let status =
+            inspect_antigravity_command_status_with_reader(skills_root, "pov-mcp-plan", &deny_read)
+                .unwrap();
         assert_eq!(status.status, AntigravitySkillStatus::Invalid);
-        assert!(status.error.as_deref().unwrap().contains("injected read denial"));
+        assert!(status
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("injected read denial"));
 
-        assert!(install_antigravity_command_with_reader(skills_root, "pov-mcp-plan", &deny_read).is_err());
-        assert!(remove_antigravity_command_with_reader(skills_root, "pov-mcp-plan", &deny_read).is_err());
+        assert!(
+            install_antigravity_command_with_reader(skills_root, "pov-mcp-plan", &deny_read)
+                .is_err()
+        );
+        assert!(
+            remove_antigravity_command_with_reader(skills_root, "pov-mcp-plan", &deny_read)
+                .is_err()
+        );
         assert_eq!(std::fs::read(&skill_file).unwrap(), before);
         assert!(!skill_file.with_extension("md.bak").exists());
     }
@@ -19719,7 +21897,11 @@ mod tests {
 
         let info = inspect_antigravity_command_status_at(root_dir.path(), "pov-mcp-plan").unwrap();
         assert_eq!(info.status, AntigravitySkillStatus::Invalid);
-        assert!(info.error.as_deref().unwrap().contains("symlink or reparse point"));
+        assert!(info
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("symlink or reparse point"));
         assert!(install_antigravity_command_at(root_dir.path(), "pov-mcp-plan").is_err());
         assert!(!external_dir.path().join("SKILL.md").exists());
     }
@@ -19735,7 +21917,8 @@ mod tests {
         let plan_only_file = plan_only_dir.join("SKILL.md");
 
         // Canonical content
-        let (_, _, canonical_plan_only) = resolve_allowed_antigravity_command("pov-plan-only").unwrap();
+        let (_, _, canonical_plan_only) =
+            resolve_allowed_antigravity_command("pov-plan-only").unwrap();
 
         // Use custom mock reader to test known_v0251_hash detection or write mock content
         // To verify inspect_antigravity_command_status_at against real disk, let's write mock bytes whose SHA-256 matches known_v0251_hash
@@ -19757,9 +21940,14 @@ mod tests {
         let mut modified = canonical_plan_only.as_bytes().to_vec();
         modified.push(b'!');
         std::fs::write(&plan_only_file, &modified).unwrap();
-        let status_invalid = inspect_antigravity_command_status_at(skills_root, "pov-plan-only").unwrap();
+        let status_invalid =
+            inspect_antigravity_command_status_at(skills_root, "pov-plan-only").unwrap();
         assert_eq!(status_invalid.status, AntigravitySkillStatus::Invalid);
-        assert!(status_invalid.error.as_deref().unwrap().contains("user edits"));
+        assert!(status_invalid
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("user edits"));
 
         // Test with inspect_antigravity_command_status_with_reader simulating exact v0.25.1 bytes
         // For pov-plan-only, hash is c34de927eba565d00073fdd88723b04e799fbe0b4c4ec5a7df5658c2a40e6c0e
@@ -19779,7 +21967,8 @@ mod tests {
         assert_eq!(known_v0251_hash("pov-mcp-plan"), None);
 
         // Check compliance when only 1 is installed
-        let compliance = reviewer_policy::inspect_workflow_skills_policy_compliance(skills_root).unwrap();
+        let compliance =
+            reviewer_policy::inspect_workflow_skills_policy_compliance(skills_root).unwrap();
         assert_eq!(compliance.compliant, false);
 
         // Preflight refuses when one is Invalid
@@ -19795,19 +21984,25 @@ mod tests {
         // Install all workflow skills and mcp skills
         let installed_all = install_all_antigravity_commands_at(skills_root).unwrap();
         assert_eq!(installed_all.commands.len(), 6);
-        let compliance_after = reviewer_policy::inspect_workflow_skills_policy_compliance(skills_root).unwrap();
+        let compliance_after =
+            reviewer_policy::inspect_workflow_skills_policy_compliance(skills_root).unwrap();
         assert_eq!(compliance_after.compliant, true);
 
         // Test repair_or_update_antigravity_command_at on a modified skill
         let modified_bytes = b"user customized edits in workflow skill";
         std::fs::write(&plan_only_file, modified_bytes).unwrap();
-        let status_mod = inspect_antigravity_command_status_at(skills_root, "pov-plan-only").unwrap();
+        let status_mod =
+            inspect_antigravity_command_status_at(skills_root, "pov-plan-only").unwrap();
         assert_eq!(status_mod.status, AntigravitySkillStatus::Invalid);
 
         // Explicit repair replaces with backup
-        let repaired = repair_or_update_antigravity_command_at(skills_root, "pov-plan-only").unwrap();
+        let repaired =
+            repair_or_update_antigravity_command_at(skills_root, "pov-plan-only").unwrap();
         assert_eq!(repaired.status, AntigravitySkillStatus::Installed);
-        assert_eq!(std::fs::read(&plan_only_file).unwrap(), canonical_plan_only.as_bytes());
+        assert_eq!(
+            std::fs::read(&plan_only_file).unwrap(),
+            canonical_plan_only.as_bytes()
+        );
 
         // Verify backup was created containing modified_bytes
         let mut found_backup = false;
@@ -19820,7 +22015,10 @@ mod tests {
                 found_backup = true;
             }
         }
-        assert!(found_backup, "Backup file must be created before repairing modified skill");
+        assert!(
+            found_backup,
+            "Backup file must be created before repairing modified skill"
+        );
     }
 
     #[cfg(windows)]
@@ -19838,7 +22036,11 @@ mod tests {
 
         let info = inspect_antigravity_command_status_at(root_dir.path(), "pov-mcp-plan").unwrap();
         assert_eq!(info.status, AntigravitySkillStatus::Invalid);
-        assert!(info.error.as_deref().unwrap().contains("symlink or reparse point"));
+        assert!(info
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("symlink or reparse point"));
         assert!(install_antigravity_command_at(root_dir.path(), "pov-mcp-plan").is_err());
         assert!(!external_dir.path().join("SKILL.md").exists());
     }
@@ -19861,18 +22063,36 @@ mod tests {
         assert_eq!(mimo["model_map"]["claude-haiku"], "mimo-v2.6-flash");
 
         // Models configuration checks
-        assert_eq!(mimo["models"]["claude-opus-5"]["upstream_model"], "mimo-v2.6-pro");
+        assert_eq!(
+            mimo["models"]["claude-opus-5"]["upstream_model"],
+            "mimo-v2.6-pro"
+        );
         assert_eq!(mimo["models"]["claude-opus-5"]["thinking_mode"], "thinking");
 
-        assert_eq!(mimo["models"]["claude-sonnet-5"]["upstream_model"], "mimo-v2.6-pro");
+        assert_eq!(
+            mimo["models"]["claude-sonnet-5"]["upstream_model"],
+            "mimo-v2.6-pro"
+        );
         assert_eq!(mimo["models"]["claude-sonnet-5"]["thinking_mode"], "normal");
 
-        assert_eq!(mimo["models"]["claude-haiku-4-5"]["upstream_model"], "mimo-v2.6-flash");
-        assert_eq!(mimo["models"]["claude-haiku-4-5"]["thinking_mode"], "thinking");
+        assert_eq!(
+            mimo["models"]["claude-haiku-4-5"]["upstream_model"],
+            "mimo-v2.6-flash"
+        );
+        assert_eq!(
+            mimo["models"]["claude-haiku-4-5"]["thinking_mode"],
+            "thinking"
+        );
 
         // UltraSpeed is selectable but not a default route
-        assert_eq!(mimo["model_map"]["mimo-v2.6-pro-ultraspeed"], "mimo-v2.6-pro-ultraspeed");
-        assert_eq!(mimo["models"]["mimo-v2.6-pro-ultraspeed"]["upstream_model"], "mimo-v2.6-pro-ultraspeed");
+        assert_eq!(
+            mimo["model_map"]["mimo-v2.6-pro-ultraspeed"],
+            "mimo-v2.6-pro-ultraspeed"
+        );
+        assert_eq!(
+            mimo["models"]["mimo-v2.6-pro-ultraspeed"]["upstream_model"],
+            "mimo-v2.6-pro-ultraspeed"
+        );
     }
 
     #[test]
@@ -19968,10 +22188,17 @@ mod tests {
                 }
             }
         });
-        std::fs::write(&config_path, serde_json::to_string_pretty(&initial_json).unwrap()).unwrap();
+        std::fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&initial_json).unwrap(),
+        )
+        .unwrap();
 
         let migrated = migrate_mimo_legacy_v2_5_to_v2_6(&config_path);
-        assert!(migrated, "Expected untouched MiMo routes to be migrated even after bundle merge");
+        assert!(
+            migrated,
+            "Expected untouched MiMo routes to be migrated even after bundle merge"
+        );
 
         let updated_content = std::fs::read_to_string(&config_path).unwrap();
         let updated: serde_json::Value = serde_json::from_str(&updated_content).unwrap();
@@ -19987,21 +22214,51 @@ mod tests {
         assert_eq!(provider["model_map"]["mimo-v2.5"], "mimo-v2.5");
         assert_eq!(provider["model_map"]["mimo-v2.6-flash"], "mimo-v2.6-flash");
         assert_eq!(provider["model_map"]["mimo-v2.6-pro"], "mimo-v2.6-pro");
-        assert_eq!(provider["model_map"]["mimo-v2.6-pro-ultraspeed"], "mimo-v2.6-pro-ultraspeed");
+        assert_eq!(
+            provider["model_map"]["mimo-v2.6-pro-ultraspeed"],
+            "mimo-v2.6-pro-ultraspeed"
+        );
 
-        assert_eq!(provider["models"]["claude-opus-5"]["upstream_model"], "mimo-v2.6-pro");
-        assert_eq!(provider["models"]["claude-opus-5"]["thinking_mode"], "thinking");
+        assert_eq!(
+            provider["models"]["claude-opus-5"]["upstream_model"],
+            "mimo-v2.6-pro"
+        );
+        assert_eq!(
+            provider["models"]["claude-opus-5"]["thinking_mode"],
+            "thinking"
+        );
         assert_eq!(provider["models"]["claude-opus-5"]["supports_vision"], true);
         assert_eq!(provider["models"]["claude-opus-5"]["supports_video"], true);
-        assert_eq!(provider["models"]["claude-opus-5"]["supports_video_url"], true);
-        assert_eq!(provider["models"]["claude-opus-5"]["supports_video_base64"], true);
+        assert_eq!(
+            provider["models"]["claude-opus-5"]["supports_video_url"],
+            true
+        );
+        assert_eq!(
+            provider["models"]["claude-opus-5"]["supports_video_base64"],
+            true
+        );
 
-        assert_eq!(provider["models"]["claude-sonnet-5"]["upstream_model"], "mimo-v2.6-pro");
-        assert_eq!(provider["models"]["claude-sonnet-5"]["thinking_mode"], "normal");
-        assert_eq!(provider["models"]["claude-sonnet-5"]["supports_video_url"], true);
+        assert_eq!(
+            provider["models"]["claude-sonnet-5"]["upstream_model"],
+            "mimo-v2.6-pro"
+        );
+        assert_eq!(
+            provider["models"]["claude-sonnet-5"]["thinking_mode"],
+            "normal"
+        );
+        assert_eq!(
+            provider["models"]["claude-sonnet-5"]["supports_video_url"],
+            true
+        );
 
-        assert_eq!(provider["models"]["claude-haiku-4-5"]["upstream_model"], "mimo-v2.6-flash");
-        assert_eq!(provider["models"]["claude-haiku-4-5"]["thinking_mode"], "thinking");
+        assert_eq!(
+            provider["models"]["claude-haiku-4-5"]["upstream_model"],
+            "mimo-v2.6-flash"
+        );
+        assert_eq!(
+            provider["models"]["claude-haiku-4-5"]["thinking_mode"],
+            "thinking"
+        );
 
         // Idempotency: second run does nothing
         let second_run = migrate_mimo_legacy_v2_5_to_v2_6(&config_path);
@@ -20046,10 +22303,17 @@ mod tests {
                 }
             }
         });
-        std::fs::write(&config_path, serde_json::to_string_pretty(&custom_json).unwrap()).unwrap();
+        std::fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&custom_json).unwrap(),
+        )
+        .unwrap();
 
         let migrated = migrate_mimo_legacy_v2_5_to_v2_6(&config_path);
-        assert!(migrated, "Expected migration to run on historical model targets");
+        assert!(
+            migrated,
+            "Expected migration to run on historical model targets"
+        );
 
         let updated_content = std::fs::read_to_string(&config_path).unwrap();
         let updated: serde_json::Value = serde_json::from_str(&updated_content).unwrap();
@@ -20057,18 +22321,36 @@ mod tests {
 
         // Opus migrated to V2.6 Pro but kept user's Normal mode
         assert_eq!(provider["model_map"]["claude-opus-5"], "mimo-v2.6-pro");
-        assert_eq!(provider["models"]["claude-opus-5"]["upstream_model"], "mimo-v2.6-pro");
-        assert_eq!(provider["models"]["claude-opus-5"]["thinking_mode"], "normal");
+        assert_eq!(
+            provider["models"]["claude-opus-5"]["upstream_model"],
+            "mimo-v2.6-pro"
+        );
+        assert_eq!(
+            provider["models"]["claude-opus-5"]["thinking_mode"],
+            "normal"
+        );
 
         // Sonnet migrated to V2.6 Pro but kept user's Thinking mode
         assert_eq!(provider["model_map"]["claude-sonnet-5"], "mimo-v2.6-pro");
-        assert_eq!(provider["models"]["claude-sonnet-5"]["upstream_model"], "mimo-v2.6-pro");
-        assert_eq!(provider["models"]["claude-sonnet-5"]["thinking_mode"], "thinking");
+        assert_eq!(
+            provider["models"]["claude-sonnet-5"]["upstream_model"],
+            "mimo-v2.6-pro"
+        );
+        assert_eq!(
+            provider["models"]["claude-sonnet-5"]["thinking_mode"],
+            "thinking"
+        );
 
         // Haiku migrated to V2.6 Flash but kept user's Normal mode
         assert_eq!(provider["model_map"]["claude-haiku-4-5"], "mimo-v2.6-flash");
-        assert_eq!(provider["models"]["claude-haiku-4-5"]["upstream_model"], "mimo-v2.6-flash");
-        assert_eq!(provider["models"]["claude-haiku-4-5"]["thinking_mode"], "normal");
+        assert_eq!(
+            provider["models"]["claude-haiku-4-5"]["upstream_model"],
+            "mimo-v2.6-flash"
+        );
+        assert_eq!(
+            provider["models"]["claude-haiku-4-5"]["thinking_mode"],
+            "normal"
+        );
     }
 
     #[test]
@@ -20102,7 +22384,11 @@ mod tests {
                 }
             }
         });
-        std::fs::write(&config_path, serde_json::to_string_pretty(&custom_json).unwrap()).unwrap();
+        std::fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&custom_json).unwrap(),
+        )
+        .unwrap();
 
         let migrated = migrate_mimo_legacy_v2_5_to_v2_6(&config_path);
         assert!(migrated);
@@ -20113,16 +22399,31 @@ mod tests {
 
         // claude-opus-5 remains custom
         assert_eq!(provider["model_map"]["claude-opus-5"], "my-custom-model");
-        assert_eq!(provider["models"]["claude-opus-5"]["upstream_model"], "my-custom-model");
+        assert_eq!(
+            provider["models"]["claude-opus-5"]["upstream_model"],
+            "my-custom-model"
+        );
 
         // claude-sonnet-5 and haiku migrated to new defaults
         assert_eq!(provider["model_map"]["claude-sonnet-5"], "mimo-v2.6-pro");
-        assert_eq!(provider["models"]["claude-sonnet-5"]["upstream_model"], "mimo-v2.6-pro");
-        assert_eq!(provider["models"]["claude-sonnet-5"]["thinking_mode"], "normal");
+        assert_eq!(
+            provider["models"]["claude-sonnet-5"]["upstream_model"],
+            "mimo-v2.6-pro"
+        );
+        assert_eq!(
+            provider["models"]["claude-sonnet-5"]["thinking_mode"],
+            "normal"
+        );
 
         assert_eq!(provider["model_map"]["claude-haiku-4-5"], "mimo-v2.6-flash");
-        assert_eq!(provider["models"]["claude-haiku-4-5"]["upstream_model"], "mimo-v2.6-flash");
-        assert_eq!(provider["models"]["claude-haiku-4-5"]["thinking_mode"], "thinking");
+        assert_eq!(
+            provider["models"]["claude-haiku-4-5"]["upstream_model"],
+            "mimo-v2.6-flash"
+        );
+        assert_eq!(
+            provider["models"]["claude-haiku-4-5"]["thinking_mode"],
+            "thinking"
+        );
     }
 
     #[test]
@@ -20150,7 +22451,11 @@ mod tests {
                 }
             }
         });
-        std::fs::write(&config_path, serde_json::to_string_pretty(&custom_json).unwrap()).unwrap();
+        std::fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&custom_json).unwrap(),
+        )
+        .unwrap();
 
         let migrated = migrate_mimo_legacy_v2_5_to_v2_6(&config_path);
         assert!(migrated);
@@ -20213,7 +22518,10 @@ mod tests {
         std::fs::write(&config_path, &original_str).unwrap();
 
         let migrated = migrate_mimo_legacy_v2_5_to_v2_6(&config_path);
-        assert!(!migrated, "Already migrated config with self-maps should not be modified");
+        assert!(
+            !migrated,
+            "Already migrated config with self-maps should not be modified"
+        );
 
         let current_str = std::fs::read_to_string(&config_path).unwrap();
         assert_eq!(original_str, current_str);
@@ -20241,10 +22549,17 @@ mod tests {
                 }
             }
         });
-        std::fs::write(&config_path, serde_json::to_string_pretty(&legacy_json).unwrap()).unwrap();
+        std::fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&legacy_json).unwrap(),
+        )
+        .unwrap();
 
         let migrated = migrate_mimo_legacy_v2_5_to_v2_6(&config_path);
-        assert!(migrated, "Expected migration to run on legacy model_map-only config");
+        assert!(
+            migrated,
+            "Expected migration to run on legacy model_map-only config"
+        );
 
         let updated_content = std::fs::read_to_string(&config_path).unwrap();
         let updated: serde_json::Value = serde_json::from_str(&updated_content).unwrap();
@@ -20252,36 +22567,77 @@ mod tests {
 
         // 1. Provider-level supports_video must NOT be enabled by migration
         assert_eq!(
-            provider.get("supports_video").and_then(serde_json::Value::as_bool),
+            provider
+                .get("supports_video")
+                .and_then(serde_json::Value::as_bool),
             Some(false),
             "Migration must NOT set provider-wide supports_video = true"
         );
 
         // 2. Preserved legacy V2.5 models must resolve supports_video_url = false / supports_video_base64 = false
         let v25_caps = model_capabilities::resolve_static_model_capabilities("mimo-v2.5");
-        assert!(!v25_caps.supports_video_url, "mimo-v2.5 must not support video url");
-        assert!(!v25_caps.supports_video_base64, "mimo-v2.5 must not support video base64");
+        assert!(
+            !v25_caps.supports_video_url,
+            "mimo-v2.5 must not support video url"
+        );
+        assert!(
+            !v25_caps.supports_video_base64,
+            "mimo-v2.5 must not support video base64"
+        );
 
         let v25_pro_caps = model_capabilities::resolve_static_model_capabilities("mimo-v2.5-pro");
-        assert!(!v25_pro_caps.supports_video_url, "mimo-v2.5-pro must not support video url");
-        assert!(!v25_pro_caps.supports_video_base64, "mimo-v2.5-pro must not support video base64");
+        assert!(
+            !v25_pro_caps.supports_video_url,
+            "mimo-v2.5-pro must not support video url"
+        );
+        assert!(
+            !v25_pro_caps.supports_video_base64,
+            "mimo-v2.5-pro must not support video base64"
+        );
 
-        let v25_ultra_caps = model_capabilities::resolve_static_model_capabilities("mimo-v2.5-pro-ultraspeed");
-        assert!(!v25_ultra_caps.supports_video_url, "mimo-v2.5-pro-ultraspeed must not support video url");
-        assert!(!v25_ultra_caps.supports_video_base64, "mimo-v2.5-pro-ultraspeed must not support video base64");
+        let v25_ultra_caps =
+            model_capabilities::resolve_static_model_capabilities("mimo-v2.5-pro-ultraspeed");
+        assert!(
+            !v25_ultra_caps.supports_video_url,
+            "mimo-v2.5-pro-ultraspeed must not support video url"
+        );
+        assert!(
+            !v25_ultra_caps.supports_video_base64,
+            "mimo-v2.5-pro-ultraspeed must not support video base64"
+        );
 
         // 3. Migrated V2.6 models must resolve supports_video_url = true / supports_video_base64 = true
-        let v26_flash_caps = model_capabilities::resolve_static_model_capabilities("mimo-v2.6-flash");
-        assert!(v26_flash_caps.supports_video_url, "mimo-v2.6-flash must support video url");
-        assert!(v26_flash_caps.supports_video_base64, "mimo-v2.6-flash must support video base64");
+        let v26_flash_caps =
+            model_capabilities::resolve_static_model_capabilities("mimo-v2.6-flash");
+        assert!(
+            v26_flash_caps.supports_video_url,
+            "mimo-v2.6-flash must support video url"
+        );
+        assert!(
+            v26_flash_caps.supports_video_base64,
+            "mimo-v2.6-flash must support video base64"
+        );
 
         let v26_pro_caps = model_capabilities::resolve_static_model_capabilities("mimo-v2.6-pro");
-        assert!(v26_pro_caps.supports_video_url, "mimo-v2.6-pro must support video url");
-        assert!(v26_pro_caps.supports_video_base64, "mimo-v2.6-pro must support video base64");
+        assert!(
+            v26_pro_caps.supports_video_url,
+            "mimo-v2.6-pro must support video url"
+        );
+        assert!(
+            v26_pro_caps.supports_video_base64,
+            "mimo-v2.6-pro must support video base64"
+        );
 
-        let v26_ultra_caps = model_capabilities::resolve_static_model_capabilities("mimo-v2.6-pro-ultraspeed");
-        assert!(v26_ultra_caps.supports_video_url, "mimo-v2.6-pro-ultraspeed must support video url");
-        assert!(v26_ultra_caps.supports_video_base64, "mimo-v2.6-pro-ultraspeed must support video base64");
+        let v26_ultra_caps =
+            model_capabilities::resolve_static_model_capabilities("mimo-v2.6-pro-ultraspeed");
+        assert!(
+            v26_ultra_caps.supports_video_url,
+            "mimo-v2.6-pro-ultraspeed must support video url"
+        );
+        assert!(
+            v26_ultra_caps.supports_video_base64,
+            "mimo-v2.6-pro-ultraspeed must support video base64"
+        );
     }
 
     #[test]
@@ -20305,7 +22661,8 @@ mod tests {
 
         // Test default deserialization when fields are missing
         let default_json = json!({});
-        let default_config: ClaudeCodeThirdPartyConfig = serde_json::from_value(default_json).unwrap();
+        let default_config: ClaudeCodeThirdPartyConfig =
+            serde_json::from_value(default_json).unwrap();
         assert!(default_config.show_on_dashboard); // defaults to true
         assert_eq!(default_config.provider, "ollama");
         assert_eq!(default_config.base_url, "http://127.0.0.1:11434");
@@ -20584,8 +22941,14 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(stdout.contains("X-User-Header: 123"), "{stdout}");
-        assert!(stdout.contains("X-Payload: x-anthro-bridge-client"), "{stdout}");
-        assert!(stdout.contains("X-Anthro-Bridge-Client: claude-code"), "{stdout}");
+        assert!(
+            stdout.contains("X-Payload: x-anthro-bridge-client"),
+            "{stdout}"
+        );
+        assert!(
+            stdout.contains("X-Anthro-Bridge-Client: claude-code"),
+            "{stdout}"
+        );
         assert!(!stdout.contains("stale-old"), "{stdout}");
     }
 
@@ -20616,9 +22979,8 @@ mod tests {
         assert!(result.config_changed);
         assert!(result.restart_gateway);
         assert!(cfg.get("claude_code").is_some());
-        let saved: ClaudeCodeThirdPartyConfig = serde_json::from_value(
-            cfg["claude_code"]["third_party_provider"].clone()
-        ).unwrap();
+        let saved: ClaudeCodeThirdPartyConfig =
+            serde_json::from_value(cfg["claude_code"]["third_party_provider"].clone()).unwrap();
         assert!(saved.show_on_dashboard);
         assert_eq!(saved.provider, "ollama");
         assert_eq!(saved.base_url, "http://127.0.0.1:11434");
@@ -20662,9 +23024,12 @@ mod tests {
         // 1. Resulting config has active_route = "ollama"
         assert_eq!(cfg["claude_code"]["active_route"], "ollama");
         // 2. Legacy enabled field is dropped in saved JSON
-        assert!(cfg["claude_code"]["third_party_provider"].get("enabled").is_none());
+        assert!(cfg["claude_code"]["third_party_provider"]
+            .get("enabled")
+            .is_none());
         // 3. Effective route resolves to ollama
-        let root: ClaudeCodeRootSection = serde_json::from_value(cfg["claude_code"].clone()).unwrap();
+        let root: ClaudeCodeRootSection =
+            serde_json::from_value(cfg["claude_code"].clone()).unwrap();
         assert_eq!(root.resolved_active_route(), "ollama");
     }
 
@@ -20701,7 +23066,8 @@ mod tests {
         assert!(res.config_changed);
         // Resulting config has active_route = "gateway"
         assert_eq!(cfg["claude_code"]["active_route"], "gateway");
-        let root: ClaudeCodeRootSection = serde_json::from_value(cfg["claude_code"].clone()).unwrap();
+        let root: ClaudeCodeRootSection =
+            serde_json::from_value(cfg["claude_code"].clone()).unwrap();
         assert_eq!(root.resolved_active_route(), "gateway");
     }
 
@@ -20759,7 +23125,10 @@ mod tests {
     fn test_apply_update_claude_code_third_party_preserves_models_map() {
         let mut initial_models = std::collections::HashMap::new();
         initial_models.insert("claude-opus-5".to_string(), "qwen2.5-coder:32b".to_string());
-        initial_models.insert("claude-sonnet-5".to_string(), "qwen2.5-coder:14b".to_string());
+        initial_models.insert(
+            "claude-sonnet-5".to_string(),
+            "qwen2.5-coder:14b".to_string(),
+        );
 
         let mut cfg = serde_json::json!({
             "claude_code": {
@@ -20791,9 +23160,8 @@ mod tests {
         };
         let res = apply_update_claude_code_third_party(&mut cfg, &update_req).unwrap();
         assert!(!res.config_changed, "no-op update should not mark changed");
-        let saved: ClaudeCodeThirdPartyConfig = serde_json::from_value(
-            cfg["claude_code"]["third_party_provider"].clone()
-        ).unwrap();
+        let saved: ClaudeCodeThirdPartyConfig =
+            serde_json::from_value(cfg["claude_code"]["third_party_provider"].clone()).unwrap();
         assert_eq!(saved.models, Some(initial_models.clone()));
 
         // 2. Updating thinking_mode preserves models
@@ -20803,9 +23171,8 @@ mod tests {
         };
         let res2 = apply_update_claude_code_third_party(&mut cfg, &update_thinking).unwrap();
         assert!(res2.config_changed);
-        let saved2: ClaudeCodeThirdPartyConfig = serde_json::from_value(
-            cfg["claude_code"]["third_party_provider"].clone()
-        ).unwrap();
+        let saved2: ClaudeCodeThirdPartyConfig =
+            serde_json::from_value(cfg["claude_code"]["third_party_provider"].clone()).unwrap();
         assert_eq!(saved2.thinking_mode, "thinking");
         assert_eq!(saved2.models, Some(initial_models.clone()));
 
@@ -20816,9 +23183,8 @@ mod tests {
         };
         let res3 = apply_update_claude_code_third_party(&mut cfg, &update_window).unwrap();
         assert!(res3.config_changed);
-        let saved3: ClaudeCodeThirdPartyConfig = serde_json::from_value(
-            cfg["claude_code"]["third_party_provider"].clone()
-        ).unwrap();
+        let saved3: ClaudeCodeThirdPartyConfig =
+            serde_json::from_value(cfg["claude_code"]["third_party_provider"].clone()).unwrap();
         assert_eq!(saved3.context_window, Some(262144));
         assert_eq!(saved3.models, Some(initial_models.clone()));
 
@@ -20829,24 +23195,25 @@ mod tests {
         };
         let res4 = apply_update_claude_code_third_party(&mut cfg, &update_model).unwrap();
         assert!(res4.config_changed);
-        let saved4: ClaudeCodeThirdPartyConfig = serde_json::from_value(
-            cfg["claude_code"]["third_party_provider"].clone()
-        ).unwrap();
+        let saved4: ClaudeCodeThirdPartyConfig =
+            serde_json::from_value(cfg["claude_code"]["third_party_provider"].clone()).unwrap();
         assert_eq!(saved4.model, "llama3.3:70b");
         assert_eq!(saved4.models, Some(initial_models.clone()));
 
         // 5. If an explicit replacement models map is supplied, it is stored deterministically
         let mut replacement_models = std::collections::HashMap::new();
-        replacement_models.insert("claude-haiku-4-5".to_string(), "qwen2.5-coder:7b".to_string());
+        replacement_models.insert(
+            "claude-haiku-4-5".to_string(),
+            "qwen2.5-coder:7b".to_string(),
+        );
         let update_explicit = ClaudeCodeThirdPartyConfig {
             models: Some(replacement_models.clone()),
             ..update_model.clone()
         };
         let res5 = apply_update_claude_code_third_party(&mut cfg, &update_explicit).unwrap();
         assert!(res5.config_changed);
-        let saved5: ClaudeCodeThirdPartyConfig = serde_json::from_value(
-            cfg["claude_code"]["third_party_provider"].clone()
-        ).unwrap();
+        let saved5: ClaudeCodeThirdPartyConfig =
+            serde_json::from_value(cfg["claude_code"]["third_party_provider"].clone()).unwrap();
         assert_eq!(saved5.models, Some(replacement_models));
     }
 
@@ -20992,7 +23359,9 @@ mod tests {
 
         // Invalid remote endpoints rejected
         assert!(validate_ollama_loopback_endpoint(Some("http://192.168.1.50:11434")).is_err());
-        assert!(validate_ollama_loopback_endpoint(Some("https://remote-ollama.example.com")).is_err());
+        assert!(
+            validate_ollama_loopback_endpoint(Some("https://remote-ollama.example.com")).is_err()
+        );
         assert!(validate_ollama_loopback_endpoint(Some("not-a-valid-url")).is_err());
     }
 
@@ -21136,21 +23505,30 @@ mod tests {
         );
         assert_eq!(cfg["orchestrator"]["activeWorkflowId"], "review_only");
         assert_eq!(cfg["orchestrator"]["profiles"][0]["id"], "user-custom");
-        assert_eq!(cfg["orchestrator"]["profiles"][0]["displayName"], "User custom");
-        assert_eq!(cfg["orchestrator"]["budgetLimits"]["planner"]["maxCallsPerRun"], 77);
+        assert_eq!(
+            cfg["orchestrator"]["profiles"][0]["displayName"],
+            "User custom"
+        );
+        assert_eq!(
+            cfg["orchestrator"]["budgetLimits"]["planner"]["maxCallsPerRun"],
+            77
+        );
         assert_eq!(cfg["orchestrator"]["customPresets"][0]["id"], "kept");
-        assert_eq!(cfg["orchestrator"]["authorizedCustomGates"][0]["gateId"], "keep-gate");
+        assert_eq!(
+            cfg["orchestrator"]["authorizedCustomGates"][0]["gateId"],
+            "keep-gate"
+        );
         assert_eq!(cfg["orchestrator"]["futureSetting"]["opaque"][2], 3);
-        assert_eq!(cfg["orchestrator"]["futureSetting"]["project_path"], "future-extension-key");
+        assert_eq!(
+            cfg["orchestrator"]["futureSetting"]["project_path"],
+            "future-extension-key"
+        );
         assert!(cfg["orchestrator"].get("project_path").is_none());
         assert!(cfg["orchestrator"].get("projectPath").is_some());
 
         // Updating with snake_case auto_validation_enabled normalizes to autoValidationEnabled
-        apply_update_orchestrator_config(
-            &mut cfg,
-            json!({"auto_validation_enabled": true}),
-        )
-        .unwrap();
+        apply_update_orchestrator_config(&mut cfg, json!({"auto_validation_enabled": true}))
+            .unwrap();
         assert_eq!(cfg["orchestrator"]["autoValidationEnabled"], true);
         assert!(cfg["orchestrator"].get("auto_validation_enabled").is_none());
     }
@@ -21221,19 +23599,26 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(cfg["orchestrator"]["iterationLimits"]["maxPlanReviewIterations"], 5);
+        assert_eq!(
+            cfg["orchestrator"]["iterationLimits"]["maxPlanReviewIterations"],
+            5
+        );
         assert_eq!(cfg["orchestrator"]["customPresets"], json!([]));
-        assert_eq!(cfg["orchestrator"]["budgetLimits"]["planner"]["maxCallsPerRun"], 9);
+        assert_eq!(
+            cfg["orchestrator"]["budgetLimits"]["planner"]["maxCallsPerRun"],
+            9
+        );
     }
 
     #[test]
     fn orchestrator_partial_update_rejects_invalid_known_fields_without_persisting() {
         let mut cfg = json!({"orchestrator":{"project_path":"keep"}});
         let before = cfg.clone();
-        assert!(apply_update_orchestrator_config(&mut cfg, json!({"iterationLimits":null})).is_err());
+        assert!(
+            apply_update_orchestrator_config(&mut cfg, json!({"iterationLimits":null})).is_err()
+        );
         assert_eq!(cfg, before);
     }
-
 
     #[test]
     fn orchestrator_mcp_server_registry_round_trips_through_partial_update() {
@@ -21260,7 +23645,10 @@ mod tests {
         let decoded: orchestrator::OrchestratorConfig =
             serde_json::from_value(loaded["orchestrator"].clone()).unwrap();
         assert!(decoded.mcp_servers.is_empty());
-        assert_eq!(decoded.profiles[0].external_mcp_server.as_deref(), Some("local-plan"));
+        assert_eq!(
+            decoded.profiles[0].external_mcp_server.as_deref(),
+            Some("local-plan")
+        );
         assert_eq!(decoded.profiles[0].mcp_tool.as_deref(), Some("plan"));
 
         // 2. ...and the existing partial-merge command accepts and round-trips the registry
@@ -21407,14 +23795,32 @@ mod tests {
         let orchestrator_cfg: orchestrator::OrchestratorConfig =
             serde_json::from_value(reloaded["orchestrator"].clone()).unwrap();
 
-        assert_eq!(orchestrator_cfg.active_workflow_id.as_deref(), Some("review_only"));
+        assert_eq!(
+            orchestrator_cfg.active_workflow_id.as_deref(),
+            Some("review_only")
+        );
         assert_eq!(orchestrator_cfg.profiles[0].display_name, "Legacy Planner");
-        assert_eq!(orchestrator_cfg.assignments[&orchestrator::AgentRole::Planner].profile_id, "planner-profile");
-        assert_eq!(orchestrator_cfg.budget_limits["planner"].max_calls_per_run, 7);
+        assert_eq!(
+            orchestrator_cfg.assignments[&orchestrator::AgentRole::Planner].profile_id,
+            "planner-profile"
+        );
+        assert_eq!(
+            orchestrator_cfg.budget_limits["planner"].max_calls_per_run,
+            7
+        );
         assert_eq!(orchestrator_cfg.custom_presets[0].id, "keep");
-        assert_eq!(orchestrator_cfg.quick_slots[0].profile_id, "planner-profile");
-        assert_eq!(reloaded["orchestrator"]["quickSlots"][0]["profileId"], "planner-profile");
-        assert_eq!(reloaded["orchestrator"]["futurePolicy"]["project_path"], "opaque extension key");
+        assert_eq!(
+            orchestrator_cfg.quick_slots[0].profile_id,
+            "planner-profile"
+        );
+        assert_eq!(
+            reloaded["orchestrator"]["quickSlots"][0]["profileId"],
+            "planner-profile"
+        );
+        assert_eq!(
+            reloaded["orchestrator"]["futurePolicy"]["project_path"],
+            "opaque extension key"
+        );
 
         let planner = orchestrator_cfg.profiles[0].clone();
         let snapshot = orchestrator::RunConfigurationSnapshot {
@@ -21432,8 +23838,13 @@ mod tests {
             mcp_servers: Default::default(),
         };
         let wire_snapshot = serde_json::to_value(&snapshot).unwrap();
-        assert_eq!(wire_snapshot["assignments"]["planner"]["displayName"], "Legacy Planner");
-        assert!(wire_snapshot["assignments"]["planner"].get("display_name").is_none());
+        assert_eq!(
+            wire_snapshot["assignments"]["planner"]["displayName"],
+            "Legacy Planner"
+        );
+        assert!(wire_snapshot["assignments"]["planner"]
+            .get("display_name")
+            .is_none());
         let decoded_snapshot: orchestrator::RunConfigurationSnapshot =
             serde_json::from_value(wire_snapshot).unwrap();
         assert_eq!(decoded_snapshot, snapshot);
@@ -21784,7 +24195,8 @@ mod tests {
     }
 
     #[test]
-    fn provider_seed_v1_upgrade_adds_minimax_and_antigravity_without_reseeding_deleted_v1_profiles() {
+    fn provider_seed_v1_upgrade_adds_minimax_and_antigravity_without_reseeding_deleted_v1_profiles()
+    {
         let template: serde_json::Value =
             serde_json::from_str(config_template::BUNDLED_CONFIG_TEMPLATE).unwrap();
         let mut config = json!({
@@ -21938,7 +24350,10 @@ mod tests {
     fn test_resolve_api_key_env_var_reads_registry_and_populates_process() {
         // ZAI_API_KEY is present in User HKCU\Environment on this machine
         let key = resolve_api_key_env_var("ZAI_API_KEY");
-        assert!(key.is_some(), "Expected ZAI_API_KEY to resolve via process or HKCU registry fallback");
+        assert!(
+            key.is_some(),
+            "Expected ZAI_API_KEY to resolve via process or HKCU registry fallback"
+        );
         // Verify process env is populated
         assert!(std::env::var("ZAI_API_KEY").is_ok());
     }
@@ -21966,7 +24381,12 @@ mod tests {
         // Test normalization without reading or modifying the user's Codex settings.
         let plan_dir_str = plan_dir.to_string_lossy();
         let res = normalize_plan_manager_location(Some(plan_dir_str.as_ref())).unwrap();
-        let canonical_parent = temp_dir.path().canonicalize().unwrap().to_string_lossy().to_string();
+        let canonical_parent = temp_dir
+            .path()
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
         assert_eq!(res, Some(canonical_parent));
         assert_eq!(normalize_plan_manager_location(None).unwrap(), None);
     }
@@ -21990,7 +24410,10 @@ mod tests {
         assert_eq!(resolve_plan_dialog_starting_dir(None, None, None), None);
 
         let empty_repo = std::path::Path::new("");
-        assert_eq!(resolve_plan_dialog_starting_dir(Some(empty_repo), None, None), None);
+        assert_eq!(
+            resolve_plan_dialog_starting_dir(Some(empty_repo), None, None),
+            None
+        );
     }
 
     #[test]
@@ -22032,7 +24455,9 @@ mod tests {
         std::fs::write(&outside_file, "# Outside").unwrap();
         let res_outside = validate_selected_plan_file(&canonical_repo, &outside_file);
         assert!(res_outside.is_err());
-        assert!(res_outside.unwrap_err().contains("inside the repository root"));
+        assert!(res_outside
+            .unwrap_err()
+            .contains("inside the repository root"));
     }
 
     #[test]
@@ -22085,7 +24510,10 @@ mod tests {
         std::fs::create_dir_all(&target_dir).unwrap();
         let target_dir_str = target_dir.to_string_lossy().to_string();
 
-        let test_policy_path = temp_dir.path().join("policy").join("pov-reviewer-policy.json");
+        let test_policy_path = temp_dir
+            .path()
+            .join("policy")
+            .join("pov-reviewer-policy.json");
         std::fs::create_dir_all(test_policy_path.parent().unwrap()).unwrap();
 
         // 1. Initial creation with unknown fields
@@ -22094,7 +24522,11 @@ mod tests {
             "custom_preserved_field_123": "preserved_value",
             "existing_policy": "antigravity"
         });
-        std::fs::write(&test_policy_path, serde_json::to_string_pretty(&initial_json).unwrap()).unwrap();
+        std::fs::write(
+            &test_policy_path,
+            serde_json::to_string_pretty(&initial_json).unwrap(),
+        )
+        .unwrap();
 
         // Save location
         let res = save_plan_manager_location_to_file(
@@ -22105,13 +24537,22 @@ mod tests {
         assert!(res.is_ok());
 
         // 2. Verify persistent backup creation
-        let backups_dir = test_policy_path.parent().unwrap().join(".poverello_backups").join("reviewer-policy");
+        let backups_dir = test_policy_path
+            .parent()
+            .unwrap()
+            .join(".poverello_backups")
+            .join("reviewer-policy");
         assert!(backups_dir.exists(), "Backup directory must exist");
         let backup_entries = std::fs::read_dir(&backups_dir).unwrap().collect::<Vec<_>>();
-        assert_eq!(backup_entries.len(), 1, "Exactly one backup file should be created");
+        assert_eq!(
+            backup_entries.len(),
+            1,
+            "Exactly one backup file should be created"
+        );
 
         // Verify backup contents match original
-        let backup_content = std::fs::read_to_string(backup_entries[0].as_ref().unwrap().path()).unwrap();
+        let backup_content =
+            std::fs::read_to_string(backup_entries[0].as_ref().unwrap().path()).unwrap();
         assert!(backup_content.contains("preserved_value"));
 
         // 3. Verify target file updated with plan_root_path while preserving unknown fields
@@ -22132,10 +24573,16 @@ mod tests {
             "review-settings",
             Some(&target_dir_str),
         );
-        assert!(corrupt_res.is_err(), "Must reject modifying a corrupted configuration");
+        assert!(
+            corrupt_res.is_err(),
+            "Must reject modifying a corrupted configuration"
+        );
         assert!(corrupt_res.unwrap_err().contains("corrupted"));
         // Original corrupted file must remain untouched
-        assert_eq!(std::fs::read_to_string(&corrupt_path).unwrap(), corrupted_content);
+        assert_eq!(
+            std::fs::read_to_string(&corrupt_path).unwrap(),
+            corrupted_content
+        );
     }
 
     #[test]
@@ -22148,13 +24595,12 @@ mod tests {
             &target,
             "review-settings",
             Some("C:/project"),
-            |_| {
-                std::fs::write(&target, br#"{"keep":"concurrent"}"#)
-                    .map_err(|e| e.to_string())
-            },
+            |_| std::fs::write(&target, br#"{"keep":"concurrent"}"#).map_err(|e| e.to_string()),
         );
 
-        assert!(result.unwrap_err().contains("Concurrent modification conflict"));
+        assert!(result
+            .unwrap_err()
+            .contains("Concurrent modification conflict"));
         assert_eq!(std::fs::read(&target).unwrap(), br#"{"keep":"concurrent"}"#);
     }
 
@@ -22290,16 +24736,43 @@ mod tests {
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&cfg_path).unwrap()).unwrap();
-        assert_eq!(after["custom_top_level_unknown"]["nested"], serde_json::json!([1, 2, 3]));
-        assert_eq!(after["providers"]["openrouter"]["api_key"], "sk-or-preserve");
-        assert_eq!(after["providers"]["openrouter"]["models"]["claude-opus-5"]["reasoning_effort"], "medium");
-        assert_eq!(after["providers"]["openrouter"]["models"]["claude-opus-5"]["thinking_mode"], "thinking");
-        assert_eq!(after["providers"]["openrouter"]["models"]["claude-opus-5"]["custom_model_field"], "keep");
+        assert_eq!(
+            after["custom_top_level_unknown"]["nested"],
+            serde_json::json!([1, 2, 3])
+        );
+        assert_eq!(
+            after["providers"]["openrouter"]["api_key"],
+            "sk-or-preserve"
+        );
+        assert_eq!(
+            after["providers"]["openrouter"]["models"]["claude-opus-5"]["reasoning_effort"],
+            "medium"
+        );
+        assert_eq!(
+            after["providers"]["openrouter"]["models"]["claude-opus-5"]["thinking_mode"],
+            "thinking"
+        );
+        assert_eq!(
+            after["providers"]["openrouter"]["models"]["claude-opus-5"]["custom_model_field"],
+            "keep"
+        );
         // Non-GPT-6.2 model (gpt-6-luna, gpt-6-sol) left untouched
-        assert_eq!(after["providers"]["openrouter"]["models"]["claude-haiku-5"]["reasoning_effort"], "none");
-        assert_eq!(after["providers"]["openrouter"]["profiles"][0]["opus"]["reasoning_effort"], "medium");
-        assert_eq!(after["providers"]["openrouter"]["profiles"][0]["sonnet"]["reasoning_effort"], "high");
-        assert_eq!(after["providers"]["openrouter"]["profiles"][0]["haiku"]["reasoning_effort"], "none");
+        assert_eq!(
+            after["providers"]["openrouter"]["models"]["claude-haiku-5"]["reasoning_effort"],
+            "none"
+        );
+        assert_eq!(
+            after["providers"]["openrouter"]["profiles"][0]["opus"]["reasoning_effort"],
+            "medium"
+        );
+        assert_eq!(
+            after["providers"]["openrouter"]["profiles"][0]["sonnet"]["reasoning_effort"],
+            "high"
+        );
+        assert_eq!(
+            after["providers"]["openrouter"]["profiles"][0]["haiku"]["reasoning_effort"],
+            "none"
+        );
 
         // Conflict test: concurrent write aborts with zero overwrite
         let conflict_path = dir.path().join("config-conflict.json");
@@ -22311,7 +24784,10 @@ mod tests {
         })
         .unwrap_err();
         assert!(err.contains("Concurrent modification conflict"));
-        assert_eq!(std::fs::read_to_string(&conflict_path).unwrap(), intervening);
+        assert_eq!(
+            std::fs::read_to_string(&conflict_path).unwrap(),
+            intervening
+        );
     }
 
     #[cfg(windows)]
@@ -22327,8 +24803,18 @@ mod tests {
             &backup_path,
             &config_path,
             "0000",
-            |_| Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected backup read error")),
-            |_, _| Err(std::io::Error::new(std::io::ErrorKind::Other, "injected rollback error")),
+            |_| {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "injected backup read error",
+                ))
+            },
+            |_, _| {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "injected rollback error",
+                ))
+            },
         )
         .unwrap_err();
 
@@ -22336,7 +24822,10 @@ mod tests {
         assert!(err.contains("injected backup read error"));
         assert!(err.contains("injected rollback error"));
         assert!(err.contains(&backup_path.display().to_string()));
-        assert!(backup_path.exists(), "backup file must NOT be deleted when rollback fails");
+        assert!(
+            backup_path.exists(),
+            "backup file must NOT be deleted when rollback fails"
+        );
         assert_eq!(std::fs::read(&backup_path).unwrap(), b"original-backup");
     }
 
@@ -22433,9 +24922,19 @@ mod tests {
         std::fs::write(&settings_file, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
 
         let configured = get_project_plan_slots_from_file(&settings_file).unwrap();
-        assert_eq!(configured.len(), 2, "AgentOpt's registered-project source must retain both project rows");
-        assert_eq!(configured[0].repo_path.as_deref(), Some(repo_a.to_string_lossy().as_ref()));
-        assert_eq!(configured[1].repo_path.as_deref(), Some(repo_b.to_string_lossy().as_ref()));
+        assert_eq!(
+            configured.len(),
+            2,
+            "AgentOpt's registered-project source must retain both project rows"
+        );
+        assert_eq!(
+            configured[0].repo_path.as_deref(),
+            Some(repo_a.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            configured[1].repo_path.as_deref(),
+            Some(repo_b.to_string_lossy().as_ref())
+        );
 
         let selected = get_selected_antigravity_plan_slot_from_file(&settings_file).unwrap();
         assert_eq!(selected.len(), 1);
@@ -22469,30 +24968,50 @@ mod tests {
         std::fs::write(&target, br#"{"existing":true}"#).unwrap();
 
         let result = commit_staged_settings_file_win(&staged, &target, false);
-        assert!(result.is_err(), "first-write move must not overwrite an existing target");
+        assert!(
+            result.is_err(),
+            "first-write move must not overwrite an existing target"
+        );
         assert_eq!(std::fs::read(&target).unwrap(), br#"{"existing":true}"#);
-        assert!(staged.exists(), "a failed no-replace move must leave staged data available for cleanup");
+        assert!(
+            staged.exists(),
+            "a failed no-replace move must leave staged data available for cleanup"
+        );
     }
 
     #[test]
     fn test_project_plan_slots_lifecycle() {
         assert!(get_project_plan_slots("invalid_surface".to_string()).is_err());
-        assert!(set_project_plan_slots("invalid_surface".to_string(), vec![]).is_err());
+        assert!(set_project_plan_slots("invalid_surface".to_string(), vec![], None, None).is_err());
 
         // Empty slots list rejected
-        assert!(set_project_plan_slots("codex".to_string(), vec![]).is_err());
+        assert!(set_project_plan_slots("codex".to_string(), vec![], None, None).is_err());
 
         // More than 2 slots rejected
         let three_slots = vec![
-            plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: None, plan_path: None },
-            plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: None, plan_path: None },
-            plan_manager::ProjectPlanSlot { slot_id: "tertiary".into(), repo_path: None, plan_path: None },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "primary".into(),
+                repo_path: None,
+                plan_path: None,
+            },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "secondary".into(),
+                repo_path: None,
+                plan_path: None,
+            },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "tertiary".into(),
+                repo_path: None,
+                plan_path: None,
+            },
         ];
-        assert!(set_project_plan_slots("codex".to_string(), three_slots).is_err());
+        assert!(set_project_plan_slots("codex".to_string(), three_slots, None, None).is_err());
 
         // Use a synthetic settings file; never touch the real CODEX_HOME configuration.
         let settings_temp = tempfile::tempdir().unwrap();
-        let settings_file = settings_temp.path().join(codex_review_settings::REVIEW_SETTINGS_FILE_NAME);
+        let settings_file = settings_temp
+            .path()
+            .join(codex_review_settings::REVIEW_SETTINGS_FILE_NAME);
 
         // Initial slots has primary
         let initial = get_project_plan_slots_from_file(&settings_file).unwrap();
@@ -22509,7 +25028,8 @@ mod tests {
         std::fs::write(&plan_file, "# Test Plan").unwrap();
 
         // Set secondary active plan in repo
-        plan_manager::set_active_plan(repo, ".plan/test-plan.md", Some("codex"), Some("secondary")).unwrap();
+        plan_manager::set_active_plan(repo, ".plan/test-plan.md", Some("codex"), Some("secondary"))
+            .unwrap();
         let active = plan_manager::get_active_plan(repo, Some("codex"), Some("secondary")).unwrap();
         assert!(active.is_some());
         assert_eq!(active.unwrap().rel_path, ".plan/test-plan.md");
@@ -22517,75 +25037,158 @@ mod tests {
         // Persist slots with secondary
         let repo_str = repo.to_string_lossy().to_string();
         let slots_with_secondary = vec![
-            plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: None, plan_path: None },
-            plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: Some(repo_str.clone()), plan_path: Some(".plan/test-plan.md".into()) },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "primary".into(),
+                repo_path: None,
+                plan_path: None,
+            },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "secondary".into(),
+                repo_path: Some(repo_str.clone()),
+                plan_path: Some(".plan/test-plan.md".into()),
+            },
         ];
-        let saved = set_project_plan_slots_at_file("codex", slots_with_secondary, &settings_file).unwrap();
+        let saved =
+            set_project_plan_slots_at_file("codex", slots_with_secondary, &settings_file).unwrap();
         assert_eq!(saved.len(), 2);
 
         // Remove secondary slot via set_project_plan_slots
-        let slots_only_primary = vec![
-            plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: None, plan_path: None },
-        ];
-        let remaining = set_project_plan_slots_at_file("codex", slots_only_primary.clone(), &settings_file).unwrap();
+        let slots_only_primary = vec![plan_manager::ProjectPlanSlot {
+            slot_id: "primary".into(),
+            repo_path: None,
+            plan_path: None,
+        }];
+        let remaining =
+            set_project_plan_slots_at_file("codex", slots_only_primary.clone(), &settings_file)
+                .unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].slot_id, "primary");
 
         // Verify secondary slot was cleared in repository state
-        let cleared_active = plan_manager::get_active_plan(repo, Some("codex"), Some("secondary")).unwrap();
-        assert!(cleared_active.is_none(), "Secondary slot must be cleared in repository state");
+        let cleared_active =
+            plan_manager::get_active_plan(repo, Some("codex"), Some("secondary")).unwrap();
+        assert!(
+            cleared_active.is_none(),
+            "Secondary slot must be cleared in repository state"
+        );
 
         // Verify physical plan file was NOT deleted!
-        assert!(plan_file.exists(), "Plan file must not be deleted on slot removal");
+        assert!(
+            plan_file.exists(),
+            "Plan file must not be deleted on slot removal"
+        );
 
         // Test empty string repo_path falls back to plan_path enclosing repo
-        plan_manager::set_active_plan(repo, ".plan/test-plan.md", Some("codex"), Some("secondary")).unwrap();
+        plan_manager::set_active_plan(repo, ".plan/test-plan.md", Some("codex"), Some("secondary"))
+            .unwrap();
         let slots_with_empty_repo = vec![
-            plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: None, plan_path: None },
-            plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: Some("   ".into()), plan_path: Some(plan_file.to_string_lossy().to_string()) },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "primary".into(),
+                repo_path: None,
+                plan_path: None,
+            },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "secondary".into(),
+                repo_path: Some("   ".into()),
+                plan_path: Some(plan_file.to_string_lossy().to_string()),
+            },
         ];
-        let saved_fallback = set_project_plan_slots_at_file("codex", slots_with_empty_repo, &settings_file).unwrap();
+        let saved_fallback =
+            set_project_plan_slots_at_file("codex", slots_with_empty_repo, &settings_file).unwrap();
         assert_eq!(saved_fallback.len(), 2);
         // Removing secondary now should use plan_path fallback to clear repo-local state
-        let remaining_fallback = set_project_plan_slots_at_file("codex", slots_only_primary.clone(), &settings_file).unwrap();
+        let remaining_fallback =
+            set_project_plan_slots_at_file("codex", slots_only_primary.clone(), &settings_file)
+                .unwrap();
         assert_eq!(remaining_fallback.len(), 1);
-        let fallback_cleared = plan_manager::get_active_plan(repo, Some("codex"), Some("secondary")).unwrap();
+        let fallback_cleared =
+            plan_manager::get_active_plan(repo, Some("codex"), Some("secondary")).unwrap();
         assert!(fallback_cleared.is_none());
 
         // Test that removing secondary fails when repo cannot be resolved
         let slots_unresolvable = vec![
-            plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: None, plan_path: None },
-            plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: Some("C:\\nonexistent_missing_dir_12345".into()), plan_path: None },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "primary".into(),
+                repo_path: None,
+                plan_path: None,
+            },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "secondary".into(),
+                repo_path: Some("C:\\nonexistent_missing_dir_12345".into()),
+                plan_path: None,
+            },
         ];
         let _ = set_project_plan_slots_at_file("codex", slots_unresolvable, &settings_file);
-        let remove_attempt = set_project_plan_slots_at_file("codex", slots_only_primary, &settings_file);
-        assert!(remove_attempt.is_err(), "Must fail explicitly when secondary repository cannot be resolved or accessed");
+        let remove_attempt =
+            set_project_plan_slots_at_file("codex", slots_only_primary, &settings_file);
+        assert!(
+            remove_attempt.is_err(),
+            "Must fail explicitly when secondary repository cannot be resolved or accessed"
+        );
 
         // Test global compatibility mirror sync writes secondary active plan when secondary is active
         // and does NOT overwrite another repository's registration.
         let other_repo_temp = tempfile::tempdir().unwrap();
         let other_repo_str = other_repo_temp.path().to_string_lossy().to_string();
         let multi_repo_slots = vec![
-            plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: Some(other_repo_str.clone()), plan_path: Some(".plan/other-repo.md".into()) },
-            plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: Some(repo_str.clone()), plan_path: Some(".plan/test-plan.md".into()) },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "primary".into(),
+                repo_path: Some(other_repo_str.clone()),
+                plan_path: Some(".plan/other-repo.md".into()),
+            },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "secondary".into(),
+                repo_path: Some(repo_str.clone()),
+                plan_path: Some(".plan/test-plan.md".into()),
+            },
         ];
         set_project_plan_slots_at_file("codex", multi_repo_slots, &settings_file).unwrap();
 
         let plan_p2 = plan_dir.join("secondary-plan.md");
         std::fs::write(&plan_p2, "# Secondary Plan").unwrap();
-        plan_manager::set_active_plan(repo, ".plan/secondary-plan.md", Some("codex"), Some("secondary")).unwrap();
-        sync_global_active_plan_mirror_at_file("codex", repo, ".plan/secondary-plan.md", "secondary", &settings_file).unwrap();
+        plan_manager::set_active_plan(
+            repo,
+            ".plan/secondary-plan.md",
+            Some("codex"),
+            Some("secondary"),
+        )
+        .unwrap();
+        sync_global_active_plan_mirror_at_file(
+            "codex",
+            repo,
+            ".plan/secondary-plan.md",
+            "secondary",
+            &settings_file,
+        )
+        .unwrap();
         // Switch repo-local active slot to primary in `repo`; other_repo's primary registration must remain intact!
-        plan_manager::set_active_plan(repo, ".plan/test-plan.md", Some("codex"), Some("primary")).unwrap();
-        sync_global_active_plan_mirror_at_file("codex", repo, ".plan/test-plan.md", "primary", &settings_file).unwrap();
+        plan_manager::set_active_plan(repo, ".plan/test-plan.md", Some("codex"), Some("primary"))
+            .unwrap();
+        sync_global_active_plan_mirror_at_file(
+            "codex",
+            repo,
+            ".plan/test-plan.md",
+            "primary",
+            &settings_file,
+        )
+        .unwrap();
 
         let after_slots = get_project_plan_slots_from_file(&settings_file).unwrap();
         assert_eq!(after_slots[0].slot_id, "primary");
-        assert_eq!(after_slots[0].repo_path.as_deref(), Some(other_repo_str.as_str()));
-        assert_eq!(after_slots[0].plan_path.as_deref(), Some(".plan/other-repo.md"));
+        assert_eq!(
+            after_slots[0].repo_path.as_deref(),
+            Some(other_repo_str.as_str())
+        );
+        assert_eq!(
+            after_slots[0].plan_path.as_deref(),
+            Some(".plan/other-repo.md")
+        );
         assert_eq!(after_slots[1].slot_id, "secondary");
         assert_eq!(after_slots[1].repo_path.as_deref(), Some(repo_str.as_str()));
-        assert_eq!(after_slots[1].plan_path.as_deref(), Some(".plan/test-plan.md"));
+        assert_eq!(
+            after_slots[1].plan_path.as_deref(),
+            Some(".plan/test-plan.md")
+        );
 
         let raw_mirror = std::fs::read_to_string(&settings_file).unwrap();
         let mirror_val: serde_json::Value = serde_json::from_str(&raw_mirror).unwrap();
@@ -22601,12 +25204,19 @@ mod tests {
         assert!(verify_pinned_workflow_target_cmd(pinned.clone()).is_ok());
 
         // Launch pinned workflow on secondary slot, switch active slot to primary, and continue against pinned secondary
-        plan_manager::set_role_assignment(repo, "codex", plan_manager::RoleAssignment {
+        let shared_roles = plan_manager::RoleAssignment {
             planner_id: Some("codex_session".into()),
             reviser_id: Some("codex_session".into()),
-        }).unwrap();
-        plan_manager::set_active_plan(repo, ".plan/secondary-plan.md", Some("codex"), Some("secondary")).unwrap();
-        let launch = launch_pinned_plan_workflow(Some(repo_str.clone()), "codex".into(), None).unwrap();
+        };
+        plan_manager::set_active_plan(
+            repo,
+            ".plan/secondary-plan.md",
+            Some("codex"),
+            Some("secondary"),
+        )
+        .unwrap();
+        let launch =
+            launch_pinned_plan_workflow_with_assignment(repo, "codex", None, shared_roles).unwrap();
         assert_eq!(launch.pinned_target.slot_id, "secondary");
         assert_eq!(launch.pinned_target.plan_path, ".plan/secondary-plan.md");
 
@@ -22615,7 +25225,9 @@ mod tests {
 
         // Continuing workflow with pinned target succeeds on the pinned secondary plan,
         // and rejects attempting to target the newly active primary plan with the secondary pin.
-        let p2_details = plan_manager::get_active_plan(repo, Some("codex"), Some("secondary")).unwrap().unwrap();
+        let p2_details = plan_manager::get_active_plan(repo, Some("codex"), Some("secondary"))
+            .unwrap()
+            .unwrap();
         let wrong_plan_err = append_plan_audit_trail(
             ".plan/test-plan.md".into(),
             plan_manager::AuditTrailEvent {
@@ -22628,7 +25240,8 @@ mod tests {
             },
             launch.pinned_target.clone(),
             Some(repo_str.clone()),
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert!(wrong_plan_err.contains("does not match requested plan"));
 
         let continued = append_plan_audit_trail(
@@ -22643,8 +25256,11 @@ mod tests {
             },
             launch.pinned_target.clone(),
             Some(repo_str.clone()),
-        ).unwrap();
-        assert!(continued.content.contains("continued against pinned secondary"));
+        )
+        .unwrap();
+        assert!(continued
+            .content
+            .contains("continued against pinned secondary"));
 
         // Advance pin after CAS write and save checkpoint against the pinned secondary plan
         let mut retargeted_details = continued.clone();
@@ -22652,8 +25268,11 @@ mod tests {
         assert!(plan_manager::advance_pinned_workflow_target(
             &launch.pinned_target,
             &retargeted_details,
-        ).is_err());
-        let advanced_pin = plan_manager::advance_pinned_workflow_target(&launch.pinned_target, &continued).unwrap();
+        )
+        .is_err());
+        let advanced_pin =
+            plan_manager::advance_pinned_workflow_target(&launch.pinned_target, &continued)
+                .unwrap();
         let cp = plan_manager::ExecutionCheckpoint {
             checkpoint_version: 1,
             workflow: "pov-build-review".into(),
@@ -22681,11 +25300,237 @@ mod tests {
             continued.sha256_hash.clone(),
             advanced_pin,
             Some(repo_str.clone()),
-        ).unwrap();
+        )
+        .unwrap();
         assert!(saved_cp.content.contains("run-pinned-e2e"));
 
         // Mutating the pinned file fails verification
         std::fs::write(&plan_file, "# Mutated Test Plan").unwrap();
         assert!(verify_pinned_workflow_target_cmd(pinned).is_err());
+    }
+
+    #[test]
+    fn test_get_selected_project_plan_context_resolves_codex_secondary_slot() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_a = dir.path().join("repo-a");
+        let repo_b = dir.path().join("ASR-Composer");
+        std::fs::create_dir_all(&repo_a).unwrap();
+        std::fs::create_dir_all(&repo_b).unwrap();
+
+        let settings_file = dir.path().join("pov-review-settings.json");
+        let slots = vec![
+            plan_manager::ProjectPlanSlot {
+                slot_id: "primary".to_string(),
+                repo_path: Some(repo_a.to_string_lossy().to_string()),
+                plan_path: Some(".plan/primary.md".to_string()),
+            },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "secondary".to_string(),
+                repo_path: Some(repo_b.to_string_lossy().to_string()),
+                plan_path: Some(".plan/v0.3.0.md".to_string()),
+            },
+        ];
+        save_project_plan_slots_to_file(
+            &settings_file,
+            "review-settings",
+            &slots,
+            Some(".plan/v0.3.0.md"),
+            Some(&repo_b.to_string_lossy()),
+        )
+        .unwrap();
+
+        let ctx = get_selected_project_plan_context_from_file("codex", &settings_file).unwrap();
+        assert!(ctx.resolved);
+        assert_eq!(ctx.surface, "codex");
+        assert_eq!(ctx.slot_id.as_deref(), Some("secondary"));
+        assert_eq!(
+            ctx.repo_root.as_deref(),
+            Some(repo_b.to_string_lossy().as_ref())
+        );
+        assert_eq!(ctx.plan_path.as_deref(), Some(".plan/v0.3.0.md"));
+    }
+
+    #[test]
+    fn test_explicit_project_repo_and_slot_mismatch_fails_closed_without_persisting() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_a = dir.path().join("repo-a");
+        let repo_b = dir.path().join("repo-b");
+        std::fs::create_dir_all(&repo_a).unwrap();
+        std::fs::create_dir_all(&repo_b).unwrap();
+        let settings_file = dir.path().join("pov-review-settings.json");
+        let slots = vec![
+            plan_manager::ProjectPlanSlot {
+                slot_id: "primary".to_string(),
+                repo_path: Some(repo_a.to_string_lossy().to_string()),
+                plan_path: Some(".plan/primary.md".to_string()),
+            },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "secondary".to_string(),
+                repo_path: Some(repo_b.to_string_lossy().to_string()),
+                plan_path: Some(".plan/secondary.md".to_string()),
+            },
+        ];
+
+        let result = set_project_plan_slots_at_file_with_active(
+            "codex",
+            slots,
+            &settings_file,
+            Some("secondary"),
+            Some(&repo_a.to_string_lossy()),
+        );
+
+        assert!(result
+            .unwrap_err()
+            .contains("Explicit active project repository and slot do not match"));
+        assert!(
+            !settings_file.exists(),
+            "A mismatched explicit context must not persist or mirror a guessed project"
+        );
+    }
+
+    #[test]
+    fn test_codex_secondary_slot_persists_across_settings_save_and_reload_without_touching_antigravity(
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_a = dir.path().join("poverello-primary");
+        let repo_b = dir.path().join("ASR-Composer");
+        let codex_home = dir.path().join("codex-home");
+        std::fs::create_dir_all(repo_a.join(".plan")).unwrap();
+        std::fs::create_dir_all(repo_b.join(".plan")).unwrap();
+        std::fs::create_dir_all(&codex_home).unwrap();
+
+        std::fs::write(repo_a.join(".plan").join("V0.28.1.md"), "# Primary Plan\n").unwrap();
+        std::fs::write(repo_b.join(".plan").join("v0.3.0.md"), b"").unwrap(); // 0-byte plan
+
+        // Plan files are project-specific, while workflow roles are shared by surface.
+        plan_manager::set_active_plan(&repo_a, ".plan/V0.28.1.md", Some("codex"), Some("primary"))
+            .unwrap();
+
+        let settings_file = codex_home.join(codex_review_settings::REVIEW_SETTINGS_FILE_NAME);
+        let mut init_settings = codex_review_settings::CodexReviewSettings::default();
+        codex_review_settings::save_codex_review_settings_at(&codex_home, &mut init_settings)
+            .unwrap();
+        codex_review_settings::set_workflow_role_assignment_at(
+            &codex_home,
+            "codex",
+            plan_manager::RoleAssignment {
+                planner_id: Some("codex_session".into()),
+                reviser_id: Some("codex_session".into()),
+            },
+        )
+        .unwrap();
+        codex_review_settings::set_workflow_role_assignment_at(
+            &codex_home,
+            "antigravity",
+            plan_manager::RoleAssignment {
+                planner_id: Some("codex".into()),
+                reviser_id: Some("codex".into()),
+            },
+        )
+        .unwrap();
+        let initial_slots = vec![plan_manager::ProjectPlanSlot {
+            slot_id: "primary".to_string(),
+            repo_path: Some(repo_a.to_string_lossy().to_string()),
+            plan_path: Some(".plan/V0.28.1.md".to_string()),
+        }];
+        set_project_plan_slots_at_file_with_active(
+            "codex",
+            initial_slots,
+            &settings_file,
+            Some("primary"),
+            Some(&repo_a.to_string_lossy()),
+        )
+        .unwrap();
+
+        // User selects ASR-Composer (.plan/v0.3.0.md) in secondary slot
+        plan_manager::set_active_plan(&repo_b, ".plan/v0.3.0.md", Some("codex"), Some("secondary"))
+            .unwrap();
+        let next_slots = vec![
+            plan_manager::ProjectPlanSlot {
+                slot_id: "primary".to_string(),
+                repo_path: Some(repo_a.to_string_lossy().to_string()),
+                plan_path: Some(".plan/V0.28.1.md".to_string()),
+            },
+            plan_manager::ProjectPlanSlot {
+                slot_id: "secondary".to_string(),
+                repo_path: Some(repo_b.to_string_lossy().to_string()),
+                plan_path: Some(".plan/v0.3.0.md".to_string()),
+            },
+        ];
+        set_project_plan_slots_at_file_with_active(
+            "codex",
+            next_slots,
+            &settings_file,
+            Some("secondary"),
+            Some(&repo_b.to_string_lossy()),
+        )
+        .unwrap();
+
+        // Unrelated Codex review settings save must preserve slots and active_plan_repo_path
+        let mut settings =
+            codex_review_settings::get_codex_review_settings_at(&codex_home).unwrap();
+        settings.active_plan_path = Some(".plan/v0.3.0.md".to_string());
+        codex_review_settings::save_codex_review_settings_at(&codex_home, &mut settings).unwrap();
+
+        // Simulated restart / reload
+        let persisted_json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings_file).unwrap()).unwrap();
+        assert_eq!(persisted_json["active_plan_path"], ".plan/v0.3.0.md");
+        assert_eq!(
+            normalize_repo_for_mirror_match(
+                persisted_json["active_plan_repo_path"].as_str().unwrap()
+            ),
+            normalize_repo_for_mirror_match(&repo_b.to_string_lossy())
+        );
+        assert_eq!(persisted_json["slots"][1]["slot_id"], "secondary");
+        assert_eq!(
+            persisted_json["slots"][1]["repo_path"],
+            repo_b.to_string_lossy().as_ref()
+        );
+        assert_eq!(persisted_json["slots"][1]["plan_path"], ".plan/v0.3.0.md");
+
+        let reloaded_ctx =
+            get_selected_project_plan_context_from_file("codex", &settings_file).unwrap();
+        assert!(reloaded_ctx.resolved);
+        assert_eq!(reloaded_ctx.slot_id.as_deref(), Some("secondary"));
+        assert_eq!(
+            reloaded_ctx.repo_root.as_deref(),
+            Some(repo_b.to_string_lossy().as_ref())
+        );
+        assert_eq!(reloaded_ctx.plan_path.as_deref(), Some(".plan/v0.3.0.md"));
+
+        let reloaded_codex_roles = codex_review_settings::get_workflow_role_assignment_at(
+            &codex_home,
+            &dir.path().join("missing-registry.json"),
+            "codex",
+        )
+        .unwrap()
+        .assignment
+        .unwrap();
+        assert_eq!(
+            reloaded_codex_roles.planner_id.as_deref(),
+            Some("codex_session")
+        );
+        assert_eq!(
+            reloaded_codex_roles.reviser_id.as_deref(),
+            Some("codex_session")
+        );
+
+        let preserved_ag_roles = codex_review_settings::get_workflow_role_assignment_at(
+            &codex_home,
+            &dir.path().join("missing-registry.json"),
+            "antigravity",
+        )
+        .unwrap()
+        .assignment
+        .unwrap();
+        assert_eq!(preserved_ag_roles.planner_id.as_deref(), Some("codex"));
+        assert_eq!(preserved_ag_roles.reviser_id.as_deref(), Some("codex"));
+        assert_eq!(
+            std::fs::metadata(repo_b.join(".plan").join("v0.3.0.md"))
+                .unwrap()
+                .len(),
+            0
+        );
     }
 }

@@ -7,8 +7,10 @@
 > **v0.26.2:** Codex AutocodeではCodexの同一セッション内作業と外部Reviewerを区別し、有効な判定の不一致に限って優先Reviewerで裁定します。DeepSeekのheadless設定やツール制限はWindows OSレベルのファイルシステム・ネットワーク隔離を証明しません。診断ログと、履歴のあるSkillテンプレートの安全な更新に対応します。
 > **v0.27.0:** リポジトリ単位のActive Plan、画面別Planner / Reviser割当、同一性と指摘をfail-closedで検査するチェックポイント再開を追加します。OpenRouter Tencent Hy4のモデル・料金メタデータを追加し、Antigravity Nerf設定をGUIへ集約して旧スラッシュコマンドを廃止します。自動アップデートは有効化されていません。
 > **v0.27.2:** Antigravity AutocodeとCodex Autocodeに、独立したプランフォルダー基準場所の設定を追加します。プラン操作全体で設定場所を一貫して使い、未設定時にアプリの作業ディレクトリへ暗黙にフォールバックしません。既存のMarkdownプランファイルを直接選択してエディターで開けます。Active Planの絶対パスと状態を表示し、ファイル選択ダイアログはそのプランのフォルダーから開きます。
-> **v0.27.3（リリース候補・未公開）:** Antigravity AutocodeとCodex Autocodeに独立したプロジェクト・プラン枠を追加します。各画面には常設のプライマリ枠があり、任意のセカンダリ枠を1つ追加できます。既存の`.md`プランを選ぶと、そのファイルを含むGitリポジトリに紐付きます。2つの画面の選択内容は独立して保存されます。プランフォルダー設定は、Active Planがない場合のファイル選択ダイアログの初期フォルダー指定であり、選択範囲やプロジェクトルートを制限しません。任意の枠を削除してもPoverello内の紐付けだけが解除され、ファイルは削除されません。
-> **v0.28.0（リリース準備中・未公開）:** プラン枠のprimary / secondaryを対等に選択可能にし、Antigravityの各プロジェクトに独立したAgentOpt操作、FAST / BALANCED / STRICTの直接選択、Custom設定エディターを追加します。`pov-direct.md`ルールを設定からインストール・修復できます。GPT-6.2 SolをCodex CLI Reviewerに追加し、GPT-6.2 Sol / Sol Pro / Astra / Astra ProをOpenRouterカタログに追加します。正式版WindowsビルドではGitHub Releasesの署名済み更新を利用できますが、開発ビルドでは無効です。
+> **v0.27.3**: Antigravity AutocodeとCodex Autocodeに独立したプロジェクト・プラン枠を追加します。各画面には常設のプライマリ枠があり、任意のセカンダリ枠を1つ追加できます。既存の`.md`プランを選ぶと、そのファイルを含むGitリポジトリに紐付きます。2つの画面の選択内容は独立して保存されます。プランフォルダー設定は、Active Planがない場合のファイル選択ダイアログの初期フォルダー指定であり、選択範囲やプロジェクトルートを制限しません。任意の枠を削除してもPoverello内の紐付けだけが解除され、ファイルは削除されません。
+> **v0.28.0**: プラン枠のprimary / secondaryを対等に選択可能にし、Antigravityの各プロジェクトに独立したAgentOpt操作、FAST / BALANCED / STRICTの直接選択、Custom設定エディターを追加します。`pov-direct.md`ルールを設定からインストール・修復できます。GPT-6.2 SolをCodex CLI Reviewerに追加し、GPT-6.2 Sol / Sol Pro / Astra / Astra ProをOpenRouterカタログに追加します。正式版WindowsビルドではGitHub Releasesの署名済み更新を利用できますが、開発ビルドでは無効です。
+
+> **v0.28.2:** リポジトリとAutocode画面ごとにプランファイルを独立して保存し、選択したMarkdownプランからリポジトリを特定します。行の置換・追加・関連付け解除に対応し、Planner/Reviserの役割は画面ごとに共通です。アクティブプロジェクトや優先選択はありません。
 
 ## 概要
 

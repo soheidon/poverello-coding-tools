@@ -15,7 +15,7 @@ Poverello Coding Tools（應用程式內顯示名稱為 **Poverello**）是一�
 > [!TIP]
 > **最新消息：** 請參閱 [NEWS.md（版本說明）](../NEWS.md)，了解各版本功能、實作細節與變更記錄。
 
-此工作副本正在準備 **v0.28.0**（尚未發布）。為 Antigravity 的兩個專案-計畫列分別新增 AgentOpt 控制，可直接選擇 FAST / BALANCED / STRICT 預設或開啟 Custom 編輯器。Poverello 的 Antigravity 規則可在設定中安裝與修復。新增 GPT-6.2 Sol 作為 Codex CLI Reviewer，並將 GPT-6.2 Sol / Sol Pro / Astra / Astra Pro 加入 OpenRouter 目錄。Antigravity 與 Codex 的兩個計畫列仍各自獨立。詳細資訊請參閱 [NEWS.md](../NEWS.md)。
+v0.28.2 共用已註冊的儲存庫清單，但會分別儲存 Antigravity 與 Codex 的計畫檔案。所選 Markdown 檔案決定所屬儲存庫。每一列都可更換或解除關聯，也可透過獨立操作新增其他儲存庫。Planner/Reviser 角色在各自的 Autocode 介面共用；不設定作用中專案或優先順序。詳情請參閱 [NEWS.md](../NEWS.md)。
 
 ---
 

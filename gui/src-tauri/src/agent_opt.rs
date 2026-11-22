@@ -3,9 +3,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use crate::pov_direct::{
-    self, PovDirectFileState, PovDirectSettings, PovDirectStatus,
-};
+use crate::pov_direct::{self, PovDirectFileState, PovDirectSettings, PovDirectStatus};
 
 pub const PINNED_AGENT_OPT_VERSION: &str = "0.1.0";
 pub const PINNED_AGENT_OPT_TARBALL_URL: &str =
@@ -99,6 +97,34 @@ pub struct NerfEngineSettings {
     pub extra: BTreeMap<String, serde_json::Value>,
 }
 
+pub fn migrate_agent_opt_project_preferences_to_project_ids(
+    settings: &mut NerfEngineSettings,
+    projects: &[crate::project_registry::ProjectRecord],
+) -> bool {
+    let mut changed = false;
+    let legacy_keys: Vec<String> = settings
+        .project_preferences
+        .keys()
+        .filter(|k| matches!(k.as_str(), "primary" | "secondary"))
+        .cloned()
+        .collect();
+    for legacy_key in legacy_keys {
+        if let Some(pref) = settings.project_preferences.remove(&legacy_key) {
+            changed = true;
+            let pref_repo_key = crate::project_registry::normalize_repo_key(&pref.repository_path);
+            if let Some(matched) = projects.iter().find(|p| {
+                crate::project_registry::normalize_repo_key(&p.repo_root) == pref_repo_key
+            }) {
+                settings
+                    .project_preferences
+                    .entry(matched.project_id.clone())
+                    .or_insert(pref);
+            }
+        }
+    }
+    changed
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentOptProjectPreference {
     pub repository_path: String,
@@ -123,11 +149,12 @@ pub fn resolve_persisted_workspace_selection(
         }
         Some(AgentOptWorkspaceMode::ManualOverride) => (
             AgentOptWorkspaceMode::ManualOverride,
-            non_empty(&settings.manual_workspace).or_else(|| non_empty(&settings.selected_workspace)),
+            non_empty(&settings.manual_workspace)
+                .or_else(|| non_empty(&settings.selected_workspace)),
         ),
         None => {
-            if let Some(legacy_ws) =
-                non_empty(&settings.manual_workspace).or_else(|| non_empty(&settings.selected_workspace))
+            if let Some(legacy_ws) = non_empty(&settings.manual_workspace)
+                .or_else(|| non_empty(&settings.selected_workspace))
             {
                 (AgentOptWorkspaceMode::ManualOverride, Some(legacy_ws))
             } else {
@@ -160,8 +187,16 @@ fn resolve_workspace_targets(
         AgentOptWorkspaceMode::FollowRegisteredProjects => {
             let mut seen = std::collections::HashSet::new();
             for slot in project_slots {
-                let repo_path = slot.repo_path.as_deref().map(str::trim).filter(|s| !s.is_empty());
-                let plan_path = slot.plan_path.as_deref().map(str::trim).filter(|s| !s.is_empty());
+                let repo_path = slot
+                    .repo_path
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty());
+                let plan_path = slot
+                    .plan_path
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty());
                 if repo_path.is_none() && plan_path.is_none() {
                     continue;
                 }
@@ -175,7 +210,11 @@ fn resolve_workspace_targets(
                 match canonicalize_workspace_path(repo_path) {
                     Ok(path) => {
                         if seen.insert(normalize_workspace_key(&path)) {
-                            targets.push((slot.slot_id.clone(), path, plan_path.map(str::to_string)));
+                            targets.push((
+                                slot.slot_id.clone(),
+                                path,
+                                plan_path.map(str::to_string),
+                            ));
                         }
                     }
                     Err(error) => errors.push(format!(
@@ -195,14 +234,22 @@ fn resolve_workspace_targets(
                     )),
                 }
             } else {
-                errors.push("Manual workspace mode is active but no directory is saved".to_string());
+                errors
+                    .push("Manual workspace mode is active but no directory is saved".to_string());
             }
         }
     }
     (targets, errors)
 }
 
-type ProjectAgentOptTarget = (String, PathBuf, PathBuf, Option<String>, Option<String>, bool);
+type ProjectAgentOptTarget = (
+    String,
+    PathBuf,
+    PathBuf,
+    Option<String>,
+    Option<String>,
+    bool,
+);
 
 fn resolve_project_agent_opt_targets(
     project_slots: &[crate::plan_manager::ProjectPlanSlot],
@@ -211,27 +258,41 @@ fn resolve_project_agent_opt_targets(
     let mut targets = Vec::new();
     let mut errors = Vec::new();
     for slot in project_slots {
-        let Some(raw_repo) = slot.repo_path.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+        let Some(raw_repo) = slot
+            .repo_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
             continue;
         };
         let repo = match canonicalize_workspace_path(raw_repo) {
             Ok(path) => path,
             Err(error) => {
-                errors.push(format!("Project {} repository '{}' is unavailable: {error}", slot.slot_id, raw_repo));
+                errors.push(format!(
+                    "Project {} repository '{}' is unavailable: {error}",
+                    slot.slot_id, raw_repo
+                ));
                 continue;
             }
         };
-        let preference = settings.project_preferences.get(&slot.slot_id).filter(|pref| {
-            canonicalize_workspace_path(&pref.repository_path)
-                .map(|saved| normalize_workspace_key(&saved) == normalize_workspace_key(&repo))
-                .unwrap_or(false)
-        });
+        let preference = settings
+            .project_preferences
+            .get(&slot.slot_id)
+            .filter(|pref| {
+                canonicalize_workspace_path(&pref.repository_path)
+                    .map(|saved| normalize_workspace_key(&saved) == normalize_workspace_key(&repo))
+                    .unwrap_or(false)
+            });
         let manual = preference.and_then(|pref| pref.manual_workspace.clone());
         let target = match manual.as_deref() {
             Some(raw) if !raw.trim().is_empty() => match canonicalize_workspace_path(raw) {
                 Ok(path) => path,
                 Err(error) => {
-                    errors.push(format!("Project {} manual workspace '{}' is unavailable: {error}", slot.slot_id, raw));
+                    errors.push(format!(
+                        "Project {} manual workspace '{}' is unavailable: {error}",
+                        slot.slot_id, raw
+                    ));
                     repo.clone()
                 }
             },
@@ -249,12 +310,18 @@ fn resolve_project_agent_opt_targets(
     let mut target_owners: BTreeMap<String, (String, bool)> = BTreeMap::new();
     for (slot_id, _repo, target, _plan, _manual, _) in &targets {
         let Some(pref) = settings.project_preferences.get(slot_id).filter(|pref| {
-            project_slots.iter().find(|slot| slot.slot_id == *slot_id)
+            project_slots
+                .iter()
+                .find(|slot| slot.slot_id == *slot_id)
                 .and_then(|slot| slot.repo_path.as_deref())
                 .and_then(|raw| canonicalize_workspace_path(raw).ok())
                 .zip(canonicalize_workspace_path(&pref.repository_path).ok())
-                .is_some_and(|(repo, saved)| normalize_workspace_key(&repo) == normalize_workspace_key(&saved))
-        }) else { continue; };
+                .is_some_and(|(repo, saved)| {
+                    normalize_workspace_key(&repo) == normalize_workspace_key(&saved)
+                })
+        }) else {
+            continue;
+        };
         let key = normalize_workspace_key(target);
         if let Some((other_slot, other_value)) = target_owners.get(&key) {
             if *other_value != pref.use_agent_opt {
@@ -426,25 +493,36 @@ pub struct CliExecOutput {
 pub trait AgentOptCliRunner: Send + Sync {
     fn node_version(&self) -> Result<String, String>;
     fn npm_version(&self) -> Result<String, String>;
-    fn install_pinned_cli(&self, cli_dir: &Path, tarball_url: &str) -> Result<CliExecOutput, String>;
-    fn run_aopt(&self, cli_entry: &Path, args: &[&str], timeout_secs: u64) -> Result<CliExecOutput, String>;
+    fn install_pinned_cli(
+        &self,
+        cli_dir: &Path,
+        tarball_url: &str,
+    ) -> Result<CliExecOutput, String>;
+    fn run_aopt(
+        &self,
+        cli_entry: &Path,
+        args: &[&str],
+        timeout_secs: u64,
+    ) -> Result<CliExecOutput, String>;
 }
 
 pub struct RealAgentOptCliRunner;
 
 impl AgentOptCliRunner for RealAgentOptCliRunner {
     fn node_version(&self) -> Result<String, String> {
-        run_simple_command("node", &["--version"], 10)
-            .map(|o| o.stdout.trim().to_string())
+        run_simple_command("node", &["--version"], 10).map(|o| o.stdout.trim().to_string())
     }
 
     fn npm_version(&self) -> Result<String, String> {
         let npm_bin = if cfg!(windows) { "npm.cmd" } else { "npm" };
-        run_simple_command(npm_bin, &["--version"], 10)
-            .map(|o| o.stdout.trim().to_string())
+        run_simple_command(npm_bin, &["--version"], 10).map(|o| o.stdout.trim().to_string())
     }
 
-    fn install_pinned_cli(&self, cli_dir: &Path, tarball_url: &str) -> Result<CliExecOutput, String> {
+    fn install_pinned_cli(
+        &self,
+        cli_dir: &Path,
+        tarball_url: &str,
+    ) -> Result<CliExecOutput, String> {
         let npm_bin = if cfg!(windows) { "npm.cmd" } else { "npm" };
         let prefix = cli_dir.to_string_lossy().to_string();
         run_simple_command(
@@ -454,7 +532,12 @@ impl AgentOptCliRunner for RealAgentOptCliRunner {
         )
     }
 
-    fn run_aopt(&self, cli_entry: &Path, args: &[&str], timeout_secs: u64) -> Result<CliExecOutput, String> {
+    fn run_aopt(
+        &self,
+        cli_entry: &Path,
+        args: &[&str],
+        timeout_secs: u64,
+    ) -> Result<CliExecOutput, String> {
         let entry_str = cli_entry.to_string_lossy().to_string();
         let mut full_args = vec![entry_str.as_str()];
         full_args.extend_from_slice(args);
@@ -490,7 +573,11 @@ fn read_capped_stream<R: std::io::Read + Send + 'static>(
     })
 }
 
-fn run_simple_command(program: &str, args: &[&str], timeout_secs: u64) -> Result<CliExecOutput, String> {
+fn run_simple_command(
+    program: &str,
+    args: &[&str],
+    timeout_secs: u64,
+) -> Result<CliExecOutput, String> {
     let mut cmd = std::process::Command::new(program);
     cmd.args(args)
         .stdin(std::process::Stdio::null())
@@ -530,7 +617,9 @@ fn run_simple_command(program: &str, args: &[&str], timeout_secs: u64) -> Result
                     if let Some(h) = stderr_handle {
                         let _ = h.join();
                     }
-                    return Err(format!("Command '{program}' timed out after {timeout_secs}s"));
+                    return Err(format!(
+                        "Command '{program}' timed out after {timeout_secs}s"
+                    ));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(25));
             }
@@ -595,7 +684,7 @@ fn normalize_workspace_key(path: &Path) -> String {
     }
 }
 
-fn load_nerf_engine_settings(settings_file: &Path) -> Result<NerfEngineSettings, String> {
+pub fn load_nerf_engine_settings(settings_file: &Path) -> Result<NerfEngineSettings, String> {
     if !settings_file.exists() {
         return Ok(NerfEngineSettings::default());
     }
@@ -605,7 +694,10 @@ fn load_nerf_engine_settings(settings_file: &Path) -> Result<NerfEngineSettings,
         .map_err(|e| format!("Failed to parse Nerf engine settings: {e}"))
 }
 
-fn save_nerf_engine_settings(settings_file: &Path, settings: &NerfEngineSettings) -> Result<(), String> {
+pub fn save_nerf_engine_settings(
+    settings_file: &Path,
+    settings: &NerfEngineSettings,
+) -> Result<(), String> {
     save_nerf_engine_settings_with_rename(settings_file, settings, |src, dst| {
         std::fs::rename(src, dst)
     })
@@ -662,7 +754,9 @@ where
         ));
         if let Err(e) = std::fs::rename(settings_file, &swap) {
             let _ = std::fs::remove_file(&tmp);
-            return Err(format!("Failed to stage existing Nerf engine settings for replacement: {e}"));
+            return Err(format!(
+                "Failed to stage existing Nerf engine settings for replacement: {e}"
+            ));
         }
         match rename_fn(&tmp, settings_file) {
             Ok(()) => {
@@ -676,7 +770,9 @@ where
                         "Failed to commit Nerf engine settings ({e}) and failed to restore swap ({re})"
                     ));
                 }
-                Err(format!("Failed to commit Nerf engine settings (original preserved): {e}"))
+                Err(format!(
+                    "Failed to commit Nerf engine settings (original preserved): {e}"
+                ))
             }
         }
     }
@@ -719,8 +815,11 @@ pub fn inspect_cli_info(cli_dir: &Path, runner: &dyn AgentOptCliRunner) -> Agent
     match std::fs::read_to_string(&pkg_json)
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .and_then(|v| v.get("version").and_then(|x| x.as_str()).map(|s| s.to_string()))
-    {
+        .and_then(|v| {
+            v.get("version")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string())
+        }) {
         Some(ver) => {
             let supported = ver == PINNED_AGENT_OPT_VERSION;
             AgentOptCliInfo {
@@ -755,20 +854,31 @@ pub fn inspect_cli_info(cli_dir: &Path, runner: &dyn AgentOptCliRunner) -> Agent
     }
 }
 
-fn validate_opt_bool(obj: &serde_json::Map<String, serde_json::Value>, section: &str, key: &str) -> Result<(), String> {
+fn validate_opt_bool(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    section: &str,
+    key: &str,
+) -> Result<(), String> {
     if let Some(v) = obj.get(key) {
         if !v.is_boolean() {
-            return Err(format!("AgentOpt config '{section}.{key}' must be a boolean"));
+            return Err(format!(
+                "AgentOpt config '{section}.{key}' must be a boolean"
+            ));
         }
     }
     Ok(())
 }
 
-fn validate_opt_pos_u64(obj: &serde_json::Map<String, serde_json::Value>, section: &str, key: &str, allow_zero: bool) -> Result<(), String> {
+fn validate_opt_pos_u64(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    section: &str,
+    key: &str,
+    allow_zero: bool,
+) -> Result<(), String> {
     if let Some(v) = obj.get(key) {
-        let n = v
-            .as_u64()
-            .ok_or_else(|| format!("AgentOpt config '{section}.{key}' must be a non-negative integer"))?;
+        let n = v.as_u64().ok_or_else(|| {
+            format!("AgentOpt config '{section}.{key}' must be a non-negative integer")
+        })?;
         if !allow_zero && n == 0 {
             return Err(format!("AgentOpt config '{section}.{key}' must be > 0"));
         }
@@ -776,19 +886,27 @@ fn validate_opt_pos_u64(obj: &serde_json::Map<String, serde_json::Value>, sectio
     Ok(())
 }
 
-fn validate_opt_unit_float(obj: &serde_json::Map<String, serde_json::Value>, section: &str, key: &str) -> Result<(), String> {
+fn validate_opt_unit_float(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    section: &str,
+    key: &str,
+) -> Result<(), String> {
     if let Some(v) = obj.get(key) {
-        let n = v
-            .as_f64()
-            .ok_or_else(|| format!("AgentOpt config '{section}.{key}' must be a number between 0.0 and 1.0"))?;
+        let n = v.as_f64().ok_or_else(|| {
+            format!("AgentOpt config '{section}.{key}' must be a number between 0.0 and 1.0")
+        })?;
         if !n.is_finite() || !(0.0..=1.0).contains(&n) {
-            return Err(format!("AgentOpt config '{section}.{key}' must be between 0.0 and 1.0"));
+            return Err(format!(
+                "AgentOpt config '{section}.{key}' must be between 0.0 and 1.0"
+            ));
         }
     }
     Ok(())
 }
 
-pub fn validate_agent_opt_config_value(val: &serde_json::Value) -> Result<(Option<bool>, Option<String>), String> {
+pub fn validate_agent_opt_config_value(
+    val: &serde_json::Value,
+) -> Result<(Option<bool>, Option<String>), String> {
     let obj = val
         .as_object()
         .ok_or_else(|| "AgentOpt config root must be a JSON object".to_string())?;
@@ -839,13 +957,18 @@ pub fn validate_agent_opt_config_value(val: &serde_json::Value) -> Result<(Optio
     }
 
     if let Some(sec_val) = obj.get("failureDetection") {
-        let sec = sec_val
-            .as_object()
-            .ok_or_else(|| "AgentOpt config 'failureDetection' must be a JSON object".to_string())?;
+        let sec = sec_val.as_object().ok_or_else(|| {
+            "AgentOpt config 'failureDetection' must be a JSON object".to_string()
+        })?;
         validate_opt_bool(sec, "failureDetection", "enabled")?;
         validate_opt_pos_u64(sec, "failureDetection", "maxRepeatedCommandFailures", false)?;
         validate_opt_pos_u64(sec, "failureDetection", "maxIdenticalErrors", false)?;
-        validate_opt_pos_u64(sec, "failureDetection", "maxRedundantReadsOfUnchangedFile", false)?;
+        validate_opt_pos_u64(
+            sec,
+            "failureDetection",
+            "maxRedundantReadsOfUnchangedFile",
+            false,
+        )?;
         validate_opt_bool(sec, "failureDetection", "detectEditOscillation")?;
     }
 
@@ -935,7 +1058,10 @@ pub fn inspect_workspace_read_only(
             config: None,
             unregistered_files_detected,
             detail: Some(if hooks_error.is_some() {
-                format!("AgentOpt Antigravity hooks cannot be verified: {}", hooks_error.unwrap())
+                format!(
+                    "AgentOpt Antigravity hooks cannot be verified: {}",
+                    hooks_error.unwrap()
+                )
             } else {
                 "AgentOpt is not initialized for Antigravity in this workspace".to_string()
             }),
@@ -994,7 +1120,8 @@ pub fn inspect_workspace_read_only(
         Ok((enabled, mode)) => {
             let config_enabled = enabled.unwrap_or(true);
             let Some(hooks_are_enabled) = hooks_enabled else {
-                let error = hooks_error.unwrap_or_else(|| "AgentOpt Antigravity hooks cannot be verified".to_string());
+                let error = hooks_error
+                    .unwrap_or_else(|| "AgentOpt Antigravity hooks cannot be verified".to_string());
                 return AgentOptWorkspaceInspection {
                     workspace_path: ws_str,
                     registered,
@@ -1034,10 +1161,16 @@ pub fn inspect_workspace_read_only(
                     enabled: Some(config_enabled),
                     mode,
                     raw: Some(val),
-                    error: mismatch.then(|| "AgentOpt config and Antigravity hooks have different enabled states".to_string()),
+                    error: mismatch.then(|| {
+                        "AgentOpt config and Antigravity hooks have different enabled states"
+                            .to_string()
+                    }),
                 }),
                 unregistered_files_detected,
-                detail: mismatch.then(|| "AgentOpt config and Antigravity hooks have different enabled states".to_string()),
+                detail: mismatch.then(|| {
+                    "AgentOpt config and Antigravity hooks have different enabled states"
+                        .to_string()
+                }),
             }
         }
         Err(err) => AgentOptWorkspaceInspection {
@@ -1246,7 +1379,8 @@ fn disable_global_wt_agent_hooks_with_platform(
         return Err("Global wt-agent-hooks remediation is supported only on Windows.".to_string());
     }
 
-    let current = inspect_global_antigravity_hook_diagnostic_with_platform(home, runner, is_windows);
+    let current =
+        inspect_global_antigravity_hook_diagnostic_with_platform(home, runner, is_windows);
     if current.state == State::Disabled {
         return Ok(current);
     }
@@ -1257,13 +1391,16 @@ fn disable_global_wt_agent_hooks_with_platform(
         ));
     }
 
-    let home = home.ok_or_else(|| "Unable to determine the Windows user home directory.".to_string())?
+    let home = home
+        .ok_or_else(|| "Unable to determine the Windows user home directory.".to_string())?
         .canonicalize()
         .map_err(|e| format!("Unable to resolve the Windows user home directory: {e}"))?;
     let agy_executable = home.join(".gemini").join("bin").join("agy.exe");
     match inspect_safe_path(&home, &agy_executable) {
         Ok(true) if agy_executable.is_file() => {}
-        Ok(false) | Ok(true) => return Err("The canonical Antigravity CLI is unavailable.".to_string()),
+        Ok(false) | Ok(true) => {
+            return Err("The canonical Antigravity CLI is unavailable.".to_string())
+        }
         Err(()) => return Err("The canonical Antigravity CLI path is unsafe.".to_string()),
     }
 
@@ -1280,7 +1417,11 @@ fn disable_global_wt_agent_hooks_with_platform(
         ));
     }
 
-    let after = inspect_global_antigravity_hook_diagnostic_with_platform(Some(home.as_path()), runner, is_windows);
+    let after = inspect_global_antigravity_hook_diagnostic_with_platform(
+        Some(home.as_path()),
+        runner,
+        is_windows,
+    );
     if after.state != State::Disabled {
         return Err(format!(
             "The command completed, but a fresh Antigravity plugin list did not confirm wt-agent-hooks disabled (state: {:?}).",
@@ -1396,27 +1537,44 @@ pub fn inspect_nerf_engine_overview_for_projects_at(
 
     let workspace_targets: Vec<AgentOptWorkspaceTarget> = configured_targets
         .iter()
-        .map(|(slot_id, repo_path, path, plan_path, manual_path, has_preference)| {
-            let is_reg = registered_keys.contains(&normalize_workspace_key(path));
-            let mut inspection = inspect_workspace_read_only(path, is_reg, &cli);
-            inspection.workspace_path = normalize_workspace_path_for_display(&inspection.workspace_path);
-            let use_agent_opt = settings.project_preferences.get(slot_id)
-                .filter(|pref| canonicalize_workspace_path(&pref.repository_path)
-                    .map(|saved| normalize_workspace_key(&saved) == normalize_workspace_key(repo_path))
-                    .unwrap_or(false))
-                .map(|pref| pref.use_agent_opt)
-                .unwrap_or(!*has_preference && settings.engine == NerfEngine::Agentopt
-                    && inspection.state == AgentOptWorkspaceState::Enabled);
-            AgentOptWorkspaceTarget {
-                project_slot_id: slot_id.clone(),
-                repository_path: normalize_workspace_path_for_display(&repo_path.to_string_lossy()),
-                workspace_path: normalize_workspace_path_for_display(&path.to_string_lossy()),
-                plan_path: plan_path.clone(),
-                use_agent_opt,
-                manual_workspace: manual_path.as_ref().map(|p| normalize_workspace_path_for_display(p)),
-                inspection,
-            }
-        })
+        .map(
+            |(slot_id, repo_path, path, plan_path, manual_path, has_preference)| {
+                let is_reg = registered_keys.contains(&normalize_workspace_key(path));
+                let mut inspection = inspect_workspace_read_only(path, is_reg, &cli);
+                inspection.workspace_path =
+                    normalize_workspace_path_for_display(&inspection.workspace_path);
+                let use_agent_opt = settings
+                    .project_preferences
+                    .get(slot_id)
+                    .filter(|pref| {
+                        canonicalize_workspace_path(&pref.repository_path)
+                            .map(|saved| {
+                                normalize_workspace_key(&saved)
+                                    == normalize_workspace_key(repo_path)
+                            })
+                            .unwrap_or(false)
+                    })
+                    .map(|pref| pref.use_agent_opt)
+                    .unwrap_or(
+                        !*has_preference
+                            && settings.engine == NerfEngine::Agentopt
+                            && inspection.state == AgentOptWorkspaceState::Enabled,
+                    );
+                AgentOptWorkspaceTarget {
+                    project_slot_id: slot_id.clone(),
+                    repository_path: normalize_workspace_path_for_display(
+                        &repo_path.to_string_lossy(),
+                    ),
+                    workspace_path: normalize_workspace_path_for_display(&path.to_string_lossy()),
+                    plan_path: plan_path.clone(),
+                    use_agent_opt,
+                    manual_workspace: manual_path
+                        .as_ref()
+                        .map(|p| normalize_workspace_path_for_display(p)),
+                    inspection,
+                }
+            },
+        )
         .collect();
     let workspace_inspections: Vec<AgentOptWorkspaceInspection> = workspace_targets
         .iter()
@@ -1513,21 +1671,29 @@ pub fn inspect_nerf_engine_overview_for_projects_at(
             } else if workspace_targets.is_empty() {
                 (
                     true,
-                    Some("AgentOpt is selected, but no project workspaces are configured".to_string()),
+                    Some(
+                        "AgentOpt is selected, but no project workspaces are configured"
+                            .to_string(),
+                    ),
                 )
-            } else if let Some(workspace) = workspace_targets
-                .iter()
-                .find(|target| target.use_agent_opt && target.inspection.state != AgentOptWorkspaceState::Enabled)
-            {
+            } else if let Some(workspace) = workspace_targets.iter().find(|target| {
+                target.use_agent_opt && target.inspection.state != AgentOptWorkspaceState::Enabled
+            }) {
                 let reason = format!(
                     "AgentOpt is selected, but '{}' is not active (observed state: {:?})",
                     workspace.inspection.workspace_path, workspace.inspection.state
                 );
                 (true, Some(reason))
-            } else if let Some(workspace) = workspace_targets.iter()
-                .find(|target| !target.use_agent_opt && target.inspection.state == AgentOptWorkspaceState::Enabled)
-            {
-                (true, Some(format!("AgentOpt is enabled for Project {} although its per-project toggle is OFF", workspace.project_slot_id)))
+            } else if let Some(workspace) = workspace_targets.iter().find(|target| {
+                !target.use_agent_opt && target.inspection.state == AgentOptWorkspaceState::Enabled
+            }) {
+                (
+                    true,
+                    Some(format!(
+                        "AgentOpt is enabled for Project {} although its per-project toggle is OFF",
+                        workspace.project_slot_id
+                    )),
+                )
             } else if !enabled_non_target.is_empty() {
                 (
                     true,
@@ -1616,7 +1782,10 @@ pub fn install_agent_opt_cli_at(
     Ok(info)
 }
 
-fn require_supported_cli_entry(cli_dir: &Path, runner: &dyn AgentOptCliRunner) -> Result<PathBuf, String> {
+fn require_supported_cli_entry(
+    cli_dir: &Path,
+    runner: &dyn AgentOptCliRunner,
+) -> Result<PathBuf, String> {
     let info = inspect_cli_info(cli_dir, runner);
     if !info.installed {
         return Err("AgentOpt CLI is not installed. Run explicit installation first.".to_string());
@@ -1703,7 +1872,14 @@ where
     let cli_entry = require_supported_cli_entry(cli_dir, runner)?;
     let ws_str = ws.to_string_lossy().to_string();
 
-    let mut args = vec!["init", "--platform", "google-antigravity", "--yes", "--cwd", &ws_str];
+    let mut args = vec![
+        "init",
+        "--platform",
+        "google-antigravity",
+        "--yes",
+        "--cwd",
+        &ws_str,
+    ];
     let mode_upper;
     if let Some(m) = mode {
         mode_upper = m.trim().to_uppercase();
@@ -1728,13 +1904,19 @@ where
         let plugin_manifest = plugin_dir.join("plugin.json");
         if plugin_manifest.is_file() {
             if let Err(e) = std::fs::remove_file(&plugin_manifest) {
-                cleanup_errs.push(format!("failed to remove {}: {e}", plugin_manifest.display()));
+                cleanup_errs.push(format!(
+                    "failed to remove {}: {e}",
+                    plugin_manifest.display()
+                ));
             }
         }
         let hooks_manifest = plugin_dir.join("hooks.json");
         if hooks_manifest.is_file() {
             if let Err(e) = std::fs::remove_file(&hooks_manifest) {
-                cleanup_errs.push(format!("failed to remove {}: {e}", hooks_manifest.display()));
+                cleanup_errs.push(format!(
+                    "failed to remove {}: {e}",
+                    hooks_manifest.display()
+                ));
             }
         }
         if plugin_dir.is_dir() && !dir_has_entries(&plugin_dir) {
@@ -1786,10 +1968,16 @@ pub fn adopt_agent_opt_workspace_at(
     let cli = inspect_cli_info(cli_dir, runner);
     let pre = inspect_workspace_read_only(&ws, false, &cli);
     if !pre.antigravity_plugin_present || !pre.config_present {
-        return Err("Cannot adopt workspace: AgentOpt Antigravity files are not initialized there".to_string());
+        return Err(
+            "Cannot adopt workspace: AgentOpt Antigravity files are not initialized there"
+                .to_string(),
+        );
     }
     if pre.state == AgentOptWorkspaceState::InvalidConfig {
-        return Err("Cannot adopt workspace: .agent-opt/config.json is malformed or unsupported".to_string());
+        return Err(
+            "Cannot adopt workspace: .agent-opt/config.json is malformed or unsupported"
+                .to_string(),
+        );
     }
     register_workspace_in_settings(settings_file, &ws)?;
     Ok(inspect_workspace_read_only(&ws, true, &cli))
@@ -1808,18 +1996,32 @@ fn backup_agent_opt_config(ws: &Path) -> Result<Option<Vec<u8>>, String> {
 }
 
 fn agent_opt_hooks_file(ws: &Path) -> PathBuf {
-    ws.join(".agents").join("plugins").join("agent-opt").join("hooks.json")
+    ws.join(".agents")
+        .join("plugins")
+        .join("agent-opt")
+        .join("hooks.json")
 }
 
 fn validate_agent_opt_hook_parent_dirs(hooks_file: &Path) -> Result<(), String> {
-    let mut current = hooks_file.parent().ok_or_else(|| "AgentOpt hooks.json has no parent directory".to_string())?;
+    let mut current = hooks_file
+        .parent()
+        .ok_or_else(|| "AgentOpt hooks.json has no parent directory".to_string())?;
     for _ in 0..3 {
-        let metadata = std::fs::symlink_metadata(current)
-            .map_err(|e| format!("Failed to inspect AgentOpt hook directory '{}': {e}", current.display()))?;
+        let metadata = std::fs::symlink_metadata(current).map_err(|e| {
+            format!(
+                "Failed to inspect AgentOpt hook directory '{}': {e}",
+                current.display()
+            )
+        })?;
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
-            return Err(format!("AgentOpt hook directory '{}' is not a real directory", current.display()));
+            return Err(format!(
+                "AgentOpt hook directory '{}' is not a real directory",
+                current.display()
+            ));
         }
-        current = current.parent().ok_or_else(|| "AgentOpt hook directory chain is incomplete".to_string())?;
+        current = current
+            .parent()
+            .ok_or_else(|| "AgentOpt hook directory chain is incomplete".to_string())?;
     }
     Ok(())
 }
@@ -1857,22 +2059,36 @@ fn backup_agent_opt_hooks(ws: &Path) -> Result<Vec<u8>, String> {
     let config_metadata = std::fs::symlink_metadata(&config_dir)
         .map_err(|e| format!("Failed to inspect .agent-opt directory for backup: {e}"))?;
     if !config_metadata.is_dir() || config_metadata.file_type().is_symlink() {
-        return Err(".agent-opt is not a real directory; refusing to write a backup through it".to_string());
+        return Err(
+            ".agent-opt is not a real directory; refusing to write a backup through it".to_string(),
+        );
     }
     let backup_dir = config_dir.join("backups");
     match std::fs::symlink_metadata(&backup_dir) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
-        Ok(_) => return Err(".agent-opt/backups is not a real directory; refusing to write through it".to_string()),
+        Ok(_) => {
+            return Err(
+                ".agent-opt/backups is not a real directory; refusing to write through it"
+                    .to_string(),
+            )
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             std::fs::create_dir(&backup_dir)
                 .map_err(|e| format!("Failed to create AgentOpt backup directory: {e}"))?;
         }
-        Err(error) => return Err(format!("Failed to inspect AgentOpt backup directory: {error}")),
+        Err(error) => {
+            return Err(format!(
+                "Failed to inspect AgentOpt backup directory: {error}"
+            ))
+        }
     }
     let backup_path = backup_dir.join(format!("agent-opt-hooks-{}.json", uuid::Uuid::new_v4()));
     std::fs::write(&backup_path, &bytes)
         .map_err(|e| format!("Failed to write AgentOpt hooks backup: {e}"))?;
-    if std::fs::read(&backup_path).map_err(|e| format!("Failed to verify AgentOpt hooks backup: {e}"))? != bytes {
+    if std::fs::read(&backup_path)
+        .map_err(|e| format!("Failed to verify AgentOpt hooks backup: {e}"))?
+        != bytes
+    {
         let _ = std::fs::remove_file(&backup_path);
         return Err("AgentOpt hooks backup verification failed".to_string());
     }
@@ -1896,28 +2112,34 @@ fn set_agent_opt_hook_group_enabled(ws: &Path, enabled: bool) -> Result<(), Stri
         .and_then(|root| root.get_mut("agent-opt"))
         .and_then(serde_json::Value::as_object_mut)
         .ok_or_else(|| "AgentOpt hook group is missing or invalid".to_string())?;
-    if group.get("enabled").is_some_and(|value| !value.is_boolean()) {
+    if group
+        .get("enabled")
+        .is_some_and(|value| !value.is_boolean())
+    {
         return Err("AgentOpt hook group's enabled field must be a boolean".to_string());
     }
     group.insert("enabled".to_string(), serde_json::Value::Bool(enabled));
     let updated = serde_json::to_vec_pretty(&value)
         .map_err(|e| format!("Failed to serialize AgentOpt hooks.json: {e}"))?;
-    let parent = hooks_file.parent().ok_or_else(|| "AgentOpt hooks.json has no parent directory".to_string())?;
+    let parent = hooks_file
+        .parent()
+        .ok_or_else(|| "AgentOpt hooks.json has no parent directory".to_string())?;
     let temp = parent.join(format!(".hooks.json.tmp-{}", uuid::Uuid::new_v4()));
     std::fs::write(&temp, updated)
         .map_err(|e| format!("Failed to write temporary AgentOpt hooks.json: {e}"))?;
     #[cfg(windows)]
     {
         let swap = parent.join(format!(".hooks.json.swap-{}", uuid::Uuid::new_v4()));
-        replace_via_swap_with_rename(&temp, &hooks_file, &swap, |src, dst| std::fs::rename(src, dst))?;
+        replace_via_swap_with_rename(&temp, &hooks_file, &swap, |src, dst| {
+            std::fs::rename(src, dst)
+        })?;
     }
     #[cfg(not(windows))]
     {
-        std::fs::rename(&temp, &hooks_file)
-            .map_err(|e| {
-                let _ = std::fs::remove_file(&temp);
-                format!("Failed to replace AgentOpt hooks.json: {e}")
-            })?;
+        std::fs::rename(&temp, &hooks_file).map_err(|e| {
+            let _ = std::fs::remove_file(&temp);
+            format!("Failed to replace AgentOpt hooks.json: {e}")
+        })?;
     }
     if read_agent_opt_hook_group_enabled(&hooks_file)? != enabled {
         return Err("AgentOpt hooks.json verification failed after update".to_string());
@@ -1928,31 +2150,41 @@ fn set_agent_opt_hook_group_enabled(ws: &Path, enabled: bool) -> Result<(), Stri
 fn restore_agent_opt_hooks(ws: &Path, bytes: &[u8]) -> Result<(), String> {
     let hooks_file = agent_opt_hooks_file(ws);
     validate_agent_opt_hook_parent_dirs(&hooks_file)?;
-    let parent = hooks_file.parent().ok_or_else(|| "AgentOpt hooks.json has no parent directory".to_string())?;
+    let parent = hooks_file
+        .parent()
+        .ok_or_else(|| "AgentOpt hooks.json has no parent directory".to_string())?;
     let temp = parent.join(format!(".hooks.json.rollback-{}", uuid::Uuid::new_v4()));
     std::fs::write(&temp, bytes)
         .map_err(|e| format!("Failed to write AgentOpt hooks rollback file: {e}"))?;
     #[cfg(windows)]
     {
         let swap = parent.join(format!(".hooks.json.swap-{}", uuid::Uuid::new_v4()));
-        replace_via_swap_with_rename(&temp, &hooks_file, &swap, |src, dst| std::fs::rename(src, dst))?;
+        replace_via_swap_with_rename(&temp, &hooks_file, &swap, |src, dst| {
+            std::fs::rename(src, dst)
+        })?;
     }
     #[cfg(not(windows))]
     {
-        std::fs::rename(&temp, &hooks_file)
-            .map_err(|e| {
-                let _ = std::fs::remove_file(&temp);
-                format!("Failed to restore AgentOpt hooks.json: {e}")
-            })?;
+        std::fs::rename(&temp, &hooks_file).map_err(|e| {
+            let _ = std::fs::remove_file(&temp);
+            format!("Failed to restore AgentOpt hooks.json: {e}")
+        })?;
     }
-    if std::fs::read(&hooks_file).map_err(|e| format!("Failed to verify AgentOpt hooks rollback: {e}"))? != bytes {
+    if std::fs::read(&hooks_file)
+        .map_err(|e| format!("Failed to verify AgentOpt hooks rollback: {e}"))?
+        != bytes
+    {
         return Err("AgentOpt hooks rollback verification mismatch".to_string());
     }
     Ok(())
 }
 
 fn agent_opt_workspace_config_enabled(inspection: &AgentOptWorkspaceInspection) -> bool {
-    inspection.config.as_ref().and_then(|config| config.enabled).unwrap_or(false)
+    inspection
+        .config
+        .as_ref()
+        .and_then(|config| config.enabled)
+        .unwrap_or(false)
 }
 
 fn agent_opt_workspace_has_active_component(inspection: &AgentOptWorkspaceInspection) -> bool {
@@ -2045,7 +2277,15 @@ pub fn enable_agent_opt_workspace_at(
     skill_file: &Path,
     workspace_raw: &str,
     runner: &dyn AgentOptCliRunner,
-) -> Result<AgentOptWorkspaceInspection, String> {    let _ = (settings_file, cli_dir, rules_dir, skill_file, workspace_raw, runner);
+) -> Result<AgentOptWorkspaceInspection, String> {
+    let _ = (
+        settings_file,
+        cli_dir,
+        rules_dir,
+        skill_file,
+        workspace_raw,
+        runner,
+    );
     Err("Per-workspace AgentOpt enable is disabled. Apply the selected engine to all configured projects.".to_string())
 }
 pub fn set_agent_opt_mode_at(
@@ -2109,7 +2349,9 @@ pub fn set_agent_opt_mode_at(
     }
     let post = inspect_workspace_read_only(&ws, true, &cli);
     let observed_mode = post.config.as_ref().and_then(|c| c.mode.as_deref());
-    if post.state == AgentOptWorkspaceState::InvalidConfig || observed_mode != Some(mode_upper.as_str()) {
+    if post.state == AgentOptWorkspaceState::InvalidConfig
+        || observed_mode != Some(mode_upper.as_str())
+    {
         let mut rb_err = None;
         if let Some(ref b) = backup_bytes {
             if let Err(re) = restore_agent_opt_config_bytes(&ws, b) {
@@ -2232,9 +2474,9 @@ where
             }
         }
         return Err(match rb_err {
-            Some(re) => format!(
-                "Verification failed after config update; rollback also failed: {re}"
-            ),
+            Some(re) => {
+                format!("Verification failed after config update; rollback also failed: {re}")
+            }
             None => "Verification failed after config update; rolled back.".to_string(),
         });
     }
@@ -2390,11 +2632,17 @@ fn rollback_agentopt_bulk_switch(
     let mut errors = Vec::new();
     for (workspace, expected_state, bytes, hooks_bytes) in changed_workspaces.into_iter().rev() {
         if let Err(error) = restore_agent_opt_config_bytes(&workspace, &bytes) {
-            errors.push(format!("{}: workspace rollback failed: {error}", workspace.display()));
+            errors.push(format!(
+                "{}: workspace rollback failed: {error}",
+                workspace.display()
+            ));
             continue;
         }
         if let Err(error) = restore_agent_opt_hooks(&workspace, &hooks_bytes) {
-            errors.push(format!("{}: hooks rollback failed: {error}", workspace.display()));
+            errors.push(format!(
+                "{}: hooks rollback failed: {error}",
+                workspace.display()
+            ));
             continue;
         }
         let observed = inspect_workspace_read_only(&workspace, true, cli).state;
@@ -2421,22 +2669,40 @@ fn rollback_agentopt_bulk_switch(
     errors
 }
 
-fn rollback_agentopt_files(
-    workspaces: Vec<(PathBuf, Option<Vec<u8>>, Vec<u8>)>,
-) -> Vec<String> {
+fn rollback_agentopt_files(workspaces: Vec<(PathBuf, Option<Vec<u8>>, Vec<u8>)>) -> Vec<String> {
     let mut errors = Vec::new();
     for (workspace, config_bytes, hooks_bytes) in workspaces.into_iter().rev() {
         if let Some(bytes) = config_bytes {
             if let Err(error) = restore_agent_opt_config_bytes(&workspace, &bytes) {
-                errors.push(format!("{}: config rollback failed: {error}", workspace.display()));
-            } else if std::fs::read(workspace.join(".agent-opt").join("config.json")).ok().as_deref() != Some(bytes.as_slice()) {
-                errors.push(format!("{}: config rollback verification mismatch", workspace.display()));
+                errors.push(format!(
+                    "{}: config rollback failed: {error}",
+                    workspace.display()
+                ));
+            } else if std::fs::read(workspace.join(".agent-opt").join("config.json"))
+                .ok()
+                .as_deref()
+                != Some(bytes.as_slice())
+            {
+                errors.push(format!(
+                    "{}: config rollback verification mismatch",
+                    workspace.display()
+                ));
             }
         }
         if let Err(error) = restore_agent_opt_hooks(&workspace, &hooks_bytes) {
-            errors.push(format!("{}: hooks rollback failed: {error}", workspace.display()));
-        } else if std::fs::read(agent_opt_hooks_file(&workspace)).ok().as_deref() != Some(hooks_bytes.as_slice()) {
-            errors.push(format!("{}: hooks rollback verification mismatch", workspace.display()));
+            errors.push(format!(
+                "{}: hooks rollback failed: {error}",
+                workspace.display()
+            ));
+        } else if std::fs::read(agent_opt_hooks_file(&workspace))
+            .ok()
+            .as_deref()
+            != Some(hooks_bytes.as_slice())
+        {
+            errors.push(format!(
+                "{}: hooks rollback verification mismatch",
+                workspace.display()
+            ));
         }
     }
     errors
@@ -2492,31 +2758,51 @@ where
     let (workspace_mode, legacy_manual) = resolve_persisted_workspace_selection(&settings);
     let (project_targets, all_target_resolution_errors) =
         resolve_project_agent_opt_targets(project_slots, &settings);
-    let target_resolution_errors: Vec<String> = all_target_resolution_errors.into_iter().filter(|error| {
-        project_slots.iter().any(|slot| {
-            error.starts_with(&format!("Project {} ", slot.slot_id))
-                && settings.project_preferences.get(&slot.slot_id).is_some_and(|pref| {
-                    pref.use_agent_opt && slot.repo_path.as_deref().is_some_and(|raw| {
-                        match (canonicalize_workspace_path(&pref.repository_path), canonicalize_workspace_path(raw)) {
-                            (Ok(saved), Ok(repo)) => normalize_workspace_key(&saved) == normalize_workspace_key(&repo),
-                            _ => true, // An unavailable configured target must fail closed when ON.
-                        }
-                    })
-                })
+    let target_resolution_errors: Vec<String> = all_target_resolution_errors
+        .into_iter()
+        .filter(|error| {
+            project_slots.iter().any(|slot| {
+                error.starts_with(&format!("Project {} ", slot.slot_id))
+                    && settings
+                        .project_preferences
+                        .get(&slot.slot_id)
+                        .is_some_and(|pref| {
+                            pref.use_agent_opt
+                                && slot.repo_path.as_deref().is_some_and(|raw| {
+                                    match (
+                                        canonicalize_workspace_path(&pref.repository_path),
+                                        canonicalize_workspace_path(raw),
+                                    ) {
+                                        (Ok(saved), Ok(repo)) => {
+                                            normalize_workspace_key(&saved)
+                                                == normalize_workspace_key(&repo)
+                                        }
+                                        _ => true, // An unavailable configured target must fail closed when ON.
+                                    }
+                                })
+                        })
+            })
         })
-    }).collect();
+        .collect();
     let mut desired_targets: Vec<(String, PathBuf, Option<String>)> = Vec::new();
     for (slot_id, repo, workspace, plan_path, _, has_preference) in &project_targets {
         let registered = is_workspace_registered(&settings, workspace);
         let observed = inspect_workspace_read_only(workspace, registered, &cli);
-        let requested = settings.project_preferences.get(slot_id)
-            .filter(|pref| canonicalize_workspace_path(&pref.repository_path)
-                .map(|saved| normalize_workspace_key(&saved) == normalize_workspace_key(repo))
-                .unwrap_or(false))
+        let requested = settings
+            .project_preferences
+            .get(slot_id)
+            .filter(|pref| {
+                canonicalize_workspace_path(&pref.repository_path)
+                    .map(|saved| normalize_workspace_key(&saved) == normalize_workspace_key(repo))
+                    .unwrap_or(false)
+            })
             .map(|pref| pref.use_agent_opt)
-            .unwrap_or(!*has_preference && settings.engine == NerfEngine::Agentopt
+            .unwrap_or(
+                !*has_preference
+                    && settings.engine == NerfEngine::Agentopt
                     && agent_opt_workspace_config_enabled(&observed)
-                    && observed.hooks_enabled == Some(true));
+                    && observed.hooks_enabled == Some(true),
+            );
         if requested {
             desired_targets.push((slot_id.clone(), workspace.clone(), plan_path.clone()));
         }
@@ -2532,7 +2818,10 @@ where
                 ));
             }
             if project_targets.is_empty() {
-                return Err("Cannot switch to AgentOpt: no configured project workspaces are available.".to_string());
+                return Err(
+                    "Cannot switch to AgentOpt: no configured project workspaces are available."
+                        .to_string(),
+                );
             }
             if workspace_mode == AgentOptWorkspaceMode::ManualOverride && legacy_manual.is_some() {
                 return Err("Cannot switch to AgentOpt: assign the legacy manual workspace to a project card first.".to_string());
@@ -2552,9 +2841,11 @@ where
                 ));
             }
             let has_enabled_registered = settings.registered_workspaces.iter().any(|raw| {
-                canonicalize_workspace_path(raw)
-                    .ok()
-                .is_some_and(|path| agent_opt_workspace_has_active_component(&inspect_workspace_read_only(&path, true, &cli)))
+                canonicalize_workspace_path(raw).ok().is_some_and(|path| {
+                    agent_opt_workspace_has_active_component(&inspect_workspace_read_only(
+                        &path, true, &cli,
+                    ))
+                })
             });
             let cli_entry = if !desired_targets.is_empty() || has_enabled_registered {
                 Some(require_supported_cli_entry(cli_dir, runner)?)
@@ -2589,12 +2880,15 @@ where
                 let inspection = inspect_workspace_read_only(&workspace, true, &cli);
                 if matches!(
                     inspection.state,
-                    AgentOptWorkspaceState::InvalidConfig | AgentOptWorkspaceState::UnsupportedVersion
+                    AgentOptWorkspaceState::InvalidConfig
+                        | AgentOptWorkspaceState::UnsupportedVersion
                 ) || (inspection.state == AgentOptWorkspaceState::NotInstalled
                     && (inspection.antigravity_plugin_present || inspection.config_present))
                     || (inspection.state == AgentOptWorkspaceState::Error
                         && (inspection.hooks_enabled.is_none()
-                            || inspection.config.as_ref().is_none_or(|config| !config.raw_valid || !config.schema_supported)))
+                            || inspection.config.as_ref().is_none_or(|config| {
+                                !config.raw_valid || !config.schema_supported
+                            })))
                 {
                     return Err(format!(
                         "Cannot switch to AgentOpt: registered workspace '{}' cannot be verified (state: {:?}, plugin_present: {}, config_present: {})",
@@ -2628,7 +2922,11 @@ where
 
             for (project_slot_id, workspace, _) in &desired_targets {
                 if workspace_mode == AgentOptWorkspaceMode::FollowRegisteredProjects
-                    && !matches!(project_slot_id.as_str(), "primary" | "secondary")
+                    && (project_slot_id.trim().is_empty()
+                        || matches!(
+                            project_slot_id.as_str(),
+                            "active-plan" | "active-plan-unresolved"
+                        ))
                 {
                     return Err(format!(
                         "Cannot switch to AgentOpt: selected plan repository '{}' is not present in the configured Project 1 / Project 2 slots.",
@@ -2647,7 +2945,9 @@ where
                 let inspection = inspect_workspace_read_only(workspace, true, &cli);
                 if !matches!(
                     inspection.state,
-                    AgentOptWorkspaceState::Disabled | AgentOptWorkspaceState::Enabled | AgentOptWorkspaceState::Error
+                    AgentOptWorkspaceState::Disabled
+                        | AgentOptWorkspaceState::Enabled
+                        | AgentOptWorkspaceState::Error
                 ) {
                     return Err(format!(
                         "Cannot switch to AgentOpt: Project {} workspace '{}' is in state {:?}. Initialize or fix configuration first.",
@@ -2658,7 +2958,10 @@ where
                 }
                 if inspection.state == AgentOptWorkspaceState::Error
                     && (inspection.hooks_enabled.is_none()
-                        || inspection.config.as_ref().is_none_or(|config| !config.raw_valid || !config.schema_supported))
+                        || inspection
+                            .config
+                            .as_ref()
+                            .is_none_or(|config| !config.raw_valid || !config.schema_supported))
                 {
                     return Err(format!(
                         "Cannot switch to AgentOpt: Project {} workspace '{}' has an invalid AgentOpt hook manifest or config.",
@@ -2667,7 +2970,8 @@ where
                 }
                 let key = normalize_workspace_key(workspace);
                 if target_engine == NerfEngine::Agentopt
-                    && (!agent_opt_workspace_config_enabled(&inspection) || inspection.hooks_enabled != Some(true))
+                    && (!agent_opt_workspace_config_enabled(&inspection)
+                        || inspection.hooks_enabled != Some(true))
                     && transition_paths.insert(key)
                 {
                     let bytes = backup_fn(workspace)?.ok_or_else(|| {
@@ -2691,7 +2995,13 @@ where
             // disable the old target before enabling the selected-plan target.
             let (captured_rule_settings, rule_rollback_bytes) =
                 if pre_rule.state == PovDirectFileState::Absent {
-                    (settings.saved_pov_direct_settings.clone().unwrap_or_default(), None)
+                    (
+                        settings
+                            .saved_pov_direct_settings
+                            .clone()
+                            .unwrap_or_default(),
+                        None,
+                    )
                 } else {
                     pov_direct::disable_pov_direct_rule_at(rules_dir, skill_file)?
                 };
@@ -2700,10 +3010,16 @@ where
             }
 
             let mut changed_workspaces = Vec::new();
-            for (workspace, previous_state, desired_state, backup, hooks_backup) in transition_steps {
+            for (workspace, previous_state, desired_state, backup, hooks_backup) in transition_steps
+            {
                 // Record before invoking the CLI because a failed command may
                 // still have partially changed the workspace config.
-                changed_workspaces.push((workspace.clone(), previous_state, backup, hooks_backup.clone()));
+                changed_workspaces.push((
+                    workspace.clone(),
+                    previous_state,
+                    backup,
+                    hooks_backup.clone(),
+                ));
                 let workspace_arg = workspace.to_string_lossy().to_string();
                 let action = if desired_state == AgentOptWorkspaceState::Enabled {
                     "enable"
@@ -2716,16 +3032,25 @@ where
                 if desired_state == AgentOptWorkspaceState::Disabled {
                     if let Err(error) = set_agent_opt_hook_group_enabled(&workspace, false) {
                         let _ = rollback_agentopt_bulk_switch(
-                            changed_workspaces, &rule_rollback_bytes, pre_rule.state, rules_dir, skill_file, &cli,
+                            changed_workspaces,
+                            &rule_rollback_bytes,
+                            pre_rule.state,
+                            rules_dir,
+                            skill_file,
+                            &cli,
                         );
-                        return Err(format!("Failed to disable AgentOpt hooks in '{}': {error}", workspace.display()));
+                        return Err(format!(
+                            "Failed to disable AgentOpt hooks in '{}': {error}",
+                            workspace.display()
+                        ));
                     }
                 }
                 let command_ok = matches!(
                     runner.run_aopt(cli_entry, &[action, "--cwd", &workspace_arg], 30),
                     Ok(output) if output.exit_code == 0
                 );
-                let hook_update = if command_ok && desired_state == AgentOptWorkspaceState::Enabled {
+                let hook_update = if command_ok && desired_state == AgentOptWorkspaceState::Enabled
+                {
                     set_agent_opt_hook_group_enabled(&workspace, true)
                 } else {
                     Ok(())
@@ -2743,10 +3068,15 @@ where
                     let cause = format!(
                         "Failed to {action} AgentOpt in '{}' (observed {observed:?}{} )",
                         workspace.display(),
-                        hook_update.err().map(|error| format!(", hook update failed: {error}")).unwrap_or_default()
+                        hook_update
+                            .err()
+                            .map(|error| format!(", hook update failed: {error}"))
+                            .unwrap_or_default()
                     );
                     if rollback_errors.is_empty() {
-                        return Err(format!("{cause}; all workspace and Rule state was rolled back."));
+                        return Err(format!(
+                            "{cause}; all workspace and Rule state was rolled back."
+                        ));
                     }
                     return Err(format!(
                         "{cause}; rollback incomplete: {}",
@@ -2759,7 +3089,9 @@ where
             // and every registered non-target workspace is verified disabled.
             settings.engine = NerfEngine::Agentopt;
             settings.workspace_mode = Some(AgentOptWorkspaceMode::FollowRegisteredProjects);
-            settings.selected_workspace = selected_ws.as_ref().map(|path| path.to_string_lossy().to_string());
+            settings.selected_workspace = selected_ws
+                .as_ref()
+                .map(|path| path.to_string_lossy().to_string());
             if let Err(e) = save_fn(settings_file, &settings) {
                 let rb_errors = rollback_agentopt_bulk_switch(
                     changed_workspaces,
@@ -2770,7 +3102,9 @@ where
                     &cli,
                 );
                 if rb_errors.is_empty() {
-                    return Err(format!("Failed to persist engine preference ({e}); rolled back cleanly."));
+                    return Err(format!(
+                        "Failed to persist engine preference ({e}); rolled back cleanly."
+                    ));
                 } else {
                     return Err(format!(
                         "Failed to persist engine preference ({e}); rollback incomplete: {}",
@@ -2802,12 +3136,15 @@ where
                 let insp = inspect_workspace_read_only(&ws, true, &cli);
                 if matches!(
                     insp.state,
-                    AgentOptWorkspaceState::InvalidConfig | AgentOptWorkspaceState::UnsupportedVersion
+                    AgentOptWorkspaceState::InvalidConfig
+                        | AgentOptWorkspaceState::UnsupportedVersion
                 ) || (insp.state == AgentOptWorkspaceState::NotInstalled
                     && (insp.antigravity_plugin_present || insp.config_present))
                     || (insp.state == AgentOptWorkspaceState::Error
                         && (insp.hooks_enabled.is_none()
-                            || insp.config.as_ref().is_none_or(|config| !config.raw_valid || !config.schema_supported)))
+                            || insp.config.as_ref().is_none_or(|config| {
+                                !config.raw_valid || !config.schema_supported
+                            })))
                 {
                     return Err(format!(
                         "Cannot switch to Poverello Rules: workspace '{}' cannot be verified/disabled (state: {:?}, plugin_present: {}, config_present: {})",
@@ -2826,10 +3163,9 @@ where
             let pre_rule_bytes = if pre_rule.state == PovDirectFileState::Absent {
                 None
             } else {
-                Some(
-                    std::fs::read(&pre_rule_file)
-                        .map_err(|e| format!("Failed to snapshot pov-direct.md before Rules switch: {e}"))?,
-                )
+                Some(std::fs::read(&pre_rule_file).map_err(|e| {
+                    format!("Failed to snapshot pov-direct.md before Rules switch: {e}")
+                })?)
             };
 
             let mut disabled_so_far: Vec<(PathBuf, Option<Vec<u8>>, Vec<u8>)> = Vec::new();
@@ -2876,10 +3212,14 @@ where
                 .saved_pov_direct_settings
                 .clone()
                 .unwrap_or_default();
-            if let Err(e) = pov_direct::enable_pov_direct_rule_at(rules_dir, skill_file, &target_rule_settings) {
+            if let Err(e) =
+                pov_direct::enable_pov_direct_rule_at(rules_dir, skill_file, &target_rule_settings)
+            {
                 let rb_errors = rollback_agentopt_files(disabled_so_far);
                 if rb_errors.is_empty() {
-                    return Err(format!("Failed to restore Poverello Rule ({e}); rolled back AgentOpt workspaces."));
+                    return Err(format!(
+                        "Failed to restore Poverello Rule ({e}); rolled back AgentOpt workspaces."
+                    ));
                 } else {
                     return Err(format!(
                         "Failed to restore Poverello Rule ({e}); rollback incomplete: {}",
@@ -2897,7 +3237,8 @@ where
                 let mut rb_errors = Vec::new();
                 // Roll back Rule first (reverse order of step 3 -> step 2)
                 if let Some(ref bytes) = pre_rule_bytes {
-                    if let Err(re) = pov_direct::restore_pov_direct_rule_bytes_at(rules_dir, bytes) {
+                    if let Err(re) = pov_direct::restore_pov_direct_rule_bytes_at(rules_dir, bytes)
+                    {
                         rb_errors.push(format!("pov-direct.md rollback failed: {re}"));
                     }
                 } else if pre_rule_file.exists() {
@@ -2912,7 +3253,9 @@ where
                             pre_rule.state, st.state
                         ));
                     }
-                    Err(ve) => rb_errors.push(format!("pov-direct.md rollback verification failed: {ve}")),
+                    Err(ve) => {
+                        rb_errors.push(format!("pov-direct.md rollback verification failed: {ve}"))
+                    }
                     _ => {}
                 }
 
@@ -3010,7 +3353,12 @@ pub fn apply_selected_nerf_engine_for_projects_at(
         .lock()
         .map_err(|e| format!("Mutex poisoned: {e}"))?;
     let overview = inspect_nerf_engine_overview_for_projects_at(
-        settings_file, cli_dir, rules_dir, skill_file, project_slots, runner,
+        settings_file,
+        cli_dir,
+        rules_dir,
+        skill_file,
+        project_slots,
+        runner,
     )?;
     if !overview.mismatch.has_mismatch {
         return Ok(EngineTransitionResult {
@@ -3066,12 +3414,19 @@ pub fn set_agent_opt_project_preference_at(
     project_slots: &[crate::plan_manager::ProjectPlanSlot],
     runner: &dyn AgentOptCliRunner,
 ) -> Result<NerfEngineOverview, String> {
-    let _lock = ENGINE_TRANSITION_LOCK.lock().map_err(|e| format!("Mutex poisoned: {e}"))?;
+    let _lock = ENGINE_TRANSITION_LOCK
+        .lock()
+        .map_err(|e| format!("Mutex poisoned: {e}"))?;
     let mut settings = load_nerf_engine_settings(settings_file)?;
     let original = settings.clone();
-    let slot = project_slots.iter().find(|slot| slot.slot_id == slot_id)
+    let slot = project_slots
+        .iter()
+        .find(|slot| slot.slot_id == slot_id)
         .ok_or_else(|| format!("Unknown project slot '{slot_id}'"))?;
-    let raw_repo = slot.repo_path.as_deref().ok_or_else(|| format!("Project {slot_id} has no repository root"))?;
+    let raw_repo = slot
+        .repo_path
+        .as_deref()
+        .ok_or_else(|| format!("Project {slot_id} has no repository root"))?;
     let repo = canonicalize_workspace_path(raw_repo)?;
     if use_agent_opt == Some(true) {
         let (legacy_mode, legacy_manual) = resolve_persisted_workspace_selection(&settings);
@@ -3079,11 +3434,15 @@ pub fn set_agent_opt_project_preference_at(
             return Err("Assign or clear the legacy manual workspace on a project card before enabling AgentOpt.".to_string());
         }
     }
-    let existing = settings.project_preferences.get(slot_id).filter(|pref| {
-        canonicalize_workspace_path(&pref.repository_path)
-            .map(|saved| normalize_workspace_key(&saved) == normalize_workspace_key(&repo))
-            .unwrap_or(false)
-    }).cloned();
+    let existing = settings
+        .project_preferences
+        .get(slot_id)
+        .filter(|pref| {
+            canonicalize_workspace_path(&pref.repository_path)
+                .map(|saved| normalize_workspace_key(&saved) == normalize_workspace_key(&repo))
+                .unwrap_or(false)
+        })
+        .cloned();
     let mut preference = existing.unwrap_or(AgentOptProjectPreference {
         repository_path: repo.to_string_lossy().to_string(),
         use_agent_opt: false,
@@ -3092,29 +3451,45 @@ pub fn set_agent_opt_project_preference_at(
     preference.repository_path = repo.to_string_lossy().to_string();
     if let Some(value) = use_agent_opt {
         if value {
-            let effective = manual_workspace_raw.flatten()
+            let effective = manual_workspace_raw
+                .flatten()
                 .map(str::to_string)
                 .or_else(|| preference.manual_workspace.clone())
                 .unwrap_or_else(|| repo.to_string_lossy().to_string());
             let ws = canonicalize_workspace_path(&effective)?;
             if !is_workspace_registered(&settings, &ws) {
-                return Err(format!("Project {slot_id} workspace '{}' is not registered with Poverello", ws.display()));
+                return Err(format!(
+                    "Project {slot_id} workspace '{}' is not registered with Poverello",
+                    ws.display()
+                ));
             }
             let cli = inspect_cli_info(cli_dir, runner);
             let inspection = inspect_workspace_read_only(&ws, true, &cli);
-            if !matches!(inspection.state, AgentOptWorkspaceState::Disabled | AgentOptWorkspaceState::Enabled)
-                && !(inspection.state == AgentOptWorkspaceState::Error
-                    && inspection.hooks_enabled.is_some()
-                    && inspection.config.as_ref().is_some_and(|config| config.raw_valid && config.schema_supported))
+            if !matches!(
+                inspection.state,
+                AgentOptWorkspaceState::Disabled | AgentOptWorkspaceState::Enabled
+            ) && !(inspection.state == AgentOptWorkspaceState::Error
+                && inspection.hooks_enabled.is_some()
+                && inspection
+                    .config
+                    .as_ref()
+                    .is_some_and(|config| config.raw_valid && config.schema_supported))
             {
-                return Err(format!("Project {slot_id} workspace is not ready for AgentOpt (state: {:?})", inspection.state));
+                return Err(format!(
+                    "Project {slot_id} workspace is not ready for AgentOpt (state: {:?})",
+                    inspection.state
+                ));
             }
         }
         preference.use_agent_opt = value;
     }
     if let Some(manual) = manual_workspace_raw {
         preference.manual_workspace = match manual {
-            Some(raw) if !raw.trim().is_empty() => Some(canonicalize_workspace_path(raw)?.to_string_lossy().to_string()),
+            Some(raw) if !raw.trim().is_empty() => Some(
+                canonicalize_workspace_path(raw)?
+                    .to_string_lossy()
+                    .to_string(),
+            ),
             _ => None,
         };
         // An explicit per-project path action resolves the ambiguous legacy
@@ -3123,8 +3498,12 @@ pub fn set_agent_opt_project_preference_at(
         settings.manual_workspace = None;
         settings.selected_workspace = None;
     }
-    settings.project_preferences.insert(slot_id.to_string(), preference);
-    if let Some(conflict) = resolve_project_agent_opt_targets(project_slots, &settings).1.into_iter()
+    settings
+        .project_preferences
+        .insert(slot_id.to_string(), preference);
+    if let Some(conflict) = resolve_project_agent_opt_targets(project_slots, &settings)
+        .1
+        .into_iter()
         .find(|error| error.contains("conflicts with Project"))
     {
         return Err(conflict);
@@ -3133,8 +3512,15 @@ pub fn set_agent_opt_project_preference_at(
     if settings.engine == NerfEngine::Agentopt || use_agent_opt == Some(false) {
         let target_engine = settings.engine;
         match switch_nerf_engine_locked_with_project_slots_and_hooks(
-            settings_file, cli_dir, rules_dir, skill_file, target_engine,
-            project_slots, runner, save_nerf_engine_settings, backup_agent_opt_config,
+            settings_file,
+            cli_dir,
+            rules_dir,
+            skill_file,
+            target_engine,
+            project_slots,
+            runner,
+            save_nerf_engine_settings,
+            backup_agent_opt_config,
         ) {
             Ok(result) => return Ok(result.overview),
             Err(error) => {
@@ -3145,7 +3531,14 @@ pub fn set_agent_opt_project_preference_at(
             }
         }
     }
-    inspect_nerf_engine_overview_for_projects_at(settings_file, cli_dir, rules_dir, skill_file, project_slots, runner)
+    inspect_nerf_engine_overview_for_projects_at(
+        settings_file,
+        cli_dir,
+        rules_dir,
+        skill_file,
+        project_slots,
+        runner,
+    )
 }
 
 fn set_agent_opt_workspace_selection_with_save<F>(
@@ -3172,7 +3565,9 @@ where
             let raw = manual_workspace_raw
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .ok_or_else(|| "Manual workspace path is required for manual_override mode".to_string())?;
+                .ok_or_else(|| {
+                    "Manual workspace path is required for manual_override mode".to_string()
+                })?;
             let canon = canonicalize_workspace_path(raw)?;
             let canon_str = canon.to_string_lossy().to_string();
             settings.workspace_mode = Some(AgentOptWorkspaceMode::ManualOverride);
@@ -3186,7 +3581,9 @@ where
             }
             settings.workspace_mode = Some(AgentOptWorkspaceMode::FollowRegisteredProjects);
             settings.manual_workspace = None;
-            settings.selected_workspace = targets.first().map(|(_, path, _)| path.to_string_lossy().to_string());
+            settings.selected_workspace = targets
+                .first()
+                .map(|(_, path, _)| path.to_string_lossy().to_string());
         }
     }
     if original_settings.engine == NerfEngine::Agentopt {
@@ -3272,34 +3669,60 @@ mod tests {
         fn npm_version(&self) -> Result<String, String> {
             self.npm_ver.clone()
         }
-        fn install_pinned_cli(&self, cli_dir: &Path, _tarball_url: &str) -> Result<CliExecOutput, String> {
+        fn install_pinned_cli(
+            &self,
+            cli_dir: &Path,
+            _tarball_url: &str,
+        ) -> Result<CliExecOutput, String> {
             let pkg_dir = cli_dir.join("node_modules").join("agent-opt");
             let cli_js_dir = pkg_dir.join("dist").join("cli");
             std::fs::create_dir_all(&cli_js_dir).unwrap();
             std::fs::write(
                 pkg_dir.join("package.json"),
-                format!(r#"{{"name":"agent-opt","version":"{}"}}"#, self.installed_version),
-            ).unwrap();
+                format!(
+                    r#"{{"name":"agent-opt","version":"{}"}}"#,
+                    self.installed_version
+                ),
+            )
+            .unwrap();
             std::fs::write(cli_js_dir.join("index.js"), "// mock").unwrap();
-            Ok(CliExecOutput { exit_code: 0, stdout: "ok".into(), stderr: "".into() })
+            Ok(CliExecOutput {
+                exit_code: 0,
+                stdout: "ok".into(),
+                stderr: "".into(),
+            })
         }
-        fn run_aopt(&self, _cli_entry: &Path, args: &[&str], _timeout_secs: u64) -> Result<CliExecOutput, String> {
+        fn run_aopt(
+            &self,
+            _cli_entry: &Path,
+            args: &[&str],
+            _timeout_secs: u64,
+        ) -> Result<CliExecOutput, String> {
             let arg_vec: Vec<String> = args.iter().map(|s| s.to_string()).collect();
             self.calls.lock().unwrap().push(arg_vec.clone());
             let sub = args.first().copied().unwrap_or("");
             if self.fail_commands.lock().unwrap().iter().any(|f| f == sub) {
-                return Ok(CliExecOutput { exit_code: 1, stdout: "".into(), stderr: format!("mock fail {sub}") });
+                return Ok(CliExecOutput {
+                    exit_code: 1,
+                    stdout: "".into(),
+                    stderr: format!("mock fail {sub}"),
+                });
             }
             let cwd_idx = args.iter().position(|a| *a == "--cwd").unwrap();
             let ws = PathBuf::from(args[cwd_idx + 1]);
             match sub {
                 "init" => {
                     std::fs::create_dir_all(ws.join(".agent-opt")).unwrap();
-                    std::fs::create_dir_all(ws.join(".agents").join("plugins").join("agent-opt")).unwrap();
+                    std::fs::create_dir_all(ws.join(".agents").join("plugins").join("agent-opt"))
+                        .unwrap();
                     std::fs::write(
-                        ws.join(".agents").join("plugins").join("agent-opt").join("plugin.json"),
+                        ws.join(".agents")
+                            .join("plugins")
+                            .join("agent-opt")
+                            .join("plugin.json"),
                         r#"{"name":"agent-opt"}"#,
-                    ).unwrap();
+                    )
+                    .unwrap();
                     std::fs::write(
                         ws.join(".agents").join("plugins").join("agent-opt").join("hooks.json"),
                         r#"{"agent-opt":{"enabled":true,"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"npx agent-opt hook"}]}]},"custom-group":{"enabled":true}}"#,
@@ -3307,23 +3730,35 @@ mod tests {
                     std::fs::write(
                         ws.join(".agent-opt").join("config.json"),
                         r#"{"enabled":true,"mode":"FAST","customKey":"keep"}"#,
-                    ).unwrap();
+                    )
+                    .unwrap();
                 }
                 "enable" | "disable" => {
                     let cfg_p = ws.join(".agent-opt").join("config.json");
-                    let mut v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&cfg_p).unwrap()).unwrap();
-                    v.as_object_mut().unwrap().insert("enabled".into(), serde_json::Value::Bool(sub == "enable"));
+                    let mut v: serde_json::Value =
+                        serde_json::from_str(&std::fs::read_to_string(&cfg_p).unwrap()).unwrap();
+                    v.as_object_mut()
+                        .unwrap()
+                        .insert("enabled".into(), serde_json::Value::Bool(sub == "enable"));
                     std::fs::write(&cfg_p, serde_json::to_string_pretty(&v).unwrap()).unwrap();
                 }
                 "mode" => {
                     let cfg_p = ws.join(".agent-opt").join("config.json");
-                    let mut v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&cfg_p).unwrap()).unwrap();
-                    v.as_object_mut().unwrap().insert("mode".into(), serde_json::Value::String(args[1].to_string()));
+                    let mut v: serde_json::Value =
+                        serde_json::from_str(&std::fs::read_to_string(&cfg_p).unwrap()).unwrap();
+                    v.as_object_mut().unwrap().insert(
+                        "mode".into(),
+                        serde_json::Value::String(args[1].to_string()),
+                    );
                     std::fs::write(&cfg_p, serde_json::to_string_pretty(&v).unwrap()).unwrap();
                 }
                 _ => {}
             }
-            Ok(CliExecOutput { exit_code: 0, stdout: "ok".into(), stderr: "".into() })
+            Ok(CliExecOutput {
+                exit_code: 0,
+                stdout: "ok".into(),
+                stderr: "".into(),
+            })
         }
     }
 
@@ -3341,11 +3776,14 @@ mod tests {
 
     fn mark_project_agent_opt_enabled(settings_file: &Path, slot_id: &str, repo: &Path) {
         let mut settings = load_nerf_engine_settings(settings_file).unwrap();
-        settings.project_preferences.insert(slot_id.to_string(), AgentOptProjectPreference {
-            repository_path: repo.to_string_lossy().to_string(),
-            use_agent_opt: true,
-            manual_workspace: None,
-        });
+        settings.project_preferences.insert(
+            slot_id.to_string(),
+            AgentOptProjectPreference {
+                repository_path: repo.to_string_lossy().to_string(),
+                use_agent_opt: true,
+                manual_workspace: None,
+            },
+        );
         save_nerf_engine_settings(settings_file, &settings).unwrap();
     }
 
@@ -3360,22 +3798,45 @@ mod tests {
 
         let runner = MockCliRunner::new();
         let ov1 = inspect_nerf_engine_overview_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            Some(&ws_a.to_string_lossy()), &runner,
-        ).unwrap();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            Some(&ws_a.to_string_lossy()),
+            &runner,
+        )
+        .unwrap();
         assert_eq!(ov1.persisted_engine, NerfEngine::PoverelloRules);
-        assert_eq!(ov1.workspace_inspection.unwrap().state, AgentOptWorkspaceState::NotInstalled);
+        assert_eq!(
+            ov1.workspace_inspection.unwrap().state,
+            AgentOptWorkspaceState::NotInstalled
+        );
         assert!(!settings_file.exists());
         assert!(!ws_a.join(".agent-opt").exists());
 
         // Install CLI, initialize ws_a, switch to AgentOpt, then navigate to ws_b (read-only)
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws_a.to_string_lossy(), None, &runner).unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws_a.to_string_lossy(),
+            None,
+            &runner,
+        )
+        .unwrap();
         let ov2 = inspect_nerf_engine_overview_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            Some(&ws_b.to_string_lossy()), &runner,
-        ).unwrap();
-        assert_eq!(ov2.workspace_inspection.unwrap().state, AgentOptWorkspaceState::NotInitialized);
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            Some(&ws_b.to_string_lossy()),
+            &runner,
+        )
+        .unwrap();
+        assert_eq!(
+            ov2.workspace_inspection.unwrap().state,
+            AgentOptWorkspaceState::NotInitialized
+        );
         assert!(!ws_b.join(".agent-opt").exists());
     }
 
@@ -3389,7 +3850,8 @@ mod tests {
         std::fs::create_dir_all(&ws_b).unwrap();
 
         // Apply custom PovDirect settings first
-        let initial_pov = pov_direct::inspect_pov_direct_status_at(&rules_dir, &skill_file).unwrap();
+        let initial_pov =
+            pov_direct::inspect_pov_direct_status_at(&rules_dir, &skill_file).unwrap();
         let custom_settings = PovDirectSettings {
             auto_activation: false,
             web_research: pov_direct::WebResearchPolicy::Unrestricted,
@@ -3398,38 +3860,81 @@ mod tests {
             verification: pov_direct::VerificationPolicy::Standard,
         };
         pov_direct::save_pov_direct_settings_at(
-            &rules_dir, &skill_file,
+            &rules_dir,
+            &skill_file,
             pov_direct::PovDirectApplyRequest {
                 operation: pov_direct::PovDirectApplyOperation::Apply,
                 settings: custom_settings.clone(),
                 expected_state: initial_pov.state,
                 expected_content_hash: initial_pov.content_hash,
             },
-        ).unwrap();
+        )
+        .unwrap();
 
         let runner = MockCliRunner::new();
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws_a.to_string_lossy(), Some("BALANCED"), &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws_b.to_string_lossy(), None, &runner).unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws_a.to_string_lossy(),
+            Some("BALANCED"),
+            &runner,
+        )
+        .unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws_b.to_string_lossy(),
+            None,
+            &runner,
+        )
+        .unwrap();
 
         // Switch to AgentOpt -> pov-direct.md disabled, settings preserved
         let slots = vec![
-            crate::plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: Some(ws_a.to_string_lossy().to_string()), plan_path: Some(".plan/a.md".into()) },
-            crate::plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: Some(ws_b.to_string_lossy().to_string()), plan_path: Some(".plan/b.md".into()) },
+            crate::plan_manager::ProjectPlanSlot {
+                slot_id: "primary".into(),
+                repo_path: Some(ws_a.to_string_lossy().to_string()),
+                plan_path: Some(".plan/a.md".into()),
+            },
+            crate::plan_manager::ProjectPlanSlot {
+                slot_id: "secondary".into(),
+                repo_path: Some(ws_b.to_string_lossy().to_string()),
+                plan_path: Some(".plan/b.md".into()),
+            },
         ];
         mark_project_agent_opt_enabled(&settings_file, "primary", &ws_a);
         mark_project_agent_opt_enabled(&settings_file, "secondary", &ws_b);
         let sw_ao = switch_nerf_engine_for_projects_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::Agentopt, &slots, &runner,
-        ).unwrap();
-        assert_eq!(sw_ao.overview.pov_direct_status.state, PovDirectFileState::Absent);
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::Agentopt,
+            &slots,
+            &runner,
+        )
+        .unwrap();
+        assert_eq!(
+            sw_ao.overview.pov_direct_status.state,
+            PovDirectFileState::Absent
+        );
         assert!(!sw_ao.overview.mismatch.has_mismatch);
 
         assert_eq!(sw_ao.overview.workspace_targets.len(), 2);
-        assert_eq!(sw_ao.overview.workspace_targets.iter().filter(|target| target.inspection.state == AgentOptWorkspaceState::Enabled).count(), 2);
+        assert_eq!(
+            sw_ao
+                .overview
+                .workspace_targets
+                .iter()
+                .filter(|target| target.inspection.state == AgentOptWorkspaceState::Enabled)
+                .count(),
+            2
+        );
         for workspace in [&ws_a, &ws_b] {
-            let hooks: serde_json::Value = serde_json::from_slice(&std::fs::read(agent_opt_hooks_file(workspace)).unwrap()).unwrap();
+            let hooks: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(agent_opt_hooks_file(workspace)).unwrap())
+                    .unwrap();
             assert_eq!(hooks["agent-opt"]["enabled"], true);
             assert_eq!(hooks["custom-group"]["enabled"], true);
             assert!(hooks["agent-opt"]["PreToolUse"].is_array());
@@ -3437,16 +3942,36 @@ mod tests {
 
         // Switch back to PoverelloRules -> disables BOTH ws_a and ws_b, restores custom_settings!
         let sw_rules = switch_nerf_engine_for_projects_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::PoverelloRules, &slots, &runner,
-        ).unwrap();
-        assert_eq!(sw_rules.overview.pov_direct_status.state, PovDirectFileState::ManagedSynced);
-        assert_eq!(sw_rules.overview.pov_direct_status.settings, custom_settings);
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::PoverelloRules,
+            &slots,
+            &runner,
+        )
+        .unwrap();
+        assert_eq!(
+            sw_rules.overview.pov_direct_status.state,
+            PovDirectFileState::ManagedSynced
+        );
+        assert_eq!(
+            sw_rules.overview.pov_direct_status.settings,
+            custom_settings
+        );
         let cli = inspect_cli_info(&cli_dir, &runner);
-        assert_eq!(inspect_workspace_read_only(&ws_a.canonicalize().unwrap(), true, &cli).state, AgentOptWorkspaceState::Disabled);
-        assert_eq!(inspect_workspace_read_only(&ws_b.canonicalize().unwrap(), true, &cli).state, AgentOptWorkspaceState::Disabled);
+        assert_eq!(
+            inspect_workspace_read_only(&ws_a.canonicalize().unwrap(), true, &cli).state,
+            AgentOptWorkspaceState::Disabled
+        );
+        assert_eq!(
+            inspect_workspace_read_only(&ws_b.canonicalize().unwrap(), true, &cli).state,
+            AgentOptWorkspaceState::Disabled
+        );
         for workspace in [&ws_a, &ws_b] {
-            let hooks: serde_json::Value = serde_json::from_slice(&std::fs::read(agent_opt_hooks_file(workspace)).unwrap()).unwrap();
+            let hooks: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(agent_opt_hooks_file(workspace)).unwrap())
+                    .unwrap();
             assert_eq!(hooks["agent-opt"]["enabled"], false);
             assert_eq!(hooks["custom-group"]["enabled"], true);
             assert!(hooks["agent-opt"]["PreToolUse"].is_array());
@@ -3466,8 +3991,22 @@ mod tests {
         std::fs::create_dir_all(&ws_b).unwrap();
         let runner = MockCliRunner::new();
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws_a.to_string_lossy(), None, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws_b.to_string_lossy(), None, &runner).unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws_a.to_string_lossy(),
+            None,
+            &runner,
+        )
+        .unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws_b.to_string_lossy(),
+            None,
+            &runner,
+        )
+        .unwrap();
 
         let slots = [
             crate::plan_manager::ProjectPlanSlot {
@@ -3483,50 +4022,122 @@ mod tests {
         ];
         let mut prefs = load_nerf_engine_settings(&settings_file).unwrap();
         for slot in &slots {
-            prefs.project_preferences.insert(slot.slot_id.clone(), AgentOptProjectPreference {
-                repository_path: slot.repo_path.clone().unwrap(),
-                use_agent_opt: true,
-                manual_workspace: None,
-            });
+            prefs.project_preferences.insert(
+                slot.slot_id.clone(),
+                AgentOptProjectPreference {
+                    repository_path: slot.repo_path.clone().unwrap(),
+                    use_agent_opt: true,
+                    manual_workspace: None,
+                },
+            );
         }
         save_nerf_engine_settings(&settings_file, &prefs).unwrap();
         let switched = switch_nerf_engine_for_projects_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::Agentopt, &slots, &runner,
-        ).unwrap();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::Agentopt,
+            &slots,
+            &runner,
+        )
+        .unwrap();
         assert_eq!(switched.overview.workspace_targets.len(), 2);
-        assert!(switched.overview.workspace_targets.iter().all(|target| target.inspection.state == AgentOptWorkspaceState::Enabled));
+        assert!(switched
+            .overview
+            .workspace_targets
+            .iter()
+            .all(|target| target.inspection.state == AgentOptWorkspaceState::Enabled));
         let cli = inspect_cli_info(&cli_dir, &runner);
-        assert_eq!(inspect_workspace_read_only(&ws_a.canonicalize().unwrap(), true, &cli).state, AgentOptWorkspaceState::Enabled);
-        assert_eq!(inspect_workspace_read_only(&ws_b.canonicalize().unwrap(), true, &cli).state, AgentOptWorkspaceState::Enabled);
+        assert_eq!(
+            inspect_workspace_read_only(&ws_a.canonicalize().unwrap(), true, &cli).state,
+            AgentOptWorkspaceState::Enabled
+        );
+        assert_eq!(
+            inspect_workspace_read_only(&ws_b.canonicalize().unwrap(), true, &cli).state,
+            AgentOptWorkspaceState::Enabled
+        );
 
         // Turning Project 1 off leaves Project 2 enabled and does not activate the global Rule.
         set_agent_opt_project_preference_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            "primary", Some(false), None, &slots, &runner,
-        ).unwrap();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            "primary",
+            Some(false),
+            None,
+            &slots,
+            &runner,
+        )
+        .unwrap();
         let after_off = inspect_nerf_engine_overview_for_projects_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file, &slots, &runner,
-        ).unwrap();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            &slots,
+            &runner,
+        )
+        .unwrap();
         assert!(!after_off.workspace_targets[0].use_agent_opt);
         assert!(after_off.workspace_targets[1].use_agent_opt);
-        assert_eq!(after_off.workspace_targets[0].inspection.state, AgentOptWorkspaceState::Disabled);
-        assert_eq!(after_off.workspace_targets[1].inspection.state, AgentOptWorkspaceState::Enabled);
-        assert_eq!(after_off.workspace_targets[0].inspection.hooks_enabled, Some(false));
-        assert_eq!(after_off.workspace_targets[1].inspection.hooks_enabled, Some(true));
-        assert_eq!(after_off.pov_direct_status.state, PovDirectFileState::Absent);
+        assert_eq!(
+            after_off.workspace_targets[0].inspection.state,
+            AgentOptWorkspaceState::Disabled
+        );
+        assert_eq!(
+            after_off.workspace_targets[1].inspection.state,
+            AgentOptWorkspaceState::Enabled
+        );
+        assert_eq!(
+            after_off.workspace_targets[0].inspection.hooks_enabled,
+            Some(false)
+        );
+        assert_eq!(
+            after_off.workspace_targets[1].inspection.hooks_enabled,
+            Some(true)
+        );
+        assert_eq!(
+            after_off.pov_direct_status.state,
+            PovDirectFileState::Absent
+        );
 
         // Re-applying respects the saved per-project choices.
         let reapplied = apply_selected_nerf_engine_for_projects_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file, &slots, &runner,
-        ).unwrap();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            &slots,
+            &runner,
+        )
+        .unwrap();
         assert_eq!(reapplied.overview.workspace_targets.len(), 2);
-        assert_eq!(reapplied.overview.workspace_targets[0].inspection.state, AgentOptWorkspaceState::Disabled);
-        assert_eq!(reapplied.overview.workspace_targets[1].inspection.state, AgentOptWorkspaceState::Enabled);
-        assert_eq!(inspect_workspace_read_only(&ws_a.canonicalize().unwrap(), true, &cli).state, AgentOptWorkspaceState::Disabled);
-        assert_eq!(inspect_workspace_read_only(&ws_b.canonicalize().unwrap(), true, &cli).state, AgentOptWorkspaceState::Enabled);
-        assert_eq!(read_agent_opt_hook_group_enabled(&agent_opt_hooks_file(&ws_a)).unwrap(), false);
-        assert_eq!(read_agent_opt_hook_group_enabled(&agent_opt_hooks_file(&ws_b)).unwrap(), true);
+        assert_eq!(
+            reapplied.overview.workspace_targets[0].inspection.state,
+            AgentOptWorkspaceState::Disabled
+        );
+        assert_eq!(
+            reapplied.overview.workspace_targets[1].inspection.state,
+            AgentOptWorkspaceState::Enabled
+        );
+        assert_eq!(
+            inspect_workspace_read_only(&ws_a.canonicalize().unwrap(), true, &cli).state,
+            AgentOptWorkspaceState::Disabled
+        );
+        assert_eq!(
+            inspect_workspace_read_only(&ws_b.canonicalize().unwrap(), true, &cli).state,
+            AgentOptWorkspaceState::Enabled
+        );
+        assert_eq!(
+            read_agent_opt_hook_group_enabled(&agent_opt_hooks_file(&ws_a)).unwrap(),
+            false
+        );
+        assert_eq!(
+            read_agent_opt_hook_group_enabled(&agent_opt_hooks_file(&ws_b)).unwrap(),
+            true
+        );
     }
 
     #[test]
@@ -3537,12 +4148,31 @@ mod tests {
         std::fs::create_dir_all(&ws).unwrap();
         let runner = MockCliRunner::new();
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws.to_string_lossy(), None, &runner).unwrap();
-        let mut config: serde_json::Value = serde_json::from_slice(&std::fs::read(ws.join(".agent-opt/config.json")).unwrap()).unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws.to_string_lossy(),
+            None,
+            &runner,
+        )
+        .unwrap();
+        let mut config: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(ws.join(".agent-opt/config.json")).unwrap())
+                .unwrap();
         config["enabled"] = serde_json::Value::Bool(false);
-        std::fs::write(ws.join(".agent-opt/config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
-        assert_eq!(inspect_workspace_read_only(&ws, true, &inspect_cli_info(&cli_dir, &runner)).state, AgentOptWorkspaceState::Error);
-        assert_eq!(read_agent_opt_hook_group_enabled(&agent_opt_hooks_file(&ws)).unwrap(), true);
+        std::fs::write(
+            ws.join(".agent-opt/config.json"),
+            serde_json::to_vec_pretty(&config).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            inspect_workspace_read_only(&ws, true, &inspect_cli_info(&cli_dir, &runner)).state,
+            AgentOptWorkspaceState::Error
+        );
+        assert_eq!(
+            read_agent_opt_hook_group_enabled(&agent_opt_hooks_file(&ws)).unwrap(),
+            true
+        );
 
         let slots = [crate::plan_manager::ProjectPlanSlot {
             slot_id: "primary".into(),
@@ -3550,12 +4180,24 @@ mod tests {
             plan_path: Some(".plan/a.md".into()),
         }];
         let result = switch_nerf_engine_for_projects_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::PoverelloRules, &slots, &runner,
-        ).unwrap();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::PoverelloRules,
+            &slots,
+            &runner,
+        )
+        .unwrap();
         assert!(!result.overview.mismatch.has_mismatch);
-        assert_eq!(read_agent_opt_hook_group_enabled(&agent_opt_hooks_file(&ws)).unwrap(), false);
-        assert_eq!(inspect_workspace_read_only(&ws, true, &inspect_cli_info(&cli_dir, &runner)).state, AgentOptWorkspaceState::Disabled);
+        assert_eq!(
+            read_agent_opt_hook_group_enabled(&agent_opt_hooks_file(&ws)).unwrap(),
+            false
+        );
+        assert_eq!(
+            inspect_workspace_read_only(&ws, true, &inspect_cli_info(&cli_dir, &runner)).state,
+            AgentOptWorkspaceState::Disabled
+        );
     }
 
     #[test]
@@ -3569,32 +4211,55 @@ mod tests {
             std::fs::create_dir_all(path).unwrap();
         }
         let slots = [
-            crate::plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: Some(repo_a.to_string_lossy().to_string()), plan_path: Some(".plan/a.md".into()) },
-            crate::plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: Some(repo_b.to_string_lossy().to_string()), plan_path: Some(".plan/b.md".into()) },
+            crate::plan_manager::ProjectPlanSlot {
+                slot_id: "primary".into(),
+                repo_path: Some(repo_a.to_string_lossy().to_string()),
+                plan_path: Some(".plan/a.md".into()),
+            },
+            crate::plan_manager::ProjectPlanSlot {
+                slot_id: "secondary".into(),
+                repo_path: Some(repo_b.to_string_lossy().to_string()),
+                plan_path: Some(".plan/b.md".into()),
+            },
         ];
         let mut settings = NerfEngineSettings::default();
-        settings.project_preferences.insert("primary".into(), AgentOptProjectPreference {
-            repository_path: repo_a.to_string_lossy().to_string(), use_agent_opt: false,
-            manual_workspace: Some(manual_a.to_string_lossy().to_string()),
-        });
-        settings.project_preferences.insert("secondary".into(), AgentOptProjectPreference {
-            repository_path: repo_b.to_string_lossy().to_string(), use_agent_opt: true,
-            manual_workspace: Some(manual_b.to_string_lossy().to_string()),
-        });
+        settings.project_preferences.insert(
+            "primary".into(),
+            AgentOptProjectPreference {
+                repository_path: repo_a.to_string_lossy().to_string(),
+                use_agent_opt: false,
+                manual_workspace: Some(manual_a.to_string_lossy().to_string()),
+            },
+        );
+        settings.project_preferences.insert(
+            "secondary".into(),
+            AgentOptProjectPreference {
+                repository_path: repo_b.to_string_lossy().to_string(),
+                use_agent_opt: true,
+                manual_workspace: Some(manual_b.to_string_lossy().to_string()),
+            },
+        );
         let (targets, errors) = resolve_project_agent_opt_targets(&slots, &settings);
         assert!(errors.is_empty());
         assert_eq!(targets[0].2, manual_a.canonicalize().unwrap());
         assert_eq!(targets[1].2, manual_b.canonicalize().unwrap());
-        settings.project_preferences.get_mut("primary").unwrap().manual_workspace =
-            Some(manual_b.to_string_lossy().to_string());
+        settings
+            .project_preferences
+            .get_mut("primary")
+            .unwrap()
+            .manual_workspace = Some(manual_b.to_string_lossy().to_string());
         let (_, conflicts) = resolve_project_agent_opt_targets(&slots, &settings);
-        assert!(conflicts.iter().any(|error| error.contains("conflicts with Project")));
+        assert!(conflicts
+            .iter()
+            .any(|error| error.contains("conflicts with Project")));
 
         // Replacing Project 1's repository does not carry its previous manual path.
         let replacement = temp.path().join("replacement");
         std::fs::create_dir_all(&replacement).unwrap();
         let replacement_slots = [crate::plan_manager::ProjectPlanSlot {
-            slot_id: "primary".into(), repo_path: Some(replacement.to_string_lossy().to_string()), plan_path: None,
+            slot_id: "primary".into(),
+            repo_path: Some(replacement.to_string_lossy().to_string()),
+            plan_path: None,
         }];
         let (replaced, errors) = resolve_project_agent_opt_targets(&replacement_slots, &settings);
         assert!(errors.is_empty());
@@ -3612,37 +4277,84 @@ mod tests {
         std::fs::create_dir_all(&repo).unwrap();
         std::fs::create_dir_all(&legacy_manual).unwrap();
         let slots = [crate::plan_manager::ProjectPlanSlot {
-            slot_id: "primary".into(), repo_path: Some(repo.to_string_lossy().to_string()), plan_path: None,
+            slot_id: "primary".into(),
+            repo_path: Some(repo.to_string_lossy().to_string()),
+            plan_path: None,
         }];
-        std::fs::write(&settings_file, serde_json::to_vec_pretty(&serde_json::json!({
-            "engine": "poverello_rules",
-            "workspace_mode": "manual_override",
-            "manual_workspace": legacy_manual.to_string_lossy(),
-            "selected_workspace": legacy_manual.to_string_lossy(),
-            "customUnknown": "preserve-me"
-        })).unwrap()).unwrap();
+        std::fs::write(
+            &settings_file,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "engine": "poverello_rules",
+                "workspace_mode": "manual_override",
+                "manual_workspace": legacy_manual.to_string_lossy(),
+                "selected_workspace": legacy_manual.to_string_lossy(),
+                "customUnknown": "preserve-me"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         let runner = MockCliRunner::new();
         let overview = inspect_nerf_engine_overview_for_projects_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file, &slots, &runner,
-        ).unwrap();
-        assert!(overview.target_resolution_errors.iter().any(|error| error.contains("legacy manual workspace")));
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            &slots,
+            &runner,
+        )
+        .unwrap();
+        assert!(overview
+            .target_resolution_errors
+            .iter()
+            .any(|error| error.contains("legacy manual workspace")));
         let err = set_agent_opt_project_preference_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file, "primary", Some(true), None, &slots, &runner,
-        ).unwrap_err();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            "primary",
+            Some(true),
+            None,
+            &slots,
+            &runner,
+        )
+        .unwrap_err();
         assert!(err.contains("Assign or clear the legacy manual workspace"));
 
         set_agent_opt_project_preference_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file, "primary", None,
-            Some(Some(repo.to_string_lossy().as_ref())), &slots, &runner,
-        ).unwrap();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            "primary",
+            None,
+            Some(Some(repo.to_string_lossy().as_ref())),
+            &slots,
+            &runner,
+        )
+        .unwrap();
         let migrated = load_nerf_engine_settings(&settings_file).unwrap();
-        assert_eq!(migrated.workspace_mode, Some(AgentOptWorkspaceMode::FollowRegisteredProjects));
+        assert_eq!(
+            migrated.workspace_mode,
+            Some(AgentOptWorkspaceMode::FollowRegisteredProjects)
+        );
         assert_eq!(migrated.manual_workspace, None);
         assert_eq!(
-            migrated.project_preferences["primary"].manual_workspace.as_deref().map(normalize_workspace_path_for_display),
-            Some(normalize_workspace_path_for_display(&repo.to_string_lossy())),
+            migrated.project_preferences["primary"]
+                .manual_workspace
+                .as_deref()
+                .map(normalize_workspace_path_for_display),
+            Some(normalize_workspace_path_for_display(
+                &repo.to_string_lossy()
+            )),
         );
-        assert_eq!(migrated.extra.get("customUnknown").and_then(|value| value.as_str()), Some("preserve-me"));
+        assert_eq!(
+            migrated
+                .extra
+                .get("customUnknown")
+                .and_then(|value| value.as_str()),
+            Some("preserve-me")
+        );
     }
 
     #[test]
@@ -3655,7 +4367,14 @@ mod tests {
         std::fs::create_dir_all(&ws_b).unwrap();
         let runner = MockCliRunner::new();
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws_a.to_string_lossy(), None, &runner).unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws_a.to_string_lossy(),
+            None,
+            &runner,
+        )
+        .unwrap();
         let slot_a = [crate::plan_manager::ProjectPlanSlot {
             slot_id: "primary".into(),
             repo_path: Some(ws_a.to_string_lossy().to_string()),
@@ -3667,25 +4386,49 @@ mod tests {
             plan_path: Some(".plan/b.md".into()),
         }];
         let mut settings = load_nerf_engine_settings(&settings_file).unwrap();
-        settings.project_preferences.insert("primary".into(), AgentOptProjectPreference {
-            repository_path: ws_a.to_string_lossy().to_string(),
-            use_agent_opt: true,
-            manual_workspace: None,
-        });
+        settings.project_preferences.insert(
+            "primary".into(),
+            AgentOptProjectPreference {
+                repository_path: ws_a.to_string_lossy().to_string(),
+                use_agent_opt: true,
+                manual_workspace: None,
+            },
+        );
         save_nerf_engine_settings(&settings_file, &settings).unwrap();
         switch_nerf_engine_for_projects_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::Agentopt, &slot_a, &runner,
-        ).unwrap();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::Agentopt,
+            &slot_a,
+            &runner,
+        )
+        .unwrap();
         let after = switch_nerf_engine_for_projects_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::Agentopt, &slot_b, &runner,
-        ).unwrap();
-        assert_eq!(after.overview.workspace_targets[0].repository_path, normalize_workspace_path_for_display(&ws_b.canonicalize().unwrap().to_string_lossy()));
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::Agentopt,
+            &slot_b,
+            &runner,
+        )
+        .unwrap();
+        assert_eq!(
+            after.overview.workspace_targets[0].repository_path,
+            normalize_workspace_path_for_display(&ws_b.canonicalize().unwrap().to_string_lossy())
+        );
         assert!(!after.overview.workspace_targets[0].use_agent_opt);
-        assert_eq!(after.overview.workspace_targets[0].inspection.state, AgentOptWorkspaceState::NotInitialized);
+        assert_eq!(
+            after.overview.workspace_targets[0].inspection.state,
+            AgentOptWorkspaceState::NotInitialized
+        );
         let cli = inspect_cli_info(&cli_dir, &runner);
-        assert_eq!(inspect_workspace_read_only(&ws_a.canonicalize().unwrap(), true, &cli).state, AgentOptWorkspaceState::Disabled);
+        assert_eq!(
+            inspect_workspace_read_only(&ws_a.canonicalize().unwrap(), true, &cli).state,
+            AgentOptWorkspaceState::Disabled
+        );
     }
 
     #[test]
@@ -3696,33 +4439,82 @@ mod tests {
         std::fs::create_dir_all(&ws).unwrap();
 
         // 1. Unmanaged custom rule blocks switching
-        std::fs::write(rules_dir.join("pov-direct.md"), "---\ntrigger: manual\n---\nUser rule\n").unwrap();
+        std::fs::write(
+            rules_dir.join("pov-direct.md"),
+            "---\ntrigger: manual\n---\nUser rule\n",
+        )
+        .unwrap();
         let runner = MockCliRunner::new();
         let err = switch_nerf_engine_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::Agentopt, Some(&ws.to_string_lossy()), &runner,
-        ).unwrap_err();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::Agentopt,
+            Some(&ws.to_string_lossy()),
+            &runner,
+        )
+        .unwrap_err();
         assert!(err.contains("UnmanagedCustom"));
         assert!(rules_dir.join("pov-direct.md").exists());
 
         // 2. Managed rule + failing AgentOpt enable rolls back pov-direct.md cleanly
         std::fs::remove_file(rules_dir.join("pov-direct.md")).unwrap();
-        pov_direct::enable_pov_direct_rule_at(&rules_dir, &skill_file, &PovDirectSettings::default()).unwrap();
+        pov_direct::enable_pov_direct_rule_at(
+            &rules_dir,
+            &skill_file,
+            &PovDirectSettings::default(),
+        )
+        .unwrap();
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws.to_string_lossy(), None, &runner).unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws.to_string_lossy(),
+            None,
+            &runner,
+        )
+        .unwrap();
         mark_project_agent_opt_enabled(&settings_file, "primary", &ws);
         // Disable ws first so switching to AgentOpt will attempt `enable`
-        let cli_entry = cli_dir.join("node_modules").join("agent-opt").join("dist").join("cli").join("index.js");
-        runner.run_aopt(&cli_entry, &["disable", "--cwd", &ws.canonicalize().unwrap().to_string_lossy()], 30).unwrap();
+        let cli_entry = cli_dir
+            .join("node_modules")
+            .join("agent-opt")
+            .join("dist")
+            .join("cli")
+            .join("index.js");
+        runner
+            .run_aopt(
+                &cli_entry,
+                &[
+                    "disable",
+                    "--cwd",
+                    &ws.canonicalize().unwrap().to_string_lossy(),
+                ],
+                30,
+            )
+            .unwrap();
 
-        runner.fail_commands.lock().unwrap().push("enable".to_string());
+        runner
+            .fail_commands
+            .lock()
+            .unwrap()
+            .push("enable".to_string());
         let fail_sw = switch_nerf_engine_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::Agentopt, Some(&ws.to_string_lossy()), &runner,
-        ).unwrap_err();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::Agentopt,
+            Some(&ws.to_string_lossy()),
+            &runner,
+        )
+        .unwrap_err();
         assert!(fail_sw.contains("rolled back"));
         assert_eq!(
-            pov_direct::inspect_pov_direct_status_at(&rules_dir, &skill_file).unwrap().state,
+            pov_direct::inspect_pov_direct_status_at(&rules_dir, &skill_file)
+                .unwrap()
+                .state,
             PovDirectFileState::ManagedSynced
         );
     }
@@ -3736,7 +4528,14 @@ mod tests {
 
         let runner = MockCliRunner::new();
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws.to_string_lossy(), None, &runner).unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws.to_string_lossy(),
+            None,
+            &runner,
+        )
+        .unwrap();
 
         // Update config preserves unknown keys
         let updated = update_agent_opt_config_at(
@@ -3745,7 +4544,8 @@ mod tests {
             &ws.to_string_lossy(),
             &serde_json::json!({"mode": "STRICT", "context": {"maxRankedFiles": 12}}),
             &runner,
-        ).unwrap();
+        )
+        .unwrap();
         let raw = updated.config.unwrap().raw.unwrap();
         assert_eq!(raw.get("customKey").and_then(|v| v.as_str()), Some("keep"));
         assert_eq!(raw.get("mode").and_then(|v| v.as_str()), Some("STRICT"));
@@ -3753,75 +4553,156 @@ mod tests {
         // Malformed config becomes InvalidConfig and refuses updates
         std::fs::write(ws.join(".agent-opt").join("config.json"), "{broken json").unwrap();
         let cli = inspect_cli_info(&cli_dir, &runner);
-        assert_eq!(inspect_workspace_read_only(&ws.canonicalize().unwrap(), true, &cli).state, AgentOptWorkspaceState::InvalidConfig);
-        assert!(update_agent_opt_config_at(&settings_file, &cli_dir, &ws.to_string_lossy(), &serde_json::json!({"mode":"FAST"}), &runner).is_err());
+        assert_eq!(
+            inspect_workspace_read_only(&ws.canonicalize().unwrap(), true, &cli).state,
+            AgentOptWorkspaceState::InvalidConfig
+        );
+        assert!(update_agent_opt_config_at(
+            &settings_file,
+            &cli_dir,
+            &ws.to_string_lossy(),
+            &serde_json::json!({"mode":"FAST"}),
+            &runner
+        )
+        .is_err());
 
         // Known field with wrong type (e.g. context.maxRankedFiles = "bad") becomes InvalidConfig / read-only
-        std::fs::write(ws.join(".agent-opt").join("config.json"), r#"{"enabled":true,"mode":"BALANCED","context":{"maxRankedFiles":"bad"}}"#).unwrap();
-        assert_eq!(inspect_workspace_read_only(&ws.canonicalize().unwrap(), true, &cli).state, AgentOptWorkspaceState::InvalidConfig);
-        assert!(update_agent_opt_config_at(&settings_file, &cli_dir, &ws.to_string_lossy(), &serde_json::json!({"mode":"FAST"}), &runner).is_err());
+        std::fs::write(
+            ws.join(".agent-opt").join("config.json"),
+            r#"{"enabled":true,"mode":"BALANCED","context":{"maxRankedFiles":"bad"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            inspect_workspace_read_only(&ws.canonicalize().unwrap(), true, &cli).state,
+            AgentOptWorkspaceState::InvalidConfig
+        );
+        assert!(update_agent_opt_config_at(
+            &settings_file,
+            &cli_dir,
+            &ws.to_string_lossy(),
+            &serde_json::json!({"mode":"FAST"}),
+            &runner
+        )
+        .is_err());
 
         // Fix config, create mismatch (persisted Rules, but Rule file absent) -> Apply reconciles; second Apply is no-op
-        std::fs::write(ws.join(".agent-opt").join("config.json"), r#"{"enabled":false,"mode":"FAST"}"#).unwrap();
+        std::fs::write(
+            ws.join(".agent-opt").join("config.json"),
+            r#"{"enabled":false,"mode":"FAST"}"#,
+        )
+        .unwrap();
         let ov_mismatch = inspect_nerf_engine_overview_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            Some(&ws.to_string_lossy()), &runner,
-        ).unwrap();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            Some(&ws.to_string_lossy()),
+            &runner,
+        )
+        .unwrap();
         assert!(ov_mismatch.mismatch.has_mismatch);
         let applied = apply_selected_nerf_engine_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            Some(&ws.to_string_lossy()), &runner,
-        ).unwrap();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            Some(&ws.to_string_lossy()),
+            &runner,
+        )
+        .unwrap();
         assert!(applied.changed);
         assert!(!applied.overview.mismatch.has_mismatch);
 
         let noop = apply_selected_nerf_engine_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            Some(&ws.to_string_lossy()), &runner,
-        ).unwrap();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            Some(&ws.to_string_lossy()),
+            &runner,
+        )
+        .unwrap();
         assert!(!noop.changed);
     }
 
     #[test]
-    fn test_rules_switch_refuses_when_cli_absent_with_remaining_files_and_unprepared_agentopt_refuses() {
+    fn test_rules_switch_refuses_when_cli_absent_with_remaining_files_and_unprepared_agentopt_refuses(
+    ) {
         let temp = tempfile::tempdir().unwrap();
         let (settings_file, cli_dir, rules_dir, skill_file) = setup_env(temp.path());
         let ws = temp.path().join("ws");
         std::fs::create_dir_all(&ws).unwrap();
-        pov_direct::enable_pov_direct_rule_at(&rules_dir, &skill_file, &PovDirectSettings::default()).unwrap();
+        pov_direct::enable_pov_direct_rule_at(
+            &rules_dir,
+            &skill_file,
+            &PovDirectSettings::default(),
+        )
+        .unwrap();
 
         let runner = MockCliRunner::new();
         mark_project_agent_opt_enabled(&settings_file, "primary", &ws);
 
         // 1. Unprepared AgentOpt (CLI not installed / ws not initialized) refuses without touching pov-direct.md or settings
         let err_unprepared = switch_nerf_engine_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::Agentopt, Some(&ws.to_string_lossy()), &runner,
-        ).unwrap_err();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::Agentopt,
+            Some(&ws.to_string_lossy()),
+            &runner,
+        )
+        .unwrap_err();
         assert!(!err_unprepared.is_empty());
         assert_eq!(
-            pov_direct::inspect_pov_direct_status_at(&rules_dir, &skill_file).unwrap().state,
+            pov_direct::inspect_pov_direct_status_at(&rules_dir, &skill_file)
+                .unwrap()
+                .state,
             PovDirectFileState::ManagedSynced
         );
-        assert_eq!(load_nerf_engine_settings(&settings_file).unwrap().engine, NerfEngine::PoverelloRules);
+        assert_eq!(
+            load_nerf_engine_settings(&settings_file).unwrap().engine,
+            NerfEngine::PoverelloRules
+        );
 
         // 2. Install, init, switch to AgentOpt, then delete CLI while workspace files remain -> switch to Rules MUST refuse
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws.to_string_lossy(), None, &runner).unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws.to_string_lossy(),
+            None,
+            &runner,
+        )
+        .unwrap();
         mark_project_agent_opt_enabled(&settings_file, "primary", &ws);
         switch_nerf_engine_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::Agentopt, Some(&ws.to_string_lossy()), &runner,
-        ).unwrap();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::Agentopt,
+            Some(&ws.to_string_lossy()),
+            &runner,
+        )
+        .unwrap();
         std::fs::remove_dir_all(&cli_dir).unwrap();
 
         let err_unknown = switch_nerf_engine_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::PoverelloRules, Some(&ws.to_string_lossy()), &runner,
-        ).unwrap_err();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::PoverelloRules,
+            Some(&ws.to_string_lossy()),
+            &runner,
+        )
+        .unwrap_err();
         assert!(err_unknown.contains("cannot be verified/disabled"));
         assert_eq!(
-            pov_direct::inspect_pov_direct_status_at(&rules_dir, &skill_file).unwrap().state,
+            pov_direct::inspect_pov_direct_status_at(&rules_dir, &skill_file)
+                .unwrap()
+                .state,
             PovDirectFileState::Absent
         );
     }
@@ -3833,8 +4714,22 @@ mod tests {
         let ws = temp.path().join("ws_unreg");
         std::fs::create_dir_all(&ws).unwrap();
         std::fs::create_dir_all(ws.join(".agents").join("plugins").join("agent-opt")).unwrap();
-        std::fs::write(ws.join(".agents").join("plugins").join("agent-opt").join("plugin.json"), "{}").unwrap();
-        std::fs::write(ws.join(".agents").join("plugins").join("agent-opt").join("hooks.json"), r#"{"agent-opt":{"enabled":true}}"#).unwrap();
+        std::fs::write(
+            ws.join(".agents")
+                .join("plugins")
+                .join("agent-opt")
+                .join("plugin.json"),
+            "{}",
+        )
+        .unwrap();
+        std::fs::write(
+            ws.join(".agents")
+                .join("plugins")
+                .join("agent-opt")
+                .join("hooks.json"),
+            r#"{"agent-opt":{"enabled":true}}"#,
+        )
+        .unwrap();
         std::fs::create_dir_all(ws.join(".agent-opt")).unwrap();
         let orig_cfg = r#"{"enabled":false,"mode":"BALANCED"}"#;
         std::fs::write(ws.join(".agent-opt").join("config.json"), orig_cfg).unwrap();
@@ -3843,12 +4738,26 @@ mod tests {
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
 
         // Mode and config updates on unregistered workspace must fail and leave file untouched
-        assert!(set_agent_opt_mode_at(&settings_file, &cli_dir, &ws.to_string_lossy(), "STRICT", &runner).is_err());
+        assert!(set_agent_opt_mode_at(
+            &settings_file,
+            &cli_dir,
+            &ws.to_string_lossy(),
+            "STRICT",
+            &runner
+        )
+        .is_err());
         assert!(update_agent_opt_config_at(
-            &settings_file, &cli_dir, &ws.to_string_lossy(),
-            &serde_json::json!({"mode": "FAST"}), &runner
-        ).is_err());
-        assert_eq!(std::fs::read_to_string(ws.join(".agent-opt").join("config.json")).unwrap(), orig_cfg);
+            &settings_file,
+            &cli_dir,
+            &ws.to_string_lossy(),
+            &serde_json::json!({"mode": "FAST"}),
+            &runner
+        )
+        .is_err());
+        assert_eq!(
+            std::fs::read_to_string(ws.join(".agent-opt").join("config.json")).unwrap(),
+            orig_cfg
+        );
 
         // Atomic settings replacement preserves original file on rename failure
         let initial_settings = NerfEngineSettings {
@@ -3860,11 +4769,22 @@ mod tests {
         save_nerf_engine_settings(&settings_file, &initial_settings).unwrap();
         let mut updated_settings = initial_settings.clone();
         updated_settings.engine = NerfEngine::PoverelloRules;
-        let err_replace = save_nerf_engine_settings_with_rename(&settings_file, &updated_settings, |_src, _dst| {
-            Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected rename failure"))
-        }).unwrap_err();
+        let err_replace = save_nerf_engine_settings_with_rename(
+            &settings_file,
+            &updated_settings,
+            |_src, _dst| {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "injected rename failure",
+                ))
+            },
+        )
+        .unwrap_err();
         assert!(err_replace.contains("injected rename failure"));
-        assert_eq!(load_nerf_engine_settings(&settings_file).unwrap().engine, NerfEngine::Agentopt);
+        assert_eq!(
+            load_nerf_engine_settings(&settings_file).unwrap().engine,
+            NerfEngine::Agentopt
+        );
     }
 
     #[test]
@@ -3883,9 +4803,14 @@ mod tests {
             Some("BALANCED"),
             &runner,
             |_sf, _ws| Err("injected registration save failure".to_string()),
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert!(err.contains("rolled back initialized AgentOpt files"));
-        assert!(!ws.join(".agents").join("plugins").join("agent-opt").exists());
+        assert!(!ws
+            .join(".agents")
+            .join("plugins")
+            .join("agent-opt")
+            .exists());
         assert!(!ws.join(".agent-opt").exists());
 
         // Large CLI stdout (>128KB, exceeds Windows/POSIX pipe buffer) completes without hanging and caps output
@@ -3894,13 +4819,11 @@ mod tests {
             "powershell",
             &["-NoProfile", "-Command", "Write-Output ('x' * 200000)"],
             10,
-        ).unwrap();
+        )
+        .unwrap();
         #[cfg(not(windows))]
-        let out = run_simple_command(
-            "sh",
-            &["-c", "head -c 200000 /dev/zero | tr '\\0' 'x'"],
-            10,
-        ).unwrap();
+        let out = run_simple_command("sh", &["-c", "head -c 200000 /dev/zero | tr '\\0' 'x'"], 10)
+            .unwrap();
         assert_eq!(out.exit_code, 0);
         assert!(out.stdout.len() >= 100_000);
         assert!(out.stdout.len() <= MAX_CLI_OUTPUT_BYTES);
@@ -3918,19 +4841,30 @@ mod tests {
             fn npm_version(&self) -> Result<String, String> {
                 self.inner.npm_version()
             }
-            fn install_pinned_cli(&self, cli_dir: &Path, tarball_url: &str) -> Result<CliExecOutput, String> {
+            fn install_pinned_cli(
+                &self,
+                cli_dir: &Path,
+                tarball_url: &str,
+            ) -> Result<CliExecOutput, String> {
                 // While install_agent_opt_cli_at is executing, ENGINE_TRANSITION_LOCK MUST be held.
                 assert!(ENGINE_TRANSITION_LOCK.try_lock().is_err());
                 self.inner.install_pinned_cli(cli_dir, tarball_url)
             }
-            fn run_aopt(&self, cli_entry: &Path, args: &[&str], timeout_secs: u64) -> Result<CliExecOutput, String> {
+            fn run_aopt(
+                &self,
+                cli_entry: &Path,
+                args: &[&str],
+                timeout_secs: u64,
+            ) -> Result<CliExecOutput, String> {
                 self.inner.run_aopt(cli_entry, args, timeout_secs)
             }
         }
 
         let temp = tempfile::tempdir().unwrap();
         let (_settings_file, cli_dir, _rules_dir, _skill_file) = setup_env(temp.path());
-        let runner = LockCheckingRunner { inner: MockCliRunner::new() };
+        let runner = LockCheckingRunner {
+            inner: MockCliRunner::new(),
+        };
         let info = install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
         assert!(info.installed);
     }
@@ -3946,32 +4880,69 @@ mod tests {
 
         let runner = MockCliRunner::new();
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws_a.to_string_lossy(), None, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws_b.to_string_lossy(), None, &runner).unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws_a.to_string_lossy(),
+            None,
+            &runner,
+        )
+        .unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws_b.to_string_lossy(),
+            None,
+            &runner,
+        )
+        .unwrap();
         mark_project_agent_opt_enabled(&settings_file, "primary", &ws_a);
         switch_nerf_engine_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::Agentopt, Some(&ws_a.to_string_lossy()), &runner,
-        ).unwrap();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::Agentopt,
+            Some(&ws_a.to_string_lossy()),
+            &runner,
+        )
+        .unwrap();
 
         // Inject settings-save failure when switching back to PoverelloRules
         let err = switch_nerf_engine_locked_with_save(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::PoverelloRules, Some(&ws_a.to_string_lossy()), &runner,
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::PoverelloRules,
+            Some(&ws_a.to_string_lossy()),
+            &runner,
             |_sf, _settings| Err("injected engine settings save failure".to_string()),
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert!(err.contains("rolled back Rule and AgentOpt workspaces cleanly"));
 
         // Verify persisted engine, Rule (Absent), and the single active workspace
         // are all back to their pre-switch state.
-        assert_eq!(load_nerf_engine_settings(&settings_file).unwrap().engine, NerfEngine::Agentopt);
         assert_eq!(
-            pov_direct::inspect_pov_direct_status_at(&rules_dir, &skill_file).unwrap().state,
+            load_nerf_engine_settings(&settings_file).unwrap().engine,
+            NerfEngine::Agentopt
+        );
+        assert_eq!(
+            pov_direct::inspect_pov_direct_status_at(&rules_dir, &skill_file)
+                .unwrap()
+                .state,
             PovDirectFileState::Absent
         );
         let cli = inspect_cli_info(&cli_dir, &runner);
-        assert_eq!(inspect_workspace_read_only(&ws_a.canonicalize().unwrap(), true, &cli).state, AgentOptWorkspaceState::Enabled);
-        assert_eq!(inspect_workspace_read_only(&ws_b.canonicalize().unwrap(), true, &cli).state, AgentOptWorkspaceState::Disabled);
+        assert_eq!(
+            inspect_workspace_read_only(&ws_a.canonicalize().unwrap(), true, &cli).state,
+            AgentOptWorkspaceState::Enabled
+        );
+        assert_eq!(
+            inspect_workspace_read_only(&ws_b.canonicalize().unwrap(), true, &cli).state,
+            AgentOptWorkspaceState::Disabled
+        );
     }
 
     #[test]
@@ -3983,7 +4954,14 @@ mod tests {
 
         let runner = MockCliRunner::new();
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws.to_string_lossy(), Some("BALANCED"), &runner).unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws.to_string_lossy(),
+            Some("BALANCED"),
+            &runner,
+        )
+        .unwrap();
         mark_project_agent_opt_enabled(&settings_file, "primary", &ws);
         let cfg_path = ws.join(".agent-opt").join("config.json");
         let original_bytes = std::fs::read(&cfg_path).unwrap();
@@ -3994,8 +4972,14 @@ mod tests {
             &ws.to_string_lossy(),
             &serde_json::json!({"mode": "STRICT"}),
             &runner,
-            |_src, _dst| Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected config rename failure")),
-        ).unwrap_err();
+            |_src, _dst| {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "injected config rename failure",
+                ))
+            },
+        )
+        .unwrap_err();
         assert!(err.contains("injected config rename failure"));
         assert_eq!(std::fs::read(&cfg_path).unwrap(), original_bytes);
 
@@ -4003,9 +4987,14 @@ mod tests {
         let tmp_direct = ws.join(".agent-opt").join(".config.json.tmp-direct");
         let swap_direct = ws.join(".agent-opt").join(".config.json.swap-direct");
         std::fs::write(&tmp_direct, b"{}").unwrap();
-        let swap_err = replace_via_swap_with_rename(&tmp_direct, &cfg_path, &swap_direct, |_src, _dst| {
-            Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected swap rename failure"))
-        }).unwrap_err();
+        let swap_err =
+            replace_via_swap_with_rename(&tmp_direct, &cfg_path, &swap_direct, |_src, _dst| {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "injected swap rename failure",
+                ))
+            })
+            .unwrap_err();
         assert!(swap_err.contains("original preserved"));
         assert_eq!(std::fs::read(&cfg_path).unwrap(), original_bytes);
         assert!(!tmp_direct.exists());
@@ -4035,9 +5024,13 @@ mod tests {
             Some("BALANCED"),
             &runner,
             |_sf, _ws| Err("injected reg failure".to_string()),
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert!(err.contains("already have existing content"));
-        assert_eq!(std::fs::read_to_string(&custom_file).unwrap(), "user custom note");
+        assert_eq!(
+            std::fs::read_to_string(&custom_file).unwrap(),
+            "user custom note"
+        );
     }
 
     #[test]
@@ -4046,37 +5039,85 @@ mod tests {
         let (settings_file, cli_dir, rules_dir, skill_file) = setup_env(temp.path());
         let ws = temp.path().join("ws_backup_fail");
         std::fs::create_dir_all(&ws).unwrap();
-        pov_direct::enable_pov_direct_rule_at(&rules_dir, &skill_file, &PovDirectSettings::default()).unwrap();
+        pov_direct::enable_pov_direct_rule_at(
+            &rules_dir,
+            &skill_file,
+            &PovDirectSettings::default(),
+        )
+        .unwrap();
 
         let runner = MockCliRunner::new();
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws.to_string_lossy(), Some("BALANCED"), &runner).unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws.to_string_lossy(),
+            Some("BALANCED"),
+            &runner,
+        )
+        .unwrap();
         mark_project_agent_opt_enabled(&settings_file, "primary", &ws);
-        let cli_entry = cli_dir.join("node_modules").join("agent-opt").join("dist").join("cli").join("index.js");
-        runner.run_aopt(&cli_entry, &["disable", "--cwd", &ws.canonicalize().unwrap().to_string_lossy()], 30).unwrap();
+        let cli_entry = cli_dir
+            .join("node_modules")
+            .join("agent-opt")
+            .join("dist")
+            .join("cli")
+            .join("index.js");
+        runner
+            .run_aopt(
+                &cli_entry,
+                &[
+                    "disable",
+                    "--cwd",
+                    &ws.canonicalize().unwrap().to_string_lossy(),
+                ],
+                30,
+            )
+            .unwrap();
 
         let orig_cfg = std::fs::read(ws.join(".agent-opt").join("config.json")).unwrap();
         let orig_rule = std::fs::read(rules_dir.join("pov-direct.md")).unwrap();
 
         // 1. Injected backup failure aborts before touching Rule, AgentOpt config, or persisted engine
         let err_backup = switch_nerf_engine_locked_with_hooks(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::Agentopt, Some(&ws.to_string_lossy()), &runner,
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::Agentopt,
+            Some(&ws.to_string_lossy()),
+            &runner,
             save_nerf_engine_settings,
             |_ws| Err("injected backup failure".to_string()),
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert!(err_backup.contains("injected backup failure"));
-        assert_eq!(std::fs::read(ws.join(".agent-opt").join("config.json")).unwrap(), orig_cfg);
-        assert_eq!(std::fs::read(rules_dir.join("pov-direct.md")).unwrap(), orig_rule);
-        assert_eq!(load_nerf_engine_settings(&settings_file).unwrap().engine, NerfEngine::PoverelloRules);
+        assert_eq!(
+            std::fs::read(ws.join(".agent-opt").join("config.json")).unwrap(),
+            orig_cfg
+        );
+        assert_eq!(
+            std::fs::read(rules_dir.join("pov-direct.md")).unwrap(),
+            orig_rule
+        );
+        assert_eq!(
+            load_nerf_engine_settings(&settings_file).unwrap().engine,
+            NerfEngine::PoverelloRules
+        );
 
         // 2. Inject save_fn failure AND corrupt backup bytes so rollback verification detects state mismatch
         let err_mismatch = switch_nerf_engine_locked_with_hooks(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            NerfEngine::Agentopt, Some(&ws.to_string_lossy()), &runner,
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::Agentopt,
+            Some(&ws.to_string_lossy()),
+            &runner,
             |_sf, _settings| Err("injected settings save failure".to_string()),
             |_ws| Ok(Some(br#"{"enabled":true,"mode":"BALANCED"}"#.to_vec())),
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert!(err_mismatch.contains("rollback verification mismatch"));
     }
 
@@ -4093,14 +5134,31 @@ mod tests {
         let runner = MockCliRunner::new();
 
         let slots = vec![
-            crate::plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: Some(ws_plan1.to_string_lossy().to_string()), plan_path: Some(".plan/one.md".into()) },
-            crate::plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: Some(ws_plan2.to_string_lossy().to_string()), plan_path: Some(".plan/two.md".into()) },
+            crate::plan_manager::ProjectPlanSlot {
+                slot_id: "primary".into(),
+                repo_path: Some(ws_plan1.to_string_lossy().to_string()),
+                plan_path: Some(".plan/one.md".into()),
+            },
+            crate::plan_manager::ProjectPlanSlot {
+                slot_id: "secondary".into(),
+                repo_path: Some(ws_plan2.to_string_lossy().to_string()),
+                plan_path: Some(".plan/two.md".into()),
+            },
         ];
         // Follow mode resolves both registered project roots, independent of an active plan.
         let ov_fresh = inspect_nerf_engine_overview_for_projects_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file, &slots, &runner,
-        ).unwrap();
-        assert_eq!(ov_fresh.workspace_mode, AgentOptWorkspaceMode::FollowRegisteredProjects);
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            &slots,
+            &runner,
+        )
+        .unwrap();
+        assert_eq!(
+            ov_fresh.workspace_mode,
+            AgentOptWorkspaceMode::FollowRegisteredProjects
+        );
         assert_eq!(ov_fresh.workspace_targets.len(), 2);
 
         // 2. Legacy settings with selected_workspace and no workspace_mode -> migrates as ManualOverride, preserving unknown keys & registered_workspaces
@@ -4111,64 +5169,138 @@ mod tests {
             "customUnknown": "preserve-me"
         });
         std::fs::create_dir_all(settings_file.parent().unwrap()).unwrap();
-        std::fs::write(&settings_file, serde_json::to_vec_pretty(&legacy_json).unwrap()).unwrap();
+        std::fs::write(
+            &settings_file,
+            serde_json::to_vec_pretty(&legacy_json).unwrap(),
+        )
+        .unwrap();
 
         let ov_legacy = inspect_nerf_engine_overview_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            Some(&ws_plan1.to_string_lossy()), &runner,
-        ).unwrap();
-        assert_eq!(ov_legacy.workspace_mode, AgentOptWorkspaceMode::ManualOverride);
-        assert_eq!(ov_legacy.selected_workspace.as_deref(), Some(normalize_workspace_path_for_display(&ws_manual.canonicalize().unwrap().to_string_lossy()).as_str()));
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            Some(&ws_plan1.to_string_lossy()),
+            &runner,
+        )
+        .unwrap();
+        assert_eq!(
+            ov_legacy.workspace_mode,
+            AgentOptWorkspaceMode::ManualOverride
+        );
+        assert_eq!(
+            ov_legacy.selected_workspace.as_deref(),
+            Some(
+                normalize_workspace_path_for_display(
+                    &ws_manual.canonicalize().unwrap().to_string_lossy()
+                )
+                .as_str()
+            )
+        );
         assert_eq!(
             ov_legacy.active_plan_workspace.as_deref(),
-            Some(normalize_workspace_path_for_display(&ws_plan1.canonicalize().unwrap().to_string_lossy()).as_str())
+            Some(
+                normalize_workspace_path_for_display(
+                    &ws_plan1.canonicalize().unwrap().to_string_lossy()
+                )
+                .as_str()
+            )
         );
 
         // Plan change to ws_plan2 keeps manual override in effect
         let ov_legacy_p2 = inspect_nerf_engine_overview_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            Some(&ws_plan2.to_string_lossy()), &runner,
-        ).unwrap();
-        assert_eq!(ov_legacy_p2.selected_workspace.as_deref(), Some(normalize_workspace_path_for_display(&ws_manual.canonicalize().unwrap().to_string_lossy()).as_str()));
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            Some(&ws_plan2.to_string_lossy()),
+            &runner,
+        )
+        .unwrap();
+        assert_eq!(
+            ov_legacy_p2.selected_workspace.as_deref(),
+            Some(
+                normalize_workspace_path_for_display(
+                    &ws_manual.canonicalize().unwrap().to_string_lossy()
+                )
+                .as_str()
+            )
+        );
         assert_eq!(
             ov_legacy_p2.active_plan_workspace.as_deref(),
-            Some(normalize_workspace_path_for_display(&ws_plan2.canonicalize().unwrap().to_string_lossy()).as_str())
+            Some(
+                normalize_workspace_path_for_display(
+                    &ws_plan2.canonicalize().unwrap().to_string_lossy()
+                )
+                .as_str()
+            )
         );
 
         // 3. Failed save_fn leaves previously persisted selection intact
         let err_save = set_agent_opt_workspace_selection_with_save(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            AgentOptWorkspaceMode::FollowRegisteredProjects, None, &slots, &runner,
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            AgentOptWorkspaceMode::FollowRegisteredProjects,
+            None,
+            &slots,
+            &runner,
             |_sf, _s| Err("injected selection save failure".to_string()),
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert!(err_save.contains("injected selection save failure"));
         assert_eq!(
-            resolve_persisted_workspace_selection(&load_nerf_engine_settings(&settings_file).unwrap()).0,
+            resolve_persisted_workspace_selection(
+                &load_nerf_engine_settings(&settings_file).unwrap()
+            )
+            .0,
             AgentOptWorkspaceMode::ManualOverride
         );
 
         // 4. Explicit return to follow-registered-projects clears override and preserves metadata.
         let ov_follow = set_agent_opt_workspace_selection_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            AgentOptWorkspaceMode::FollowRegisteredProjects, None, &slots, &runner,
-        ).unwrap();
-        assert_eq!(ov_follow.workspace_mode, AgentOptWorkspaceMode::FollowRegisteredProjects);
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            AgentOptWorkspaceMode::FollowRegisteredProjects,
+            None,
+            &slots,
+            &runner,
+        )
+        .unwrap();
+        assert_eq!(
+            ov_follow.workspace_mode,
+            AgentOptWorkspaceMode::FollowRegisteredProjects
+        );
         assert_eq!(ov_follow.manual_workspace, None);
         assert_eq!(ov_follow.workspace_targets.len(), 2);
         assert!(runner.calls.lock().unwrap().is_empty());
 
         // Stale selected_workspace never overrides the registered project list.
         let mut loaded = load_nerf_engine_settings(&settings_file).unwrap();
-        assert_eq!(loaded.extra.get("customUnknown").and_then(|v| v.as_str()), Some("preserve-me"));
+        assert_eq!(
+            loaded.extra.get("customUnknown").and_then(|v| v.as_str()),
+            Some("preserve-me")
+        );
         assert_eq!(loaded.registered_workspaces.len(), 1);
         loaded.selected_workspace = Some(ws_manual.to_string_lossy().to_string());
         save_nerf_engine_settings(&settings_file, &loaded).unwrap();
 
         let ov_unresolved = inspect_nerf_engine_overview_for_projects_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file,
-            &slots, &runner,
-        ).unwrap();
-        assert_eq!(ov_unresolved.workspace_mode, AgentOptWorkspaceMode::FollowRegisteredProjects);
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            &slots,
+            &runner,
+        )
+        .unwrap();
+        assert_eq!(
+            ov_unresolved.workspace_mode,
+            AgentOptWorkspaceMode::FollowRegisteredProjects
+        );
         assert_eq!(ov_unresolved.workspace_targets.len(), 2);
     }
 
@@ -4182,33 +5314,84 @@ mod tests {
         std::fs::create_dir_all(&ws_b).unwrap();
         let runner = MockCliRunner::new();
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws_a.to_string_lossy(), None, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws_b.to_string_lossy(), None, &runner).unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws_a.to_string_lossy(),
+            None,
+            &runner,
+        )
+        .unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws_b.to_string_lossy(),
+            None,
+            &runner,
+        )
+        .unwrap();
         let slots = vec![
-            crate::plan_manager::ProjectPlanSlot { slot_id: "primary".into(), repo_path: Some(ws_a.to_string_lossy().to_string()), plan_path: Some(".plan/a.md".into()) },
-            crate::plan_manager::ProjectPlanSlot { slot_id: "secondary".into(), repo_path: Some(ws_b.to_string_lossy().to_string()), plan_path: Some(".plan/b.md".into()) },
+            crate::plan_manager::ProjectPlanSlot {
+                slot_id: "primary".into(),
+                repo_path: Some(ws_a.to_string_lossy().to_string()),
+                plan_path: Some(".plan/a.md".into()),
+            },
+            crate::plan_manager::ProjectPlanSlot {
+                slot_id: "secondary".into(),
+                repo_path: Some(ws_b.to_string_lossy().to_string()),
+                plan_path: Some(".plan/b.md".into()),
+            },
         ];
         mark_project_agent_opt_enabled(&settings_file, "primary", &ws_a);
         mark_project_agent_opt_enabled(&settings_file, "secondary", &ws_b);
         let mut persisted = load_nerf_engine_settings(&settings_file).unwrap();
-        persisted.registered_workspaces.retain(|path| !path.to_lowercase().contains("project_b"));
+        persisted
+            .registered_workspaces
+            .retain(|path| !path.to_lowercase().contains("project_b"));
         save_nerf_engine_settings(&settings_file, &persisted).unwrap();
         // B is ready on disk but absent from AgentOpt's registry; the transition must abort before A changes.
         let err = switch_nerf_engine_for_projects_at(
-            &settings_file, &cli_dir, &rules_dir, &skill_file, NerfEngine::Agentopt, &slots, &runner,
-        ).unwrap_err();
+            &settings_file,
+            &cli_dir,
+            &rules_dir,
+            &skill_file,
+            NerfEngine::Agentopt,
+            &slots,
+            &runner,
+        )
+        .unwrap_err();
         assert!(err.contains("is not registered"));
         let cli = inspect_cli_info(&cli_dir, &runner);
-        assert_eq!(inspect_workspace_read_only(&ws_a.canonicalize().unwrap(), true, &cli).state, AgentOptWorkspaceState::Enabled);
-        assert_eq!(pov_direct::inspect_pov_direct_status_at(&rules_dir, &skill_file).unwrap().state, PovDirectFileState::Absent);
-        assert_eq!(load_nerf_engine_settings(&settings_file).unwrap().engine, NerfEngine::PoverelloRules);
+        assert_eq!(
+            inspect_workspace_read_only(&ws_a.canonicalize().unwrap(), true, &cli).state,
+            AgentOptWorkspaceState::Enabled
+        );
+        assert_eq!(
+            pov_direct::inspect_pov_direct_status_at(&rules_dir, &skill_file)
+                .unwrap()
+                .state,
+            PovDirectFileState::Absent
+        );
+        assert_eq!(
+            load_nerf_engine_settings(&settings_file).unwrap().engine,
+            NerfEngine::PoverelloRules
+        );
     }
 
     #[test]
     fn test_normalize_extended_windows_paths_for_display_only() {
-        assert_eq!(normalize_workspace_path_for_display(r"\\?\C:\Users\Sohei\dev\repo"), r"C:\Users\Sohei\dev\repo");
-        assert_eq!(normalize_workspace_path_for_display(r"\\?\UNC\server\share\repo"), r"\\server\share\repo");
-        assert_eq!(normalize_workspace_path_for_display(r"C:\Users\Sohei\dev\repo"), r"C:\Users\Sohei\dev\repo");
+        assert_eq!(
+            normalize_workspace_path_for_display(r"\\?\C:\Users\Sohei\dev\repo"),
+            r"C:\Users\Sohei\dev\repo"
+        );
+        assert_eq!(
+            normalize_workspace_path_for_display(r"\\?\UNC\server\share\repo"),
+            r"\\server\share\repo"
+        );
+        assert_eq!(
+            normalize_workspace_path_for_display(r"C:\Users\Sohei\dev\repo"),
+            r"C:\Users\Sohei\dev\repo"
+        );
     }
 
     #[test]
@@ -4222,8 +5405,22 @@ mod tests {
 
         let runner = MockCliRunner::new();
         install_agent_opt_cli_at(&cli_dir, &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws_a.to_string_lossy(), Some("FAST"), &runner).unwrap();
-        init_agent_opt_workspace_at(&settings_file, &cli_dir, &ws_b.to_string_lossy(), Some("BALANCED"), &runner).unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws_a.to_string_lossy(),
+            Some("FAST"),
+            &runner,
+        )
+        .unwrap();
+        init_agent_opt_workspace_at(
+            &settings_file,
+            &cli_dir,
+            &ws_b.to_string_lossy(),
+            Some("BALANCED"),
+            &runner,
+        )
+        .unwrap();
 
         let ws_b_before = std::fs::read(ws_b.join(".agent-opt").join("config.json")).unwrap();
 
@@ -4265,7 +5462,8 @@ mod tests {
                 }
             }),
             &runner,
-        ).unwrap();
+        )
+        .unwrap();
         let raw = updated.config.unwrap().raw.unwrap();
         assert_eq!(raw.get("customKey").and_then(|v| v.as_str()), Some("keep"));
         assert_eq!(raw["context"]["maxRepoMapTokens"], 800);
@@ -4273,26 +5471,36 @@ mod tests {
         assert_eq!(raw["failureDetection"]["maxRepeatedCommandFailures"], 3);
         assert_eq!(raw["memory"]["minConfidenceToInject"], 0.85);
         // Project B untouched
-        assert_eq!(std::fs::read(ws_b.join(".agent-opt").join("config.json")).unwrap(), ws_b_before);
+        assert_eq!(
+            std::fs::read(ws_b.join(".agent-opt").join("config.json")).unwrap(),
+            ws_b_before
+        );
 
         // 2. Rejects top-level `enabled` inside config editor patch
         let err_enabled = update_agent_opt_config_at(
-            &settings_file, &cli_dir, &ws_a.to_string_lossy(),
-            &serde_json::json!({ "enabled": false }), &runner,
-        ).unwrap_err();
+            &settings_file,
+            &cli_dir,
+            &ws_a.to_string_lossy(),
+            &serde_json::json!({ "enabled": false }),
+            &runner,
+        )
+        .unwrap_err();
         assert!(err_enabled.contains("enabled"));
 
         // 3. Rejects out-of-range memory.minConfidenceToInject and context.maxRepoMapTokens = 0
         assert!(validate_agent_opt_config_value(&serde_json::json!({
             "memory": { "minConfidenceToInject": 1.5 }
-        })).is_err());
+        }))
+        .is_err());
         assert!(validate_agent_opt_config_value(&serde_json::json!({
             "context": { "maxRepoMapTokens": 0 }
-        })).is_err());
+        }))
+        .is_err());
         // Allows verification.maxStopBlocksPerSession = 0 (FAST default)
         assert!(validate_agent_opt_config_value(&serde_json::json!({
             "verification": { "maxStopBlocksPerSession": 0 }
-        })).is_ok());
+        }))
+        .is_ok());
     }
 }
 
@@ -4555,11 +5763,15 @@ mod global_hook_diagnostic_tests {
         let home = setup_home(&temp, &risky_hooks_json(), "0.1.2");
         let plugin_dir = home.join(".gemini/config/plugins/wt-agent-hooks");
         let runner = RemediationRunner::new(
-            vec![plugin_list(&plugin_dir, true), plugin_list(&plugin_dir, false)],
+            vec![
+                plugin_list(&plugin_dir, true),
+                plugin_list(&plugin_dir, false),
+            ],
             disable_output(0),
         );
 
-        let result = disable_global_wt_agent_hooks_with_platform(Some(&home), &runner, true).unwrap();
+        let result =
+            disable_global_wt_agent_hooks_with_platform(Some(&home), &runner, true).unwrap();
 
         assert_eq!(result.state, AntigravityGlobalHookDiagnosticState::Disabled);
         assert_eq!(runner.list_calls.load(Ordering::SeqCst), 2);
@@ -4576,7 +5788,8 @@ mod global_hook_diagnostic_tests {
         let temp = TempDir::new().unwrap();
         let home = setup_home(&temp, &risky_hooks_json(), "0.1.2");
         let plugin_dir = home.join(".gemini/config/plugins/wt-agent-hooks");
-        let disabled = RemediationRunner::new(vec![plugin_list(&plugin_dir, false)], disable_output(0));
+        let disabled =
+            RemediationRunner::new(vec![plugin_list(&plugin_dir, false)], disable_output(0));
         assert_eq!(
             disable_global_wt_agent_hooks_with_platform(Some(&home), &disabled, true)
                 .unwrap()
@@ -4587,8 +5800,12 @@ mod global_hook_diagnostic_tests {
 
         let unknown_home = setup_home(&temp, &risky_hooks_json(), "0.1.3");
         let unknown_dir = unknown_home.join(".gemini/config/plugins/wt-agent-hooks");
-        let unknown = RemediationRunner::new(vec![plugin_list(&unknown_dir, true)], disable_output(0));
-        assert!(disable_global_wt_agent_hooks_with_platform(Some(&unknown_home), &unknown, true).is_err());
+        let unknown =
+            RemediationRunner::new(vec![plugin_list(&unknown_dir, true)], disable_output(0));
+        assert!(
+            disable_global_wt_agent_hooks_with_platform(Some(&unknown_home), &unknown, true)
+                .is_err()
+        );
         assert_eq!(unknown.disable_calls.load(Ordering::SeqCst), 0);
     }
 
@@ -4597,18 +5814,22 @@ mod global_hook_diagnostic_tests {
         let temp = TempDir::new().unwrap();
         let home = setup_home(&temp, &risky_hooks_json(), "0.1.2");
         let plugin_dir = home.join(".gemini/config/plugins/wt-agent-hooks");
-        let nonzero = RemediationRunner::new(
-            vec![plugin_list(&plugin_dir, true)],
-            disable_output(1),
-        );
+        let nonzero =
+            RemediationRunner::new(vec![plugin_list(&plugin_dir, true)], disable_output(1));
         assert!(disable_global_wt_agent_hooks_with_platform(Some(&home), &nonzero, true).is_err());
         assert_eq!(nonzero.list_calls.load(Ordering::SeqCst), 1);
 
         let remains_enabled = RemediationRunner::new(
-            vec![plugin_list(&plugin_dir, true), plugin_list(&plugin_dir, true)],
+            vec![
+                plugin_list(&plugin_dir, true),
+                plugin_list(&plugin_dir, true),
+            ],
             disable_output(0),
         );
-        assert!(disable_global_wt_agent_hooks_with_platform(Some(&home), &remains_enabled, true).is_err());
+        assert!(
+            disable_global_wt_agent_hooks_with_platform(Some(&home), &remains_enabled, true)
+                .is_err()
+        );
         assert_eq!(remains_enabled.list_calls.load(Ordering::SeqCst), 2);
         assert_eq!(remains_enabled.disable_calls.load(Ordering::SeqCst), 1);
 
@@ -4619,5 +5840,95 @@ mod global_hook_diagnostic_tests {
         assert!(disable_global_wt_agent_hooks_with_platform(Some(&home), &timeout, true).is_err());
         assert_eq!(timeout.disable_calls.load(Ordering::SeqCst), 1);
     }
-}
 
+    #[test]
+    fn test_agent_opt_preferences_migrate_to_project_id_and_stay_isolated() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_a = dir.path().join("poverello");
+        let repo_b = dir.path().join("ASR-Composer");
+        std::fs::create_dir_all(&repo_a).unwrap();
+        std::fs::create_dir_all(&repo_b).unwrap();
+
+        let id_a = crate::project_registry::derive_project_id(&repo_a.to_string_lossy());
+        let id_b = crate::project_registry::derive_project_id(&repo_b.to_string_lossy());
+        let projects = vec![
+            crate::project_registry::ProjectRecord {
+                project_id: id_a.clone(),
+                display_name: "Project 1".to_string(),
+                repo_root: repo_a.to_string_lossy().to_string(),
+                plan_path: Some(".plan/a.md".to_string()),
+                plan_paths: BTreeMap::new(),
+                created_unix: 1,
+                updated_unix: 1,
+                extra: BTreeMap::new(),
+            },
+            crate::project_registry::ProjectRecord {
+                project_id: id_b.clone(),
+                display_name: "Project 2".to_string(),
+                repo_root: repo_b.to_string_lossy().to_string(),
+                plan_path: Some(".plan/b.md".to_string()),
+                plan_paths: BTreeMap::new(),
+                created_unix: 1,
+                updated_unix: 1,
+                extra: BTreeMap::new(),
+            },
+        ];
+
+        let mut settings = NerfEngineSettings::default();
+        settings.project_preferences.insert(
+            "primary".to_string(),
+            AgentOptProjectPreference {
+                repository_path: repo_a.to_string_lossy().to_string(),
+                use_agent_opt: true,
+                manual_workspace: None,
+            },
+        );
+        settings.project_preferences.insert(
+            "secondary".to_string(),
+            AgentOptProjectPreference {
+                repository_path: repo_b.to_string_lossy().to_string(),
+                use_agent_opt: false,
+                manual_workspace: None,
+            },
+        );
+
+        assert!(migrate_agent_opt_project_preferences_to_project_ids(
+            &mut settings,
+            &projects
+        ));
+        assert!(!settings.project_preferences.contains_key("primary"));
+        assert!(!settings.project_preferences.contains_key("secondary"));
+        assert!(
+            settings
+                .project_preferences
+                .get(&id_a)
+                .unwrap()
+                .use_agent_opt
+        );
+        assert!(
+            !settings
+                .project_preferences
+                .get(&id_b)
+                .unwrap()
+                .use_agent_opt
+        );
+
+        let slots = vec![
+            crate::plan_manager::ProjectPlanSlot {
+                slot_id: id_b.clone(),
+                repo_path: Some(repo_b.to_string_lossy().to_string()),
+                plan_path: Some(".plan/b.md".to_string()),
+            },
+            crate::plan_manager::ProjectPlanSlot {
+                slot_id: id_a.clone(),
+                repo_path: Some(repo_a.to_string_lossy().to_string()),
+                plan_path: Some(".plan/a.md".to_string()),
+            },
+        ];
+        let (targets, errors) = resolve_project_agent_opt_targets(&slots, &settings);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].0, id_b);
+        assert_eq!(targets[1].0, id_a);
+    }
+}

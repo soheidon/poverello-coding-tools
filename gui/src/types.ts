@@ -465,7 +465,50 @@ export interface SetActivePlanSlotResult {
   mirror_warning?: string | null;
 }
 
+export interface ProjectRecord {
+  project_id: string;
+  display_name: string;
+  repo_root: string;
+  plan_path?: string | null;
+  /** Surface-specific path. A present key with null explicitly means unset. */
+  plan_paths?: Partial<Record<"codex" | "antigravity", string | null>>;
+  created_unix: number;
+  updated_unix: number;
+}
+
+export interface MigrationConflictOption {
+  source: string;
+  label: string;
+  plan_path?: string | null;
+}
+
+export interface MigrationConflict {
+  conflict_id: string;
+  kind: string;
+  repo_root: string;
+  surface?: string | null;
+  description: string;
+  options: MigrationConflictOption[];
+}
+
+export interface ProjectRegistryView {
+  schema_version: number;
+  projects: ProjectRecord[];
+  pending_conflicts: MigrationConflict[];
+  migrated_from_legacy: boolean;
+}
+
+export interface ResolvedProjectContext {
+  project_id: string;
+  display_name: string;
+  surface: string;
+  repo_root: string;
+  plan_path: string;
+  resolved: boolean;
+}
+
 export interface PinnedWorkflowTarget {
+  project_id?: string | null;
   repository: string;
   surface: string;
   slot_id: string;
@@ -480,6 +523,15 @@ export interface PinnedWorkflowLaunch {
     reviser_id?: string | null;
   };
   pinned_target: PinnedWorkflowTarget;
+}
+
+export interface WorkflowRoleAssignmentView {
+  assignment: {
+    planner_id?: string | null;
+    reviser_id?: string | null;
+  } | null;
+  legacy_conflict: boolean;
+  conflict_sources: string[];
 }
 
 export interface PlanFileEntry {

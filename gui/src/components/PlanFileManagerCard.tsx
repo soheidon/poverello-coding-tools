@@ -10,6 +10,8 @@ import type {
   SurfacePlanSlotsView,
   PinnedWorkflowTarget,
   ActivePlanContext,
+  ProjectRegistryView,
+  WorkflowRoleAssignmentView,
 } from "../types";
 import { reviewersToPolicy } from "./ExternalReviewCard";
 
@@ -65,6 +67,17 @@ export function normalizeDisplayPath(rawPath?: string | null): string {
     p = p.replace(/\//g, "\\");
   }
   return p;
+}
+
+function projectPlanPathForSurface(
+  project: ProjectRegistryView["projects"][number],
+  surface: "codex" | "antigravity",
+): string | null {
+  const paths = project.plan_paths;
+  if (paths && Object.prototype.hasOwnProperty.call(paths, surface)) {
+    return paths[surface] ?? null;
+  }
+  return project.plan_path ?? null;
 }
 
 export type KnownPlanStatus =
@@ -126,8 +139,6 @@ export default function PlanFileManagerCard({
   repoPath,
   surface = "codex",
   activePlanPath,
-  plannerRole,
-  reviserRole,
   planReviewPolicy,
   planReviewers,
   embedded = false,
@@ -149,11 +160,19 @@ export default function PlanFileManagerCard({
   const [configuredRoot, setConfiguredRoot] = useState<string | null>(repoPath ?? null);
   const [locationLoaded, setLocationLoaded] = useState<boolean>(!!repoPath);
   const [selectedPlanRepoRoot, setSelectedPlanRepoRoot] = useState<string | null>(null);
+  const [selectedPlanSlotId, setSelectedPlanSlotId] = useState<string | null>(null);
   const [selectedPlanContextResolved, setSelectedPlanContextResolved] = useState(false);
+  const [selectedPlanContextLoaded, setSelectedPlanContextLoaded] = useState<boolean>(!!repoPath);
+  const [slotsLoaded, setSlotsLoaded] = useState<boolean>(false);
+  const [registryView, setRegistryView] = useState<ProjectRegistryView | null>(null);
+  const [registryLoaded, setRegistryLoaded] = useState(false);
+  const registryViewRef = useRef<ProjectRegistryView | null>(null);
+  const isManagementView = !repoPath && (!registryLoaded || !!registryView);
+  const userExplicitSlotRef = useRef<boolean>(false);
 
-  // Surface-scoped project-plan slots state (1 or 2 slots)
+  // Legacy per-repository slot state. Registry-backed management rows are unbounded.
   const [slots, setSlots] = useState<ProjectPlanSlot[]>([
-    { slot_id: "primary", repo_path: null, plan_path: activePlanPath ?? null },
+    { slot_id: "primary", repo_path: repoPath ?? null, plan_path: repoPath ? (activePlanPath ?? null) : null },
   ]);
   const [slotDetails, setSlotDetails] = useState<Record<string, PlanFileDetails | null>>({});
   const [canonicalSlotView, setCanonicalSlotView] = useState<SurfacePlanSlotsView | null>(null);
@@ -167,6 +186,106 @@ export default function PlanFileManagerCard({
   } | null>(null);
   const activeSlotIdsRef = useRef<Set<string>>(new Set(["primary"]));
   const slotsRef = useRef<ProjectPlanSlot[]>(slots);
+
+  const syncSlotsFromRegistry = (reg: ProjectRegistryView) => {
+    registryViewRef.current = reg;
+    const synced: ProjectPlanSlot[] = reg.projects
+      .filter((p) => !!projectPlanPathForSurface(p, surface))
+      .map((p) => ({
+        slot_id: p.project_id,
+        repo_path: normalizeDisplayPath(p.repo_root),
+        plan_path: projectPlanPathForSurface(p, surface),
+      }));
+    setSlots(synced);
+    slotsRef.current = synced;
+    activeSlotIdsRef.current = new Set(synced.map((s) => s.slot_id));
+  };
+
+  const broadcastRegistryUpdate = (reg: ProjectRegistryView) => {
+    registryViewRef.current = reg;
+    setRegistryView(reg);
+    syncSlotsFromRegistry(reg);
+    window.dispatchEvent(new CustomEvent<ProjectRegistryView>("poverello:project-registry-updated", { detail: reg }));
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    void invoke<ProjectRegistryView | undefined>("get_project_registry")
+      .then((reg) => {
+        if (cancelled) return;
+        if (reg && typeof reg === "object" && Array.isArray(reg.projects)) {
+          setRegistryView(reg);
+          syncSlotsFromRegistry(reg);
+        }
+        setRegistryLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setRegistryLoaded(true);
+      });
+    const onRegistryUpdated = (event: Event) => {
+      const custom = event as CustomEvent<ProjectRegistryView>;
+      const reg = custom.detail;
+      if (!reg || typeof reg !== "object" || !Array.isArray(reg.projects)) return;
+      setRegistryView(reg);
+      syncSlotsFromRegistry(reg);
+    };
+    window.addEventListener("poverello:project-registry-updated", onRegistryUpdated);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("poverello:project-registry-updated", onRegistryUpdated);
+    };
+  }, [surface]);
+
+  const handleResolveMigrationConflict = async (
+    conflictId: string,
+    chosenPlanPath: string | null
+  ) => {
+    try {
+      setError(null);
+      const updated = await invoke<ProjectRegistryView>("resolve_project_migration_conflict", {
+        conflictId,
+        chosenPlanPath,
+      });
+      broadcastRegistryUpdate(updated);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const replaceProjectPlanAssociation = async (args: {
+    sourceProjectId: string;
+    targetRepo: string;
+    planPath: string;
+  }) => {
+    try {
+      setError(null);
+      const updated = await invoke<ProjectRegistryView>("replace_project_plan_association", {
+        sourceProjectId: args.sourceProjectId,
+        targetRepoPath: args.targetRepo,
+        targetPlanPath: args.planPath,
+        surface,
+      });
+      if (!updated || !Array.isArray(updated.projects)) throw new Error(t("planManager.planSelectionFailed") || "The registry update could not be verified.");
+      const target = updated.projects.find((project) => normalizePathForCompare(project.repo_root) === normalizePathForCompare(args.targetRepo));
+      const source = updated.projects.find((project) => project.project_id === args.sourceProjectId);
+      if (
+        !target ||
+        projectPlanPathForSurface(target, surface)?.replace(/\\/g, "/") !== args.planPath ||
+        (source && projectPlanPathForSurface(source, surface) !== null)
+      ) {
+        throw new Error(t("planManager.planFileAssociationMismatch") || "The replacement plan association does not match the selected file.");
+      }
+      broadcastRegistryUpdate(updated);
+      setActionMessage(`${t("planManager.planAssociationSwitched") || "Plan association switched"}: ${args.planPath}`);
+      setTimeout(() => setActionMessage(null), 3000);
+    } catch (e) {
+      setError(`${t("planManager.planSelectionFailed") || "Could not save the plan selection. Existing project entries were kept; verify the file is inside a repository and try again."} (${String(e)})`);
+      try {
+        const refreshed = await invoke<ProjectRegistryView>("get_project_registry");
+        if (refreshed && Array.isArray(refreshed.projects)) broadcastRegistryUpdate(refreshed);
+      } catch { /* Keep the last verified registry view. */ }
+    }
+  };
   useEffect(() => {
     slotsRef.current = slots;
   }, [slots]);
@@ -175,7 +294,10 @@ export default function PlanFileManagerCard({
   const slotSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const slotSaveSequenceRef = useRef(0);
 
-  const persistSlots = (explicitSlots?: ProjectPlanSlot[]) => {
+  const persistSlots = (
+    explicitSlots?: ProjectPlanSlot[],
+    activeOverride?: { activeSlotId?: string | null; activeRepoPath?: string | null },
+  ) => {
     const sequence = ++slotSaveSequenceRef.current;
     if (explicitSlots) {
       slotsRef.current = explicitSlots;
@@ -184,7 +306,10 @@ export default function PlanFileManagerCard({
       if (sequence !== slotSaveSequenceRef.current) return;
       const currentSlots = slotsRef.current.filter((s) => activeSlotIdsRef.current.has(s.slot_id));
       try {
-        await invoke("set_project_plan_slots", { surface, slots: currentSlots });
+        const payload: Record<string, unknown> = { surface, slots: currentSlots };
+        if (activeOverride?.activeSlotId) payload.activeSlotId = activeOverride.activeSlotId;
+        if (activeOverride?.activeRepoPath) payload.activeRepoPath = activeOverride.activeRepoPath;
+        await invoke("set_project_plan_slots", payload);
       } catch (e) {
         if (sequence === slotSaveSequenceRef.current) {
           setError(String(e));
@@ -225,36 +350,65 @@ export default function PlanFileManagerCard({
   };
 
   useEffect(() => {
+    if (repoPath) {
+      setSelectedPlanContextLoaded(true);
+      setSelectedPlanRepoRoot(normalizeDisplayPath(repoPath));
+      return;
+    }
+    if (!registryLoaded) {
+      setSelectedPlanContextLoaded(false);
+      return;
+    }
+    if (registryView) {
+      // Registry management is not a running-task context. Do not ask for or
+      // infer a global active project when project records are authoritative.
+      setSelectedPlanContextLoaded(true);
+      setSelectedPlanContextResolved(false);
+      setSelectedPlanRepoRoot(null);
+      setSelectedPlanSlotId(null);
+      return;
+    }
     let cancelled = false;
+    setSelectedPlanContextLoaded(false);
     void invoke<ActivePlanContext>("get_selected_project_plan_context", { surface })
       .then((context) => {
         if (cancelled) return;
         const resolved = !!context?.resolved && !!context.repoRoot;
         setSelectedPlanContextResolved(resolved);
         setSelectedPlanRepoRoot(resolved ? context.repoRoot : null);
+        setSelectedPlanSlotId(resolved ? (context.slotId ?? null) : null);
+        setSelectedPlanContextLoaded(true);
       })
       .catch(() => {
         if (cancelled) return;
         setSelectedPlanContextResolved(false);
         setSelectedPlanRepoRoot(null);
+        setSelectedPlanSlotId(null);
+        setSelectedPlanContextLoaded(true);
       });
     return () => { cancelled = true; };
-  }, [surface]);
+  }, [repoPath, registryLoaded, registryView, surface]);
 
   // Match active workspace (repoPath) to the corresponding slot
   const matchedSlot = useMemo(() => {
     if (!repoPath) {
+      if (!selectedPlanContextLoaded || !slotsLoaded) return null;
+      if (registryView) return null;
       if (selectedPlanRepoRoot) {
-        const planRepoMatch = slots.find(
+        const repoMatches = slots.filter(
           (s) => s.repo_path && normalizePathForCompare(s.repo_path) === normalizePathForCompare(selectedPlanRepoRoot)
         );
-        if (planRepoMatch) return planRepoMatch;
+        if (repoMatches.length > 0) {
+          const exact = selectedPlanSlotId ? repoMatches.find((s) => s.slot_id === selectedPlanSlotId) : null;
+          return exact || repoMatches[0];
+        }
       }
       if (selectedActiveSlotId) {
         const activeMatch = slots.find((s) => s.slot_id === selectedActiveSlotId);
         if (activeMatch) return activeMatch;
       }
-      return slots[0] || null;
+      if (slots.length === 1) return slots[0] || null;
+      return null;
     }
     const normTarget = normalizePathForCompare(repoPath);
     const matches = slots.filter((s) => s.repo_path && normalizePathForCompare(s.repo_path) === normTarget);
@@ -277,9 +431,11 @@ export default function PlanFileManagerCard({
     }
     // Ambiguous / unmatched workspace root: do NOT guess another slot's plan!
     return null;
-  }, [repoPath, slots, selectedActiveSlotId, selectedPlanRepoRoot]);
+  }, [repoPath, slots, slotsLoaded, selectedPlanContextLoaded, selectedActiveSlotId, selectedPlanRepoRoot, selectedPlanSlotId]);
 
   const isUnmatchedWorkspace = !!repoPath && !matchedSlot;
+  const isUnresolvedProjectContext =
+    !repoPath && !registryView && selectedPlanContextLoaded && slotsLoaded && !matchedSlot && slots.length > 1;
   const activeRepo = matchedSlot ? (matchedSlot.repo_path || repoPath || null) : null;
   const canonicalActiveSlotForRepo =
     canonicalSlotView &&
@@ -300,9 +456,23 @@ export default function PlanFileManagerCard({
   // Load project-plan slots on mount or surface change
   useEffect(() => {
     let cancelled = false;
+    setSlotsLoaded(false);
+    if (!repoPath && !registryLoaded) {
+      return () => { cancelled = true; };
+    }
+    if (registryView) {
+      syncSlotsFromRegistry(registryView);
+      setSlotsLoaded(true);
+      return () => { cancelled = true; };
+    }
     void invoke<ProjectPlanSlot[]>("get_project_plan_slots", { surface })
       .then((fetchedSlots) => {
         if (cancelled) return;
+        if (registryViewRef.current) {
+          syncSlotsFromRegistry(registryViewRef.current);
+          setSlotsLoaded(true);
+          return;
+        }
         if (fetchedSlots && Array.isArray(fetchedSlots) && fetchedSlots.length > 0) {
           setSlots(fetchedSlots);
           slotsRef.current = fetchedSlots;
@@ -319,6 +489,7 @@ export default function PlanFileManagerCard({
           slotsRef.current = initial;
           activeSlotIdsRef.current = new Set(["primary"]);
         }
+        setSlotsLoaded(true);
       })
       .catch(() => {
         if (cancelled) return;
@@ -332,48 +503,58 @@ export default function PlanFileManagerCard({
         setSlots(initial);
         slotsRef.current = initial;
         activeSlotIdsRef.current = new Set(["primary"]);
+        setSlotsLoaded(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [surface]);
+  }, [surface, registryView, registryLoaded, repoPath]);
 
-  // Keep role assignments scoped to this repository and Autocode surface.
-  const [currentPlannerRole, setCurrentPlannerRole] = useState<string | null>(plannerRole || null);
-  const [currentReviserRole, setCurrentReviserRole] = useState<string | null>(reviserRole || null);
-  const roleAssignmentRef = useRef({ plannerRole: plannerRole || null, reviserRole: reviserRole || null });
+  // Keep one shared role assignment per Autocode surface across all repositories.
+  const [currentPlannerRole, setCurrentPlannerRole] = useState<string | null>(null);
+  const [currentReviserRole, setCurrentReviserRole] = useState<string | null>(null);
+  const [legacyRoleConflict, setLegacyRoleConflict] = useState<string[]>([]);
+  const roleAssignmentRef = useRef({ plannerRole: null as string | null, reviserRole: null as string | null });
+  const lastConfirmedRoleRef = useRef({ plannerRole: null as string | null, reviserRole: null as string | null });
   const roleSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const roleSaveSequenceRef = useRef(0);
   const onRolesChangedRef = useRef(onRolesChanged);
   useEffect(() => { onRolesChangedRef.current = onRolesChanged; }, [onRolesChanged]);
 
   useEffect(() => {
-    if (!locationLoaded || !activeRepo) return;
     let cancelled = false;
-    void invoke<{ planner_id: string | null; reviser_id: string | null }>("get_plan_role_assignment", { surface, repoPath: activeRepo })
-      .then((assignment) => {
+    const cleared = { plannerRole: null, reviserRole: null };
+    roleSaveSequenceRef.current += 1;
+    roleAssignmentRef.current = cleared;
+    lastConfirmedRoleRef.current = cleared;
+    setCurrentPlannerRole(null);
+    setCurrentReviserRole(null);
+    setLegacyRoleConflict([]);
+    void invoke<WorkflowRoleAssignmentView>("get_workflow_role_assignment", { surface })
+      .then((view) => {
         if (cancelled) return;
-        setCurrentPlannerRole(assignment.planner_id);
-        setCurrentReviserRole(assignment.reviser_id);
-        roleAssignmentRef.current = { plannerRole: assignment.planner_id, reviserRole: assignment.reviser_id };
-        onRolesChangedRef.current?.({
-          plannerRole: assignment.planner_id,
-          reviserRole: assignment.reviser_id,
-        });
+        const assignment = view.assignment;
+        const confirmed = { plannerRole: assignment?.planner_id ?? null, reviserRole: assignment?.reviser_id ?? null };
+        lastConfirmedRoleRef.current = confirmed;
+        roleAssignmentRef.current = confirmed;
+        setCurrentPlannerRole(confirmed.plannerRole);
+        setCurrentReviserRole(confirmed.reviserRole);
+        setLegacyRoleConflict(view.legacy_conflict ? view.conflict_sources : []);
+        onRolesChangedRef.current?.(confirmed);
       })
       .catch((e) => {
         if (cancelled) return;
-        const message = e instanceof Error ? e.message : String(e);
-        if (
-          surface === "antigravity" &&
-          message === "No active plan file is configured for antigravity surface"
-        ) {
-          return;
-        }
+        setLegacyRoleConflict([]);
+        const cleared = { plannerRole: null, reviserRole: null };
+        roleAssignmentRef.current = cleared;
+        lastConfirmedRoleRef.current = cleared;
+        setCurrentPlannerRole(null);
+        setCurrentReviserRole(null);
+        onRolesChangedRef.current?.(cleared);
         setError(String(e));
       });
     return () => { cancelled = true; };
-  }, [surface, activeRepo, locationLoaded]);
+  }, [surface]);
 
   // Keep callback and activePlanPath references in refs to avoid re-render loops
   const onActivePlanChangedRef = useRef(onActivePlanChanged);
@@ -447,13 +628,23 @@ export default function PlanFileManagerCard({
         setCanonicalSlotView(view);
         if (view.active_slot_id === "primary" || view.active_slot_id === "secondary") {
           setSelectedActiveSlotId(view.active_slot_id);
-          reportActivePlanContext(activeRepo, view.active_slot_id, view.active_plan_path ?? null);
-          if (
-            view.active_plan_path &&
-            view.active_plan_path !== activePlanPathRef.current &&
-            onActivePlanChangedRef.current
-          ) {
-            onActivePlanChangedRef.current(view.active_plan_path);
+          const matchesSelectedContext =
+            !!repoPath ||
+            userExplicitSlotRef.current ||
+            (selectedPlanContextResolved &&
+              (!selectedPlanRepoRoot ||
+                normalizePathForCompare(activeRepo) === normalizePathForCompare(selectedPlanRepoRoot)) &&
+              (!selectedPlanSlotId || view.active_slot_id === selectedPlanSlotId)) ||
+            slots.length <= 1;
+          if (matchesSelectedContext) {
+            reportActivePlanContext(activeRepo, view.active_slot_id, view.active_plan_path ?? null);
+            if (
+              view.active_plan_path &&
+              view.active_plan_path !== activePlanPathRef.current &&
+              onActivePlanChangedRef.current
+            ) {
+              onActivePlanChangedRef.current(view.active_plan_path);
+            }
           }
         } else if (view.is_unresolved) {
           setSelectedActiveSlotId(null);
@@ -465,7 +656,17 @@ export default function PlanFileManagerCard({
     return () => {
       cancelled = true;
     };
-  }, [locationLoaded, activeRepo, surface, reportActivePlanContext]);
+  }, [
+    locationLoaded,
+    activeRepo,
+    surface,
+    repoPath,
+    selectedPlanContextResolved,
+    selectedPlanRepoRoot,
+    selectedPlanSlotId,
+    slots.length,
+    reportActivePlanContext,
+  ]);
 
   const loadPlans = useCallback(async (folderOverride?: string | null, repoOverride?: string | null, slotOverride?: string | null) => {
     const targetRepo = repoOverride ?? activeRepo;
@@ -494,10 +695,20 @@ export default function PlanFileManagerCard({
         setSelectedFolder(res.selected_folder);
       }
 
-      if (loadedActive !== activePlanPathRef.current && onActivePlanChangedRef.current) {
-        onActivePlanChangedRef.current(loadedActive);
+      const canSyncParentActivePlan =
+        !!repoPath ||
+        userExplicitSlotRef.current ||
+        (selectedPlanContextResolved &&
+          (!selectedPlanRepoRoot ||
+            normalizePathForCompare(targetRepo) === normalizePathForCompare(selectedPlanRepoRoot)) &&
+          (!selectedPlanSlotId || targetSlotId === selectedPlanSlotId)) ||
+        slots.length <= 1;
+      if (canSyncParentActivePlan) {
+        if (loadedActive !== activePlanPathRef.current && onActivePlanChangedRef.current) {
+          onActivePlanChangedRef.current(loadedActive);
+        }
+        reportActivePlanContext(targetRepo, targetSlotId, loadedActive);
       }
-      reportActivePlanContext(targetRepo, targetSlotId, loadedActive);
     } catch (e: unknown) {
       setError(String(e));
     } finally {
@@ -645,10 +856,79 @@ export default function PlanFileManagerCard({
   };
 
   const handleSelectPlanFile = async (slotId: string) => {
+    const isRegistrySelection = registryViewRef.current?.projects.some((p) => p.project_id === slotId) ?? false;
     try {
       setError(null);
       const targetSlot = slotsRef.current.find((s) => s.slot_id === slotId);
       const slotRepo = targetSlot?.repo_path || null;
+      const registryProject = registryViewRef.current?.projects.find((p) => p.project_id === slotId) ?? null;
+
+      if (registryProject) {
+        const picked = await invoke<SelectedPlanResult | string | null>("select_plan_file_dialog", {
+          repoPath: registryProject.repo_root,
+          surface,
+          dialogTitle: t("planManager.selectPlanFile") || "プランファイルを選択",
+        });
+        if (!picked) return;
+        if (typeof picked === "string") {
+          throw new Error(t("planManager.planFileAssociationMismatch") || "The selected plan file could not be verified for this repository.");
+        }
+        const pickedRel = picked.relative_path?.trim().replace(/\\/g, "/");
+        const pickedRepo = picked.repo_path?.trim();
+        if (picked.surface && picked.surface !== surface) {
+          throw new Error(t("planManager.planFileAssociationMismatch") || "The selected plan file does not match this surface.");
+        }
+        const relativeSegments = (pickedRel || "").split("/");
+        if (
+          !pickedRepo ||
+          !pickedRel ||
+          pickedRel.startsWith("/") ||
+          /^[a-zA-Z]:/.test(pickedRel) ||
+          !pickedRel.toLowerCase().endsWith(".md") ||
+          relativeSegments.some((segment) => segment === ".." || segment === "")
+        ) {
+          throw new Error(t("planManager.planFileAssociationMismatch") || "Choose a Markdown plan file inside a repository.");
+        }
+
+        const latestRegistry = registryViewRef.current;
+        if (!latestRegistry || !Array.isArray(latestRegistry.projects)) {
+          throw new Error(t("planManager.planFileAssociationMismatch") || "The project registry is unavailable. Reload and try again.");
+        }
+        const sourceProject = latestRegistry.projects.find((project) => project.project_id === slotId);
+        if (!sourceProject) {
+          throw new Error(t("planManager.planSelectionFailed") || "The project row changed. Refresh and try again.");
+        }
+        const pickedRepoKey = normalizePathForCompare(pickedRepo);
+        const sourceRepoKey = normalizePathForCompare(sourceProject.repo_root);
+        if (sourceRepoKey !== pickedRepoKey) {
+          await replaceProjectPlanAssociation({
+            sourceProjectId: sourceProject.project_id,
+            targetRepo: normalizeDisplayPath(pickedRepo),
+            planPath: pickedRel,
+          });
+          return;
+        }
+        const updated = await invoke<ProjectRegistryView>("set_project_plan_path", {
+          projectId: sourceProject.project_id,
+          planPath: pickedRel,
+          surface,
+        });
+        if (!updated || !Array.isArray(updated.projects)) {
+          throw new Error(t("planManager.planFileAssociationMismatch") || "The saved plan association could not be verified. Reload and try again.");
+        }
+        const saved = updated.projects.find((project) => normalizePathForCompare(project.repo_root) === pickedRepoKey);
+        if (!saved || projectPlanPathForSurface(saved, surface)?.replace(/\\/g, "/") !== pickedRel) {
+          throw new Error(t("planManager.planFileAssociationMismatch") || "The saved plan association does not match the selected file. Reload and try again.");
+        }
+        broadcastRegistryUpdate(updated);
+        if (repoPath && normalizePathForCompare(repoPath) === normalizePathForCompare(saved.repo_root)) {
+          onActivePlanChangedRef.current?.(pickedRel);
+        }
+        const successText = t("planManager.planPathSaved") || "プランファイルの関連付けを保存しました";
+        setActionMessage(`${successText}: ${pickedRel}`);
+        setTimeout(() => setActionMessage(null), 3000);
+        return;
+      }
 
       const dialogArgs: Record<string, unknown> = {
         repoPath: slotRepo || undefined,
@@ -661,7 +941,7 @@ export default function PlanFileManagerCard({
       if (!picked) return;
       if (!activeSlotIdsRef.current.has(slotId)) return; // Stale slot check
 
-      // Validate returned slot_id and surface to prevent cross-row or cross-surface stale misassignment
+      // Legacy compatibility path only; registry-managed rows use stable project IDs above.
       if (typeof picked !== "string") {
         if (picked.slot_id && picked.slot_id !== slotId) return;
         if (picked.surface && picked.surface !== surface) return;
@@ -684,9 +964,7 @@ export default function PlanFileManagerCard({
 
       if (!activeSlotIdsRef.current.has(slotId)) return; // Stale slot check
 
-      // The plan picker is the explicit per-project workflow-context selector.
-      // Capture its pinned identity here now that the separate active-slot buttons
-      // are removed from the project rows.
+      // Legacy compatibility path only.
       try {
         const pin = await invoke<PinnedWorkflowTarget>("pin_workflow_target", {
           repoPath: pickedRepo,
@@ -708,9 +986,23 @@ export default function PlanFileManagerCard({
       );
       setSlots(nextSlots);
       slotsRef.current = nextSlots;
-      void persistSlots(nextSlots);
-
+      userExplicitSlotRef.current = true;
+      setSelectedPlanSlotId(slotId);
       setSelectedActiveSlotId(slotId);
+      void persistSlots(nextSlots, { activeSlotId: slotId, activeRepoPath: pickedRepo });
+      if (registryView) {
+        void invoke<ProjectRegistryView>("register_project_in_registry", {
+          repoPath: pickedRepo,
+          planPath: pickedRel,
+          surface,
+        })
+          .then((reg) => {
+            if (reg && typeof reg === "object" && Array.isArray(reg.projects)) {
+              broadcastRegistryUpdate(reg);
+            }
+          })
+          .catch(() => undefined);
+      }
       setMirrorWarning(null);
       setCanonicalSlotView((prev) => ({
         repo_root: pickedRepo,
@@ -742,7 +1034,76 @@ export default function PlanFileManagerCard({
       setActionMessage(`${t("planManager.planActivated") || "計画書を設定しました"}: ${pickedRel.split("/").pop() || pickedRel}`);
       setTimeout(() => setActionMessage(null), 3000);
     } catch (e: unknown) {
-      setError(String(e));
+      if (isRegistrySelection) {
+        try {
+          const latest = await invoke<ProjectRegistryView>("get_project_registry");
+          if (latest && Array.isArray(latest.projects)) broadcastRegistryUpdate(latest);
+        } catch {
+          // Keep the last known registry view if authoritative reload also fails.
+        }
+        const help = t("planManager.planSelectionFailed") || "Could not save the plan selection. Existing entries were kept; verify the plan is inside a repository and try again.";
+        setError(help);
+      } else {
+        setError(String(e));
+      }
+    }
+  };
+
+  const handleAddProjectPlan = async () => {
+    try {
+      setError(null);
+      const picked = await invoke<SelectedPlanResult | string | null>("select_plan_file_dialog", {
+        surface,
+        dialogTitle: t("planManager.addProjectPlan") || "プランファイルを追加",
+      });
+      if (!picked) return;
+      if (typeof picked === "string") throw new Error(t("planManager.planFileAssociationMismatch") || "The selected plan file could not be verified.");
+      const pickedRepo = picked.repo_path?.trim();
+      const pickedRel = picked.relative_path?.trim().replace(/\\/g, "/");
+      const segments = (pickedRel || "").split("/");
+      if (
+        (picked.surface && picked.surface !== surface) ||
+        !pickedRepo || !pickedRel || pickedRel.startsWith("/") || /^[a-zA-Z]:/.test(pickedRel) ||
+        !pickedRel.toLowerCase().endsWith(".md") || segments.some((part) => !part || part === "." || part === "..")
+      ) {
+        throw new Error(t("planManager.planFileAssociationMismatch") || "Choose a Markdown plan file inside a repository.");
+      }
+      const before = registryViewRef.current;
+      if (!before || !Array.isArray(before.projects)) throw new Error(t("planManager.planSelectionFailed") || "The project registry is unavailable. Refresh and try again.");
+      const repoKey = normalizePathForCompare(pickedRepo);
+      const wasRegistered = before.projects.some((project) => normalizePathForCompare(project.repo_root) === repoKey);
+      const updated = await invoke<ProjectRegistryView>("register_project_in_registry", { repoPath: pickedRepo, planPath: pickedRel, surface });
+      const saved = updated?.projects?.find((project) => normalizePathForCompare(project.repo_root) === repoKey);
+      if (!saved || projectPlanPathForSurface(saved, surface)?.replace(/\\/g, "/") !== pickedRel) throw new Error(t("planManager.planFileAssociationMismatch") || "The saved plan association could not be verified.");
+      broadcastRegistryUpdate(updated);
+      const successText = wasRegistered
+        ? (t("planManager.planPathSaved") || "Plan association saved")
+        : (t("planManager.planRepositoryAdded") || "Repository registered and plan saved");
+      setActionMessage(`${successText}: ${pickedRel}`);
+      setTimeout(() => setActionMessage(null), 3000);
+    } catch (e) {
+      setError(`${t("planManager.planSelectionFailed") || "Could not save the plan selection. Existing project entries were kept; verify the file is inside a repository and try again."} (${String(e)})`);
+    }
+  };
+
+  const handleRemoveProjectAssociation = async (projectId: string) => {
+    try {
+      setError(null);
+      const updated = await invoke<ProjectRegistryView>("unregister_project_from_registry", { projectId, surface });
+      if (!updated || !Array.isArray(updated.projects)) throw new Error(t("planManager.planSelectionFailed") || "The registry update could not be verified.");
+      const remaining = updated.projects.find((project) => project.project_id === projectId);
+      if (remaining && projectPlanPathForSurface(remaining, surface) !== null) {
+        throw new Error(t("planManager.planSelectionFailed") || "The project association could not be removed.");
+      }
+      broadcastRegistryUpdate(updated);
+      setActionMessage(t("planManager.planAssociationRemoved") || "Plan association removed");
+      setTimeout(() => setActionMessage(null), 3000);
+    } catch (e) {
+      setError(`${t("planManager.planSelectionFailed") || "Could not save the plan selection. Existing project entries were kept; verify the file is inside a repository and try again."} (${String(e)})`);
+      try {
+        const refreshed = await invoke<ProjectRegistryView>("get_project_registry");
+        if (refreshed && Array.isArray(refreshed.projects)) broadcastRegistryUpdate(refreshed);
+      } catch { /* Keep the last verified registry view. */ }
     }
   };
 
@@ -786,8 +1147,8 @@ export default function PlanFileManagerCard({
   };
 
   const persistRoleAssignment = async (plannerRole: string | null, reviserRole: string | null) => {
-    if (!activeRepo) return;
     setError(null);
+    setLegacyRoleConflict([]);
     const target = { plannerRole, reviserRole };
     roleAssignmentRef.current = target;
     setCurrentPlannerRole(plannerRole);
@@ -795,27 +1156,35 @@ export default function PlanFileManagerCard({
     const sequence = ++roleSaveSequenceRef.current;
     roleSaveQueueRef.current = roleSaveQueueRef.current.catch(() => undefined).then(async () => {
       try {
-        await invoke("set_plan_role_assignment", {
+        await invoke("set_workflow_role_assignment", {
           surface,
-          repoPath: activeRepo,
           assignment: { planner_id: target.plannerRole, reviser_id: target.reviserRole },
         });
+        lastConfirmedRoleRef.current = target;
         if (sequence === roleSaveSequenceRef.current) setError(null);
       } catch (e) {
         if (sequence !== roleSaveSequenceRef.current) return;
         setError(String(e));
         try {
-          const stored = await invoke<{ planner_id: string | null; reviser_id: string | null }>("get_plan_role_assignment", {
-            surface,
-            repoPath: activeRepo,
-          });
+          const stored = await invoke<WorkflowRoleAssignmentView>("get_workflow_role_assignment", { surface });
           if (sequence === roleSaveSequenceRef.current) {
-            roleAssignmentRef.current = { plannerRole: stored.planner_id, reviserRole: stored.reviser_id };
-            setCurrentPlannerRole(stored.planner_id);
-            setCurrentReviserRole(stored.reviser_id);
+            const restored = { plannerRole: stored.assignment?.planner_id ?? null, reviserRole: stored.assignment?.reviser_id ?? null };
+            setLegacyRoleConflict(stored.legacy_conflict ? stored.conflict_sources : []);
+            lastConfirmedRoleRef.current = restored;
+            roleAssignmentRef.current = restored;
+            setCurrentPlannerRole(restored.plannerRole);
+            setCurrentReviserRole(restored.reviserRole);
+            onRolesChangedRef.current?.(restored);
           }
         } catch (reloadError) {
-          if (sequence === roleSaveSequenceRef.current) setError(`${String(e)}; failed to reload saved role assignment: ${String(reloadError)}`);
+          if (sequence === roleSaveSequenceRef.current) {
+            const fallback = lastConfirmedRoleRef.current;
+            roleAssignmentRef.current = fallback;
+            setCurrentPlannerRole(fallback.plannerRole);
+            setCurrentReviserRole(fallback.reviserRole);
+            onRolesChangedRef.current?.(fallback);
+            setError(`${String(e)}; failed to reload saved role assignment: ${String(reloadError)}`);
+          }
         }
       }
     });
@@ -824,14 +1193,14 @@ export default function PlanFileManagerCard({
 
   const handlePlannerRoleChange = (role: string | null) => {
     void persistRoleAssignment(role, roleAssignmentRef.current.reviserRole);
-    if (onRolesChanged) {
+    if (activeRepo && onRolesChanged) {
       onRolesChanged({ plannerRole: role });
     }
   };
 
   const handleReviserRoleChange = (role: string | null) => {
     void persistRoleAssignment(roleAssignmentRef.current.plannerRole, role);
-    if (onRolesChanged) {
+    if (activeRepo && onRolesChanged) {
       onRolesChanged({ reviserRole: role });
     }
   };
@@ -975,6 +1344,48 @@ export default function PlanFileManagerCard({
           </div>
         </div>
       )}
+      {registryView && registryView.pending_conflicts.length > 0 && (
+        <div
+          data-testid="migration-conflict-banner"
+          style={{
+            marginBottom: 10,
+            padding: "8px 10px",
+            borderRadius: 6,
+            backgroundColor: "#ffebe9",
+            border: "1px solid #ff8182",
+            color: "#82071e",
+            fontSize: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+          }}
+        >
+          {registryView.pending_conflicts.map((conflict) => (
+            <div key={conflict.conflict_id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <strong>{conflict.description}</strong>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {conflict.options.map((opt) => (
+                  <button
+                    key={`${conflict.conflict_id}:${opt.source}:${opt.label}`}
+                    type="button"
+                    className="btn btn-small"
+                    data-testid={`btn-resolve-conflict-${conflict.conflict_id}`}
+                    onClick={() =>
+                      void handleResolveMigrationConflict(
+                        conflict.conflict_id,
+                        opt.plan_path ?? null
+                      )
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {isUnmatchedWorkspace && (
         <div
           data-testid="unmatched-workspace-warning"
@@ -1014,7 +1425,7 @@ export default function PlanFileManagerCard({
             {t("planManager.title") || "プランファイル"}
           </h3>
 
-          {primaryRelPath ? (
+          {isManagementView ? null : primaryRelPath ? (
             <span
               className="badge badge-success"
               data-testid="active-plan-badge"
@@ -1061,8 +1472,8 @@ export default function PlanFileManagerCard({
       {/* ── PROJECT-PLAN SLOTS (Permanent Row 1, Optional Row 2) ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
         {slots.map((slot) => {
-          const isPrimary = slot.slot_id === "primary";
-          const isOperational = slot.slot_id === operationalSlotId;
+          const isPrimary = !registryView && slot.slot_id === "primary";
+          const isOperational = !registryView && slot.slot_id === operationalSlotId;
           const slotRepo = slot.repo_path || (isOperational ? activeRepo : null);
           const slotRel = slot.plan_path || (isOperational ? primaryRelPath : null);
           const slotDet = slotDetails[slot.slot_id] || (isOperational ? details : null);
@@ -1082,14 +1493,11 @@ export default function PlanFileManagerCard({
           const slotOpenPlanTitle = slotEntry?.title
             ? `${slotDisplay} — ${slotEntry.title} (${t("planManager.openPlanTooltip") || "エディタで開く"})`
             : `${slotDisplay} (${t("planManager.openPlanTooltip") || "エディタで開く"})`;
-          const slotLabel = isPrimary
-            ? (t("planManager.slotPrimary") || "プロジェクト 1")
-            : (t("planManager.slotSecondary") || "プロジェクト 2");
 
           return (
             <div
               key={slot.slot_id}
-              data-testid={`project-plan-slot-${slot.slot_id}`}
+              data-testid={registryView ? `project-plan-row-${slot.slot_id}` : `project-plan-slot-${slot.slot_id}`}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1097,23 +1505,10 @@ export default function PlanFileManagerCard({
                 minWidth: 0,
               }}
             >
-              {/* Slot Label */}
-              <span
-                data-testid={`slot-label-${slot.slot_id}`}
-                style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: "var(--color-text-secondary, #4b5563)",
-                  whiteSpace: "nowrap",
-                  flexShrink: 0,
-                }}
-              >
-                {slotLabel}:
-              </span>
 
               {/* Bordered Read-Only Static Path Field */}
               <div
-                data-testid={isPrimary ? "active-plan-path-container" : `active-plan-path-container-${slot.slot_id}`}
+                data-testid={registryView ? `plan-path-container-${slot.slot_id}` : isPrimary ? "active-plan-path-container" : `active-plan-path-container-${slot.slot_id}`}
                 style={{
                   flex: "1 1 0%",
                   minWidth: 0,
@@ -1123,54 +1518,50 @@ export default function PlanFileManagerCard({
               >
                 {slotDisplay ? (
                   <div
-                    data-testid={isPrimary ? "active-plan-path-display" : `active-plan-path-display-${slot.slot_id}`}
+                    role="textbox"
+                    aria-readonly="true"
+                    tabIndex={0}
+                    data-testid={registryView ? `plan-path-display-${slot.slot_id}` : isPrimary ? "active-plan-path-display" : `active-plan-path-display-${slot.slot_id}`}
                     title={slotRepoDisplay ? `${slotRepoDisplay}/${slotDisplay}` : slotDisplay}
                     aria-label={slotOpenPlanAriaLabel}
                     style={{
                       flex: 1,
                       minWidth: 0,
-                      maxWidth: "100%",
                       boxSizing: "border-box",
-                      display: "block",
-                      padding: "4px 10px",
+                      padding: "5px 10px",
                       fontSize: 12,
                       fontFamily: "monospace",
                       color: "var(--color-text-primary, #111827)",
                       backgroundColor: "#ffffff",
                       border: "1px solid #d0d7de",
                       borderRadius: 6,
-                      textAlign: "left",
-                      textDecoration: "none",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
                       userSelect: "text",
-                      cursor: "text",
-                      lineHeight: "1.5",
                     }}
                   >
                     {slotDisplay}
                   </div>
                 ) : (
                   <div
-                    data-testid={isPrimary ? "empty-plan-path-field" : `empty-plan-path-field-${slot.slot_id}`}
+                    role="textbox"
+                    aria-readonly="true"
+                    data-testid={registryView ? `empty-plan-path-${slot.slot_id}` : isPrimary ? "empty-plan-path-field" : `empty-plan-path-field-${slot.slot_id}`}
                     title={slotRepoDisplay || undefined}
                     style={{
                       flex: 1,
                       minWidth: 0,
-                      maxWidth: "100%",
                       boxSizing: "border-box",
-                      padding: "4px 10px",
+                      padding: "5px 10px",
                       fontSize: 12,
                       color: "#8c959f",
                       backgroundColor: "#f6f8fa",
                       border: "1px solid #d0d7de",
                       borderRadius: 6,
-                      fontStyle: "italic",
                       whiteSpace: "nowrap",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
-                      lineHeight: "1.5",
                     }}
                   >
                     {t("planManager.emptyPlanPlaceholder") || "計画書が選択されていません"}
@@ -1183,7 +1574,7 @@ export default function PlanFileManagerCard({
                 type="button"
                 className="btn btn-small"
                 onClick={() => void handleSelectPlanFile(slot.slot_id)}
-                data-testid={isPrimary ? "btn-select-plan-file" : `btn-select-plan-file-${slot.slot_id}`}
+                data-testid={registryView ? `btn-select-plan-file-${slot.slot_id}` : isPrimary ? "btn-select-plan-file" : `btn-select-plan-file-${slot.slot_id}`}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -1206,7 +1597,7 @@ export default function PlanFileManagerCard({
                 className="btn btn-small"
                 onClick={() => void handleOpenPlan(slot.slot_id)}
                 disabled={!slotDisplay}
-                data-testid={isPrimary ? "btn-open-plan" : `btn-open-plan-${slot.slot_id}`}
+                data-testid={registryView ? `btn-open-plan-${slot.slot_id}` : isPrimary ? "btn-open-plan" : `btn-open-plan-${slot.slot_id}`}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -1222,8 +1613,19 @@ export default function PlanFileManagerCard({
                 <span>{t("planManager.btnOpenPlanFile") || "プランファイルを開く"}</span>
               </button>
 
-              {/* Secondary slot removal button */}
-              {!isPrimary && (
+              {/* Registry association removal; repository and plan files remain untouched. */}
+              {registryView ? (
+                <button
+                  type="button"
+                  className="btn btn-small"
+                  onClick={() => void handleRemoveProjectAssociation(slot.slot_id)}
+                  data-testid={`btn-remove-project-${slot.slot_id}`}
+                  title={t("planManager.removeSlotTooltip") || "Remove the Poverello association only; files are not deleted"}
+                  style={{ fontSize: 12, padding: "4px 10px", whiteSpace: "nowrap", color: "#dc2626", flexShrink: 0 }}
+                >
+                  {t("planManager.removeSlot") || "Remove"}
+                </button>
+              ) : !isPrimary && (
                 <button
                   type="button"
                   className="btn btn-small"
@@ -1245,8 +1647,22 @@ export default function PlanFileManagerCard({
           );
         })}
 
+        {registryView && (
+          <div style={{ marginTop: 2 }}>
+            <button
+              type="button"
+              className="btn btn-small"
+              onClick={() => void handleAddProjectPlan()}
+              data-testid="btn-add-project-plan"
+              style={{ fontSize: 11, padding: "2px 8px", whiteSpace: "nowrap" }}
+            >
+              + {t("planManager.addProjectPlan") || "プランファイルを追加"}
+            </button>
+          </div>
+        )}
+
         {/* Add Slot Button (Max 2 rows) */}
-        {slots.length < 2 && (
+        {!registryView && slots.length < 2 && (
           <div style={{ marginTop: 2 }}>
             <button
               type="button"
@@ -1315,6 +1731,12 @@ export default function PlanFileManagerCard({
                 alignItems: "flex-start",
               }}
             >
+              {legacyRoleConflict.length > 0 && (
+                <div role="alert" data-testid="shared-role-legacy-conflict" style={{ width: "100%", color: "var(--color-danger, #b42318)", fontSize: 12 }}>
+                  {t("planManager.sharedRoleConflict") || "Registered projects have different saved role assignments. Choose the shared roles below to resolve the conflict."}
+                  <ul>{legacyRoleConflict.map((source) => <li key={source}>{source}</li>)}</ul>
+                </div>
+              )}
               {/* 1. 計画作成 (Planner Role) */}
               <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
                 <label style={{ fontSize: 12, color: "var(--color-text-secondary, #4b5563)", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>

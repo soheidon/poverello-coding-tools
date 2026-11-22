@@ -1,4 +1,14 @@
-# Poverello Coding Tools — Release Notes
+## v0.28.2 — 2026-11-23
+
+### Independent Autocode Plan Paths
+- Keeps the registered repository list shared while storing one plan file independently for Codex Autocode and Antigravity Autocode within each repository.
+- Resolves repository identity from the selected Markdown plan path. Replacing a row switches that association immediately; adding a repository is a separate action, and removal unregisters only Poverello's association.
+- Shares Planner/Reviser assignments per Autocode surface rather than per repository, while keeping each workflow pinned to its selected plan.
+
+### UI and Updates
+- Adds 40 px to the initial/base application window height.
+- Publishes the signed Stable Windows installer together with its updater signature and `latest.json`, enabling the existing GitHub Releases updater.
+
 
 ## v0.28.1 — 2026-11-22
 
@@ -15,7 +25,7 @@
 ### Windows Installer
 - Updated the Stable Windows NSIS build helper to suppress redundant `choowHowToInstall` language fallback warnings for standard bundled locales while preserving custom-language compatibility.
 
-## v0.28.0 — 2026-11-18 (release preparation; not yet published)
+## v0.28.0 — 2026-11-18
 
 ### Antigravity AgentOpt and Poverello Rules
 - Added per-project AgentOpt controls for both Antigravity project-plan slots. Each project has its own target folder, manual folder selection, enable/disable control, and effective status; the two slots remain independent.

@@ -8,14 +8,12 @@ description: 計画作成と独立計画レビュー専用のCodex Skill。承�
 ## 役割と権能分離 (Separation of Powers)
 
 - **正本計画書（Active Plan File）の解決順序**: 作業開始前に必ず確認する。
-  1. **引数・プロンプト明示指定**: ユーザーが引数等で計画書パスを指定している場合は最優先する。
-  2. **作業リポジトリローカル設定**: 作業ディレクトリの最近傍Gitリポジトリ（`.git`）配下の `.plan/.active-plan.json`（サーフェス固有 `surfaces.codex.active_plan_path` または legacy `active_plan_path`）を解決する。
-  3. **GUI設定のプロジェクトスロット**: `CODEX_HOME/pov-review-settings.json` の `slots` から作業リポジトリルートに一致するスロットの `plan_path` を解決する。
-  4. **未解決時の安全な停止 (Fail Closed)**: 対応する計画書が特定できない、または複数一致で曖昧な場合は別プロジェクトの計画書を推測・誤用せず、即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED: Poverello GUI の Autocode 画面から作業対象のプランファイルを指定または新規作成してください。` を出力して停止する。
+  1. **正本コンテキスト（選択プランファイル起点）**: Workflow開始時に、利用者または呼び出し元から渡された絶対パスの `selected_plan_path` を必須入力として受け取る。まず `resolve_project_context_for_plan` / `resolve_project_context_for_plan_at` にそのパスを渡し、実在するMarkdownファイルの enclosing Git repository と、レジストリ上の同じファイルの関連付けを検証する。この選択ファイルから `project_id`・`repo_root`・相対 `plan_path` を導出し、`launch_pinned_plan_workflow_for_selected_plan` で同じ `(repo_root, plan_path)` をピン留めする。cwd、現在の作業リポジトリ、surface別選択、レジストリ行順、active slot、別の登録プランから対象を選んではならない。明示された選択パスが現在の関連付けと違う場合は、GUIでそのプランを保存してから再実行するよう案内して停止する。
+  2. **未解決時の安全な停止 (Fail Closed)**: 正確な選択プランパスが呼び出し元から渡されない、ファイルが欠落・非Markdown・Gitリポジトリ外、リポジトリ未登録、またはそのリポジトリに別プランが関連付いている場合は、cwdや別プロジェクトから補完せず、`BLOCKED — PLAN FILE REQUIRED: Poverello Autocodeで使うプランファイルを選択・保存してから再実行してください。` と出力して停止する。
 - **Planner (計画作成担当)**: 指定された正本計画書（`.plan/<name>.md` 等）に初期計画を作成する。
 - **Reviewer (検査担当)**: 計画書を完全な読み取り専用（Read-Only）として検査し、合否判定（`APPROVED` / `REQUEST_CHANGES`）と具体的根拠付き指摘（P0/P1/P2）のみを返す。**Reviewer 自身が正本計画書を直接編集・修正・承認改ざんすることは厳格に禁止される**。
 - **Reviser (計画修正担当)**: Reviewer の指摘を受けて計画書を修正する担当。修正は必ず Reviser（Codex作業セッション等）が行い、修正完了後に正本計画書を固定して再度 Reviewer の検査を仰ぐ。
-- **Role assignmentの実行**: `.plan/.active-plan.json` の `role_assignments.codex` を読み、`planner_id` / `reviser_id` が `codex_session` または後方互換の `codex` のときだけ現在のCodexセッションがその工程を担当する。未設定・不正ID・未選択Active Planは開始前に停止し、別担当やReviewerへ切り替えない。Reviewer設定は既存の `CODEX_HOME/pov-review-settings.json` から独立して解決する。Reviewer工程を完了・終了してからReviser工程を別工程として起動し、同一担当IDでも権限・入力・監査境界を共有しない。
+- **Role assignmentの実行**: 作業対象の `project_id` / `repo_root` / `plan_path` は、呼び出し元から渡された絶対パスの `selected_plan_path` を `resolve_project_context_for_plan` で検証して解決する。repoを先に決めてプランを選んではならない。Planner/Reviserの担当は、アプリと同じ `CODEX_HOME/pov-review-settings.json` にある `workflow_role_assignments.codex` を読む。`.plan/.active-plan.json` の旧 `role_assignments` / `project_roles` は移行元のみであり、Workflow実行時に参照してはならない。設定が未設定・不正・競合中なら、推測や別surface・別プロジェクトからfallbackせず、担当と理由を示して工程開始前に停止する。リポジトリごとの計画パスが変わっても、そのsurface共通の役割設定は変えない。Reviewer設定は既存のglobal reviewer設定から独立して解決する。
 - 承認判定（`APPROVED` / `APPROVED_WITH_NON_BLOCKING_FINDINGS`）が得られた場合でも、実装へ進まず計画記録のみで停止する。
 - コード、テスト、設定は変更しない。
 
@@ -52,9 +50,9 @@ Active Plan File（`.plan/<name>.md`）を作業状態の永続的正本（Groun
 ## レビュー方式と並列レビュー契約
 
 1. **レビュー方式（review_mode）の解決**:
-   - 作業開始前にリポジトリ内 `.plan/.active-plan.json` と `CODEX_HOME/pov-review-settings.json` を読み込む。Planner/Reviserは前掲のCodex role mappingと一致するときだけこのセッションで実行し、必要なroleが未設定・不正なら推測やfallbackをせず停止する。Reviewer/review modeは既存のglobal reviewer設定から取得する。
-   - 計画candidateは一時領域で作成し、`apply_plan_candidate` に工程開始時の `expected_file_identity` とSHA-256を渡して反映する。監査追記eventとチェックポイント保存の両方に直前のidentityとSHA-256を渡す（いずれも必須）。各成功後に返された新しいidentityとHashを次工程へ引き継ぐ。チェックポイント保存時の `plan_revision` はチェックポイント領域を除く計画本文・監査履歴のSHA-256とし、再開時に `verify_plan_resumption` がrepo、path、revision、file identity、Findingをすべて検証しない場合は停止する。
-   - `active_plan_path` が未設定、または指定されたファイルが存在しない場合、**即座に `BLOCKED — NO ACTIVE PLAN FILE SPECIFIED: Poverello GUI の Autocode 画面から作業対象のプランファイルを指定または新規作成してください。` と出力して停止する**。
+   - 作業開始前に `selected_plan_path` を受け取り `resolve_project_context_for_plan` でプラン起点の対象を解決・ピン留めし、その後 `CODEX_HOME/pov-review-settings.json` の `workflow_role_assignments.codex` を読み込む。リポジトリ内 `.plan/.active-plan.json` の旧role fieldsは参照しない。Planner/Reviserは前掲のCodex role mappingと一致するときだけこのセッションで実行し、必要roleが未設定・不正なら推測やfallbackをせず停止する。Reviewer/review modeは既存のglobal reviewer設定から取得する。
+   - 計画candidateは一時領域で作成し、`apply_plan_candidate` に工程開始時の `expected_file_identity` とSHA-256を渡して反映する。監査追記eventとチェックポイント保存の両方に直前のidentityとSHA-256を渡す（いずれも必須）。各成功後に返された新しいidentityとHashを次工程へ引き継ぐ。チェックポイント保存時の `plan_revision` はチェックポイント領域を除く計画本文・監査履歴のSHA-256とし、再開時は同じ絶対 `selected_plan_path`・surface・`pinned_target` を `verify_plan_resumption` に渡す。バックエンドが選択ファイルからrepoを導出し、レジストリ関連付け・pin・checkpointのrepo/path/revision/file identity/Findingを検証する。旧active slotは再開条件にしない。
+   - 正確な選択プランパスが呼び出し元から渡されない場合、または `resolve_project_context_for_plan` で選択ファイルと登録済み関連付けを同一の `(repo_root, plan_path)` として検証できない場合、**`BLOCKED — PLAN FILE REQUIRED: Poverello Autocodeで使うプランファイルを選択・保存してから再実行してください。` と出力して停止する**。
    - 計画書ファイルを読み込み、そのSHA-256ダイジェストを記録する。以降のすべてのフェーズ（計画作成、レビュー判定、是正）の更新は、直前フェーズのSHA-256ダイジェストを `expected_sha256` として指定した `append_plan_audit_trail` による CAS（Compare-And-Swap）更新を用いて、正本計画書の `## 5. Execution History & Audit Trail` へ順次追記する。
    - 計画レビュー担当Reviewerは `plan_reviewers`（未設定時は `build_reviewers` または `review_mode` を継承）に基づいて解決し、4区分に従ってレビュー工程を実行する：
      - `codex_self_only`: Codexの同一セッション内で自己レビューを実施する。外部Reviewerは起動せず、「外部独立レビュー: SKIPPED (review_mode: codex_self_only)」と記録する。追加の `codex exec` は起動しない。

@@ -7,8 +7,10 @@
 > **v0.26.2:** Codex Autocode는 현재 세션에서 Codex가 수행하는 작업과 외부 리뷰어를 구분합니다. 우선 리뷰어는 유효한 판정이 서로 다를 때만 판정하며, DeepSeek Harness의 headless 설정과 도구 제한은 Windows OS 수준의 파일 시스템·네트워크 격리를 증명하지 않습니다. 진단 로그와 과거 Skill 템플릿의 안전한 업데이트를 제공합니다.
 > **v0.27.0:** 저장소별 Active Plan 선택, 화면별 Planner / Reviser 지정, 재개 전에 식별 정보와 미해결 문제를 fail-closed 방식으로 검사하는 체크포인트 기능을 추가합니다. OpenRouter Tencent Hy4 모델 및 가격 메타데이터를 추가하고 Antigravity Nerf 설정을 GUI로 통합하며 기존 슬래시 명령을 종료합니다. 앱 자동 업데이트는 활성화되어 있지 않습니다.
 > **v0.27.2:** Antigravity Autocode와 Codex Autocode에 서로 독립적인 계획 폴더 위치 설정을 추가했습니다. 각 위치를 계획 작업 전반에서 일관되게 사용하며, 미설정 시 앱 작업 디렉터리로 암묵적으로 대체하지 않습니다. 기존 Markdown 계획 파일을 직접 선택해 편집기에서 열 수 있습니다. 활성 계획의 절대 경로와 상태가 표시되고, 파일 선택기는 해당 계획 폴더에서 시작합니다.
-> **v0.27.3(릴리스 대상, 미공개):** Antigravity Autocode와 Codex Autocode에 서로 독립적인 프로젝트-계획 행을 추가합니다. 각 화면에는 기본 행이 항상 있으며 선택적으로 두 번째 행을 추가할 수 있습니다. 선택한 `.md` 계획은 해당 파일을 포함하는 Git 저장소와 연결되고 두 화면은 각자의 선택을 독립적으로 저장합니다. 계획 폴더 설정은 Active Plan이 없을 때 파일 선택기의 시작 폴더만 지정하며, 선택 범위를 제한하거나 프로젝트 루트를 정하지 않습니다. 선택적 행을 제거해도 Poverello 연결 정보만 해제되고 파일은 삭제되지 않습니다.
-> **v0.28.0 (릴리스 준비 중, 미공개):** 기본 및 보조 프로젝트 계획 슬롯을 동등하게 선택할 수 있게 하고, Antigravity 프로젝트별 AgentOpt 제어, FAST / BALANCED / STRICT 직접 프리셋, 사용자 지정 설정 편집기를 추가합니다. 관리되는 `pov-direct.md` 규칙을 설정에서 설치하거나 복구할 수 있습니다. GPT-6.2 Sol을 Codex CLI Reviewer로 추가하고 GPT-6.2 Sol / Sol Pro / Astra / Astra Pro를 OpenRouter 카탈로그에 추가합니다. 지원되는 Windows 정식 빌드는 GitHub Releases의 서명된 업데이트를 지원하며 개발 빌드에서는 업데이트 기능을 사용하지 않습니다.
+> **v0.27.3**: Antigravity Autocode와 Codex Autocode에 서로 독립적인 프로젝트-계획 행을 추가합니다. 각 화면에는 기본 행이 항상 있으며 선택적으로 두 번째 행을 추가할 수 있습니다. 선택한 `.md` 계획은 해당 파일을 포함하는 Git 저장소와 연결되고 두 화면은 각자의 선택을 독립적으로 저장합니다. 계획 폴더 설정은 Active Plan이 없을 때 파일 선택기의 시작 폴더만 지정하며, 선택 범위를 제한하거나 프로젝트 루트를 정하지 않습니다. 선택적 행을 제거해도 Poverello 연결 정보만 해제되고 파일은 삭제되지 않습니다.
+> **v0.28.0**: 기본 및 보조 프로젝트 계획 슬롯을 동등하게 선택할 수 있게 하고, Antigravity 프로젝트별 AgentOpt 제어, FAST / BALANCED / STRICT 직접 프리셋, 사용자 지정 설정 편집기를 추가합니다. 관리되는 `pov-direct.md` 규칙을 설정에서 설치하거나 복구할 수 있습니다. GPT-6.2 Sol을 Codex CLI Reviewer로 추가하고 GPT-6.2 Sol / Sol Pro / Astra / Astra Pro를 OpenRouter 카탈로그에 추가합니다. 지원되는 Windows 정식 빌드는 GitHub Releases의 서명된 업데이트를 지원하며 개발 빌드에서는 업데이트 기능을 사용하지 않습니다.
+
+> **v0.28.2:** 저장소와 Autocode 화면별로 계획 파일을 따로 저장하고 선택한 Markdown 파일에서 저장소를 결정합니다. 행 교체, 추가, 연결 해제를 지원하며 Planner/Reviser 역할은 화면별 공통 설정을 사용합니다. 활성 프로젝트 선택이나 우선순위는 없습니다.
 
 ## 개요
 

@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
 
 pub const PLAN_DIR_NAME: &str = ".plan";
 pub const ACTIVE_PLAN_FILE_NAME: &str = ".active-plan.json";
@@ -79,6 +79,9 @@ pub struct ActivePlanState {
     pub role_assignments: std::collections::HashMap<String, RoleAssignment>,
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub surfaces: std::collections::HashMap<String, SurfacePlanState>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub project_roles:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, RoleAssignment>>,
     #[serde(flatten, default)]
     pub extra: std::collections::BTreeMap<String, serde_json::Value>,
 }
@@ -95,6 +98,8 @@ pub struct SurfacePlanSlotsView {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PinnedWorkflowTarget {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     pub repository: String,
     pub surface: String,
     pub slot_id: String,
@@ -120,7 +125,12 @@ pub fn find_enclosing_repo_root(file_path: &Path) -> Result<PathBuf, String> {
     if current.is_file() {
         current = match current.parent() {
             Some(p) => p,
-            None => return Err(format!("File '{}' has no parent directory", file_path.display())),
+            None => {
+                return Err(format!(
+                    "File '{}' has no parent directory",
+                    file_path.display()
+                ))
+            }
         };
     }
     loop {
@@ -144,7 +154,9 @@ pub fn validate_slot_id(slot_id: &str) -> Result<&str, String> {
     match trimmed {
         "primary" => Ok("primary"),
         "secondary" => Ok("secondary"),
-        _ => Err(format!("Invalid plan slot ID: '{slot_id}' (expected 'primary' or 'secondary')")),
+        _ => Err(format!(
+            "Invalid plan slot ID: '{slot_id}' (expected 'primary' or 'secondary')"
+        )),
     }
 }
 
@@ -205,11 +217,14 @@ fn load_active_plan_state(repo_root: &Path) -> Result<ActivePlanState, String> {
             last_updated_unix: 0,
             role_assignments: Default::default(),
             surfaces: Default::default(),
+            project_roles: Default::default(),
             extra: Default::default(),
         });
     }
-    let raw = std::fs::read_to_string(path).map_err(|e| format!("Failed to read active plan state: {e}"))?;
-    let mut state: ActivePlanState = serde_json::from_str(&raw).map_err(|e| format!("Failed to parse active plan state: {e}"))?;
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read active plan state: {e}"))?;
+    let mut state: ActivePlanState = serde_json::from_str(&raw)
+        .map_err(|e| format!("Failed to parse active plan state: {e}"))?;
 
     for surf_state in state.surfaces.values_mut() {
         migrate_surface_state_in_memory(surf_state)?;
@@ -218,21 +233,126 @@ fn load_active_plan_state(repo_root: &Path) -> Result<ActivePlanState, String> {
     Ok(state)
 }
 
-pub fn get_role_assignment(repo_root: &Path, surface: &str) -> Result<RoleAssignment, String> {
-    if !matches!(surface, "codex" | "antigravity") { return Err(format!("Unsupported Autocode surface: '{surface}'")); }
-    Ok(load_active_plan_state(repo_root)?.role_assignments.get(surface).cloned().unwrap_or_default())
+pub fn get_project_role_assignment(
+    repo_root: &Path,
+    project_id: &str,
+    surface: &str,
+) -> Result<RoleAssignment, String> {
+    if !matches!(surface, "codex" | "antigravity") {
+        return Err(format!("Unsupported Autocode surface: '{surface}'"));
+    }
+    let expected_id = crate::project_registry::derive_project_id(&repo_root.to_string_lossy());
+    if project_id != expected_id {
+        return Err(format!(
+            "Project ID '{project_id}' does not match repository '{}' (expected '{expected_id}')",
+            crate::project_registry::strip_windows_verbatim_prefix(&repo_root.to_string_lossy())
+        ));
+    }
+    let state = load_active_plan_state(repo_root)?;
+    if let Some(surf_map) = state.project_roles.get(project_id) {
+        if let Some(roles) = surf_map.get(surface) {
+            return Ok(roles.clone());
+        }
+    }
+    Ok(state
+        .role_assignments
+        .get(surface)
+        .cloned()
+        .unwrap_or_default())
 }
 
-pub fn set_role_assignment(repo_root: &Path, surface: &str, assignment: RoleAssignment) -> Result<RoleAssignment, String> {
-    if !matches!(surface, "codex" | "antigravity") { return Err(format!("Unsupported Autocode surface: '{surface}'")); }
-    let allowed: &[&str] = if surface == "codex" { &["codex_session", "codex"] } else { &["antigravity", "codex", "codex_cli"] };
-    for role in [&assignment.planner_id, &assignment.reviser_id].into_iter().flatten() {
-        if !allowed.contains(&role.as_str()) { return Err(format!("Unsupported role '{role}' for {surface} surface")); }
+pub fn set_project_role_assignment(
+    repo_root: &Path,
+    project_id: &str,
+    surface: &str,
+    assignment: RoleAssignment,
+) -> Result<RoleAssignment, String> {
+    if !matches!(surface, "codex" | "antigravity") {
+        return Err(format!("Unsupported Autocode surface: '{surface}'"));
     }
-    let _lock = ACTIVE_PLAN_STATE_LOCK.lock().map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
+    let expected_id = crate::project_registry::derive_project_id(&repo_root.to_string_lossy());
+    if project_id != expected_id {
+        return Err(format!(
+            "Project ID '{project_id}' does not match repository '{}' (expected '{expected_id}')",
+            crate::project_registry::strip_windows_verbatim_prefix(&repo_root.to_string_lossy())
+        ));
+    }
+    let allowed: &[&str] = if surface == "codex" {
+        &["codex_session", "codex"]
+    } else {
+        &["antigravity", "codex", "codex_cli"]
+    };
+    for role in [&assignment.planner_id, &assignment.reviser_id]
+        .into_iter()
+        .flatten()
+    {
+        if !allowed.contains(&role.as_str()) {
+            return Err(format!("Unsupported role '{role}' for {surface} surface"));
+        }
+    }
+    let _lock = ACTIVE_PLAN_STATE_LOCK
+        .lock()
+        .map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
     let mut state = load_active_plan_state(repo_root)?;
-    state.role_assignments.insert(surface.to_string(), assignment.clone());
-    state.last_updated_unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    state
+        .project_roles
+        .entry(project_id.to_string())
+        .or_default()
+        .insert(surface.to_string(), assignment.clone());
+    state
+        .role_assignments
+        .insert(surface.to_string(), assignment.clone());
+    state.last_updated_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    write_active_plan_state_unlocked(repo_root, &state)?;
+    Ok(assignment)
+}
+
+pub fn get_role_assignment(repo_root: &Path, surface: &str) -> Result<RoleAssignment, String> {
+    if !matches!(surface, "codex" | "antigravity") {
+        return Err(format!("Unsupported Autocode surface: '{surface}'"));
+    }
+    Ok(load_active_plan_state(repo_root)?
+        .role_assignments
+        .get(surface)
+        .cloned()
+        .unwrap_or_default())
+}
+
+pub fn set_role_assignment(
+    repo_root: &Path,
+    surface: &str,
+    assignment: RoleAssignment,
+) -> Result<RoleAssignment, String> {
+    if !matches!(surface, "codex" | "antigravity") {
+        return Err(format!("Unsupported Autocode surface: '{surface}'"));
+    }
+    let allowed: &[&str] = if surface == "codex" {
+        &["codex_session", "codex"]
+    } else {
+        &["antigravity", "codex", "codex_cli"]
+    };
+    for role in [&assignment.planner_id, &assignment.reviser_id]
+        .into_iter()
+        .flatten()
+    {
+        if !allowed.contains(&role.as_str()) {
+            return Err(format!("Unsupported role '{role}' for {surface} surface"));
+        }
+    }
+    let _lock = ACTIVE_PLAN_STATE_LOCK
+        .lock()
+        .map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
+    let mut state = load_active_plan_state(repo_root)?;
+    state
+        .role_assignments
+        .insert(surface.to_string(), assignment.clone());
+    state.last_updated_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     write_active_plan_state_unlocked(repo_root, &state)?;
     Ok(assignment)
 }
@@ -270,23 +390,42 @@ pub fn get_role_assignment_for_active_plan(
         .slots
         .get(active_sid)
         .map(|s| s.as_str())
-        .ok_or_else(|| format!("No active plan file is configured for {surface} surface slot {active_sid:?}"))?;
+        .ok_or_else(|| {
+            format!("No active plan file is configured for {surface} surface slot {active_sid:?}")
+        })?;
     let path = validate_plan_path(repo_root, active)?;
     if !path.is_file() {
         return Err(format!("Active plan file does not exist: '{active}'"));
     }
-    Ok(state.role_assignments.get(surface).cloned().unwrap_or_default())
+    Ok(state
+        .role_assignments
+        .get(surface)
+        .cloned()
+        .unwrap_or_default())
 }
 
-fn write_active_plan_state_unlocked(repo_root: &Path, state: &ActivePlanState) -> Result<(), String> {
+fn write_active_plan_state_unlocked(
+    repo_root: &Path,
+    state: &ActivePlanState,
+) -> Result<(), String> {
     let plan_dir = repo_root.join(PLAN_DIR_NAME);
-    if !plan_dir.exists() { std::fs::create_dir_all(&plan_dir).map_err(|e| format!("Failed to create .plan directory: {e}"))?; }
-    let bytes = serde_json::to_vec_pretty(state).map_err(|e| format!("Failed to serialize active plan state: {e}"))?;
+    if !plan_dir.exists() {
+        std::fs::create_dir_all(&plan_dir)
+            .map_err(|e| format!("Failed to create .plan directory: {e}"))?;
+    }
+    let bytes = serde_json::to_vec_pretty(state)
+        .map_err(|e| format!("Failed to serialize active plan state: {e}"))?;
     let active_file = plan_dir.join(ACTIVE_PLAN_FILE_NAME);
     let nonce = TMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let tmp_file = plan_dir.join(format!("{ACTIVE_PLAN_FILE_NAME}.tmp.{}.{}", std::process::id(), nonce));
-    std::fs::write(&tmp_file, bytes).map_err(|e| format!("Failed to write temporary active plan file: {e}"))?;
-    std::fs::rename(&tmp_file, &active_file).map_err(|e| format!("Failed to commit active plan file: {e}"))?;
+    let tmp_file = plan_dir.join(format!(
+        "{ACTIVE_PLAN_FILE_NAME}.tmp.{}.{}",
+        std::process::id(),
+        nonce
+    ));
+    std::fs::write(&tmp_file, bytes)
+        .map_err(|e| format!("Failed to write temporary active plan file: {e}"))?;
+    std::fs::rename(&tmp_file, &active_file)
+        .map_err(|e| format!("Failed to commit active plan file: {e}"))?;
     Ok(())
 }
 
@@ -364,15 +503,20 @@ pub fn resolve_repo_root(hint: Option<&str>) -> Result<PathBuf, String> {
         if !trimmed.is_empty() {
             let p = PathBuf::from(trimmed);
             if p.is_dir() {
-                return p.canonicalize().map_err(|e| format!("Failed to canonicalize repo path '{}': {e}", p.display()));
+                return p.canonicalize().map_err(|e| {
+                    format!("Failed to canonicalize repo path '{}': {e}", p.display())
+                });
             }
         }
     }
 
-    let mut cur = std::env::current_dir().map_err(|e| format!("Failed to get current directory: {e}"))?;
+    let mut cur =
+        std::env::current_dir().map_err(|e| format!("Failed to get current directory: {e}"))?;
     for _ in 0..12 {
         if cur.join(".git").exists() || cur.join(PLAN_DIR_NAME).exists() {
-            return cur.canonicalize().map_err(|e| format!("Failed to canonicalize repo path: {e}"));
+            return cur
+                .canonicalize()
+                .map_err(|e| format!("Failed to canonicalize repo path: {e}"));
         }
         if let Some(parent) = cur.parent() {
             cur = parent.to_path_buf();
@@ -383,7 +527,10 @@ pub fn resolve_repo_root(hint: Option<&str>) -> Result<PathBuf, String> {
 
     std::env::current_dir()
         .map_err(|e| format!("Failed to get fallback current directory: {e}"))
-        .and_then(|p| p.canonicalize().map_err(|e| format!("Failed to canonicalize directory: {e}")))
+        .and_then(|p| {
+            p.canonicalize()
+                .map_err(|e| format!("Failed to canonicalize directory: {e}"))
+        })
 }
 
 /// Validates a relative plan file path to prevent path traversal and ensure it targets a markdown file within the repository.
@@ -393,8 +540,13 @@ pub fn validate_plan_path(repo_root: &Path, rel_path: &str) -> Result<PathBuf, S
         return Err("Plan file path cannot be empty".to_string());
     }
 
-    if normalized.starts_with('/') || normalized.contains(':') || normalized.split('/').any(|seg| seg == "..") {
-        return Err(format!("Invalid plan file path (traversal or absolute path detected): '{rel_path}'"));
+    if normalized.starts_with('/')
+        || normalized.contains(':')
+        || normalized.split('/').any(|seg| seg == "..")
+    {
+        return Err(format!(
+            "Invalid plan file path (traversal or absolute path detected): '{rel_path}'"
+        ));
     }
 
     if !normalized.ends_with(".md") {
@@ -402,15 +554,22 @@ pub fn validate_plan_path(repo_root: &Path, rel_path: &str) -> Result<PathBuf, S
     }
 
     let target = repo_root.join(&normalized);
-    let canonical_repo = repo_root.canonicalize().map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
+    let canonical_repo = repo_root
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
 
     // Validate that nearest existing ancestor directory stays strictly within canonical repo
     let mut check_ancestor = target.parent();
     while let Some(anc) = check_ancestor {
         if anc.exists() {
-            let canonical_anc = anc.canonicalize().map_err(|e| format!("Cannot canonicalize directory: {e}"))?;
+            let canonical_anc = anc
+                .canonicalize()
+                .map_err(|e| format!("Cannot canonicalize directory: {e}"))?;
             if !canonical_anc.starts_with(&canonical_repo) {
-                return Err("Path traversal attempt detected: directory resolves outside repo root".to_string());
+                return Err(
+                    "Path traversal attempt detected: directory resolves outside repo root"
+                        .to_string(),
+                );
             }
             break;
         }
@@ -419,9 +578,13 @@ pub fn validate_plan_path(repo_root: &Path, rel_path: &str) -> Result<PathBuf, S
 
     // If target exists, ensure its canonical path stays strictly inside canonical repo
     if target.exists() {
-        let canonical_target = target.canonicalize().map_err(|e| format!("Cannot canonicalize plan path: {e}"))?;
+        let canonical_target = target
+            .canonicalize()
+            .map_err(|e| format!("Cannot canonicalize plan path: {e}"))?;
         if !canonical_target.starts_with(&canonical_repo) {
-            return Err(format!("Path traversal attempt detected: '{rel_path}' resolves outside repo root"));
+            return Err(format!(
+                "Path traversal attempt detected: '{rel_path}' resolves outside repo root"
+            ));
         }
         Ok(canonical_target)
     } else {
@@ -473,16 +636,26 @@ pub fn extract_title_and_status(content: &str, fallback_name: &str) -> (String, 
     (title, status)
 }
 
-pub fn list_available_plans(repo_root: &Path, folder: Option<&str>) -> Result<Vec<PlanFileEntry>, String> {
-    let canonical_repo = repo_root.canonicalize().map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
+pub fn list_available_plans(
+    repo_root: &Path,
+    folder: Option<&str>,
+) -> Result<Vec<PlanFileEntry>, String> {
+    let canonical_repo = repo_root
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
 
     let target_dir = if let Some(f) = folder {
         let trimmed = f.trim().replace('\\', "/");
         if trimmed.is_empty() || trimmed == "." {
             repo_root.to_path_buf()
         } else {
-            if trimmed.starts_with('/') || trimmed.contains(':') || trimmed.split('/').any(|seg| seg == "..") {
-                return Err(format!("Invalid folder path (traversal or absolute path detected): '{f}'"));
+            if trimmed.starts_with('/')
+                || trimmed.contains(':')
+                || trimmed.split('/').any(|seg| seg == "..")
+            {
+                return Err(format!(
+                    "Invalid folder path (traversal or absolute path detected): '{f}'"
+                ));
             }
             repo_root.join(&trimmed)
         }
@@ -499,13 +672,19 @@ pub fn list_available_plans(repo_root: &Path, folder: Option<&str>) -> Result<Ve
         return Ok(Vec::new());
     }
 
-    let canonical_target = target_dir.canonicalize().map_err(|e| format!("Cannot canonicalize target folder: {e}"))?;
+    let canonical_target = target_dir
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize target folder: {e}"))?;
     if !canonical_target.starts_with(&canonical_repo) {
         return Err("Target folder resolves outside repo root".to_string());
     }
 
-    let entries = std::fs::read_dir(&target_dir)
-        .map_err(|e| format!("Failed to read plan directory '{}': {e}", target_dir.display()))?;
+    let entries = std::fs::read_dir(&target_dir).map_err(|e| {
+        format!(
+            "Failed to read plan directory '{}': {e}",
+            target_dir.display()
+        )
+    })?;
 
     let mut result = Vec::new();
 
@@ -615,8 +794,13 @@ pub fn get_active_plan(
         return Ok(None);
     }
 
-    let content = std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan file: {e}"))?;
-    let file_name = abs_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let content =
+        std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan file: {e}"))?;
+    let file_name = abs_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let (title, status) = extract_title_and_status(&content, &file_name);
     let sha256_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
     let last_modified_unix = abs_path
@@ -655,11 +839,22 @@ pub fn get_plan_overview(
 
     let effective_folder: Option<String> = if let Some(f) = folder {
         let trimmed = f.trim().replace('\\', "/");
-        if trimmed.is_empty() { None } else { Some(trimmed) }
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
     } else if let Some(ref ar) = active_rel {
-        let parent = Path::new(ar).parent().and_then(|p| p.to_str()).unwrap_or(PLAN_DIR_NAME);
+        let parent = Path::new(ar)
+            .parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or(PLAN_DIR_NAME);
         let norm = parent.replace('\\', "/");
-        Some(if norm.is_empty() { ".".to_string() } else { norm })
+        Some(if norm.is_empty() {
+            ".".to_string()
+        } else {
+            norm
+        })
     } else if plans_dir.is_dir() {
         Some(PLAN_DIR_NAME.to_string())
     } else {
@@ -708,8 +903,13 @@ pub fn set_active_plan(
     }
 
     let abs_path = validated;
-    let content = std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan file: {e}"))?;
-    let file_name = abs_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let content =
+        std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan file: {e}"))?;
+    let file_name = abs_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let (title, status) = extract_title_and_status(&content, &file_name);
     let sha256_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
     let last_modified_unix = abs_path
@@ -723,10 +923,13 @@ pub fn set_active_plan(
     let normalized_rel = rel_path.trim().replace('\\', "/");
 
     // Persist active plan state in repo
-    let _state_lock = ACTIVE_PLAN_STATE_LOCK.lock().map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
+    let _state_lock = ACTIVE_PLAN_STATE_LOCK
+        .lock()
+        .map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
     let plan_dir = repo_root.join(PLAN_DIR_NAME);
     if !plan_dir.exists() {
-        std::fs::create_dir_all(&plan_dir).map_err(|e| format!("Failed to create .plan directory: {e}"))?;
+        std::fs::create_dir_all(&plan_dir)
+            .map_err(|e| format!("Failed to create .plan directory: {e}"))?;
     }
 
     let now_unix = std::time::SystemTime::now()
@@ -809,18 +1012,20 @@ pub fn clear_active_plan_slot_with_fallback(
         }
     }
 
-    let _state_lock = ACTIVE_PLAN_STATE_LOCK.lock().map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
+    let _state_lock = ACTIVE_PLAN_STATE_LOCK
+        .lock()
+        .map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
     let mut state = load_active_plan_state(repo_root)?;
     if let Some(surf_state) = state.surfaces.get_mut(surface) {
         surf_state.slots.remove(valid_slot);
         if surf_state.active_slot_id.as_deref() == Some(valid_slot) {
             if let Some(fb) = fallback_slot_id {
                 let valid_fb = validate_slot_id(fb)?;
-                let fb_path = surf_state
-                    .slots
-                    .get(valid_fb)
-                    .cloned()
-                    .ok_or_else(|| format!("Cannot fall back to '{valid_fb}' slot: no plan is configured in that slot"))?;
+                let fb_path = surf_state.slots.get(valid_fb).cloned().ok_or_else(|| {
+                    format!(
+                        "Cannot fall back to '{valid_fb}' slot: no plan is configured in that slot"
+                    )
+                })?;
                 surf_state.active_slot_id = Some(valid_fb.to_string());
                 surf_state.active_plan_path = Some(fb_path);
             } else {
@@ -873,22 +1078,24 @@ pub fn set_active_plan_slot(
     }
     let valid_slot = validate_slot_id(slot_id)?;
 
-    let _state_lock = ACTIVE_PLAN_STATE_LOCK.lock().map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
+    let _state_lock = ACTIVE_PLAN_STATE_LOCK
+        .lock()
+        .map_err(|e| format!("Failed to acquire active plan state lock: {e}"))?;
     let mut state = load_active_plan_state(repo_root)?;
     let surf_state = state
         .surfaces
         .get_mut(surface)
         .ok_or_else(|| format!("No plan slots are configured for {surface} surface"))?;
 
-    let rel_path = surf_state
-        .slots
-        .get(valid_slot)
-        .cloned()
-        .ok_or_else(|| format!("No plan file is configured for {surface} surface slot '{valid_slot}'"))?;
+    let rel_path = surf_state.slots.get(valid_slot).cloned().ok_or_else(|| {
+        format!("No plan file is configured for {surface} surface slot '{valid_slot}'")
+    })?;
 
     let abs_path = validate_plan_path(repo_root, &rel_path)?;
     if !abs_path.exists() || !abs_path.is_file() {
-        return Err(format!("Plan file for slot '{valid_slot}' does not exist: '{rel_path}'"));
+        return Err(format!(
+            "Plan file for slot '{valid_slot}' does not exist: '{rel_path}'"
+        ));
     }
 
     let normalized_rel = normalize_rel_path(&rel_path);
@@ -936,7 +1143,9 @@ pub fn resolve_and_pin_workflow_target(
         .slots
         .get(active_sid)
         .map(|s| normalize_rel_path(s))
-        .ok_or_else(|| format!("No active plan file is configured for {surface} surface slot '{active_sid}'"))?;
+        .ok_or_else(|| {
+            format!("No active plan file is configured for {surface} surface slot '{active_sid}'")
+        })?;
     let abs_path = validate_plan_path(&canonical_repo, &rel_path)?;
     if !abs_path.is_file() {
         return Err(format!("Active plan file does not exist: '{rel_path}'"));
@@ -944,6 +1153,7 @@ pub fn resolve_and_pin_workflow_target(
     let details = plan_details(&rel_path, abs_path)?;
     let revision_digest = checkpoint_revision_digest(&details.content);
     Ok(PinnedWorkflowTarget {
+        project_id: None,
         repository: canonical_repo.to_string_lossy().to_string(),
         surface: surface.to_string(),
         slot_id: active_sid.to_string(),
@@ -1012,9 +1222,43 @@ pub fn launch_pinned_plan_workflow(
     repo_root: &Path,
     surface: &str,
     explicit_slot_id: Option<&str>,
+    role_assignment: RoleAssignment,
 ) -> Result<PinnedWorkflowLaunch, String> {
-    let role_assignment = get_role_assignment_for_active_plan(repo_root, surface, explicit_slot_id)?;
     let pinned_target = resolve_and_pin_workflow_target(repo_root, surface, explicit_slot_id)?;
+    Ok(PinnedWorkflowLaunch {
+        role_assignment,
+        pinned_target,
+    })
+}
+
+/// Launch a workflow from the exact plan file selected by the user. Derive its repository
+/// from the file itself, verify the registry association, and pin that exact pair.
+pub fn launch_pinned_plan_workflow_for_plan(
+    registry_path: &Path,
+    surface: &str,
+    selected_plan_path: &Path,
+    role_assignment: RoleAssignment,
+) -> Result<PinnedWorkflowLaunch, String> {
+    let context = crate::project_registry::resolve_project_context_for_plan_at(
+        registry_path,
+        surface,
+        selected_plan_path,
+    )?;
+    let repo_root = PathBuf::from(&context.repo_root)
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize selected plan repository: {e}"))?;
+    let abs_path = validate_plan_path(&repo_root, &context.plan_path)?;
+    let details = plan_details(&context.plan_path, abs_path)?;
+    let pinned_target = PinnedWorkflowTarget {
+        project_id: Some(context.project_id),
+        repository: repo_root.to_string_lossy().to_string(),
+        surface: context.surface,
+        slot_id: "selected-plan".to_string(),
+        plan_path: details.rel_path,
+        sha256_hash: checkpoint_revision_digest(&details.content),
+        file_identity: details.file_identity,
+    };
+    verify_pinned_workflow_target(&pinned_target)?;
     Ok(PinnedWorkflowLaunch {
         role_assignment,
         pinned_target,
@@ -1033,7 +1277,9 @@ pub fn advance_pinned_workflow_target(
         .map_err(|e| format!("Cannot canonicalize updated plan: {e}"))?;
     let canonical_plan_repo = find_enclosing_repo_root(&canonical_plan)?;
     if canonical_plan_repo != repo_root {
-        return Err("Updated plan belongs to a different repository than the pinned workflow".to_string());
+        return Err(
+            "Updated plan belongs to a different repository than the pinned workflow".to_string(),
+        );
     }
     if normalize_rel_path(&previous.plan_path) != normalize_rel_path(&updated_details.rel_path) {
         return Err(format!(
@@ -1042,6 +1288,7 @@ pub fn advance_pinned_workflow_target(
         ));
     }
     let next = PinnedWorkflowTarget {
+        project_id: previous.project_id.clone(),
         repository: previous.repository.clone(),
         surface: previous.surface.clone(),
         slot_id: previous.slot_id.clone(),
@@ -1053,7 +1300,10 @@ pub fn advance_pinned_workflow_target(
     Ok(next)
 }
 
-pub fn create_plan_file(repo_root: &Path, req: &CreatePlanRequest) -> Result<PlanFileDetails, String> {
+pub fn create_plan_file(
+    repo_root: &Path,
+    req: &CreatePlanRequest,
+) -> Result<PlanFileDetails, String> {
     let clean_name = req.name.trim();
     if clean_name.is_empty() {
         return Err("Plan name cannot be empty".to_string());
@@ -1066,39 +1316,68 @@ pub fn create_plan_file(repo_root: &Path, req: &CreatePlanRequest) -> Result<Pla
     };
 
     // Prevent directory traversal or invalid characters in file_name
-    if file_name.contains('/') || file_name.contains('\\') || file_name.contains(':') || file_name.contains("..") {
-        return Err(format!("Invalid characters in plan filename: '{clean_name}'"));
+    if file_name.contains('/')
+        || file_name.contains('\\')
+        || file_name.contains(':')
+        || file_name.contains("..")
+    {
+        return Err(format!(
+            "Invalid characters in plan filename: '{clean_name}'"
+        ));
     }
 
-    let folder_str = req.folder.as_deref().unwrap_or(PLAN_DIR_NAME).trim().replace('\\', "/");
+    let folder_str = req
+        .folder
+        .as_deref()
+        .unwrap_or(PLAN_DIR_NAME)
+        .trim()
+        .replace('\\', "/");
     let target_dir = if folder_str.is_empty() || folder_str == "." {
         repo_root.to_path_buf()
     } else {
-        if folder_str.starts_with('/') || folder_str.contains(':') || folder_str.split('/').any(|seg| seg == "..") {
-            return Err(format!("Invalid folder path (traversal or absolute path detected): '{folder_str}'"));
+        if folder_str.starts_with('/')
+            || folder_str.contains(':')
+            || folder_str.split('/').any(|seg| seg == "..")
+        {
+            return Err(format!(
+                "Invalid folder path (traversal or absolute path detected): '{folder_str}'"
+            ));
         }
         repo_root.join(&folder_str)
     };
 
-    let canonical_repo = repo_root.canonicalize().map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
+    let canonical_repo = repo_root
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
 
     // Validate the nearest existing ancestor before creating anything. A missing
     // child beneath an in-repository symlink can otherwise cause create_dir_all
     // to write outside the repository before the later canonical-path check.
     let mut ancestor = target_dir.as_path();
     while !ancestor.exists() {
-        ancestor = ancestor.parent().ok_or_else(|| "Cannot find existing ancestor for plan directory".to_string())?;
+        ancestor = ancestor
+            .parent()
+            .ok_or_else(|| "Cannot find existing ancestor for plan directory".to_string())?;
     }
-    let canonical_ancestor = ancestor.canonicalize().map_err(|e| format!("Cannot canonicalize plan directory ancestor: {e}"))?;
+    let canonical_ancestor = ancestor
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize plan directory ancestor: {e}"))?;
     if !canonical_ancestor.starts_with(&canonical_repo) {
         return Err("Target folder resolves outside repo root".to_string());
     }
 
     if !target_dir.exists() {
-        std::fs::create_dir_all(&target_dir).map_err(|e| format!("Failed to create plan directory '{}': {e}", target_dir.display()))?;
+        std::fs::create_dir_all(&target_dir).map_err(|e| {
+            format!(
+                "Failed to create plan directory '{}': {e}",
+                target_dir.display()
+            )
+        })?;
     }
 
-    let canonical_target_dir = target_dir.canonicalize().map_err(|e| format!("Cannot canonicalize target directory: {e}"))?;
+    let canonical_target_dir = target_dir
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize target directory: {e}"))?;
     if !canonical_target_dir.starts_with(&canonical_repo) {
         return Err("Target folder resolves outside repo root".to_string());
     }
@@ -1121,7 +1400,7 @@ pub fn create_plan_file(repo_root: &Path, req: &CreatePlanRequest) -> Result<Pla
 
     let now = chrono::Utc::now().to_rfc3339();
     let template = format!(
-r#"# {title}
+        r#"# {title}
 
 - **Plan ID:** `{plan_id}`
 - **Status:** `PROPOSED / DRAFT`
@@ -1179,7 +1458,8 @@ r#"# {title}
         set_active_plan(repo_root, &rel_path, None, None)
     } else {
         let abs_path = target_path;
-        let content = std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan file: {e}"))?;
+        let content = std::fs::read_to_string(&abs_path)
+            .map_err(|e| format!("Failed to read plan file: {e}"))?;
         let (title, status) = extract_title_and_status(&content, &file_name);
         let sha256_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
         let last_modified_unix = std::time::SystemTime::now()
@@ -1204,15 +1484,23 @@ static PLAN_MUTATION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static TMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 fn plan_file_identity(path: &Path) -> Result<String, String> {
-    let file = std::fs::File::open(path).map_err(|e| format!("Failed to open plan for identity check: {e}"))?;
+    let file = std::fs::File::open(path)
+        .map_err(|e| format!("Failed to open plan for identity check: {e}"))?;
     let id = crate::pov_nerf::FileIdentity::from_file(&file)
         .ok_or_else(|| "Could not determine plan file identity".to_string())?;
     #[cfg(windows)]
-    { return Ok(format!("{}:{}", id.volume_serial_number, id.file_index)); }
+    {
+        return Ok(format!("{}:{}", id.volume_serial_number, id.file_index));
+    }
     #[cfg(unix)]
-    { return Ok(format!("{}:{}", id.dev, id.ino)); }
+    {
+        return Ok(format!("{}:{}", id.dev, id.ino));
+    }
     #[cfg(not(any(windows, unix)))]
-    { let _ = id; Err("Plan file identity is unsupported on this platform".to_string()) }
+    {
+        let _ = id;
+        Err("Plan file identity is unsupported on this platform".to_string())
+    }
 }
 
 pub fn apply_plan_candidate_if_unchanged(
@@ -1223,19 +1511,28 @@ pub fn apply_plan_candidate_if_unchanged(
     candidate: &str,
 ) -> Result<PlanFileDetails, String> {
     if expected_file_identity.trim().is_empty() || expected_sha256.trim().is_empty() {
-        return Err("Plan candidate update requires expected file identity and SHA-256".to_string());
+        return Err(
+            "Plan candidate update requires expected file identity and SHA-256".to_string(),
+        );
     }
     let abs_path = validate_plan_path(repo_root, rel_path)?;
-    let _lock = PLAN_MUTATION_LOCK.lock().map_err(|e| format!("Failed to acquire plan mutation lock: {e}"))?;
-    let current = std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan: {e}"))?;
+    let _lock = PLAN_MUTATION_LOCK
+        .lock()
+        .map_err(|e| format!("Failed to acquire plan mutation lock: {e}"))?;
+    let current =
+        std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan: {e}"))?;
     let current_hash = format!("{:x}", Sha256::digest(current.as_bytes()));
     let current_identity = plan_file_identity(&abs_path)?;
     if current_hash != expected_sha256 || current_identity != expected_file_identity {
-        return Err("Plan candidate compare-and-swap conflict: file identity or SHA-256 changed".to_string());
+        return Err(
+            "Plan candidate compare-and-swap conflict: file identity or SHA-256 changed"
+                .to_string(),
+        );
     }
     let counter = TMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let tmp_path = abs_path.with_extension(format!("tmp.{}.{}", std::process::id(), counter));
-    std::fs::write(&tmp_path, candidate).map_err(|e| format!("Failed to write plan candidate: {e}"))?;
+    std::fs::write(&tmp_path, candidate)
+        .map_err(|e| format!("Failed to write plan candidate: {e}"))?;
     let before_commit = std::fs::read_to_string(&abs_path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp_path);
         format!("Failed to re-read plan before candidate commit: {e}")
@@ -1258,14 +1555,34 @@ pub fn apply_plan_candidate_if_unchanged(
 }
 
 fn plan_details(rel_path: &str, abs_path: PathBuf) -> Result<PlanFileDetails, String> {
-    let content = std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read updated plan: {e}"))?;
-    let file_name = abs_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let content = std::fs::read_to_string(&abs_path)
+        .map_err(|e| format!("Failed to read updated plan: {e}"))?;
+    let file_name = abs_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let (title, status) = extract_title_and_status(&content, &file_name);
     let sha256_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
     let file_identity = plan_file_identity(&abs_path).ok();
-    let last_modified_unix = abs_path.metadata().ok().and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
-    Ok(PlanFileDetails { rel_path: rel_path.trim().replace('\\', "/"), abs_path: abs_path.to_string_lossy().to_string(), file_name, title, status, content, sha256_hash, file_identity, last_modified_unix })
+    let last_modified_unix = abs_path
+        .metadata()
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    Ok(PlanFileDetails {
+        rel_path: rel_path.trim().replace('\\', "/"),
+        abs_path: abs_path.to_string_lossy().to_string(),
+        file_name,
+        title,
+        status,
+        content,
+        sha256_hash,
+        file_identity,
+        last_modified_unix,
+    })
 }
 
 pub fn append_audit_trail_event(
@@ -1273,7 +1590,14 @@ pub fn append_audit_trail_event(
     rel_path: &str,
     event: &AuditTrailEvent,
 ) -> Result<PlanFileDetails, String> {
-    if event.expected_sha256.trim().is_empty() || event.expected_file_identity.as_deref().unwrap_or("").trim().is_empty() {
+    if event.expected_sha256.trim().is_empty()
+        || event
+            .expected_file_identity
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+    {
         return Err("AuditTrailEvent requires non-empty expected_file_identity and expected_sha256 for Compare-And-Swap (CAS) integrity".to_string());
     }
 
@@ -1286,8 +1610,8 @@ pub fn append_audit_trail_event(
         .lock()
         .map_err(|e| format!("Failed to acquire plan mutation lock: {e}"))?;
 
-    let content = std::fs::read_to_string(&abs_path)
-        .map_err(|e| format!("Failed to read plan file: {e}"))?;
+    let content =
+        std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan file: {e}"))?;
     // Compare-And-Swap verification
     let current_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
     if !current_hash.eq_ignore_ascii_case(event.expected_sha256.trim()) {
@@ -1296,7 +1620,10 @@ pub fn append_audit_trail_event(
             event.expected_sha256
         ));
     }
-    let expected_identity = event.expected_file_identity.as_deref().expect("validated above");
+    let expected_identity = event
+        .expected_file_identity
+        .as_deref()
+        .expect("validated above");
     if plan_file_identity(&abs_path)? != expected_identity {
         return Err("Compare-and-swap conflict: plan file identity changed".to_string());
     }
@@ -1315,11 +1642,10 @@ pub fn append_audit_trail_event(
         .map_err(|e| format!("Failed to write temporary updated plan: {e}"))?;
 
     // Pre-commit verification: re-read source file directly before atomic rename
-    let pre_commit_content = std::fs::read_to_string(&abs_path)
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&tmp_path);
-            format!("Failed to re-read plan file before commit: {e}")
-        })?;
+    let pre_commit_content = std::fs::read_to_string(&abs_path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("Failed to re-read plan file before commit: {e}")
+    })?;
     let pre_commit_hash = format!("{:x}", Sha256::digest(pre_commit_content.as_bytes()));
     if !pre_commit_hash.eq_ignore_ascii_case(event.expected_sha256.trim()) {
         let _ = std::fs::remove_file(&tmp_path);
@@ -1330,16 +1656,21 @@ pub fn append_audit_trail_event(
     }
     if plan_file_identity(&abs_path)? != expected_identity {
         let _ = std::fs::remove_file(&tmp_path);
-        return Err("Compare-and-swap conflict prior to commit: plan file identity changed".to_string());
+        return Err(
+            "Compare-and-swap conflict prior to commit: plan file identity changed".to_string(),
+        );
     }
 
-    std::fs::rename(&tmp_path, &abs_path)
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&tmp_path);
-            format!("Failed to commit updated plan with audit trail: {e}")
-        })?;
+    std::fs::rename(&tmp_path, &abs_path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("Failed to commit updated plan with audit trail: {e}")
+    })?;
 
-    let file_name = abs_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let file_name = abs_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let (title, status) = extract_title_and_status(&updated_content, &file_name);
     let sha256_hash = format!("{:x}", Sha256::digest(updated_content.as_bytes()));
     let last_modified_unix = std::time::SystemTime::now()
@@ -1379,7 +1710,9 @@ fn append_audit_trail_row(content: &str, row: &str) -> String {
             if run_len >= 3 {
                 match fence {
                     None => fence = Some((ch, run_len)),
-                    Some((open_ch, open_len)) if ch == open_ch && run_len >= open_len => fence = None,
+                    Some((open_ch, open_len)) if ch == open_ch && run_len >= open_len => {
+                        fence = None
+                    }
                     _ => {}
                 }
             }
@@ -1409,7 +1742,12 @@ fn append_audit_trail_row(content: &str, row: &str) -> String {
             return format!("{}{}{}", &content[..insertion], row, &content[insertion..]);
         }
         let insertion = end;
-        return format!("{}\n{}{}", content[..insertion].trim_end_matches(|ch| ch == '\r' || ch == '\n'), row, &content[insertion..]);
+        return format!(
+            "{}\n{}{}",
+            content[..insertion].trim_end_matches(|ch| ch == '\r' || ch == '\n'),
+            row,
+            &content[insertion..]
+        );
     }
 
     format!(
@@ -1444,7 +1782,10 @@ pub fn render_checkpoint_markdown(cp: &ExecutionCheckpoint) -> String {
     out.push_str(&format!("- Repository: {}\n", cp.repository));
     out.push_str(&format!("- Active Plan: {}\n", cp.active_plan));
     out.push_str(&format!("- Plan Revision: {}\n", cp.plan_revision));
-    out.push_str(&format!("- Plan File Identity: {}\n", cp.plan_file_identity));
+    out.push_str(&format!(
+        "- Plan File Identity: {}\n",
+        cp.plan_file_identity
+    ));
     out.push_str(&format!("- Workflow Run ID: {}\n", cp.workflow_run_id));
     out.push('\n');
     out.push_str("### Completed Work\n");
@@ -1475,8 +1816,22 @@ pub fn render_checkpoint_markdown(cp: &ExecutionCheckpoint) -> String {
     }
     out.push('\n');
     out.push_str("### Review State\n");
-    out.push_str(&format!("- Reviewer: {}\n", if cp.reviewer.is_empty() { "None" } else { &cp.reviewer }));
-    out.push_str(&format!("- Result: {}\n", if cp.review_result.is_empty() { "PENDING" } else { &cp.review_result }));
+    out.push_str(&format!(
+        "- Reviewer: {}\n",
+        if cp.reviewer.is_empty() {
+            "None"
+        } else {
+            &cp.reviewer
+        }
+    ));
+    out.push_str(&format!(
+        "- Result: {}\n",
+        if cp.review_result.is_empty() {
+            "PENDING"
+        } else {
+            &cp.review_result
+        }
+    ));
     out.push_str("- Unresolved Findings:\n");
     if cp.unresolved_findings.is_empty() {
         out.push_str("  - None\n");
@@ -1501,7 +1856,9 @@ pub fn render_checkpoint_markdown(cp: &ExecutionCheckpoint) -> String {
 
 fn checkpoint_revision_digest(content: &str) -> String {
     let revision_content = if let Some((start_idx, end_idx)) = find_checkpoint_markers(content) {
-        let section_start = content[..start_idx].rfind(CHECKPOINT_SECTION_HEADER).unwrap_or(start_idx);
+        let section_start = content[..start_idx]
+            .rfind(CHECKPOINT_SECTION_HEADER)
+            .unwrap_or(start_idx);
         let after_end = end_idx + CHECKPOINT_END_MARKER.len();
         let prefix = content[..section_start].trim_end();
         let suffix = content[after_end..].trim_start();
@@ -1621,7 +1978,10 @@ pub fn extract_execution_checkpoint(content: &str) -> Option<ExecutionCheckpoint
                 cp.review_result = trimmed["- Result:".len()..].trim().to_string();
             } else if trimmed.starts_with("- ") || trimmed.starts_with("-") {
                 let finding = trimmed.trim_start_matches('-').trim();
-                if !finding.eq_ignore_ascii_case("None") && !finding.eq_ignore_ascii_case("Unresolved Findings:") && !finding.is_empty() {
+                if !finding.eq_ignore_ascii_case("None")
+                    && !finding.eq_ignore_ascii_case("Unresolved Findings:")
+                    && !finding.is_empty()
+                {
                     cp.unresolved_findings.push(finding.to_string());
                 }
             }
@@ -1654,17 +2014,23 @@ fn find_checkpoint_markers(content: &str) -> Option<(usize, usize)> {
             if run_len >= 3 {
                 match fence {
                     None => fence = Some((ch, run_len)),
-                    Some((open_ch, open_len)) if ch == open_ch && run_len >= open_len => fence = None,
+                    Some((open_ch, open_len)) if ch == open_ch && run_len >= open_len => {
+                        fence = None
+                    }
                     _ => {}
                 }
             }
         } else if fence.is_none() {
             if let Some(pos) = line.find(CHECKPOINT_START_MARKER) {
-                if start.is_some() { return None; }
+                if start.is_some() {
+                    return None;
+                }
                 start = Some(offset + pos);
             }
             if let Some(pos) = line.find(CHECKPOINT_END_MARKER) {
-                if end.is_some() { return None; }
+                if end.is_some() {
+                    return None;
+                }
                 end = Some(offset + pos);
             }
         }
@@ -1698,8 +2064,8 @@ pub fn save_execution_checkpoint(
         .lock()
         .map_err(|e| format!("Failed to acquire plan mutation lock: {e}"))?;
 
-    let content = std::fs::read_to_string(&abs_path)
-        .map_err(|e| format!("Failed to read plan file: {e}"))?;
+    let content =
+        std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan file: {e}"))?;
     let source_file_identity = plan_file_identity(&abs_path)?;
     if source_file_identity != expected_file_identity {
         return Err("Compare-and-swap conflict: plan file identity changed".to_string());
@@ -1721,49 +2087,46 @@ pub fn save_execution_checkpoint(
     checkpoint_to_save.plan_file_identity.clear();
     let rendered_checkpoint = render_checkpoint_markdown(&checkpoint_to_save);
 
-    let updated_content = if let Some((start_marker_idx, end_marker_start_idx)) = find_checkpoint_markers(&content) {
-        let end_marker_idx = end_marker_start_idx + CHECKPOINT_END_MARKER.len();
-        let section_start = match content[..start_marker_idx].rfind(CHECKPOINT_SECTION_HEADER) {
-            Some(idx) => idx,
-            None => start_marker_idx,
-        };
-        format!(
-            "{}{}{}",
-            &content[..section_start],
-            rendered_checkpoint,
-            &content[end_marker_idx..]
-        )
-    } else {
-        // Insert before Audit Trail section if present
-        let audit_markers = [
-            "## 5. Execution History & Audit Trail",
-            "## Execution History & Audit Trail",
-            "## Audit Trail",
-            "## 11. Execution History & Audit Trail",
-        ];
-        let mut insert_pos = None;
-        for marker in audit_markers {
-            if let Some(pos) = content.find(marker) {
-                insert_pos = Some(pos);
-                break;
-            }
-        }
-
-        if let Some(pos) = insert_pos {
+    let updated_content =
+        if let Some((start_marker_idx, end_marker_start_idx)) = find_checkpoint_markers(&content) {
+            let end_marker_idx = end_marker_start_idx + CHECKPOINT_END_MARKER.len();
+            let section_start = match content[..start_marker_idx].rfind(CHECKPOINT_SECTION_HEADER) {
+                Some(idx) => idx,
+                None => start_marker_idx,
+            };
             format!(
-                "{}\n\n{}\n\n---\n\n{}",
-                content[..pos].trim_end(),
+                "{}{}{}",
+                &content[..section_start],
                 rendered_checkpoint,
-                &content[pos..]
+                &content[end_marker_idx..]
             )
         } else {
-            format!(
-                "{}\n\n---\n\n{}\n",
-                content.trim_end(),
-                rendered_checkpoint
-            )
-        }
-    };
+            // Insert before Audit Trail section if present
+            let audit_markers = [
+                "## 5. Execution History & Audit Trail",
+                "## Execution History & Audit Trail",
+                "## Audit Trail",
+                "## 11. Execution History & Audit Trail",
+            ];
+            let mut insert_pos = None;
+            for marker in audit_markers {
+                if let Some(pos) = content.find(marker) {
+                    insert_pos = Some(pos);
+                    break;
+                }
+            }
+
+            if let Some(pos) = insert_pos {
+                format!(
+                    "{}\n\n{}\n\n---\n\n{}",
+                    content[..pos].trim_end(),
+                    rendered_checkpoint,
+                    &content[pos..]
+                )
+            } else {
+                format!("{}\n\n---\n\n{}\n", content.trim_end(), rendered_checkpoint)
+            }
+        };
 
     let counter = TMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let tmp_path = abs_path.with_extension(format!("tmp.{}.{}", std::process::id(), counter));
@@ -1775,7 +2138,8 @@ pub fn save_execution_checkpoint(
     // in place so rename preserves that identity without self-reference.
     checkpoint_to_save.plan_file_identity = plan_file_identity(&tmp_path)?;
     let final_rendered_checkpoint = render_checkpoint_markdown(&checkpoint_to_save);
-    let final_content = updated_content.replacen(&rendered_checkpoint, &final_rendered_checkpoint, 1);
+    let final_content =
+        updated_content.replacen(&rendered_checkpoint, &final_rendered_checkpoint, 1);
     if final_content == updated_content {
         let _ = std::fs::remove_file(&tmp_path);
         return Err("Could not embed checkpoint plan file identity".to_string());
@@ -1786,11 +2150,10 @@ pub fn save_execution_checkpoint(
     })?;
 
     // Pre-commit verification: re-read source file directly before atomic rename
-    let pre_commit_content = std::fs::read_to_string(&abs_path)
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&tmp_path);
-            format!("Failed to re-read plan file before commit: {e}")
-        })?;
+    let pre_commit_content = std::fs::read_to_string(&abs_path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("Failed to re-read plan file before commit: {e}")
+    })?;
     let pre_commit_hash = format!("{:x}", Sha256::digest(pre_commit_content.as_bytes()));
     if !pre_commit_hash.eq_ignore_ascii_case(expected_sha256.trim()) {
         let _ = std::fs::remove_file(&tmp_path);
@@ -1800,16 +2163,22 @@ pub fn save_execution_checkpoint(
     }
     if plan_file_identity(&abs_path)? != source_file_identity {
         let _ = std::fs::remove_file(&tmp_path);
-        return Err("Compare-and-swap conflict prior to checkpoint commit: plan file identity changed".to_string());
+        return Err(
+            "Compare-and-swap conflict prior to checkpoint commit: plan file identity changed"
+                .to_string(),
+        );
     }
 
-    std::fs::rename(&tmp_path, &abs_path)
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&tmp_path);
-            format!("Failed to commit updated plan with checkpoint: {e}")
-        })?;
+    std::fs::rename(&tmp_path, &abs_path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("Failed to commit updated plan with checkpoint: {e}")
+    })?;
 
-    let file_name = abs_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let file_name = abs_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let (title, status) = extract_title_and_status(&final_content, &file_name);
     let sha256_hash = format!("{:x}", Sha256::digest(final_content.as_bytes()));
     let last_modified_unix = std::time::SystemTime::now()
@@ -1839,8 +2208,8 @@ pub fn get_execution_checkpoint(
         return Err(format!("Plan file does not exist: '{rel_path}'"));
     }
 
-    let content = std::fs::read_to_string(&abs_path)
-        .map_err(|e| format!("Failed to read plan file: {e}"))?;
+    let content =
+        std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan file: {e}"))?;
 
     Ok(extract_execution_checkpoint(&content))
 }
@@ -1852,7 +2221,30 @@ pub fn verify_resumption_preflight(
     surface: Option<&str>,
     slot_id: Option<&str>,
 ) -> Result<ResumptionPreflightResult, String> {
-    let canonical_repo = repo_root.canonicalize().map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
+    verify_resumption_preflight_internal(repo_root, rel_path, checkpoint, surface, slot_id, true)
+}
+
+/// Verify a registry-selected plan's checkpoint without consulting legacy active-slot state.
+/// The caller must first validate and pin the exact selected plan path.
+pub fn verify_selected_plan_resumption_preflight(
+    repo_root: &Path,
+    rel_path: &str,
+    checkpoint: &ExecutionCheckpoint,
+) -> Result<ResumptionPreflightResult, String> {
+    verify_resumption_preflight_internal(repo_root, rel_path, checkpoint, None, None, false)
+}
+
+fn verify_resumption_preflight_internal(
+    repo_root: &Path,
+    rel_path: &str,
+    checkpoint: &ExecutionCheckpoint,
+    surface: Option<&str>,
+    slot_id: Option<&str>,
+    require_legacy_active_plan: bool,
+) -> Result<ResumptionPreflightResult, String> {
+    let canonical_repo = repo_root
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize repo root: {e}"))?;
     let mut reasons = Vec::new();
     let mut is_resumable = true;
 
@@ -1862,11 +2254,17 @@ pub fn verify_resumption_preflight(
         Ok(canonical_cp_repo) if canonical_cp_repo == canonical_repo => {}
         Ok(canonical_cp_repo) => {
             is_resumable = false;
-            reasons.push(format!("Repository mismatch: checkpoint repo '{}' differs from current repo '{}'", canonical_cp_repo.display(), canonical_repo.display()));
+            reasons.push(format!(
+                "Repository mismatch: checkpoint repo '{}' differs from current repo '{}'",
+                canonical_cp_repo.display(),
+                canonical_repo.display()
+            ));
         }
         Err(_) => {
             is_resumable = false;
-            reasons.push("Checkpoint repository identity is missing or cannot be verified".to_string());
+            reasons.push(
+                "Checkpoint repository identity is missing or cannot be verified".to_string(),
+            );
         }
     }
 
@@ -1880,59 +2278,64 @@ pub fn verify_resumption_preflight(
             normalized_cp_plan, normalized_rel
         ));
     }
-    let state = load_active_plan_state(repo_root)?;
-    let matches_active = if let Some(s) = surface {
-        if let Some(st) = state.surfaces.get(s) {
-            if let Some(explicit_sid) = slot_id {
-                match validate_slot_id(explicit_sid) {
-                    Ok(valid_explicit) => match st.active_slot_id.as_deref() {
-                        Some(canonical_sid) if canonical_sid == valid_explicit => st
-                            .slots
-                            .get(canonical_sid)
-                            .map(|p| normalize_rel_path(p) == normalized_rel)
-                            .unwrap_or(false),
-                        Some(canonical_sid) => {
-                            is_resumable = false;
-                            reasons.push(format!(
+    if require_legacy_active_plan {
+        let state = load_active_plan_state(repo_root)?;
+        let matches_active = if let Some(s) = surface {
+            if let Some(st) = state.surfaces.get(s) {
+                if let Some(explicit_sid) = slot_id {
+                    match validate_slot_id(explicit_sid) {
+                        Ok(valid_explicit) => match st.active_slot_id.as_deref() {
+                            Some(canonical_sid) if canonical_sid == valid_explicit => st
+                                .slots
+                                .get(canonical_sid)
+                                .map(|p| normalize_rel_path(p) == normalized_rel)
+                                .unwrap_or(false),
+                            Some(canonical_sid) => {
+                                is_resumable = false;
+                                reasons.push(format!(
                                 "Slot mismatch: requested slot '{valid_explicit}' differs from canonical active slot '{canonical_sid}'"
                             ));
+                                false
+                            }
+                            None => false,
+                        },
+                        Err(e) => {
+                            is_resumable = false;
+                            reasons.push(e);
                             false
                         }
-                        None => false,
-                    },
-                    Err(e) => {
-                        is_resumable = false;
-                        reasons.push(e);
-                        false
                     }
+                } else {
+                    st.active_slot_id
+                        .as_deref()
+                        .and_then(|sid| st.slots.get(sid))
+                        .map(|p| normalize_rel_path(p) == normalized_rel)
+                        .unwrap_or(false)
                 }
             } else {
-                st.active_slot_id
-                    .as_deref()
-                    .and_then(|sid| st.slots.get(sid))
-                    .map(|p| normalize_rel_path(p) == normalized_rel)
-                    .unwrap_or(false)
+                false
             }
         } else {
-            false
+            state
+                .active_plan_path
+                .as_deref()
+                .map(|p| normalize_rel_path(p) == normalized_rel)
+                .unwrap_or(false)
+                || state.surfaces.values().any(|st| {
+                    st.active_slot_id
+                        .as_deref()
+                        .and_then(|sid| st.slots.get(sid))
+                        .map(|p| normalize_rel_path(p) == normalized_rel)
+                        .unwrap_or(false)
+                })
+        };
+        if !matches_active {
+            is_resumable = false;
+            reasons.push(
+                "Requested plan does not match the repository's configured Active Plan File"
+                    .to_string(),
+            );
         }
-    } else {
-        state
-            .active_plan_path
-            .as_deref()
-            .map(|p| normalize_rel_path(p) == normalized_rel)
-            .unwrap_or(false)
-            || state.surfaces.values().any(|st| {
-                st.active_slot_id
-                    .as_deref()
-                    .and_then(|sid| st.slots.get(sid))
-                    .map(|p| normalize_rel_path(p) == normalized_rel)
-                    .unwrap_or(false)
-            })
-    };
-    if !matches_active {
-        is_resumable = false;
-        reasons.push("Requested plan does not match the repository's configured Active Plan File".to_string());
     }
 
     // Unknown checkpoint fields or missing run identity cannot safely select a workflow stage.
@@ -1942,7 +2345,9 @@ pub fn verify_resumption_preflight(
         || checkpoint.next_action.trim().is_empty()
     {
         is_resumable = false;
-        reasons.push("Checkpoint workflow state is incomplete or uses an unsupported version".to_string());
+        reasons.push(
+            "Checkpoint workflow state is incomplete or uses an unsupported version".to_string(),
+        );
     }
     if checkpoint.workflow_run_id.trim().is_empty() {
         is_resumable = false;
@@ -1959,17 +2364,28 @@ pub fn verify_resumption_preflight(
     // Checkpoint revision is the hash of the plan with its live checkpoint block
     // removed, avoiding a self-referential digest while detecting external edits.
     if abs_path.exists() {
-        let plan_content = std::fs::read_to_string(&abs_path).map_err(|e| format!("Failed to read plan for revision check: {e}"))?;
+        let plan_content = std::fs::read_to_string(&abs_path)
+            .map_err(|e| format!("Failed to read plan for revision check: {e}"))?;
         let actual_revision = checkpoint_revision_digest(&plan_content);
-        if checkpoint.plan_revision.trim().is_empty() || !checkpoint.plan_revision.eq_ignore_ascii_case(&actual_revision) {
-            is_resumable = false;
-            reasons.push("Plan revision hash is missing or does not match the current plan".to_string());
-        }
-        if checkpoint.plan_file_identity.trim().is_empty()
-            || plan_file_identity(&abs_path).map(|identity| identity != checkpoint.plan_file_identity).unwrap_or(true)
+        if checkpoint.plan_revision.trim().is_empty()
+            || !checkpoint
+                .plan_revision
+                .eq_ignore_ascii_case(&actual_revision)
         {
             is_resumable = false;
-            reasons.push("Plan file identity is missing or does not match the current file".to_string());
+            reasons.push(
+                "Plan revision hash is missing or does not match the current plan".to_string(),
+            );
+        }
+        if checkpoint.plan_file_identity.trim().is_empty()
+            || plan_file_identity(&abs_path)
+                .map(|identity| identity != checkpoint.plan_file_identity)
+                .unwrap_or(true)
+        {
+            is_resumable = false;
+            reasons.push(
+                "Plan file identity is missing or does not match the current file".to_string(),
+            );
         }
     }
 
@@ -1982,7 +2398,9 @@ pub fn verify_resumption_preflight(
     // 5. Check halted status
     if checkpoint.status.eq_ignore_ascii_case("HALTED") {
         is_resumable = false;
-        reasons.push("Workflow was previously HALTED; requires explicit confirmation to resume".to_string());
+        reasons.push(
+            "Workflow was previously HALTED; requires explicit confirmation to resume".to_string(),
+        );
     }
 
     if !checkpoint.unresolved_findings.is_empty() {
@@ -1996,9 +2414,18 @@ pub fn verify_resumption_preflight(
             continue;
         }
         let relative = PathBuf::from(f);
-        let invalid_relative = relative.is_absolute() || relative.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::Prefix(_)));
+        let invalid_relative = relative.is_absolute()
+            || relative.components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir | std::path::Component::Prefix(_)
+                )
+            });
         let full_p = repo_root.join(&relative);
-        let escapes_repo = full_p.canonicalize().map(|p| !p.starts_with(&canonical_repo)).unwrap_or(false);
+        let escapes_repo = full_p
+            .canonicalize()
+            .map(|p| !p.starts_with(&canonical_repo))
+            .unwrap_or(false);
         if invalid_relative || escapes_repo || !full_p.is_file() {
             is_resumable = false;
             reasons.push(format!("Modified file noted in checkpoint is missing, unsafe, or outside the repository: '{f}'"));
@@ -2055,9 +2482,17 @@ mod tests {
         #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, repo.join("linked")).unwrap();
 
-        let req = CreatePlanRequest { name: "escape".into(), folder: Some("linked/new/nested".into()), title: None, set_as_active: Some(false) };
+        let req = CreatePlanRequest {
+            name: "escape".into(),
+            folder: Some("linked/new/nested".into()),
+            title: None,
+            set_as_active: Some(false),
+        };
         assert!(create_plan_file(&repo, &req).is_err());
-        assert!(!outside.join("new").exists(), "external directory must not be created before validation");
+        assert!(
+            !outside.join("new").exists(),
+            "external directory must not be created before validation"
+        );
     }
 
     #[test]
@@ -2084,13 +2519,18 @@ mod tests {
         assert_eq!(created.title, "User Authentication Plan");
 
         // 3. Active plan should now be set
-        let active = get_active_plan(repo, None, None).unwrap().expect("should have active plan");
+        let active = get_active_plan(repo, None, None)
+            .unwrap()
+            .expect("should have active plan");
         assert_eq!(active.rel_path, ".plan/feature-auth.md");
         assert_eq!(active.title, "User Authentication Plan");
 
         // 4. Plan overview should include the item marked as active
         let overview = get_plan_overview(repo, None, None, None).unwrap();
-        assert_eq!(overview.active_plan_relative_path.as_deref(), Some(".plan/feature-auth.md"));
+        assert_eq!(
+            overview.active_plan_relative_path.as_deref(),
+            Some(".plan/feature-auth.md")
+        );
         assert_eq!(overview.plans.len(), 1);
         assert!(overview.plans[0].is_active);
 
@@ -2124,12 +2564,16 @@ mod tests {
         assert_eq!(created2.rel_path, ".plan/feature-billing.md");
 
         // Active plan should still be feature-auth
-        let active2 = get_active_plan(repo, None, None).unwrap().expect("should have active plan");
+        let active2 = get_active_plan(repo, None, None)
+            .unwrap()
+            .expect("should have active plan");
         assert_eq!(active2.rel_path, ".plan/feature-auth.md");
 
         // 8. Switch active plan to billing
         set_active_plan(repo, ".plan/feature-billing.md", None, None).unwrap();
-        let active3 = get_active_plan(repo, None, None).unwrap().expect("should have active plan");
+        let active3 = get_active_plan(repo, None, None)
+            .unwrap()
+            .expect("should have active plan");
         assert_eq!(active3.rel_path, ".plan/feature-billing.md");
     }
 
@@ -2190,8 +2634,11 @@ mod tests {
         let mut missing_identity_event = event;
         missing_identity_event.expected_sha256 = updated.sha256_hash;
         missing_identity_event.expected_file_identity = None;
-        let err_missing_identity = append_audit_trail_event(repo, &created.rel_path, &missing_identity_event);
-        assert!(err_missing_identity.unwrap_err().contains("expected_file_identity"));
+        let err_missing_identity =
+            append_audit_trail_event(repo, &created.rel_path, &missing_identity_event);
+        assert!(err_missing_identity
+            .unwrap_err()
+            .contains("expected_file_identity"));
     }
 
     #[test]
@@ -2223,8 +2670,16 @@ mod tests {
         };
 
         let updated = append_audit_trail_event(repo, &created.rel_path, &event).unwrap();
-        let audit_section = updated.content.split("## 12. Next Plan Section").next().unwrap();
-        let following_section = updated.content.split("## 12. Next Plan Section").nth(1).unwrap();
+        let audit_section = updated
+            .content
+            .split("## 12. Next Plan Section")
+            .next()
+            .unwrap();
+        let following_section = updated
+            .content
+            .split("## 12. Next Plan Section")
+            .nth(1)
+            .unwrap();
         assert!(audit_section.contains("new audit event"));
         assert!(following_section.contains("Keep this section"));
         assert!(!following_section.contains("new audit event"));
@@ -2280,7 +2735,8 @@ Some description here...
         assert!(rendered.contains("Workflow: pov-full-cycle"));
         assert!(rendered.contains("Status: IMPLEMENTATION_REVIEW"));
 
-        let extracted = extract_execution_checkpoint(&rendered).expect("checkpoint should be extracted");
+        let extracted =
+            extract_execution_checkpoint(&rendered).expect("checkpoint should be extracted");
         assert_eq!(extracted.checkpoint_version, 1);
         assert_eq!(extracted.workflow, "pov-full-cycle");
         assert_eq!(extracted.status, "IMPLEMENTATION_REVIEW");
@@ -2290,7 +2746,10 @@ Some description here...
         assert_eq!(extracted.active_plan, ".plan/feature-test.md");
         assert_eq!(extracted.plan_revision, "abc123hash");
         assert_eq!(extracted.workflow_run_id, "run-20261108-01");
-        assert_eq!(extracted.completed_work, vec!["Task 1 finished", "Task 2 tested"]);
+        assert_eq!(
+            extracted.completed_work,
+            vec!["Task 1 finished", "Task 2 tested"]
+        );
         assert_eq!(extracted.modified_files, vec!["src/lib.rs", "src/main.rs"]);
         assert_eq!(extracted.validation, vec!["cargo test PASS"]);
         assert_eq!(extracted.reviewer, "Codex CLI");
@@ -2304,43 +2763,137 @@ Some description here...
     fn test_checkpoint_markers_in_fenced_example_are_ignored_and_preserved() {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        let req = CreatePlanRequest { name: "fenced-checkpoint".into(), folder: None, title: None, set_as_active: Some(false) };
+        let req = CreatePlanRequest {
+            name: "fenced-checkpoint".into(),
+            folder: None,
+            title: None,
+            set_as_active: Some(false),
+        };
         let created = create_plan_file(repo, &req).unwrap();
-        let example = format!("\n```markdown\n{}\nStatus: EXAMPLE\n{}\n```\n", CHECKPOINT_START_MARKER, CHECKPOINT_END_MARKER);
-        let content = format!("{}{}", std::fs::read_to_string(repo.join(&created.rel_path)).unwrap(), example);
+        let example = format!(
+            "\n```markdown\n{}\nStatus: EXAMPLE\n{}\n```\n",
+            CHECKPOINT_START_MARKER, CHECKPOINT_END_MARKER
+        );
+        let content = format!(
+            "{}{}",
+            std::fs::read_to_string(repo.join(&created.rel_path)).unwrap(),
+            example
+        );
         std::fs::write(repo.join(&created.rel_path), &content).unwrap();
         assert!(extract_execution_checkpoint(&content).is_none());
 
         let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
-        let cp = ExecutionCheckpoint { checkpoint_version: 1, workflow: "pov-full-cycle".into(), status: "IMPLEMENTATION".into(), last_completed: "TESTS".into(), next_action: "REVIEW".into(), repository: repo.to_string_lossy().into_owned(), active_plan: created.rel_path.clone(), plan_revision: String::new(), plan_file_identity: String::new(), workflow_run_id: "test".into(), completed_work: vec![], modified_files: vec![], validation: vec![], reviewer: "Codex".into(), review_result: "PENDING".into(), unresolved_findings: vec![], pending_work: vec![], timestamp: "now".into() };
-        let saved = save_execution_checkpoint(repo, &created.rel_path, &cp, &created.file_identity.clone().unwrap(), &hash).unwrap();
-        assert!(saved.content.contains(&example), "documentation example must remain byte-for-byte present");
+        let cp = ExecutionCheckpoint {
+            checkpoint_version: 1,
+            workflow: "pov-full-cycle".into(),
+            status: "IMPLEMENTATION".into(),
+            last_completed: "TESTS".into(),
+            next_action: "REVIEW".into(),
+            repository: repo.to_string_lossy().into_owned(),
+            active_plan: created.rel_path.clone(),
+            plan_revision: String::new(),
+            plan_file_identity: String::new(),
+            workflow_run_id: "test".into(),
+            completed_work: vec![],
+            modified_files: vec![],
+            validation: vec![],
+            reviewer: "Codex".into(),
+            review_result: "PENDING".into(),
+            unresolved_findings: vec![],
+            pending_work: vec![],
+            timestamp: "now".into(),
+        };
+        let saved = save_execution_checkpoint(
+            repo,
+            &created.rel_path,
+            &cp,
+            &created.file_identity.clone().unwrap(),
+            &hash,
+        )
+        .unwrap();
+        assert!(
+            saved.content.contains(&example),
+            "documentation example must remain byte-for-byte present"
+        );
         assert_eq!(saved.content.matches(CHECKPOINT_START_MARKER).count(), 2);
-        assert_eq!(get_execution_checkpoint(repo, &created.rel_path).unwrap().unwrap().status, "IMPLEMENTATION");
+        assert_eq!(
+            get_execution_checkpoint(repo, &created.rel_path)
+                .unwrap()
+                .unwrap()
+                .status,
+            "IMPLEMENTATION"
+        );
     }
 
     #[test]
     fn test_fenced_checkpoint_example_in_plan_is_ignored_without_overwrite() {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        let created = create_plan_file(repo, &CreatePlanRequest { name: "documented-checkpoint".into(), folder: None, title: None, set_as_active: Some(false) }).unwrap();
-        let example = format!("\n### Example\n\n```markdown\n{}\nStatus: EXAMPLE\n{}\n```\n", CHECKPOINT_START_MARKER, CHECKPOINT_END_MARKER);
+        let created = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "documented-checkpoint".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
+        let example = format!(
+            "\n### Example\n\n```markdown\n{}\nStatus: EXAMPLE\n{}\n```\n",
+            CHECKPOINT_START_MARKER, CHECKPOINT_END_MARKER
+        );
         let original = std::fs::read_to_string(repo.join(&created.rel_path)).unwrap();
         let content = format!("{}{}", original, example);
         std::fs::write(repo.join(&created.rel_path), &content).unwrap();
         assert!(extract_execution_checkpoint(&content).is_none());
 
         let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
-        let cp = ExecutionCheckpoint { checkpoint_version: 1, workflow: "pov-full-cycle".into(), status: "REVIEW".into(), last_completed: "TESTS".into(), next_action: "REVIEW".into(), repository: repo.to_string_lossy().into_owned(), active_plan: created.rel_path.clone(), plan_revision: String::new(), plan_file_identity: String::new(), workflow_run_id: "test".into(), completed_work: vec![], modified_files: vec![], validation: vec![], reviewer: "Codex".into(), review_result: "PENDING".into(), unresolved_findings: vec![], pending_work: vec![], timestamp: "now".into() };
-        let saved = save_execution_checkpoint(repo, &created.rel_path, &cp, &created.file_identity.clone().unwrap(), &hash).unwrap();
+        let cp = ExecutionCheckpoint {
+            checkpoint_version: 1,
+            workflow: "pov-full-cycle".into(),
+            status: "REVIEW".into(),
+            last_completed: "TESTS".into(),
+            next_action: "REVIEW".into(),
+            repository: repo.to_string_lossy().into_owned(),
+            active_plan: created.rel_path.clone(),
+            plan_revision: String::new(),
+            plan_file_identity: String::new(),
+            workflow_run_id: "test".into(),
+            completed_work: vec![],
+            modified_files: vec![],
+            validation: vec![],
+            reviewer: "Codex".into(),
+            review_result: "PENDING".into(),
+            unresolved_findings: vec![],
+            pending_work: vec![],
+            timestamp: "now".into(),
+        };
+        let saved = save_execution_checkpoint(
+            repo,
+            &created.rel_path,
+            &cp,
+            &created.file_identity.clone().unwrap(),
+            &hash,
+        )
+        .unwrap();
         assert!(saved.content.contains(&example));
         assert_eq!(saved.content.matches(CHECKPOINT_START_MARKER).count(), 2);
-        assert_eq!(get_execution_checkpoint(repo, &created.rel_path).unwrap().unwrap().status, "REVIEW");
+        assert_eq!(
+            get_execution_checkpoint(repo, &created.rel_path)
+                .unwrap()
+                .unwrap()
+                .status,
+            "REVIEW"
+        );
     }
 
     #[test]
     fn test_fenced_marker_examples_and_ambiguous_markers_fail_closed() {
-        let example = format!("```markdown\n{}\n{}\n```", CHECKPOINT_START_MARKER, CHECKPOINT_END_MARKER);
+        let example = format!(
+            "```markdown\n{}\n{}\n```",
+            CHECKPOINT_START_MARKER, CHECKPOINT_END_MARKER
+        );
         assert!(extract_execution_checkpoint(&example).is_none());
         let pair = format!("{}\n{}", CHECKPOINT_START_MARKER, CHECKPOINT_END_MARKER);
         assert!(extract_execution_checkpoint(&format!("{}\n{}", pair, pair)).is_none());
@@ -2352,19 +2905,61 @@ Some description here...
     fn test_checkpoint_revision_round_trip_is_stable_and_preflight_detects_edits() {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        let created = create_plan_file(repo, &CreatePlanRequest { name: "revision-checkpoint".into(), folder: None, title: None, set_as_active: Some(true) }).unwrap();
-        let cp = ExecutionCheckpoint { checkpoint_version: 1, workflow: "pov-full-cycle".into(), status: "IMPLEMENTATION".into(), last_completed: "TESTS".into(), next_action: "REVIEW".into(), repository: repo.to_string_lossy().into_owned(), active_plan: created.rel_path.clone(), plan_revision: String::new(), plan_file_identity: String::new(), workflow_run_id: "run".into(), completed_work: vec![], modified_files: vec![], validation: vec![], reviewer: "Codex".into(), review_result: "PENDING".into(), unresolved_findings: vec![], pending_work: vec![], timestamp: "now".into() };
-        let saved = save_execution_checkpoint(repo, &created.rel_path, &cp, &created.file_identity.clone().unwrap(), &created.sha256_hash).unwrap();
-        let stored = get_execution_checkpoint(repo, &created.rel_path).unwrap().unwrap();
-        let good = verify_resumption_preflight(repo, &created.rel_path, &stored, None, None).unwrap();
+        let created = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "revision-checkpoint".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(true),
+            },
+        )
+        .unwrap();
+        let cp = ExecutionCheckpoint {
+            checkpoint_version: 1,
+            workflow: "pov-full-cycle".into(),
+            status: "IMPLEMENTATION".into(),
+            last_completed: "TESTS".into(),
+            next_action: "REVIEW".into(),
+            repository: repo.to_string_lossy().into_owned(),
+            active_plan: created.rel_path.clone(),
+            plan_revision: String::new(),
+            plan_file_identity: String::new(),
+            workflow_run_id: "run".into(),
+            completed_work: vec![],
+            modified_files: vec![],
+            validation: vec![],
+            reviewer: "Codex".into(),
+            review_result: "PENDING".into(),
+            unresolved_findings: vec![],
+            pending_work: vec![],
+            timestamp: "now".into(),
+        };
+        let saved = save_execution_checkpoint(
+            repo,
+            &created.rel_path,
+            &cp,
+            &created.file_identity.clone().unwrap(),
+            &created.sha256_hash,
+        )
+        .unwrap();
+        let stored = get_execution_checkpoint(repo, &created.rel_path)
+            .unwrap()
+            .unwrap();
+        let good =
+            verify_resumption_preflight(repo, &created.rel_path, &stored, None, None).unwrap();
         assert!(good.is_resumable, "{:?}", good.reasons);
 
         let mut edited = saved.content.clone();
         edited.push_str("\nExternal plan edit\n");
         std::fs::write(repo.join(&created.rel_path), edited).unwrap();
-        let stale = verify_resumption_preflight(repo, &created.rel_path, &stored, None, None).unwrap();
+        let stale =
+            verify_resumption_preflight(repo, &created.rel_path, &stored, None, None).unwrap();
         assert!(!stale.is_resumable);
-        assert!(stale.reasons.iter().any(|reason| reason.contains("revision hash")));
+        assert!(stale
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("revision hash")));
     }
 
     #[test]
@@ -2402,7 +2997,9 @@ Some description here...
         let with_audit = append_audit_trail_event(repo, plan_path, &event).unwrap();
         cur_hash = with_audit.sha256_hash;
         assert!(with_audit.content.contains("Initial draft"));
-        assert!(with_audit.content.contains("## 5. Execution History & Audit Trail"));
+        assert!(with_audit
+            .content
+            .contains("## 5. Execution History & Audit Trail"));
 
         // 2. Save execution checkpoint
         let cp1 = ExecutionCheckpoint {
@@ -2425,7 +3022,14 @@ Some description here...
             pending_work: vec!["Review plan".to_string()],
             timestamp: "2026-11-08T04:05:00Z".to_string(),
         };
-        let saved1 = save_execution_checkpoint(repo, plan_path, &cp1, with_audit.file_identity.as_deref().unwrap(), &cur_hash).unwrap();
+        let saved1 = save_execution_checkpoint(
+            repo,
+            plan_path,
+            &cp1,
+            with_audit.file_identity.as_deref().unwrap(),
+            &cur_hash,
+        )
+        .unwrap();
         cur_hash = saved1.sha256_hash;
 
         // Verify plan contents, checkpoint, and audit trail are all present
@@ -2433,11 +3037,15 @@ Some description here...
         assert!(saved1.content.contains("## 1. Overview & Objectives"));
         assert!(saved1.content.contains("## Poverello Execution Checkpoint"));
         assert!(saved1.content.contains("Status: PLAN_REVIEW"));
-        assert!(saved1.content.contains("## 5. Execution History & Audit Trail"));
+        assert!(saved1
+            .content
+            .contains("## 5. Execution History & Audit Trail"));
         assert!(saved1.content.contains("Initial draft"));
 
         // Verify get_execution_checkpoint retrieves it accurately
-        let fetched1 = get_execution_checkpoint(repo, plan_path).unwrap().expect("should find checkpoint");
+        let fetched1 = get_execution_checkpoint(repo, plan_path)
+            .unwrap()
+            .expect("should find checkpoint");
         assert_eq!(fetched1.status, "PLAN_REVIEW");
         assert_eq!(fetched1.next_action, "REVIEW");
 
@@ -2462,18 +3070,37 @@ Some description here...
             pending_work: vec!["Write code".to_string()],
             timestamp: "2026-11-08T04:10:00Z".to_string(),
         };
-        let saved2 = save_execution_checkpoint(repo, plan_path, &cp2, saved1.file_identity.as_deref().unwrap(), &cur_hash).unwrap();
+        let saved2 = save_execution_checkpoint(
+            repo,
+            plan_path,
+            &cp2,
+            saved1.file_identity.as_deref().unwrap(),
+            &cur_hash,
+        )
+        .unwrap();
         let _ = cur_hash;
 
         // Verify it was updated in-place without duplicating the section header
-        let checkpoint_header_count = saved2.content.matches("## Poverello Execution Checkpoint").count();
-        assert_eq!(checkpoint_header_count, 1, "Checkpoint section must not be duplicated");
+        let checkpoint_header_count = saved2
+            .content
+            .matches("## Poverello Execution Checkpoint")
+            .count();
+        assert_eq!(
+            checkpoint_header_count, 1,
+            "Checkpoint section must not be duplicated"
+        );
         assert!(saved2.content.contains("Status: IMPLEMENTATION"));
         assert!(saved2.content.contains("Initial draft"));
 
         // 4. Stale CAS update must fail
         let cp_stale = cp2.clone();
-        let stale_res = save_execution_checkpoint(repo, plan_path, &cp_stale, saved2.file_identity.as_deref().unwrap(), "stale_hash_value");
+        let stale_res = save_execution_checkpoint(
+            repo,
+            plan_path,
+            &cp_stale,
+            saved2.file_identity.as_deref().unwrap(),
+            "stale_hash_value",
+        );
         assert!(stale_res.is_err());
         assert!(stale_res.unwrap_err().contains("Compare-and-swap conflict"));
     }
@@ -2502,7 +3129,14 @@ Some description here...
             next_action: "IMPLEMENT".to_string(),
             repository: repo.to_string_lossy().to_string(),
             active_plan: created.rel_path.clone(),
-            plan_revision: format!("{:x}", Sha256::digest(std::fs::read_to_string(repo.join(&created.rel_path)).unwrap().as_bytes())),
+            plan_revision: format!(
+                "{:x}",
+                Sha256::digest(
+                    std::fs::read_to_string(repo.join(&created.rel_path))
+                        .unwrap()
+                        .as_bytes()
+                )
+            ),
             plan_file_identity: plan_file_identity(&repo.join(&created.rel_path)).unwrap(),
             workflow_run_id: "run-preflight".to_string(),
             completed_work: vec![],
@@ -2516,7 +3150,8 @@ Some description here...
         };
 
         // 1. Valid resumption preflight
-        let res_ok = verify_resumption_preflight(repo, &created.rel_path, &valid_cp, None, None).unwrap();
+        let res_ok =
+            verify_resumption_preflight(repo, &created.rel_path, &valid_cp, None, None).unwrap();
         assert!(res_ok.is_resumable);
         assert_eq!(res_ok.next_action, "IMPLEMENT");
         assert!(res_ok.reasons.is_empty());
@@ -2524,51 +3159,96 @@ Some description here...
         // Plan edits and missing revision hashes fail closed.
         let mut changed_plan_cp = valid_cp.clone();
         std::fs::write(repo.join(&created.rel_path), "# externally changed plan\n").unwrap();
-        let changed = verify_resumption_preflight(repo, &created.rel_path, &changed_plan_cp, None, None).unwrap();
+        let changed =
+            verify_resumption_preflight(repo, &created.rel_path, &changed_plan_cp, None, None)
+                .unwrap();
         assert!(!changed.is_resumable);
         assert!(changed.reasons.iter().any(|r| r.contains("revision hash")));
         std::fs::write(repo.join(&created.rel_path), &created.content).unwrap();
         changed_plan_cp.plan_revision = "".to_string();
-        let missing_revision = verify_resumption_preflight(repo, &created.rel_path, &changed_plan_cp, None, None).unwrap();
+        let missing_revision =
+            verify_resumption_preflight(repo, &created.rel_path, &changed_plan_cp, None, None)
+                .unwrap();
         assert!(!missing_revision.is_resumable);
-        assert!(missing_revision.reasons.iter().any(|r| r.contains("revision hash")));
+        assert!(missing_revision
+            .reasons
+            .iter()
+            .any(|r| r.contains("revision hash")));
 
         // 2. Mismatched repo preflight
         let mut invalid_repo_cp = valid_cp.clone();
         let other_temp = tempfile::tempdir().unwrap();
         invalid_repo_cp.repository = other_temp.path().to_string_lossy().to_string();
-        let res_repo_mismatch = verify_resumption_preflight(repo, &created.rel_path, &invalid_repo_cp, None, None).unwrap();
+        let res_repo_mismatch =
+            verify_resumption_preflight(repo, &created.rel_path, &invalid_repo_cp, None, None)
+                .unwrap();
         assert!(!res_repo_mismatch.is_resumable);
-        assert!(res_repo_mismatch.reasons.iter().any(|r| r.contains("Repository mismatch")));
+        assert!(res_repo_mismatch
+            .reasons
+            .iter()
+            .any(|r| r.contains("Repository mismatch")));
 
         // 3. Completed workflow cannot resume as active
         let mut completed_cp = valid_cp.clone();
         completed_cp.status = "COMPLETED".to_string();
-        let res_completed = verify_resumption_preflight(repo, &created.rel_path, &completed_cp, None, None).unwrap();
+        let res_completed =
+            verify_resumption_preflight(repo, &created.rel_path, &completed_cp, None, None)
+                .unwrap();
         assert!(!res_completed.is_resumable);
         assert_eq!(res_completed.next_action, "STOP");
-        assert!(res_completed.reasons.iter().any(|r| r.contains("already marked as COMPLETED")));
+        assert!(res_completed
+            .reasons
+            .iter()
+            .any(|r| r.contains("already marked as COMPLETED")));
 
         // 4. Missing modified file flagged
         let mut missing_file_cp = valid_cp.clone();
         missing_file_cp.modified_files = vec!["nonexistent_file.rs".to_string()];
-        let res_missing_file = verify_resumption_preflight(repo, &created.rel_path, &missing_file_cp, None, None).unwrap();
-        assert!(res_missing_file.reasons.iter().any(|r| r.contains("nonexistent_file.rs")));
+        let res_missing_file =
+            verify_resumption_preflight(repo, &created.rel_path, &missing_file_cp, None, None)
+                .unwrap();
+        assert!(res_missing_file
+            .reasons
+            .iter()
+            .any(|r| r.contains("nonexistent_file.rs")));
     }
 
     #[test]
     fn test_role_assignments_are_surface_scoped_and_preserved_when_active_plan_changes() {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        let codex = RoleAssignment { planner_id: Some("codex_session".into()), reviser_id: None };
-        let ag = RoleAssignment { planner_id: Some("antigravity".into()), reviser_id: Some("codex".into()) };
+        let codex = RoleAssignment {
+            planner_id: Some("codex_session".into()),
+            reviser_id: None,
+        };
+        let ag = RoleAssignment {
+            planner_id: Some("antigravity".into()),
+            reviser_id: Some("codex".into()),
+        };
         set_role_assignment(repo, "codex", codex.clone()).unwrap();
         set_role_assignment(repo, "antigravity", ag.clone()).unwrap();
         assert_eq!(get_role_assignment(repo, "codex").unwrap(), codex);
         assert_eq!(get_role_assignment(repo, "antigravity").unwrap(), ag);
-        assert!(set_role_assignment(repo, "codex", RoleAssignment { planner_id: Some("antigravity".into()), reviser_id: None }).is_err());
+        assert!(set_role_assignment(
+            repo,
+            "codex",
+            RoleAssignment {
+                planner_id: Some("antigravity".into()),
+                reviser_id: None
+            }
+        )
+        .is_err());
 
-        let created = create_plan_file(repo, &CreatePlanRequest { name: "roles".into(), folder: None, title: None, set_as_active: Some(true) }).unwrap();
+        let created = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "roles".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(true),
+            },
+        )
+        .unwrap();
         set_active_plan(repo, &created.rel_path, None, None).unwrap();
         assert_eq!(get_role_assignment(repo, "codex").unwrap(), codex);
         assert_eq!(get_role_assignment(repo, "antigravity").unwrap(), ag);
@@ -2580,8 +3260,15 @@ Some description here...
         let repo = temp.path();
         let plan_dir = repo.join(PLAN_DIR_NAME);
         std::fs::create_dir_all(&plan_dir).unwrap();
-        std::fs::write(plan_dir.join(ACTIVE_PLAN_FILE_NAME), r#"{"active_plan_path":".plan/legacy.md","last_updated_unix":1}"#).unwrap();
-        let assignment = RoleAssignment { planner_id: Some("codex_session".into()), reviser_id: Some("codex_session".into()) };
+        std::fs::write(
+            plan_dir.join(ACTIVE_PLAN_FILE_NAME),
+            r#"{"active_plan_path":".plan/legacy.md","last_updated_unix":1}"#,
+        )
+        .unwrap();
+        let assignment = RoleAssignment {
+            planner_id: Some("codex_session".into()),
+            reviser_id: Some("codex_session".into()),
+        };
         set_role_assignment(repo, "codex", assignment.clone()).unwrap();
         let state = load_active_plan_state(repo).unwrap();
         assert_eq!(state.active_plan_path.as_deref(), Some(".plan/legacy.md"));
@@ -2592,12 +3279,27 @@ Some description here...
     fn test_role_assignment_requires_valid_active_plan() {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        let assignment = RoleAssignment { planner_id: Some("codex_session".into()), reviser_id: None };
+        let assignment = RoleAssignment {
+            planner_id: Some("codex_session".into()),
+            reviser_id: None,
+        };
         set_role_assignment(repo, "codex", assignment.clone()).unwrap();
         assert!(get_role_assignment_for_active_plan(repo, "codex", None).is_err());
 
-        let created = create_plan_file(repo, &CreatePlanRequest { name: "active-role-plan".into(), folder: None, title: None, set_as_active: Some(true) }).unwrap();
-        assert_eq!(get_role_assignment_for_active_plan(repo, "codex", None).unwrap(), assignment);
+        let created = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "active-role-plan".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(true),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            get_role_assignment_for_active_plan(repo, "codex", None).unwrap(),
+            assignment
+        );
         std::fs::remove_file(repo.join(created.rel_path)).unwrap();
         assert!(get_role_assignment_for_active_plan(repo, "codex", None).is_err());
     }
@@ -2606,7 +3308,16 @@ Some description here...
     fn test_resumption_fails_closed_for_missing_state_halted_or_missing_files() {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        let created = create_plan_file(repo, &CreatePlanRequest { name: "resume-guards".into(), folder: None, title: None, set_as_active: Some(false) }).unwrap();
+        let created = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "resume-guards".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
         let cp = ExecutionCheckpoint {
             checkpoint_version: 1,
             workflow: "pov-full-cycle".into(),
@@ -2630,38 +3341,84 @@ Some description here...
 
         let mut missing_path = cp.clone();
         missing_path.active_plan.clear();
-        assert!(!verify_resumption_preflight(repo, &created.rel_path, &missing_path, None, None).unwrap().is_resumable);
+        assert!(
+            !verify_resumption_preflight(repo, &created.rel_path, &missing_path, None, None)
+                .unwrap()
+                .is_resumable
+        );
 
         let mut halted = cp.clone();
         halted.status = "HALTED".into();
-        assert!(!verify_resumption_preflight(repo, &created.rel_path, &halted, None, None).unwrap().is_resumable);
+        assert!(
+            !verify_resumption_preflight(repo, &created.rel_path, &halted, None, None)
+                .unwrap()
+                .is_resumable
+        );
 
         let mut missing_modified = cp.clone();
-        missing_modified.modified_files.push("src/missing.rs".into());
-        assert!(!verify_resumption_preflight(repo, &created.rel_path, &missing_modified, None, None).unwrap().is_resumable);
+        missing_modified
+            .modified_files
+            .push("src/missing.rs".into());
+        assert!(
+            !verify_resumption_preflight(repo, &created.rel_path, &missing_modified, None, None)
+                .unwrap()
+                .is_resumable
+        );
 
         let mut unknown = cp;
         unknown.next_action.clear();
-        assert!(!verify_resumption_preflight(repo, &created.rel_path, &unknown, None, None).unwrap().is_resumable);
+        assert!(
+            !verify_resumption_preflight(repo, &created.rel_path, &unknown, None, None)
+                .unwrap()
+                .is_resumable
+        );
     }
 
     #[test]
     fn test_plan_candidate_checks_identity_and_hash_and_returns_new_state() {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        let created = create_plan_file(repo, &CreatePlanRequest { name: "candidate-cas".into(), folder: None, title: None, set_as_active: Some(false) }).unwrap();
-        let identity = created.file_identity.clone().expect("filesystem identity is supported");
+        let created = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "candidate-cas".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
+        let identity = created
+            .file_identity
+            .clone()
+            .expect("filesystem identity is supported");
         let candidate = format!("{}\nCandidate revision\n", created.content);
-        let updated = apply_plan_candidate_if_unchanged(repo, &created.rel_path, &identity, &created.sha256_hash, &candidate).unwrap();
+        let updated = apply_plan_candidate_if_unchanged(
+            repo,
+            &created.rel_path,
+            &identity,
+            &created.sha256_hash,
+            &candidate,
+        )
+        .unwrap();
         assert!(updated.content.contains("Candidate revision"));
         assert!(updated.file_identity.is_some());
 
-        let stale = apply_plan_candidate_if_unchanged(repo, &created.rel_path, "wrong-identity", &updated.sha256_hash, "stale");
+        let stale = apply_plan_candidate_if_unchanged(
+            repo,
+            &created.rel_path,
+            "wrong-identity",
+            &updated.sha256_hash,
+            "stale",
+        );
         assert!(stale.unwrap_err().contains("identity or SHA-256 changed"));
 
         let event = AuditTrailEvent {
-            phase: "Review".into(), role_actor: "Reviewer".into(), result: "APPROVED".into(),
-            notes: "Identity-bound audit append".into(), expected_sha256: updated.sha256_hash.clone(),
+            phase: "Review".into(),
+            role_actor: "Reviewer".into(),
+            result: "APPROVED".into(),
+            notes: "Identity-bound audit append".into(),
+            expected_sha256: updated.sha256_hash.clone(),
             expected_file_identity: Some(updated.file_identity.unwrap()),
         };
         let audited = append_audit_trail_event(repo, &created.rel_path, &event).unwrap();
@@ -2711,41 +3468,64 @@ Some description here...
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
 
-        let plan_ag = create_plan_file(repo, &CreatePlanRequest {
-            name: "plan-ag".into(),
-            folder: None,
-            title: Some("AG Plan".into()),
-            set_as_active: Some(false),
-        }).unwrap();
+        let plan_ag = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "plan-ag".into(),
+                folder: None,
+                title: Some("AG Plan".into()),
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
 
-        let plan_codex = create_plan_file(repo, &CreatePlanRequest {
-            name: "plan-codex".into(),
-            folder: None,
-            title: Some("Codex Plan".into()),
-            set_as_active: Some(false),
-        }).unwrap();
+        let plan_codex = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "plan-codex".into(),
+                folder: None,
+                title: Some("Codex Plan".into()),
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
 
         // Initially no active plan for either
-        assert!(get_active_plan(repo, Some("antigravity"), None).unwrap().is_none());
-        assert!(get_active_plan(repo, Some("codex"), None).unwrap().is_none());
+        assert!(get_active_plan(repo, Some("antigravity"), None)
+            .unwrap()
+            .is_none());
+        assert!(get_active_plan(repo, Some("codex"), None)
+            .unwrap()
+            .is_none());
 
         // Set Antigravity active plan
         set_active_plan(repo, &plan_ag.rel_path, Some("antigravity"), None).unwrap();
         assert_eq!(
-            get_active_plan(repo, Some("antigravity"), None).unwrap().unwrap().rel_path,
+            get_active_plan(repo, Some("antigravity"), None)
+                .unwrap()
+                .unwrap()
+                .rel_path,
             plan_ag.rel_path
         );
         // Codex has not set its plan yet and surfaces are strictly isolated: returns None
-        assert!(get_active_plan(repo, Some("codex"), None).unwrap().is_none());
+        assert!(get_active_plan(repo, Some("codex"), None)
+            .unwrap()
+            .is_none());
 
         // Now set Codex active plan independently
         set_active_plan(repo, &plan_codex.rel_path, Some("codex"), None).unwrap();
         assert_eq!(
-            get_active_plan(repo, Some("antigravity"), None).unwrap().unwrap().rel_path,
+            get_active_plan(repo, Some("antigravity"), None)
+                .unwrap()
+                .unwrap()
+                .rel_path,
             plan_ag.rel_path
         );
         assert_eq!(
-            get_active_plan(repo, Some("codex"), None).unwrap().unwrap().rel_path,
+            get_active_plan(repo, Some("codex"), None)
+                .unwrap()
+                .unwrap()
+                .rel_path,
             plan_codex.rel_path
         );
 
@@ -2754,7 +3534,8 @@ Some description here...
         std::fs::write(
             plan_dir.join(ACTIVE_PLAN_FILE_NAME),
             r#"{"active_plan_path":".plan/plan-ag.md","last_updated_unix":123}"#,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
             get_active_plan(repo, None, None).unwrap().unwrap().rel_path,
             plan_ag.rel_path
@@ -2762,9 +3543,14 @@ Some description here...
 
         // After setting codex active plan, antigravity has not set its own plan yet
         set_active_plan(repo, &plan_codex.rel_path, Some("codex"), None).unwrap();
-        assert!(get_active_plan(repo, Some("antigravity"), None).unwrap().is_none());
+        assert!(get_active_plan(repo, Some("antigravity"), None)
+            .unwrap()
+            .is_none());
         assert_eq!(
-            get_active_plan(repo, Some("codex"), None).unwrap().unwrap().rel_path,
+            get_active_plan(repo, Some("codex"), None)
+                .unwrap()
+                .unwrap()
+                .rel_path,
             plan_codex.rel_path
         );
     }
@@ -2774,47 +3560,71 @@ Some description here...
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
 
-        let plan_p1 = create_plan_file(repo, &CreatePlanRequest {
-            name: "plan-slot-1".into(),
-            folder: None,
-            title: Some("Slot 1 Plan".into()),
-            set_as_active: Some(false),
-        }).unwrap();
+        let plan_p1 = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "plan-slot-1".into(),
+                folder: None,
+                title: Some("Slot 1 Plan".into()),
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
 
-        let plan_p2 = create_plan_file(repo, &CreatePlanRequest {
-            name: "plan-slot-2".into(),
-            folder: None,
-            title: Some("Slot 2 Plan".into()),
-            set_as_active: Some(false),
-        }).unwrap();
+        let plan_p2 = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "plan-slot-2".into(),
+                folder: None,
+                title: Some("Slot 2 Plan".into()),
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
 
         // Set primary slot plan
         set_active_plan(repo, &plan_p1.rel_path, Some("codex"), Some("primary")).unwrap();
         assert_eq!(
-            get_active_plan(repo, Some("codex"), Some("primary")).unwrap().unwrap().rel_path,
+            get_active_plan(repo, Some("codex"), Some("primary"))
+                .unwrap()
+                .unwrap()
+                .rel_path,
             plan_p1.rel_path
         );
         // Secondary slot is still empty
-        assert!(get_active_plan(repo, Some("codex"), Some("secondary")).unwrap().is_none());
+        assert!(get_active_plan(repo, Some("codex"), Some("secondary"))
+            .unwrap()
+            .is_none());
 
         // Set secondary slot plan
         set_active_plan(repo, &plan_p2.rel_path, Some("codex"), Some("secondary")).unwrap();
         assert_eq!(
-            get_active_plan(repo, Some("codex"), Some("primary")).unwrap().unwrap().rel_path,
+            get_active_plan(repo, Some("codex"), Some("primary"))
+                .unwrap()
+                .unwrap()
+                .rel_path,
             plan_p1.rel_path
         );
         assert_eq!(
-            get_active_plan(repo, Some("codex"), Some("secondary")).unwrap().unwrap().rel_path,
+            get_active_plan(repo, Some("codex"), Some("secondary"))
+                .unwrap()
+                .unwrap()
+                .rel_path,
             plan_p2.rel_path
         );
 
         // Clear secondary slot: primary remains untouched, secondary is removed
         clear_active_plan_slot(repo, "codex", "secondary").unwrap();
         assert_eq!(
-            get_active_plan(repo, Some("codex"), Some("primary")).unwrap().unwrap().rel_path,
+            get_active_plan(repo, Some("codex"), Some("primary"))
+                .unwrap()
+                .unwrap()
+                .rel_path,
             plan_p1.rel_path
         );
-        assert!(get_active_plan(repo, Some("codex"), Some("secondary")).unwrap().is_none());
+        assert!(get_active_plan(repo, Some("codex"), Some("secondary"))
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -2822,18 +3632,26 @@ Some description here...
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
 
-        let p1 = create_plan_file(repo, &CreatePlanRequest {
-            name: "plan-one".into(),
-            folder: None,
-            title: Some("Plan One".into()),
-            set_as_active: Some(false),
-        }).unwrap();
-        let p2 = create_plan_file(repo, &CreatePlanRequest {
-            name: "plan-two".into(),
-            folder: None,
-            title: Some("Plan Two".into()),
-            set_as_active: Some(false),
-        }).unwrap();
+        let p1 = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "plan-one".into(),
+                folder: None,
+                title: Some("Plan One".into()),
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
+        let p2 = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "plan-two".into(),
+                folder: None,
+                title: Some("Plan Two".into()),
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
 
         set_active_plan(repo, &p1.rel_path, Some("codex"), Some("primary")).unwrap();
         set_active_plan(repo, &p2.rel_path, Some("codex"), Some("secondary")).unwrap();
@@ -2848,16 +3666,36 @@ Some description here...
         // Switch back to primary symmetrically
         let switched_p1 = set_active_plan_slot(repo, "codex", "primary").unwrap();
         assert_eq!(switched_p1.rel_path, p1.rel_path);
-        assert_eq!(get_active_plan(repo, Some("codex"), None).unwrap().unwrap().rel_path, p1.rel_path);
-        assert_eq!(get_surface_plan_slots(repo, "codex").unwrap().active_slot_id.as_deref(), Some("primary"));
+        assert_eq!(
+            get_active_plan(repo, Some("codex"), None)
+                .unwrap()
+                .unwrap()
+                .rel_path,
+            p1.rel_path
+        );
+        assert_eq!(
+            get_surface_plan_slots(repo, "codex")
+                .unwrap()
+                .active_slot_id
+                .as_deref(),
+            Some("primary")
+        );
 
         // Switch to secondary again
         let switched_p2 = set_active_plan_slot(repo, "codex", "secondary").unwrap();
         assert_eq!(switched_p2.rel_path, p2.rel_path);
-        assert_eq!(get_active_plan(repo, Some("codex"), None).unwrap().unwrap().rel_path, p2.rel_path);
+        assert_eq!(
+            get_active_plan(repo, Some("codex"), None)
+                .unwrap()
+                .unwrap()
+                .rel_path,
+            p2.rel_path
+        );
 
         // Antigravity surface remains isolated
-        assert!(get_active_plan(repo, Some("antigravity"), None).unwrap().is_none());
+        assert!(get_active_plan(repo, Some("antigravity"), None)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -2865,16 +3703,26 @@ Some description here...
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
 
-        let shared = create_plan_file(repo, &CreatePlanRequest {
-            name: "shared-plan".into(),
-            folder: None,
-            title: Some("Shared Plan".into()),
-            set_as_active: Some(false),
-        }).unwrap();
+        let shared = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "shared-plan".into(),
+                folder: None,
+                title: Some("Shared Plan".into()),
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
 
         // Explicit secondary selection with identical paths in primary and secondary
         set_active_plan(repo, &shared.rel_path, Some("antigravity"), Some("primary")).unwrap();
-        set_active_plan(repo, &shared.rel_path, Some("antigravity"), Some("secondary")).unwrap();
+        set_active_plan(
+            repo,
+            &shared.rel_path,
+            Some("antigravity"),
+            Some("secondary"),
+        )
+        .unwrap();
         let view = get_surface_plan_slots(repo, "antigravity").unwrap();
         assert_eq!(view.active_slot_id.as_deref(), Some("secondary"));
         assert_eq!(view.slots.get("primary"), Some(&shared.rel_path));
@@ -2917,10 +3765,15 @@ Some description here...
         assert!(!codex_view.is_unresolved);
 
         // Saving role assignment preserves unknown JSON fields
-        set_role_assignment(repo, "codex", RoleAssignment {
-            planner_id: Some("codex_session".into()),
-            reviser_id: Some("codex_session".into()),
-        }).unwrap();
+        set_role_assignment(
+            repo,
+            "codex",
+            RoleAssignment {
+                planner_id: Some("codex_session".into()),
+                reviser_id: Some("codex_session".into()),
+            },
+        )
+        .unwrap();
         let saved_raw = std::fs::read_to_string(plan_dir.join(ACTIVE_PLAN_FILE_NAME)).unwrap();
         assert!(saved_raw.contains("custom_unknown_root"));
         assert!(saved_raw.contains("custom_surface_field"));
@@ -2942,7 +3795,9 @@ Some description here...
         let unresolved = get_surface_plan_slots(repo, "codex").unwrap();
         assert!(unresolved.is_unresolved);
         assert!(unresolved.active_slot_id.is_none());
-        assert!(get_active_plan(repo, Some("codex"), None).unwrap().is_none());
+        assert!(get_active_plan(repo, Some("codex"), None)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -2950,18 +3805,26 @@ Some description here...
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
 
-        let p1 = create_plan_file(repo, &CreatePlanRequest {
-            name: "p1".into(),
-            folder: None,
-            title: None,
-            set_as_active: Some(false),
-        }).unwrap();
-        let p2 = create_plan_file(repo, &CreatePlanRequest {
-            name: "p2".into(),
-            folder: None,
-            title: None,
-            set_as_active: Some(false),
-        }).unwrap();
+        let p1 = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "p1".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
+        let p2 = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "p2".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
 
         let stale_json = format!(
             r#"{{
@@ -2981,7 +3844,11 @@ Some description here...
             p1.rel_path, p1.rel_path, p1.rel_path, p2.rel_path
         );
         std::fs::create_dir_all(repo.join(PLAN_DIR_NAME)).unwrap();
-        std::fs::write(repo.join(PLAN_DIR_NAME).join(ACTIVE_PLAN_FILE_NAME), stale_json).unwrap();
+        std::fs::write(
+            repo.join(PLAN_DIR_NAME).join(ACTIVE_PLAN_FILE_NAME),
+            stale_json,
+        )
+        .unwrap();
 
         let active = get_active_plan(repo, Some("codex"), None).unwrap().unwrap();
         assert_eq!(active.rel_path, p2.rel_path);
@@ -2992,18 +3859,26 @@ Some description here...
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
 
-        let p1 = create_plan_file(repo, &CreatePlanRequest {
-            name: "role-p1".into(),
-            folder: None,
-            title: None,
-            set_as_active: Some(false),
-        }).unwrap();
-        let p2 = create_plan_file(repo, &CreatePlanRequest {
-            name: "role-p2".into(),
-            folder: None,
-            title: None,
-            set_as_active: Some(false),
-        }).unwrap();
+        let p1 = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "role-p1".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
+        let p2 = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "role-p2".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
 
         let assignment = RoleAssignment {
             planner_id: Some("codex_session".into()),
@@ -3014,15 +3889,24 @@ Some description here...
         set_active_plan(repo, &p2.rel_path, Some("codex"), Some("secondary")).unwrap();
 
         // Omitted slot_id consults canonical active_slot_id ("secondary")
-        assert_eq!(get_role_assignment_for_active_plan(repo, "codex", None).unwrap(), assignment);
-        assert_eq!(get_role_assignment_for_active_plan(repo, "codex", Some("secondary")).unwrap(), assignment);
+        assert_eq!(
+            get_role_assignment_for_active_plan(repo, "codex", None).unwrap(),
+            assignment
+        );
+        assert_eq!(
+            get_role_assignment_for_active_plan(repo, "codex", Some("secondary")).unwrap(),
+            assignment
+        );
         // Conflicting explicit slot_id fails closed
         let err = get_role_assignment_for_active_plan(repo, "codex", Some("primary")).unwrap_err();
         assert!(err.contains("does not match canonical active slot"));
 
         // Switching slots leaves role assignments unchanged
         set_active_plan_slot(repo, "codex", "primary").unwrap();
-        assert_eq!(get_role_assignment_for_active_plan(repo, "codex", Some("primary")).unwrap(), assignment);
+        assert_eq!(
+            get_role_assignment_for_active_plan(repo, "codex", Some("primary")).unwrap(),
+            assignment
+        );
         assert!(get_role_assignment_for_active_plan(repo, "codex", Some("secondary")).is_err());
     }
 
@@ -3031,18 +3915,26 @@ Some description here...
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
 
-        let p1 = create_plan_file(repo, &CreatePlanRequest {
-            name: "pin-p1".into(),
-            folder: None,
-            title: None,
-            set_as_active: Some(false),
-        }).unwrap();
-        let p2 = create_plan_file(repo, &CreatePlanRequest {
-            name: "pin-p2".into(),
-            folder: None,
-            title: None,
-            set_as_active: Some(false),
-        }).unwrap();
+        let p1 = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "pin-p1".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
+        let p2 = create_plan_file(
+            repo,
+            &CreatePlanRequest {
+                name: "pin-p2".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
 
         set_active_plan(repo, &p1.rel_path, Some("codex"), Some("primary")).unwrap();
         set_active_plan(repo, &p2.rel_path, Some("codex"), Some("secondary")).unwrap();
@@ -3074,8 +3966,11 @@ Some description here...
             &cp,
             p2.file_identity.as_deref().unwrap(),
             &p2.sha256_hash,
-        ).unwrap();
-        let stored_cp = get_execution_checkpoint(repo, &p2.rel_path).unwrap().unwrap();
+        )
+        .unwrap();
+        let stored_cp = get_execution_checkpoint(repo, &p2.rel_path)
+            .unwrap()
+            .unwrap();
 
         // Pin workflow while secondary is active (after checkpoint section is established)
         let pinned = resolve_and_pin_workflow_target(repo, "codex", None).unwrap();
@@ -3083,14 +3978,20 @@ Some description here...
         assert_eq!(pinned.plan_path, p2.rel_path);
 
         // Resumption succeeds while secondary is active
-        assert!(verify_resumption_preflight(repo, &p2.rel_path, &stored_cp, Some("codex"), None).unwrap().is_resumable);
+        assert!(
+            verify_resumption_preflight(repo, &p2.rel_path, &stored_cp, Some("codex"), None)
+                .unwrap()
+                .is_resumable
+        );
 
         // Switch active slot to primary; pinned target still verifies against p2 (not retargeted to p1)
         set_active_plan_slot(repo, "codex", "primary").unwrap();
         assert!(verify_pinned_workflow_target(&pinned).is_ok());
 
         // Resumption of p2 checkpoint fails closed when primary is now active
-        let switched_res = verify_resumption_preflight(repo, &p2.rel_path, &stored_cp, Some("codex"), None).unwrap();
+        let switched_res =
+            verify_resumption_preflight(repo, &p2.rel_path, &stored_cp, Some("codex"), None)
+                .unwrap();
         assert!(!switched_res.is_resumable);
 
         // Legacy checkpoint: deserialize pre-change JSON without workflow_run_id -> fails closed without schema migration
@@ -3114,10 +4015,21 @@ Some description here...
             "pending_work": [],
             "timestamp": "now"
         });
-        let legacy_missing_run: ExecutionCheckpoint = serde_json::from_value(legacy_no_run_json).unwrap();
-        let missing_run_res = verify_resumption_preflight(repo, &p2.rel_path, &legacy_missing_run, Some("codex"), None).unwrap();
+        let legacy_missing_run: ExecutionCheckpoint =
+            serde_json::from_value(legacy_no_run_json).unwrap();
+        let missing_run_res = verify_resumption_preflight(
+            repo,
+            &p2.rel_path,
+            &legacy_missing_run,
+            Some("codex"),
+            None,
+        )
+        .unwrap();
         assert!(!missing_run_res.is_resumable);
-        assert!(missing_run_res.reasons.iter().any(|r| r.contains("run identity")));
+        assert!(missing_run_res
+            .reasons
+            .iter()
+            .any(|r| r.contains("run identity")));
 
         // Proven legacy checkpoint JSON (has workflow_run_id + repository + plan + revision + identity, no slot fields) resumes
         let legacy_proven_json = serde_json::json!({
@@ -3140,8 +4052,11 @@ Some description here...
             "pending_work": [],
             "timestamp": "now"
         });
-        let legacy_proven: ExecutionCheckpoint = serde_json::from_value(legacy_proven_json).unwrap();
-        let proven_res = verify_resumption_preflight(repo, &p2.rel_path, &legacy_proven, Some("codex"), None).unwrap();
+        let legacy_proven: ExecutionCheckpoint =
+            serde_json::from_value(legacy_proven_json).unwrap();
+        let proven_res =
+            verify_resumption_preflight(repo, &p2.rel_path, &legacy_proven, Some("codex"), None)
+                .unwrap();
         assert!(proven_res.is_resumable, "{:?}", proven_res.reasons);
 
         // Mutating the pinned file causes verify_pinned_workflow_target to fail
@@ -3153,7 +4068,326 @@ Some description here...
         clear_active_plan_slot_with_fallback(repo, "codex", "secondary", Some("primary")).unwrap();
         let after_remove = get_surface_plan_slots(repo, "codex").unwrap();
         assert_eq!(after_remove.active_slot_id.as_deref(), Some("primary"));
-        assert_eq!(after_remove.active_plan_path.as_deref(), Some(p1.rel_path.as_str()));
+        assert_eq!(
+            after_remove.active_plan_path.as_deref(),
+            Some(p1.rel_path.as_str())
+        );
         assert!(!after_remove.slots.contains_key("secondary"));
+    }
+
+    #[test]
+    fn test_codex_missing_role_assignment_does_not_alias_antigravity_and_separates_empty_plan() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let plan_dir = repo.join(".plan");
+        std::fs::create_dir_all(&plan_dir).unwrap();
+
+        // 0-byte plan file in secondary slot, matching the reported ASR-Composer state
+        let empty_plan = plan_dir.join("v0.3.0.md");
+        std::fs::write(&empty_plan, b"").unwrap();
+        assert_eq!(std::fs::metadata(&empty_plan).unwrap().len(), 0);
+
+        let supplied_state = serde_json::json!({
+            "surfaces": {
+                "codex": {
+                    "active_slot_id": "secondary",
+                    "slots": {
+                        "secondary": ".plan/v0.3.0.md"
+                    }
+                }
+            },
+            "role_assignments": {
+                "antigravity": {
+                    "planner_id": "codex",
+                    "reviser_id": "codex"
+                }
+            },
+            "last_updated_unix": 1700000000
+        });
+        std::fs::write(
+            plan_dir.join(".active-plan.json"),
+            serde_json::to_string_pretty(&supplied_state).unwrap(),
+        )
+        .unwrap();
+
+        // Missing role_assignments.codex must remain unconfigured (None), never copied from antigravity
+        let codex_roles =
+            get_role_assignment_for_active_plan(repo, "codex", Some("secondary")).unwrap();
+        assert_eq!(
+            codex_roles,
+            RoleAssignment {
+                planner_id: None,
+                reviser_id: None
+            }
+        );
+
+        // Mismatched slot fails closed with explicit reason
+        let mismatch_err =
+            get_role_assignment_for_active_plan(repo, "codex", Some("primary")).unwrap_err();
+        assert!(mismatch_err.contains("does not match canonical active slot 'secondary'"));
+
+        // Workflow launch on secondary slot reflects unconfigured Codex roles while still pinning the 0-byte plan
+        let launch_before = launch_pinned_plan_workflow(
+            repo,
+            "codex",
+            Some("secondary"),
+            RoleAssignment::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            launch_before.role_assignment,
+            RoleAssignment {
+                planner_id: None,
+                reviser_id: None
+            }
+        );
+        assert_eq!(launch_before.pinned_target.slot_id, "secondary");
+        assert_eq!(launch_before.pinned_target.plan_path, ".plan/v0.3.0.md");
+        let empty_details = get_active_plan(repo, Some("codex"), Some("secondary"))
+            .unwrap()
+            .unwrap();
+        assert!(empty_details.content.is_empty());
+
+        // Selecting Codex Session for Planner and Reviser persists under role_assignments.codex
+        // without altering role_assignments.antigravity or the 0-byte plan file.
+        set_role_assignment(
+            repo,
+            "codex",
+            RoleAssignment {
+                planner_id: Some("codex_session".into()),
+                reviser_id: Some("codex_session".into()),
+            },
+        )
+        .unwrap();
+
+        let persisted_json: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(plan_dir.join(".active-plan.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            persisted_json["role_assignments"]["codex"]["planner_id"],
+            "codex_session"
+        );
+        assert_eq!(
+            persisted_json["role_assignments"]["codex"]["reviser_id"],
+            "codex_session"
+        );
+        assert_eq!(
+            persisted_json["role_assignments"]["antigravity"]["planner_id"],
+            "codex"
+        );
+        assert_eq!(
+            persisted_json["role_assignments"]["antigravity"]["reviser_id"],
+            "codex"
+        );
+        assert_eq!(std::fs::metadata(&empty_plan).unwrap().len(), 0);
+
+        let launch_after = launch_pinned_plan_workflow(
+            repo,
+            "codex",
+            Some("secondary"),
+            RoleAssignment {
+                planner_id: Some("codex_session".into()),
+                reviser_id: Some("codex_session".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            launch_after.role_assignment,
+            RoleAssignment {
+                planner_id: Some("codex_session".into()),
+                reviser_id: Some("codex_session".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_pinned_workflows_keep_repository_targets_and_use_surface_roles() {
+        let dir = tempfile::tempdir().unwrap();
+        let reg_path = dir.path().join("project-registry.json");
+        let repo_a = dir.path().join("poverello");
+        let repo_b = dir.path().join("ASR-Composer");
+        for repo in [&repo_a, &repo_b] {
+            std::fs::create_dir_all(repo.join(".git")).unwrap();
+            std::fs::create_dir_all(repo.join(".plan")).unwrap();
+        }
+        let plan_a = repo_a.join(".plan/V0.28.1.md");
+        let plan_b = repo_b.join(".plan/v0.3.0.md");
+        std::fs::write(&plan_a, "# Plan A\n").unwrap();
+        std::fs::write(&plan_b, b"").unwrap();
+
+        let s1 = crate::project_registry::register_or_update_project_at(
+            &reg_path,
+            &repo_a.to_string_lossy(),
+            Some(".plan/V0.28.1.md"),
+            None,
+        )
+        .unwrap();
+        let id_a = s1.projects[0].project_id.clone();
+        let s2 = crate::project_registry::register_or_update_project_at(
+            &reg_path,
+            &repo_b.to_string_lossy(),
+            Some(".plan/v0.3.0.md"),
+            None,
+        )
+        .unwrap();
+        let id_b = s2.projects[1].project_id.clone();
+
+        // Both repositories use the same Codex surface assignment, while Antigravity has its own surface assignment.
+        let codex_roles = RoleAssignment {
+            planner_id: Some("codex_session".into()),
+            reviser_id: Some("codex_session".into()),
+        };
+        let launch_b =
+            launch_pinned_plan_workflow_for_plan(&reg_path, "codex", &plan_b, codex_roles.clone())
+                .unwrap();
+        assert_eq!(
+            launch_b.pinned_target.project_id.as_deref(),
+            Some(id_b.as_str())
+        );
+        assert_eq!(launch_b.pinned_target.plan_path, ".plan/v0.3.0.md");
+        assert_eq!(launch_b.role_assignment, codex_roles);
+
+        let antigravity_roles = RoleAssignment {
+            planner_id: Some("antigravity".into()),
+            reviser_id: Some("codex".into()),
+        };
+        let launch_a = launch_pinned_plan_workflow_for_plan(
+            &reg_path,
+            "antigravity",
+            &plan_a,
+            antigravity_roles.clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            launch_a.pinned_target.project_id.as_deref(),
+            Some(id_a.as_str())
+        );
+        assert_eq!(launch_a.pinned_target.plan_path, ".plan/V0.28.1.md");
+        assert_eq!(launch_a.role_assignment, antigravity_roles);
+
+        // Original pinned target for B remains valid even while A is active in another workflow
+        assert!(verify_pinned_workflow_target(&launch_b.pinned_target).is_ok());
+        assert_eq!(
+            std::fs::metadata(repo_b.join(".plan/v0.3.0.md"))
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
+    #[test]
+    fn test_plan_path_first_launch_pins_the_selected_repository_without_cwd_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry_path = dir.path().join("project-registry.json");
+        let repo_a = dir.path().join("repo-a");
+        let repo_b = dir.path().join("repo-b");
+        for repo in [&repo_a, &repo_b] {
+            std::fs::create_dir_all(repo.join(".git")).unwrap();
+            std::fs::create_dir_all(repo.join(".plan")).unwrap();
+        }
+        let plan_a = repo_a.join(".plan/a.md");
+        let plan_b = repo_b.join(".plan/b.md");
+        let other_b = repo_b.join(".plan/other.md");
+        std::fs::write(&plan_a, "# Repo A Plan\n").unwrap();
+        std::fs::write(&plan_b, "# Repo B Plan\n").unwrap();
+        std::fs::write(&other_b, "# Other Repo B Plan\n").unwrap();
+        crate::project_registry::register_or_update_project_at(
+            &registry_path,
+            &repo_a.to_string_lossy(),
+            Some(".plan/a.md"),
+            None,
+        )
+        .unwrap();
+        crate::project_registry::register_or_update_project_at(
+            &registry_path,
+            &repo_b.to_string_lossy(),
+            Some(".plan/b.md"),
+            None,
+        )
+        .unwrap();
+
+        // The selected plan, not a presumed/current repository, determines the pinned target.
+        let launch = launch_pinned_plan_workflow_for_plan(
+            &registry_path,
+            "codex",
+            &plan_b,
+            RoleAssignment::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            PathBuf::from(&launch.pinned_target.repository),
+            repo_b.canonicalize().unwrap()
+        );
+        assert_eq!(launch.pinned_target.plan_path, ".plan/b.md");
+        assert_eq!(launch.pinned_target.slot_id, "selected-plan");
+        assert_eq!(
+            launch.pinned_target.project_id.as_deref(),
+            Some(
+                crate::project_registry::resolve_project_context_for_repo_at(
+                    &registry_path,
+                    "codex",
+                    &repo_b
+                )
+                .unwrap()
+                .project_id
+                .as_str()
+            )
+        );
+        assert!(launch_pinned_plan_workflow_for_plan(
+            &registry_path,
+            "codex",
+            &other_b,
+            RoleAssignment::default(),
+        )
+        .unwrap_err()
+        .contains("not the plan currently associated"));
+    }
+
+    #[test]
+    fn test_selected_plan_resumption_does_not_require_legacy_active_slot() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(repo.join(".plan")).unwrap();
+        let rel_path = ".plan/selected.md";
+        let abs_path = repo.join(rel_path);
+        std::fs::write(&abs_path, "# Selected plan\n").unwrap();
+        let content = std::fs::read_to_string(&abs_path).unwrap();
+        let checkpoint = ExecutionCheckpoint {
+            checkpoint_version: 1,
+            workflow: "pov-full-cycle".to_string(),
+            status: "IMPLEMENTATION".to_string(),
+            last_completed: "PLAN_REVIEW".to_string(),
+            next_action: "IMPLEMENT".to_string(),
+            repository: repo.canonicalize().unwrap().to_string_lossy().to_string(),
+            active_plan: rel_path.to_string(),
+            plan_revision: checkpoint_revision_digest(&content),
+            plan_file_identity: plan_file_identity(&abs_path).unwrap(),
+            workflow_run_id: "selected-plan-resume".to_string(),
+            completed_work: vec![],
+            modified_files: vec![],
+            validation: vec![],
+            reviewer: "codex_self_only".to_string(),
+            review_result: "APPROVED".to_string(),
+            unresolved_findings: vec![],
+            pending_work: vec!["Continue implementation".to_string()],
+            timestamp: "2026-11-23T00:00:00Z".to_string(),
+        };
+
+        let selected_result =
+            verify_selected_plan_resumption_preflight(&repo, rel_path, &checkpoint).unwrap();
+        assert!(
+            selected_result.is_resumable,
+            "{:?}",
+            selected_result.reasons
+        );
+        let legacy_result =
+            verify_resumption_preflight(&repo, rel_path, &checkpoint, None, None).unwrap();
+        assert!(!legacy_result.is_resumable);
+        assert!(legacy_result
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("configured Active Plan File")));
     }
 }

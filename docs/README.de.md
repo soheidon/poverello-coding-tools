@@ -15,7 +15,7 @@ Poverello Coding Tools (in der App als **Poverello** angezeigt) ist eine Windows
 > [!TIP]
 > **Neuigkeiten:** Versionsbezogene Funktionen, Implementierungsdetails und Änderungsprotokolle findest du in den [Release Notes (NEWS.md)](../NEWS.md).
 
-Dieser Checkout bereitet **v0.28.0** vor (noch nicht veröffentlicht). Für beide Antigravity-Projekt-Plan-Einträge gibt es eigene AgentOpt-Steuerungen mit direkt wählbaren FAST- / BALANCED- / STRICT-Voreinstellungen und einem Editor für benutzerdefinierte Einstellungen. Die Poverello-Antigravity-Regel lässt sich in den Einstellungen installieren und reparieren. GPT-6.2 Sol ist als Codex-CLI-Reviewer verfügbar; GPT-6.2 Sol / Sol Pro / Astra / Astra Pro sind im OpenRouter-Katalog enthalten. Die zwei Plan-Einträge für Antigravity und Codex bleiben voneinander unabhängig. Details stehen in [NEWS.md](../NEWS.md).
+Version 0.28.2 führt eine gemeinsame Repository-Liste, speichert Plan-Dateien für Antigravity und Codex jedoch getrennt je Oberfläche. Die ausgewählte Markdown-Datei bestimmt ihr Repository. Zeilen lassen sich ändern oder abmelden; ein eigener Vorgang fügt ein weiteres Repository hinzu. Planner/Reviser-Rollen gelten je Autocode-Oberfläche gemeinsam. Es gibt keine aktive Projekt- oder Prioritätsauswahl. Details stehen in den [NEWS.md](../NEWS.md).
 
 ---
 

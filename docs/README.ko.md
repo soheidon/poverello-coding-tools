@@ -15,7 +15,7 @@ Poverello Coding Tools(앱 표시 이름 **Poverello**)는 AI 기반 소프트�
 > [!TIP]
 > **새 소식:** 버전별 기능, 구현 세부 정보 및 변경 내역은 [NEWS.md(릴리스 노트)](../NEWS.md)를 참조하세요.
 
-이 체크아웃은 아직 공개되지 않은 **v0.28.0**을 준비 중입니다. Antigravity의 두 프로젝트-계획 행에 각각 AgentOpt 제어를 제공하고 FAST / BALANCED / STRICT 프리셋과 Custom 편집기를 추가합니다. Poverello Antigravity Rule은 설정에서 설치하고 복구할 수 있습니다. GPT-6.2 Sol을 Codex CLI Reviewer로 추가하고 GPT-6.2 Sol / Sol Pro / Astra / Astra Pro를 OpenRouter 카탈로그에 추가합니다. Antigravity와 Codex의 두 계획 행은 계속 독립적으로 동작합니다. 자세한 내용은 [NEWS.md](../NEWS.md)를 참조하세요.
+v0.28.2에서는 저장소 목록은 공유하지만 Antigravity와 Codex의 계획 파일은 화면별로 따로 저장합니다. 선택한 Markdown 파일을 기준으로 저장소를 결정합니다. 각 행의 연결을 변경하거나 해제할 수 있고, 별도 작업으로 저장소를 추가할 수 있습니다. Planner/Reviser 역할은 각 Autocode 화면에서 공통으로 사용하며, 활성 프로젝트 선택이나 우선순위는 두지 않습니다. 자세한 내용은 [NEWS.md](../NEWS.md)를 참조하세요.
 
 ---
 

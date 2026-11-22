@@ -120,7 +120,7 @@ function AppContent() {
           : undefined;
 
         const height = calculateInitialWindowHeight(rowCount, {
-          baseHeight: 720,
+          baseHeight: 760,
           baseRows: 2,
           rowHeight: DASHBOARD_TILE_MIN_HEIGHT + DASHBOARD_GRID_ROW_GAP + 10,
           minHeight: 700,
