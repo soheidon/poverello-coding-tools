@@ -162,6 +162,47 @@ pub fn get_known_historical_manifests(skill_name: &str) -> Vec<Vec<SkillFileMani
                     sha256: "1b9c175364301ec65f23c19d9e10956cfd88408d88a94cc316e62af2853e5a71".to_string(),
                 },
             ],
+            // v0.28.2 release 3-file manifest
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "f9354ec18c2c5ce80b07b89d3c942e548c0a2d21d9d7b31bf21df928a775509d".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
+                },
+            ],
+            // v0.28.3 initial release (c6cb304) 4-file manifest
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "db345e9b5e72da4bdb144dd3fa9157f3fb23516f934632203b15514f89835b40".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/plan_cas_helper.py".to_string(),
+                    content: String::new(),
+                    sha256: "3ff043418f99e0a90aaac0c982fdd062d78e2e7f0c07e2aa22ac04be4b1409e3".to_string(),
+                },
+            ],
             // v0.26.2 §13 official historical release manifest
             vec![
                 SkillFileManifest {
@@ -200,6 +241,24 @@ pub fn get_known_historical_manifests(skill_name: &str) -> Vec<Vec<SkillFileMani
             ],
         ],
         "pov-build-review" => vec![
+            // v0.28.2 release 3-file manifest
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "3c7106fb627fd56db20aa249a1ebf871fd3833f40c1a1ade2ef457718ea2872b".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
+                },
+            ],
             vec![
                 SkillFileManifest {
                     relative_path: "SKILL.md".to_string(),
@@ -272,6 +331,24 @@ pub fn get_known_historical_manifests(skill_name: &str) -> Vec<Vec<SkillFileMani
             ],
         ],
         "pov-full-cycle" => vec![
+            // v0.28.2 release 3-file manifest
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "8305584f9035f7ed404837b2f68efdeb63d55b0b6fe9abe9a36c7aeca94423a8".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
+                },
+            ],
             vec![
                 SkillFileManifest {
                     relative_path: "SKILL.md".to_string(),
@@ -396,6 +473,11 @@ pub fn get_template_manifest(skill_name: &str) -> Result<Vec<SkillFileManifest>,
                 content: CODEX_REVIEW_DISPATCHER_PS1.to_string(),
                 sha256: compute_sha256(CODEX_REVIEW_DISPATCHER_PS1.as_bytes()),
             },
+            SkillFileManifest {
+                relative_path: "scripts/plan_cas_helper.py".to_string(),
+                content: POV_PLAN_ONLY_CAS_HELPER_PY.to_string(),
+                sha256: compute_sha256(POV_PLAN_ONLY_CAS_HELPER_PY.as_bytes()),
+            },
         ]),
         "pov-full-cycle" => Ok(vec![
             SkillFileManifest {
@@ -412,6 +494,11 @@ pub fn get_template_manifest(skill_name: &str) -> Result<Vec<SkillFileManifest>,
                 relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
                 content: CODEX_REVIEW_DISPATCHER_PS1.to_string(),
                 sha256: compute_sha256(CODEX_REVIEW_DISPATCHER_PS1.as_bytes()),
+            },
+            SkillFileManifest {
+                relative_path: "scripts/plan_cas_helper.py".to_string(),
+                content: POV_PLAN_ONLY_CAS_HELPER_PY.to_string(),
+                sha256: compute_sha256(POV_PLAN_ONLY_CAS_HELPER_PY.as_bytes()),
             },
         ]),
         _ => Err(format!("Unknown skill: {skill_name}")),
@@ -1217,11 +1304,12 @@ mod tests {
     fn test_template_manifests_validity() {
         for name in SKILL_NAMES {
             let m = get_template_manifest(name).expect("manifest should load");
-            let expected_len = if name == "pov-plan-only" { 4 } else { 3 };
+            let expected_len = 4;
             assert_eq!(m.len(), expected_len);
             assert!(m.iter().any(|f| f.relative_path == "SKILL.md"));
             assert!(m.iter().any(|f| f.relative_path == "agents/openai.yaml"));
             assert!(m.iter().any(|f| f.relative_path == "scripts/codex-review-dispatcher.ps1"));
+            assert!(m.iter().any(|f| f.relative_path == "scripts/plan_cas_helper.py"));
             for file in &m {
                 assert!(!file.content.is_empty());
                 assert_eq!(compute_sha256(file.content.as_bytes()), file.sha256);
@@ -1235,6 +1323,87 @@ mod tests {
         let skill_md = m.iter().find(|f| f.relative_path == "SKILL.md").unwrap();
         assert!(skill_md.content.contains("最大3"));
         assert!(skill_md.content.contains("上限到達時"));
+    }
+
+    #[test]
+    fn test_all_workflow_skills_use_file_based_plan_helper() {
+        let expected_helper_sha = compute_sha256(POV_PLAN_ONLY_CAS_HELPER_PY.as_bytes());
+        for skill_name in SKILL_NAMES {
+            let manifest = get_template_manifest(skill_name).unwrap();
+            assert_eq!(manifest.len(), 4, "{skill_name}");
+            let skill_md = manifest.iter().find(|f| f.relative_path == "SKILL.md").unwrap();
+            let helper = manifest
+                .iter()
+                .find(|f| f.relative_path == "scripts/plan_cas_helper.py")
+                .unwrap();
+            assert!(skill_md.content.contains("plan_cas_helper.py"), "{skill_name}");
+            assert_eq!(helper.content, POV_PLAN_ONLY_CAS_HELPER_PY);
+            assert_eq!(helper.sha256, expected_helper_sha);
+            for legacy in [
+                "resolve_project_context_for_plan",
+                "launch_pinned_plan_workflow_for_selected_plan",
+                "apply_plan_candidate",
+                "append_plan_audit_trail",
+                "verify_plan_resumption",
+                "save_execution_checkpoint",
+                "advance_pinned_workflow_target",
+            ] {
+                assert!(
+                    !skill_md.content.contains(legacy),
+                    "{skill_name} still references legacy Tauri API {legacy}"
+                );
+            }
+        }
+        for (skill_name, workflow) in [
+            ("pov-build-review", "pov-build-review"),
+            ("pov-full-cycle", "pov-full-cycle"),
+        ] {
+            let manifest = get_template_manifest(skill_name).unwrap();
+            let skill_md = manifest.iter().find(|f| f.relative_path == "SKILL.md").unwrap();
+            assert!(skill_md.content.contains(&format!("--workflow {workflow}")));
+        }
+
+        // Verify built-in historical manifests include v0.28.2 for all 3 skills, and 3-file -> 4-file updates cleanly
+        let _lock = TEST_SERIAL_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let skills_dir = test_skills_dir(dir.path());
+        for (skill_name, v0282_skill_sha) in [
+            ("pov-plan-only", "f9354ec18c2c5ce80b07b89d3c942e548c0a2d21d9d7b31bf21df928a775509d"),
+            ("pov-build-review", "3c7106fb627fd56db20aa249a1ebf871fd3833f40c1a1ade2ef457718ea2872b"),
+            ("pov-full-cycle", "8305584f9035f7ed404837b2f68efdeb63d55b0b6fe9abe9a36c7aeca94423a8"),
+        ] {
+            let built_in_hist = get_known_historical_manifests(skill_name);
+            assert!(
+                built_in_hist.iter().any(|m| m.iter().any(|f| f.relative_path == "SKILL.md" && f.sha256 == v0282_skill_sha)),
+                "missing v0.28.2 historical manifest for {skill_name}"
+            );
+            let mut mocks = HashMap::new();
+            let base = get_template_manifest(skill_name).unwrap();
+            let yaml = base.iter().find(|f| f.relative_path == "agents/openai.yaml").unwrap().clone();
+            let disp = base.iter().find(|f| f.relative_path == "scripts/codex-review-dispatcher.ps1").unwrap().clone();
+            let placeholder = format!("v0.28.2 placeholder for {skill_name}");
+            let old_skill = SkillFileManifest {
+                relative_path: "SKILL.md".to_string(),
+                content: placeholder.clone(),
+                sha256: compute_sha256(placeholder.as_bytes()),
+            };
+            mocks.insert(skill_name.to_string(), vec![vec![old_skill.clone(), yaml.clone(), disp.clone()]]);
+            set_test_historical_manifests(Some(mocks));
+
+            let skill_root = skills_dir.join(skill_name);
+            std::fs::create_dir_all(skill_root.join("agents")).unwrap();
+            std::fs::create_dir_all(skill_root.join("scripts")).unwrap();
+            std::fs::write(skill_root.join("SKILL.md"), &old_skill.content).unwrap();
+            std::fs::write(skill_root.join("agents/openai.yaml"), &yaml.content).unwrap();
+            std::fs::write(skill_root.join("scripts/codex-review-dispatcher.ps1"), &disp.content).unwrap();
+
+            let before = inspect_codex_skill_status(&skills_dir, skill_name);
+            assert_eq!(before.state, CodexSkillState::UpdateAvailable, "{skill_name}");
+            let updated = update_codex_skill_at(&skills_dir, skill_name).unwrap();
+            set_test_historical_manifests(None);
+            assert_eq!(updated.state, CodexSkillState::Installed, "{skill_name}");
+            assert!(skill_root.join("scripts/plan_cas_helper.py").is_file(), "{skill_name}");
+        }
     }
 
     #[test]
@@ -1360,6 +1529,7 @@ mod tests {
         let yaml_manifest = get_template_manifest("pov-build-review").unwrap();
         let yaml_file = yaml_manifest.iter().find(|f| f.relative_path == "agents/openai.yaml").unwrap();
         let disp_file = yaml_manifest.iter().find(|f| f.relative_path == "scripts/codex-review-dispatcher.ps1").unwrap();
+        let helper_file = yaml_manifest.iter().find(|f| f.relative_path == "scripts/plan_cas_helper.py").unwrap();
         let mut mocks = HashMap::new();
         mocks.insert(
             "pov-build-review".to_string(),
@@ -1371,6 +1541,7 @@ mod tests {
                 },
                 yaml_file.clone(),
                 disp_file.clone(),
+                helper_file.clone(),
             ]],
         );
         set_test_historical_manifests(Some(mocks));

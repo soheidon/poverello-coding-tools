@@ -1890,17 +1890,22 @@ mod tests {
 
     #[test]
     fn test_bundled_workflow_skills_require_plan_path_first_resolution() {
-        let codex_plan_only = include_str!("../resources/codex-skills/pov-plan-only/SKILL.md");
-        assert!(codex_plan_only.contains("plan_cas_helper.py"));
-        assert!(codex_plan_only.contains("project-registry.json"));
-        assert!(codex_plan_only.contains(".active-plan.json"));
-        assert!(codex_plan_only.contains("plan_cas_helper.py\" resolve"));
-        assert!(!codex_plan_only.contains("NO ACTIVE PLAN FILE SPECIFIED"));
-        assert!(!codex_plan_only.contains("resolve_project_context_for_repo_at`）で解決した `plan_path`"));
-
-        let skills = [
+        for codex_skill in [
+            include_str!("../resources/codex-skills/pov-plan-only/SKILL.md"),
             include_str!("../resources/codex-skills/pov-build-review/SKILL.md"),
             include_str!("../resources/codex-skills/pov-full-cycle/SKILL.md"),
+        ] {
+            assert!(codex_skill.contains("plan_cas_helper.py"));
+            assert!(
+                codex_skill.contains("project-registry.json")
+                    || codex_skill.contains("Stable project registry")
+            );
+            assert!(codex_skill.contains(".active-plan.json"));
+            assert!(!codex_skill.contains("NO ACTIVE PLAN FILE SPECIFIED"));
+            assert!(!codex_skill.contains("resolve_project_context_for_repo_at`）で解決した `plan_path`"));
+        }
+
+        let skills = [
             include_str!("../resources/antigravity-skills/pov-plan-only/SKILL.md"),
             include_str!("../resources/antigravity-skills/pov-build-review/SKILL.md"),
             include_str!("../resources/antigravity-skills/pov-full-cycle/SKILL.md"),

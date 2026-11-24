@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic file-based plan resolver, workflow starter, CAS commit, and resumption verifier for pov-plan-only."""
+"""Deterministic file-based resolver, CAS commit, and resumption verifier for Poverello Codex workflows."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ import uuid
 CHECKPOINT_HEADER = "## Poverello Execution Checkpoint"
 CHECKPOINT_START = "<!-- POVERELLO-CHECKPOINT:START -->"
 CHECKPOINT_END = "<!-- POVERELLO-CHECKPOINT:END -->"
+WORKFLOW_NAMES = ("pov-plan-only", "pov-build-review", "pov-full-cycle")
 
 
 def fail(code: str, message: str) -> None:
@@ -223,7 +224,9 @@ def extract_checkpoint_fields(norm_text: str) -> tuple[str, dict[str, str], str 
     return ("VALID", out, raw_section)
 
 
-def classify_checkpoint(raw_bytes: bytes) -> dict:
+def classify_checkpoint(raw_bytes: bytes, workflow: str = "pov-plan-only") -> dict:
+    if workflow not in WORKFLOW_NAMES:
+        fail("INVALID_WORKFLOW", f"Unsupported workflow '{workflow}'")
     try:
         text = raw_bytes.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -268,7 +271,7 @@ def classify_checkpoint(raw_bytes: bytes) -> dict:
         state = "HALTED"
         can_start = False
         can_resume = False
-    elif prior_wf != "pov-plan-only":
+    elif prior_wf != workflow:
         state = "DIFFERENT_WORKFLOW"
         can_start = True
         can_resume = False
@@ -304,11 +307,13 @@ def _unquote_checkpoint_value(value: str) -> str:
     return value
 
 
-def bind_checkpoint_to_target(cp_info: dict, repo_root: str, plan_path: str) -> dict:
-    """Fail closed when a resumable pov-plan-only checkpoint lacks or mismatches its target identity."""
+def bind_checkpoint_to_target(
+    cp_info: dict, repo_root: str, plan_path: str, workflow: str = "pov-plan-only"
+) -> dict:
+    """Fail closed when a resumable workflow checkpoint lacks or mismatches its target identity."""
     if cp_info.get("checkpoint_state") not in ("RESUMABLE", "REVISION_MISMATCH", "HALTED"):
         return cp_info
-    if cp_info.get("prior_workflow") != "pov-plan-only":
+    if cp_info.get("prior_workflow") != workflow:
         return cp_info
     fields = cp_info.get("checkpoint", {})
     stored_repo = _unquote_checkpoint_value(fields.get("Repository", ""))
@@ -369,7 +374,11 @@ def describe_prior_checkpoint_binding(cp_info: dict, repo_root: str, plan_path: 
     return "prior_binding=observed_match_not_used_as_authority"
 
 
-def resolve_plan(repo_dir: str, surface: str, explicit_plan: str | None) -> dict:
+def resolve_plan(
+    repo_dir: str, surface: str, explicit_plan: str | None, workflow: str = "pov-plan-only"
+) -> dict:
+    if workflow not in WORKFLOW_NAMES:
+        fail("INVALID_WORKFLOW", f"Unsupported workflow '{workflow}'")
     codex_roles = validate_codex_roles() if surface == "codex" else None
     repo_root = find_repo_root(repo_dir)
     real_repo = os.path.normcase(os.path.realpath(strip_verbatim(repo_root)))
@@ -468,7 +477,9 @@ def resolve_plan(repo_dir: str, surface: str, explicit_plan: str | None) -> dict
     with open(abs_plan, "rb") as f:
         raw_bytes = f.read()
     sha256_hash = hashlib.sha256(raw_bytes).hexdigest()
-    cp_info = bind_checkpoint_to_target(classify_checkpoint(raw_bytes), os.path.realpath(repo_root), chosen_rel)
+    cp_info = bind_checkpoint_to_target(
+        classify_checkpoint(raw_bytes, workflow), os.path.realpath(repo_root), chosen_rel, workflow
+    )
 
     return {
         "project_id": project_id,
@@ -697,6 +708,7 @@ def upsert_checkpoint(body: str, cp_md: str) -> str:
 
 def render_checkpoint_block(
     *,
+    workflow: str = "pov-plan-only",
     status: str,
     last_completed: str,
     next_action: str,
@@ -707,11 +719,13 @@ def render_checkpoint_block(
     operation_id: str,
     timestamp: str,
 ) -> str:
+    if workflow not in WORKFLOW_NAMES:
+        fail("INVALID_WORKFLOW", f"Unsupported workflow '{workflow}'")
     return "\n".join(
         [
             CHECKPOINT_START,
             "- Checkpoint Version: 1",
-            "- Workflow: pov-plan-only",
+            f"- Workflow: {workflow}",
             f"- Status: {status}",
             f"- Last Completed: {last_completed}",
             f"- Next Action: {next_action}",
@@ -724,6 +738,12 @@ def render_checkpoint_block(
             CHECKPOINT_END,
         ]
     )
+
+
+def initial_next_action(workflow: str) -> str:
+    if workflow not in WORKFLOW_NAMES:
+        fail("INVALID_WORKFLOW", f"Unsupported workflow '{workflow}'")
+    return "implement" if workflow == "pov-build-review" else "draft_plan"
 
 
 def locks_dir() -> str:
@@ -824,12 +844,18 @@ def public_resolve_dict(res: dict) -> dict:
 
 
 def cmd_resolve(args: argparse.Namespace) -> None:
-    res = resolve_plan(args.repo, args.surface, args.plan)
+    workflow = getattr(args, "workflow", "pov-plan-only")
+    if workflow not in WORKFLOW_NAMES:
+        fail("INVALID_WORKFLOW", f"Unsupported workflow '{workflow}'")
+    res = resolve_plan(args.repo, args.surface, args.plan, workflow)
     print(json.dumps(public_resolve_dict(res), indent=2, ensure_ascii=False))
 
 
 def cmd_verify(args: argparse.Namespace) -> None:
-    res = resolve_plan(args.repo, args.surface, args.plan)
+    workflow = getattr(args, "workflow", "pov-plan-only")
+    if workflow not in WORKFLOW_NAMES:
+        fail("INVALID_WORKFLOW", f"Unsupported workflow '{workflow}'")
+    res = resolve_plan(args.repo, args.surface, args.plan, workflow)
     state = res["checkpoint_state"]
     if state == "MALFORMED_OR_DUPLICATE":
         fail("MALFORMED_MARKERS", "Plan contains duplicate or unbalanced checkpoint markers")
@@ -838,7 +864,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
     if state == "DIFFERENT_WORKFLOW":
         fail(
             "WORKFLOW_MISMATCH",
-            f"Existing checkpoint belongs to '{res['prior_workflow']}', not 'pov-plan-only'; use `start --archive-prior` to archive it and start a new workflow",
+            f"Existing checkpoint belongs to '{res['prior_workflow']}', not '{workflow}'; use `start --archive-prior` to archive it and start a new workflow",
         )
     if state == "MISSING_PLAN_REVISION":
         fail(
@@ -863,12 +889,15 @@ def cmd_verify(args: argparse.Namespace) -> None:
 
 
 def cmd_start(args: argparse.Namespace) -> None:
+    workflow = getattr(args, "workflow", "pov-plan-only")
+    if workflow not in WORKFLOW_NAMES:
+        fail("INVALID_WORKFLOW", f"Unsupported workflow '{workflow}'")
     if not args.workflow_run_id.strip() or not args.operation_id.strip():
         fail("INVALID_WORKFLOW_ID", "workflow-run-id and operation-id must be non-empty")
-    initial_res = resolve_plan(args.repo, args.surface, args.plan)
+    initial_res = resolve_plan(args.repo, args.surface, args.plan, workflow)
     abs_plan = initial_res["abs_plan_path"]
     with PlanLock(abs_plan):
-        res = resolve_plan(args.repo, args.surface, args.plan)
+        res = resolve_plan(args.repo, args.surface, args.plan, workflow)
         verify_locked_target_unchanged(initial_res, res)
         if res["sha256_hash"].lower() != args.expected_sha256.strip().lower():
             fail(
@@ -884,7 +913,7 @@ def cmd_start(args: argparse.Namespace) -> None:
         if state in ("DIFFERENT_WORKFLOW", "MISSING_PLAN_REVISION") and not args.archive_prior:
             fail(
                 "ARCHIVE_PRIOR_REQUIRED",
-                f"Plan has prior checkpoint (state={state}, workflow={res['prior_workflow']}); pass `--archive-prior` to preserve it verbatim and start a new pov-plan-only baseline",
+                f"Plan has prior checkpoint (state={state}, workflow={res['prior_workflow']}); pass `--archive-prior` to preserve it verbatim and start a new {workflow} baseline",
             )
 
         with open(abs_plan, "r", encoding="utf-8") as f:
@@ -924,9 +953,10 @@ def cmd_start(args: argparse.Namespace) -> None:
         updated_body = append_audit_row(body_with_archive, row)
         new_rev = canonical_plan_revision(updated_body.encode("utf-8"))
         cp_md = render_checkpoint_block(
+            workflow=workflow,
             status="IN_PROGRESS",
             last_completed="workflow_started",
-            next_action="draft_plan",
+            next_action=initial_next_action(workflow),
             repo_root=res["repo_root"],
             plan_path=res["plan_path"],
             plan_revision=new_rev,
@@ -958,12 +988,15 @@ def cmd_start(args: argparse.Namespace) -> None:
 
 
 def cmd_commit(args: argparse.Namespace) -> None:
+    workflow = getattr(args, "workflow", "pov-plan-only")
+    if workflow not in WORKFLOW_NAMES:
+        fail("INVALID_WORKFLOW", f"Unsupported workflow '{workflow}'")
     if not args.workflow_run_id.strip() or not args.operation_id.strip():
         fail("INVALID_WORKFLOW_ID", "workflow-run-id and operation-id must be non-empty")
-    initial_res = resolve_plan(args.repo, args.surface, args.plan)
+    initial_res = resolve_plan(args.repo, args.surface, args.plan, workflow)
     abs_plan = initial_res["abs_plan_path"]
     with PlanLock(abs_plan):
-        res = resolve_plan(args.repo, args.surface, args.plan)
+        res = resolve_plan(args.repo, args.surface, args.plan, workflow)
         verify_locked_target_unchanged(initial_res, res)
         if res["sha256_hash"].lower() != args.expected_sha256.strip().lower():
             fail(
@@ -974,7 +1007,7 @@ def cmd_commit(args: argparse.Namespace) -> None:
         if state != "RESUMABLE":
             fail(
                 f"COMMIT_BLOCKED_{state}",
-                f"`commit` requires an active RESUMABLE pov-plan-only workflow (current state={state}); run `start` or `verify` first",
+                f"`commit` requires an active RESUMABLE {workflow} workflow (current state={state}); run `start` or `verify` first",
             )
         checkpoint_run_id = res["checkpoint"].get("Workflow Run ID", "").strip()
         if not checkpoint_run_id or args.workflow_run_id.strip() != checkpoint_run_id:
@@ -1002,6 +1035,7 @@ def cmd_commit(args: argparse.Namespace) -> None:
         new_rev = canonical_plan_revision(updated_body.encode("utf-8"))
 
         cp_md = render_checkpoint_block(
+            workflow=workflow,
             status=args.status,
             last_completed=args.last_completed,
             next_action=args.next_action,
@@ -1040,11 +1074,13 @@ def main() -> None:
         p.add_argument("--repo", default=os.getcwd())
         p.add_argument("--surface", default="codex")
         p.add_argument("--plan", default=None)
+        p.add_argument("--workflow", choices=WORKFLOW_NAMES, default="pov-plan-only")
 
     ps = sub.add_parser("start")
     ps.add_argument("--repo", default=os.getcwd())
     ps.add_argument("--surface", default="codex")
     ps.add_argument("--plan", default=None)
+    ps.add_argument("--workflow", choices=WORKFLOW_NAMES, default="pov-plan-only")
     ps.add_argument("--expected-sha256", required=True)
     ps.add_argument("--actor", required=True)
     ps.add_argument("--notes", required=True)
@@ -1056,6 +1092,7 @@ def main() -> None:
     pc.add_argument("--repo", default=os.getcwd())
     pc.add_argument("--surface", default="codex")
     pc.add_argument("--plan", default=None)
+    pc.add_argument("--workflow", choices=WORKFLOW_NAMES, default="pov-plan-only")
     pc.add_argument("--expected-sha256", required=True)
     pc.add_argument("--phase", required=True)
     pc.add_argument("--actor", required=True)
