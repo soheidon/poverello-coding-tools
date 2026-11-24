@@ -400,6 +400,10 @@ pub(crate) fn project_registry_path() -> PathBuf {
     user_data_dir().join("project-registry.json")
 }
 
+pub(crate) fn plan_locks_dir() -> PathBuf {
+    user_data_dir().join("plan-locks")
+}
+
 // ---------------------------------------------------------------------------
 // Pure _for variants — testable with temp paths, no env var access
 // ---------------------------------------------------------------------------

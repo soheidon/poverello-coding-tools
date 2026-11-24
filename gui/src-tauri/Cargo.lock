@@ -49,7 +49,7 @@ dependencies = [
 
 [[package]]
 name = "anthro-bridge"
-version = "0.28.2"
+version = "0.28.3"
 dependencies = [
  "anthro-bridge-mcp-server",
  "axum",

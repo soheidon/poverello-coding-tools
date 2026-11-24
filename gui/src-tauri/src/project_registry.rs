@@ -126,6 +126,8 @@ pub struct ProjectRegistryView {
     pub projects: Vec<ProjectRecord>,
     pub pending_conflicts: Vec<MigrationConflict>,
     pub migrated_from_legacy: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mirror_sync_error: Option<String>,
 }
 
 impl From<ProjectRegistryState> for ProjectRegistryView {
@@ -135,6 +137,7 @@ impl From<ProjectRegistryState> for ProjectRegistryView {
             projects: s.projects,
             pending_conflicts: s.pending_conflicts,
             migrated_from_legacy: s.migrated_from_legacy,
+            mirror_sync_error: None,
         }
     }
 }
@@ -1887,8 +1890,15 @@ mod tests {
 
     #[test]
     fn test_bundled_workflow_skills_require_plan_path_first_resolution() {
+        let codex_plan_only = include_str!("../resources/codex-skills/pov-plan-only/SKILL.md");
+        assert!(codex_plan_only.contains("plan_cas_helper.py"));
+        assert!(codex_plan_only.contains("project-registry.json"));
+        assert!(codex_plan_only.contains(".active-plan.json"));
+        assert!(codex_plan_only.contains("plan_cas_helper.py\" resolve"));
+        assert!(!codex_plan_only.contains("NO ACTIVE PLAN FILE SPECIFIED"));
+        assert!(!codex_plan_only.contains("resolve_project_context_for_repo_at`）で解決した `plan_path`"));
+
         let skills = [
-            include_str!("../resources/codex-skills/pov-plan-only/SKILL.md"),
             include_str!("../resources/codex-skills/pov-build-review/SKILL.md"),
             include_str!("../resources/codex-skills/pov-full-cycle/SKILL.md"),
             include_str!("../resources/antigravity-skills/pov-plan-only/SKILL.md"),

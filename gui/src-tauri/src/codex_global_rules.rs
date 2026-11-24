@@ -59,7 +59,7 @@ pub fn resolve_codex_home() -> Result<PathBuf, String> {
     }
 }
 
-fn check_symlink_or_reparse(path: &Path) -> bool {
+pub(crate) fn check_symlink_or_reparse(path: &Path) -> bool {
     if let Ok(meta) = std::fs::symlink_metadata(path) {
         #[cfg(windows)]
         {

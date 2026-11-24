@@ -205,6 +205,9 @@ export default function PlanFileManagerCard({
     registryViewRef.current = reg;
     setRegistryView(reg);
     syncSlotsFromRegistry(reg);
+    if (reg.mirror_sync_error) {
+      setError(`Registry saved, but repo .active-plan.json mirror sync failed (retry/resync before starting workflow): ${reg.mirror_sync_error}`);
+    }
     window.dispatchEvent(new CustomEvent<ProjectRegistryView>("poverello:project-registry-updated", { detail: reg }));
   };
 
@@ -216,6 +219,9 @@ export default function PlanFileManagerCard({
         if (reg && typeof reg === "object" && Array.isArray(reg.projects)) {
           setRegistryView(reg);
           syncSlotsFromRegistry(reg);
+          if (reg.mirror_sync_error) {
+            setError(`Registry saved, but repo .active-plan.json mirror sync failed (retry/resync before starting workflow): ${reg.mirror_sync_error}`);
+          }
         }
         setRegistryLoaded(true);
       })
@@ -1107,6 +1113,32 @@ export default function PlanFileManagerCard({
     }
   };
 
+  const handleResyncProjectMirror = async (projectId: string) => {
+    try {
+      setError(null);
+      const updated = await invoke<ProjectRegistryView>("resync_repo_active_plan_mirror", {
+        projectId,
+        surface,
+      });
+      if (!updated || !Array.isArray(updated.projects)) {
+        throw new Error(t("planManager.planSelectionFailed") || "The registry update could not be verified.");
+      }
+      broadcastRegistryUpdate(updated);
+      if (updated.mirror_sync_error) return;
+      setActionMessage("Plan selection mirror resynchronized");
+      setTimeout(() => setActionMessage(null), 3000);
+    } catch (e) {
+      setError(`Could not resynchronize the plan selection mirror. (${String(e)})`);
+    }
+  };
+
+  const mirrorSyncFailedFor = (projectId: string): boolean => {
+    const failure = registryView?.mirror_sync_error;
+    if (!failure) return false;
+    const targetPrefix = `${projectId} (${surface}):`;
+    return failure.split(";").some((entry) => entry.trim().startsWith(targetPrefix));
+  };
+
   const handleOpenPlan = async (slotId: string) => {
     const operationalPath = getSlotOperationalPath(slotId);
     if (!operationalPath) return;
@@ -1615,16 +1647,30 @@ export default function PlanFileManagerCard({
 
               {/* Registry association removal; repository and plan files remain untouched. */}
               {registryView ? (
-                <button
-                  type="button"
-                  className="btn btn-small"
-                  onClick={() => void handleRemoveProjectAssociation(slot.slot_id)}
-                  data-testid={`btn-remove-project-${slot.slot_id}`}
-                  title={t("planManager.removeSlotTooltip") || "Remove the Poverello association only; files are not deleted"}
-                  style={{ fontSize: 12, padding: "4px 10px", whiteSpace: "nowrap", color: "#dc2626", flexShrink: 0 }}
-                >
-                  {t("planManager.removeSlot") || "Remove"}
-                </button>
+                <>
+                  {mirrorSyncFailedFor(slot.slot_id) && (
+                    <button
+                      type="button"
+                      className="btn btn-small"
+                      onClick={() => void handleResyncProjectMirror(slot.slot_id)}
+                      data-testid={`btn-resync-plan-mirror-${slot.slot_id}`}
+                      title="Resynchronize this repository's selected plan mirror"
+                      style={{ fontSize: 12, padding: "4px 10px", whiteSpace: "nowrap", flexShrink: 0 }}
+                    >
+                      {`⟳ ${t("planManager.refresh") || "Resync"}`}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-small"
+                    onClick={() => void handleRemoveProjectAssociation(slot.slot_id)}
+                    data-testid={`btn-remove-project-${slot.slot_id}`}
+                    title={t("planManager.removeSlotTooltip") || "Remove the Poverello association only; files are not deleted"}
+                    style={{ fontSize: 12, padding: "4px 10px", whiteSpace: "nowrap", color: "#dc2626", flexShrink: 0 }}
+                  >
+                    {t("planManager.removeSlot") || "Remove"}
+                  </button>
+                </>
               ) : !isPrimary && (
                 <button
                   type="button"

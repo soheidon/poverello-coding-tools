@@ -429,6 +429,137 @@ fn write_active_plan_state_unlocked(
     Ok(())
 }
 
+pub fn sync_repo_active_plan_mirror_at(
+    locks_dir: &Path,
+    repo_root: &Path,
+    surface: &str,
+    plan_path: Option<&str>,
+    project_id: &str,
+    expected_mirror_sha256: Option<&str>,
+) -> Result<Option<String>, String> {
+    if !matches!(surface, "codex" | "antigravity") {
+        return Err(format!("Unsupported Autocode surface: '{surface}'"));
+    }
+    if !repo_root.exists() || !repo_root.is_dir() {
+        return Err(format!(
+            "Repository root does not exist: '{}'",
+            repo_root.display()
+        ));
+    }
+    if crate::codex_global_rules::check_symlink_or_reparse(repo_root) {
+        return Err(format!(
+            "Repository root is a symlink or reparse point: '{}'",
+            repo_root.display()
+        ));
+    }
+    let plan_dir = repo_root.join(PLAN_DIR_NAME);
+    if plan_dir.exists() && crate::codex_global_rules::check_symlink_or_reparse(&plan_dir) {
+        return Err(format!(
+            ".plan directory is a symlink or reparse point: '{}'",
+            plan_dir.display()
+        ));
+    }
+    let active_file = plan_dir.join(ACTIVE_PLAN_FILE_NAME);
+    if active_file.exists() && crate::codex_global_rules::check_symlink_or_reparse(&active_file) {
+        return Err(format!(
+            ".active-plan.json is a symlink or reparse point: '{}'",
+            active_file.display()
+        ));
+    }
+
+    let normalized_plan = if let Some(rel) = plan_path.map(str::trim).filter(|s| !s.is_empty()) {
+        let abs = validate_plan_path(repo_root, rel)?;
+        if !abs.exists() || !abs.is_file() {
+            return Err(format!("Plan file does not exist: '{rel}'"));
+        }
+        Some(rel.replace('\\', "/"))
+    } else {
+        None
+    };
+
+    if !active_file.exists() && normalized_plan.is_none() {
+        return Ok(None);
+    }
+
+    let _lock = acquire_plan_mutation_lock_at(locks_dir, &active_file)?;
+
+    let mut state = if active_file.exists() {
+        let bytes = std::fs::read(&active_file)
+            .map_err(|e| format!("Failed to read .active-plan.json mirror: {e}"))?;
+        let current_sha = format!("{:x}", Sha256::digest(&bytes));
+        if let Some(expected_sha) = expected_mirror_sha256 {
+            if !current_sha.eq_ignore_ascii_case(expected_sha.trim()) {
+                return Err(format!(
+                    "External modification detected on '{}' (expected sha256 {}, got {}); refusing to overwrite",
+                    active_file.display(),
+                    expected_sha.trim(),
+                    current_sha
+                ));
+            }
+        }
+        let raw = String::from_utf8(bytes)
+            .map_err(|e| format!(".active-plan.json is not valid UTF-8: {e}"))?;
+        serde_json::from_str::<ActivePlanState>(&raw)
+            .map_err(|e| format!("Failed to parse .active-plan.json mirror: {e}"))?
+    } else {
+        ActivePlanState {
+            active_plan_path: None,
+            last_updated_unix: 0,
+            role_assignments: std::collections::HashMap::new(),
+            surfaces: std::collections::HashMap::new(),
+            project_roles: std::collections::BTreeMap::new(),
+            extra: std::collections::BTreeMap::new(),
+        }
+    };
+
+    let canonical_repo = repo_root
+        .canonicalize()
+        .unwrap_or_else(|_| repo_root.to_path_buf());
+    let entry = state.surfaces.entry(surface.to_string()).or_default();
+    entry.active_plan_path = normalized_plan.clone();
+    if let Some(ref rel) = normalized_plan {
+        let slot_id = entry
+            .active_slot_id
+            .clone()
+            .unwrap_or_else(|| "primary".to_string());
+        entry.active_slot_id = Some(slot_id.clone());
+        entry.slots.insert(slot_id, rel.clone());
+    } else {
+        entry.active_slot_id = None;
+    }
+    entry.extra.insert(
+        "project_id".to_string(),
+        serde_json::Value::String(project_id.to_string()),
+    );
+    entry.extra.insert(
+        "canonical_repo_root".to_string(),
+        serde_json::Value::String(canonical_repo.to_string_lossy().to_string()),
+    );
+
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    state.last_updated_unix = now_unix;
+    entry.extra.insert(
+        "registry_synced_unix".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(now_unix)),
+    );
+    if normalized_plan.is_none()
+        && state
+            .surfaces
+            .values()
+            .all(|s| s.active_plan_path.is_none())
+    {
+        state.active_plan_path = None;
+    }
+
+    write_active_plan_state_unlocked(repo_root, &state)?;
+    let written_bytes = std::fs::read(&active_file)
+        .map_err(|e| format!("Failed to re-read .active-plan.json mirror: {e}"))?;
+    Ok(Some(format!("{:x}", Sha256::digest(&written_bytes))))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatePlanRequest {
     pub name: String,
@@ -1482,6 +1613,58 @@ pub fn create_plan_file(
 
 static PLAN_MUTATION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static TMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+pub struct CrossProcessPlanLock {
+    _in_process_guard: std::sync::MutexGuard<'static, ()>,
+    lock_file: Option<std::fs::File>,
+}
+
+impl Drop for CrossProcessPlanLock {
+    fn drop(&mut self) {
+        if let Some(ref lock_file) = self.lock_file {
+            let _ = lock_file.unlock();
+        }
+    }
+}
+
+fn plan_lock_file_path(locks_dir: &Path, abs_path: &Path) -> PathBuf {
+    let canonical = abs_path
+        .canonicalize()
+        .unwrap_or_else(|_| abs_path.to_path_buf());
+    let key_input = canonical.to_string_lossy().to_lowercase();
+    let lock_hash = format!("{:x}", Sha256::digest(key_input.as_bytes()));
+    locks_dir.join(format!("{}.lock", &lock_hash[..32]))
+}
+
+pub fn acquire_plan_mutation_lock_at(
+    locks_dir: &Path,
+    abs_path: &Path,
+) -> Result<CrossProcessPlanLock, String> {
+    let in_process_guard = PLAN_MUTATION_LOCK
+        .lock()
+        .map_err(|e| format!("Failed to acquire plan mutation lock: {e}"))?;
+
+    std::fs::create_dir_all(locks_dir)
+        .map_err(|e| format!("Failed to create plan lock directory: {e}"))?;
+
+    let lock_path = plan_lock_file_path(locks_dir, abs_path);
+
+    let lock_file = std::fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .map_err(|e| format!("Failed to open cross-process plan lock file: {e}"))?;
+
+    lock_file
+        .lock()
+        .map_err(|e| format!("Failed to acquire cross-process exclusive plan lock: {e}"))?;
+
+    Ok(CrossProcessPlanLock {
+        _in_process_guard: in_process_guard,
+        lock_file: Some(lock_file),
+    })
+}
 
 fn plan_file_identity(path: &Path) -> Result<String, String> {
     let file = std::fs::File::open(path)
@@ -4389,5 +4572,233 @@ Some description here...
             .reasons
             .iter()
             .any(|reason| reason.contains("configured Active Plan File")));
+    }
+
+    #[test]
+    fn test_sync_repo_active_plan_mirror_preserves_fields_and_rejects_external_edits() {
+        let temp = tempfile::tempdir().unwrap();
+        let locks_dir = temp.path().join("locks");
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+
+        let p1 = create_plan_file(
+            &repo,
+            &CreatePlanRequest {
+                name: "v0.3.0".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
+        let p2 = create_plan_file(
+            &repo,
+            &CreatePlanRequest {
+                name: "v0.5.0".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
+
+        let initial_json = serde_json::json!({
+            "active_plan_path": p1.rel_path,
+            "last_updated_unix": 1000,
+            "custom_extra": "preserve-me",
+            "role_assignments": {
+                "codex": { "planner_id": "codex_session", "reviser_id": "codex_session" }
+            },
+            "surfaces": {
+                "antigravity": {
+                    "active_slot_id": "primary",
+                    "active_plan_path": p1.rel_path,
+                    "slots": { "primary": p1.rel_path }
+                },
+                "codex": {
+                    "active_slot_id": "primary",
+                    "active_plan_path": p1.rel_path,
+                    "slots": { "primary": p1.rel_path, "secondary": p2.rel_path },
+                    "surface_extra": 42
+                }
+            }
+        });
+        std::fs::write(
+            repo.join(".plan").join(".active-plan.json"),
+            serde_json::to_vec_pretty(&initial_json).unwrap(),
+        )
+        .unwrap();
+
+        let synced_sha = sync_repo_active_plan_mirror_at(
+            &locks_dir,
+            &repo,
+            "codex",
+            Some(&p2.rel_path),
+            "proj_asr",
+            None,
+        )
+        .unwrap()
+        .unwrap();
+
+        let updated: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(repo.join(".plan").join(".active-plan.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(updated["custom_extra"], "preserve-me");
+        assert_eq!(
+            updated["surfaces"]["antigravity"]["active_plan_path"],
+            p1.rel_path
+        );
+        assert_eq!(
+            updated["surfaces"]["codex"]["active_plan_path"],
+            p2.rel_path
+        );
+        assert_eq!(updated["surfaces"]["codex"]["surface_extra"], 42);
+        assert_eq!(updated["surfaces"]["codex"]["project_id"], "proj_asr");
+
+        let mut tampered = updated.clone();
+        tampered["surfaces"]["codex"]["active_plan_path"] = serde_json::json!(p1.rel_path);
+        std::fs::write(
+            repo.join(".plan").join(".active-plan.json"),
+            serde_json::to_vec_pretty(&tampered).unwrap(),
+        )
+        .unwrap();
+        let ext_err = sync_repo_active_plan_mirror_at(
+            &locks_dir,
+            &repo,
+            "codex",
+            Some(&p2.rel_path),
+            "proj_asr",
+            Some(&synced_sha),
+        )
+        .unwrap_err();
+        assert!(ext_err.contains("External modification detected"));
+
+        sync_repo_active_plan_mirror_at(&locks_dir, &repo, "codex", None, "proj_asr", None)
+            .unwrap();
+        let cleared: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(repo.join(".plan").join(".active-plan.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(cleared["surfaces"]["codex"]["active_plan_path"].is_null());
+        assert!(cleared["surfaces"]["codex"]["active_slot_id"].is_null());
+        assert_eq!(
+            cleared["surfaces"]["antigravity"]["active_plan_path"],
+            p1.rel_path
+        );
+    }
+
+    #[test]
+    fn test_sync_repo_active_plan_mirror_keeps_repositories_and_surfaces_isolated() {
+        let temp = tempfile::tempdir().unwrap();
+        let locks_dir = temp.path().join("locks");
+        let asr_repo = temp.path().join("ASR-Composer");
+        let pov_repo = temp.path().join("poverello-coding-tools");
+        std::fs::create_dir_all(asr_repo.join(".git")).unwrap();
+        std::fs::create_dir_all(pov_repo.join(".git")).unwrap();
+
+        let asr_old = create_plan_file(
+            &asr_repo,
+            &CreatePlanRequest {
+                name: "v0.3.0".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
+        let asr_current = create_plan_file(
+            &asr_repo,
+            &CreatePlanRequest {
+                name: "v0.5.0".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
+        let pov_current = create_plan_file(
+            &pov_repo,
+            &CreatePlanRequest {
+                name: "V0.28.3".into(),
+                folder: None,
+                title: None,
+                set_as_active: Some(false),
+            },
+        )
+        .unwrap();
+
+        let asr_initial = serde_json::json!({
+            "active_plan_path": asr_old.rel_path,
+            "last_updated_unix": 1000,
+            "role_assignments": {},
+            "unknown_top_level": { "keep": true },
+            "surfaces": {
+                "antigravity": {
+                    "active_slot_id": "primary",
+                    "active_plan_path": asr_old.rel_path,
+                    "slots": { "primary": asr_old.rel_path },
+                    "unknown_surface": "keep"
+                },
+                "codex": {
+                    "active_slot_id": "primary",
+                    "active_plan_path": asr_old.rel_path,
+                    "slots": { "primary": asr_old.rel_path }
+                }
+            }
+        });
+        std::fs::write(
+            asr_repo.join(".plan").join(".active-plan.json"),
+            serde_json::to_vec_pretty(&asr_initial).unwrap(),
+        )
+        .unwrap();
+
+        sync_repo_active_plan_mirror_at(
+            &locks_dir,
+            &asr_repo,
+            "codex",
+            Some(&asr_current.rel_path),
+            "proj_asr",
+            None,
+        )
+        .unwrap();
+        sync_repo_active_plan_mirror_at(
+            &locks_dir,
+            &pov_repo,
+            "codex",
+            Some(&pov_current.rel_path),
+            "proj_pov",
+            None,
+        )
+        .unwrap();
+
+        let pov_before_asr_clear =
+            std::fs::read(pov_repo.join(".plan").join(".active-plan.json")).unwrap();
+        sync_repo_active_plan_mirror_at(
+            &locks_dir,
+            &asr_repo,
+            "codex",
+            None,
+            "proj_asr",
+            None,
+        )
+        .unwrap();
+
+        let asr_after: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(asr_repo.join(".plan").join(".active-plan.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(asr_after["surfaces"]["codex"]["active_plan_path"].is_null());
+        assert_eq!(
+            asr_after["surfaces"]["antigravity"]["active_plan_path"],
+            asr_old.rel_path
+        );
+        assert_eq!(asr_after["surfaces"]["antigravity"]["unknown_surface"], "keep");
+        assert_eq!(asr_after["unknown_top_level"]["keep"], true);
+        assert_eq!(
+            std::fs::read(pov_repo.join(".plan").join(".active-plan.json")).unwrap(),
+            pov_before_asr_clear,
+            "updating or clearing ASR must not modify Poverello's mirror"
+        );
     }
 }

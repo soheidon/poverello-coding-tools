@@ -1,3 +1,10 @@
+## v0.28.3 — 2026-11-24
+
+### Codex Plan Workflow Reliability
+- Adds file-based plan transaction support to the `pov-plan-only` workflow, including compare-and-swap updates, checkpoints, audit records, and recovery handling.
+- Improves synchronization of registered plan files and their repository associations in Poverello.
+- Keeps the Codex plan-lifecycle MCP integration pending; this release does not expose the pending MCP launch controls in the Autocode UI.
+
 ## v0.28.2 — 2026-11-23
 
 ### Independent Autocode Plan Paths

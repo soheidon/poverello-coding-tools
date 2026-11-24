@@ -496,6 +496,7 @@ export interface ProjectRegistryView {
   projects: ProjectRecord[];
   pending_conflicts: MigrationConflict[];
   migrated_from_legacy: boolean;
+  mirror_sync_error?: string | null;
 }
 
 export interface ResolvedProjectContext {

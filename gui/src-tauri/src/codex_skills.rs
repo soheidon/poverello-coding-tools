@@ -15,6 +15,7 @@ const POV_BUILD_REVIEW_OPENAI_YAML: &str = include_str!("../resources/codex-skil
 const POV_FULL_CYCLE_SKILL_MD: &str = include_str!("../resources/codex-skills/pov-full-cycle/SKILL.md");
 const POV_FULL_CYCLE_OPENAI_YAML: &str = include_str!("../resources/codex-skills/pov-full-cycle/agents/openai.yaml");
 const CODEX_REVIEW_DISPATCHER_PS1: &str = include_str!("../resources/codex-skills/pov-plan-only/scripts/codex-review-dispatcher.ps1");
+const POV_PLAN_ONLY_CAS_HELPER_PY: &str = include_str!("../resources/codex-skills/pov-plan-only/scripts/plan_cas_helper.py");
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum CodexSkillState {
@@ -136,6 +137,29 @@ pub fn get_known_historical_manifests(skill_name: &str) -> Vec<Vec<SkillFileMani
                     relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
                     content: String::new(),
                     sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
+                },
+            ],
+            // v0.28.3 Phase L file-based 4-file manifest
+            vec![
+                SkillFileManifest {
+                    relative_path: "SKILL.md".to_string(),
+                    content: String::new(),
+                    sha256: "e588a257158f8a7339e5e20fe9b81fe81e77d7c06620212d85c709db6bec9a02".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "agents/openai.yaml".to_string(),
+                    content: String::new(),
+                    sha256: "fc619bc1dad7e8b44d4d2da80c618b7876ba09841993d2b7fec405055ef372ed".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
+                    content: String::new(),
+                    sha256: "ef8a38731bc26bcf0c8a14d5d54d2fbcba9f0cf94ede6b5e13f6c3d765f487b8".to_string(),
+                },
+                SkillFileManifest {
+                    relative_path: "scripts/plan_cas_helper.py".to_string(),
+                    content: String::new(),
+                    sha256: "1b9c175364301ec65f23c19d9e10956cfd88408d88a94cc316e62af2853e5a71".to_string(),
                 },
             ],
             // v0.26.2 §13 official historical release manifest
@@ -349,6 +373,11 @@ pub fn get_template_manifest(skill_name: &str) -> Result<Vec<SkillFileManifest>,
                 relative_path: "scripts/codex-review-dispatcher.ps1".to_string(),
                 content: CODEX_REVIEW_DISPATCHER_PS1.to_string(),
                 sha256: compute_sha256(CODEX_REVIEW_DISPATCHER_PS1.as_bytes()),
+            },
+            SkillFileManifest {
+                relative_path: "scripts/plan_cas_helper.py".to_string(),
+                content: POV_PLAN_ONLY_CAS_HELPER_PY.to_string(),
+                sha256: compute_sha256(POV_PLAN_ONLY_CAS_HELPER_PY.as_bytes()),
             },
         ]),
         "pov-build-review" => Ok(vec![
@@ -1188,7 +1217,8 @@ mod tests {
     fn test_template_manifests_validity() {
         for name in SKILL_NAMES {
             let m = get_template_manifest(name).expect("manifest should load");
-            assert_eq!(m.len(), 3);
+            let expected_len = if name == "pov-plan-only" { 4 } else { 3 };
+            assert_eq!(m.len(), expected_len);
             assert!(m.iter().any(|f| f.relative_path == "SKILL.md"));
             assert!(m.iter().any(|f| f.relative_path == "agents/openai.yaml"));
             assert!(m.iter().any(|f| f.relative_path == "scripts/codex-review-dispatcher.ps1"));

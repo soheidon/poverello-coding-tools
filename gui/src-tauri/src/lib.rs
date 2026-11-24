@@ -9467,6 +9467,64 @@ fn sync_surface_compatibility_mirrors(state: &project_registry::ProjectRegistryS
     }
 }
 
+fn sync_affected_repo_mirrors(
+    state: &project_registry::ProjectRegistryState,
+    affected_project_ids: &[&str],
+    removed_repos: &[(&str, &str)],
+    surface_filter: Option<&str>,
+) -> Option<String> {
+    let locks_dir = paths::plan_locks_dir();
+    let surfaces: &[&str] = match surface_filter {
+        Some(s) if matches!(s, "codex" | "antigravity") => {
+            if s == "codex" {
+                &["codex"]
+            } else {
+                &["antigravity"]
+            }
+        }
+        _ => &["codex", "antigravity"],
+    };
+    let mut errors = Vec::new();
+    for pid in affected_project_ids {
+        if let Some(proj) = state.projects.iter().find(|p| p.project_id == *pid) {
+            let repo_root = PathBuf::from(&proj.repo_root);
+            for surf in surfaces {
+                let plan_path = proj.plan_path_for_surface(surf);
+                if let Err(e) = plan_manager::sync_repo_active_plan_mirror_at(
+                    &locks_dir,
+                    &repo_root,
+                    surf,
+                    plan_path,
+                    &proj.project_id,
+                    None,
+                ) {
+                    errors.push(format!("{pid} ({surf}): {e}"));
+                }
+            }
+        }
+    }
+    for (pid, repo) in removed_repos {
+        let repo_root = PathBuf::from(repo);
+        for surf in surfaces {
+            if let Err(e) = plan_manager::sync_repo_active_plan_mirror_at(
+                &locks_dir,
+                &repo_root,
+                surf,
+                None,
+                pid,
+                None,
+            ) {
+                errors.push(format!("{pid} ({surf}): {e}"));
+            }
+        }
+    }
+    if errors.is_empty() {
+        None
+    } else {
+        Some(errors.join("; "))
+    }
+}
+
 #[tauri::command]
 fn get_project_registry() -> Result<project_registry::ProjectRegistryView, String> {
     Ok(ensure_project_registry_loaded()?.into())
@@ -9498,7 +9556,22 @@ fn register_project_in_registry(
         )?
     };
     sync_surface_compatibility_mirrors(&state);
-    Ok(state.into())
+    let canonical_repo = PathBuf::from(&repo_path)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(&repo_path))
+        .to_string_lossy()
+        .to_string();
+    let affected_ids: Vec<&str> = state
+        .projects
+        .iter()
+        .filter(|p| p.repo_root == canonical_repo || p.repo_root == repo_path)
+        .map(|p| p.project_id.as_str())
+        .collect();
+    let mirror_err =
+        sync_affected_repo_mirrors(&state, &affected_ids, &[], surface.as_deref());
+    let mut view: project_registry::ProjectRegistryView = state.into();
+    view.mirror_sync_error = mirror_err;
+    Ok(view)
 }
 
 #[tauri::command]
@@ -9524,7 +9597,11 @@ fn set_project_plan_path(
         )?
     };
     sync_surface_compatibility_mirrors(&state);
-    Ok(state.into())
+    let mirror_err =
+        sync_affected_repo_mirrors(&state, &[project_id.as_str()], &[], surface.as_deref());
+    let mut view: project_registry::ProjectRegistryView = state.into();
+    view.mirror_sync_error = mirror_err;
+    Ok(view)
 }
 
 #[tauri::command]
@@ -9534,7 +9611,12 @@ fn replace_project_plan_association(
     target_plan_path: String,
     surface: Option<String>,
 ) -> Result<project_registry::ProjectRegistryView, String> {
-    let _ = ensure_project_registry_loaded()?;
+    let before = ensure_project_registry_loaded()?;
+    let removed_repo = before
+        .projects
+        .iter()
+        .find(|p| p.project_id == source_project_id)
+        .map(|p| p.repo_root.clone());
     let registry_path = paths::project_registry_path();
     let state = if let Some(surface) = surface.as_deref() {
         project_registry::replace_project_plan_association_for_surface_at(
@@ -9553,7 +9635,32 @@ fn replace_project_plan_association(
         )?
     };
     sync_surface_compatibility_mirrors(&state);
-    Ok(state.into())
+    let canonical_target = PathBuf::from(&target_repo_path)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(&target_repo_path))
+        .to_string_lossy()
+        .to_string();
+    let affected_ids: Vec<&str> = state
+        .projects
+        .iter()
+        .filter(|p| {
+            p.project_id == source_project_id
+                || p.repo_root == canonical_target
+                || p.repo_root == target_repo_path
+        })
+        .map(|p| p.project_id.as_str())
+        .collect();
+    let mut removed_vec = Vec::new();
+    if let Some(ref old_repo) = removed_repo {
+        if !state.projects.iter().any(|p| p.project_id == source_project_id) {
+            removed_vec.push((source_project_id.as_str(), old_repo.as_str()));
+        }
+    }
+    let mirror_err =
+        sync_affected_repo_mirrors(&state, &affected_ids, &removed_vec, surface.as_deref());
+    let mut view: project_registry::ProjectRegistryView = state.into();
+    view.mirror_sync_error = mirror_err;
+    Ok(view)
 }
 
 #[tauri::command]
@@ -9582,7 +9689,12 @@ fn unregister_project_from_registry(
     project_id: String,
     surface: Option<String>,
 ) -> Result<project_registry::ProjectRegistryView, String> {
-    let _ = ensure_project_registry_loaded()?;
+    let before = ensure_project_registry_loaded()?;
+    let old_repo = before
+        .projects
+        .iter()
+        .find(|p| p.project_id == project_id)
+        .map(|p| p.repo_root.clone());
     let registry_path = paths::project_registry_path();
     let state = if let Some(surface) = surface.as_deref() {
         project_registry::unregister_project_surface_at(&registry_path, &project_id, surface)?
@@ -9590,7 +9702,34 @@ fn unregister_project_from_registry(
         project_registry::unregister_project_at(&registry_path, &project_id)?
     };
     sync_surface_compatibility_mirrors(&state);
-    Ok(state.into())
+    let mut removed_vec = Vec::new();
+    let mut affected_vec = Vec::new();
+    if state.projects.iter().any(|p| p.project_id == project_id) {
+        affected_vec.push(project_id.as_str());
+    } else if let Some(ref repo) = old_repo {
+        removed_vec.push((project_id.as_str(), repo.as_str()));
+    }
+    let mirror_err =
+        sync_affected_repo_mirrors(&state, &affected_vec, &removed_vec, surface.as_deref());
+    let mut view: project_registry::ProjectRegistryView = state.into();
+    view.mirror_sync_error = mirror_err;
+    Ok(view)
+}
+
+#[tauri::command]
+fn resync_repo_active_plan_mirror(
+    project_id: String,
+    surface: Option<String>,
+) -> Result<project_registry::ProjectRegistryView, String> {
+    let state = ensure_project_registry_loaded()?;
+    if !state.projects.iter().any(|p| p.project_id == project_id) {
+        return Err(format!("Project '{project_id}' is not registered"));
+    }
+    let mirror_err =
+        sync_affected_repo_mirrors(&state, &[project_id.as_str()], &[], surface.as_deref());
+    let mut view: project_registry::ProjectRegistryView = state.into();
+    view.mirror_sync_error = mirror_err;
+    Ok(view)
 }
 
 #[tauri::command]
@@ -13482,6 +13621,7 @@ pub fn run() {
             rename_project_in_registry,
             reorder_projects_in_registry,
             unregister_project_from_registry,
+            resync_repo_active_plan_mirror,
             resolve_project_migration_conflict,
             resolve_project_context,
             resolve_project_context_for_plan,

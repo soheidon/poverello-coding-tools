@@ -2753,6 +2753,46 @@ describe("PlanFileManagerCard Component", () => {
       expect(screen.queryByText(/planManager\.planRepositoryAdded/)).not.toBeInTheDocument();
     });
 
+    it("offers a targeted mirror resync after sync failure and clears the warning on success", async () => {
+      const user = userEvent.setup();
+      const failedRegistry: any = {
+        schema_version: 1,
+        projects: [
+          { project_id: "proj_asr", display_name: "ASR", repo_root: "C:\\mock\\ASR-Composer", plan_paths: { codex: ".plan/v0.5.0.md" }, created_unix: 1, updated_unix: 1 },
+          { project_id: "proj_pov", display_name: "Poverello", repo_root: "C:\\mock\\poverello", plan_paths: { codex: ".plan/V0.28.3.md" }, created_unix: 1, updated_unix: 1 },
+        ],
+        pending_conflicts: [],
+        migrated_from_legacy: false,
+        mirror_sync_error: "proj_asr (codex): write failed; proj_pov (antigravity): other surface failed",
+      };
+      mockInvoke.mockImplementation((cmd: string, args?: any) => {
+        if (cmd === "get_project_registry") return Promise.resolve(failedRegistry);
+        if (cmd === "get_project_role_assignment") return Promise.resolve({ planner_id: null, reviser_id: null });
+        if (cmd === "resync_repo_active_plan_mirror") {
+          expect(args).toEqual({ projectId: "proj_asr", surface: "codex" });
+          return Promise.resolve({ ...failedRegistry, mirror_sync_error: null });
+        }
+        return Promise.resolve();
+      });
+
+      render(
+        <LanguageContext.Provider value={{ lang: "en", setLang: vi.fn() }}>
+          <PlanFileManagerCard surface="codex" />
+        </LanguageContext.Provider>
+      );
+
+      expect(await screen.findByText(/mirror sync failed/)).toBeInTheDocument();
+      expect(screen.queryByTestId("btn-resync-plan-mirror-proj_pov")).not.toBeInTheDocument();
+      await user.click(screen.getByTestId("btn-resync-plan-mirror-proj_asr"));
+      await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("resync_repo_active_plan_mirror", {
+        projectId: "proj_asr",
+        surface: "codex",
+      }));
+      await waitFor(() => expect(screen.queryByText(/mirror sync failed/)).not.toBeInTheDocument());
+      expect(screen.getByText("Plan selection mirror resynchronized")).toBeInTheDocument();
+      expect(screen.getByTestId("plan-path-display-proj_pov")).toBeInTheDocument();
+    });
+
     it("shows one shared role assignment read error without project-specific editors", async () => {
       mockInvoke.mockImplementation((cmd: string) => {
         if (cmd === "get_project_registry") return Promise.resolve({
